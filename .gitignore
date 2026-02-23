@@ -1,0 +1,10 @@
+node_modules/
+bun.lock
+backend/node_modules/
+backend/bun.lock
+frontend/node_modules/
+frontend/bun.lock
+frontend/dist/
+frontend/.vite/
+public/
+.env

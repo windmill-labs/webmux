@@ -67,7 +67,7 @@ if (existsSync(envPath)) {
 
 // ── Shared env for child processes ───────────────────────────────────────────
 
-const baseEnv = { ...process.env, DASHBOARD_PORT: String(port) };
+const baseEnv = { ...process.env, DASHBOARD_PORT: String(port), WMDEV_PROJECT_DIR: process.cwd() };
 
 // ── Prefixed output ──────────────────────────────────────────────────────────
 

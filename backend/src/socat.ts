@@ -8,6 +8,7 @@
 
 import { $ } from "bun";
 import { readEnvLocal } from "./env";
+import { loadConfig } from "./config";
 
 interface ForwardingEntry {
   branch: string;
@@ -42,12 +43,15 @@ export async function startForwarding(branch: string, wtDir: string): Promise<bo
   }
 
   const env = readEnvLocal(wtDir);
-  const backendPort = env.BACKEND_PORT ? parseInt(env.BACKEND_PORT) : null;
-  const frontendPort = env.FRONTEND_PORT ? parseInt(env.FRONTEND_PORT) : null;
+  const config = loadConfig(process.env.WMDEV_PROJECT_DIR || process.cwd());
+  const portEnvNames = config.services.map(svc => svc.portEnv);
+  const ports: number[] = portEnvNames
+    .map(name => env[name] ? parseInt(env[name]) : NaN)
+    .filter(p => !Number.isNaN(p));
 
   const entry: ForwardingEntry = { branch, containerIp, ports: [] };
 
-  for (const port of [backendPort, frontendPort]) {
+  for (const port of ports) {
     if (!port) continue;
     const proc = Bun.spawn([
       "socat",

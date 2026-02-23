@@ -1,23 +1,9 @@
 <script lang="ts">
-  let { activePane, profile, onselect }: {
+  let { activePane, panes, onselect }: {
     activePane: number;
-    profile: "full" | "agent-yolo";
+    panes: { index: number; label: string }[];
     onselect: (pane: number) => void;
   } = $props();
-
-  const panesByProfile = {
-    "full": [
-      { index: 0, label: "Claude" },
-      { index: 1, label: "Backend" },
-      { index: 2, label: "Frontend" },
-    ],
-    "agent-yolo": [
-      { index: 0, label: "Claude" },
-      { index: 1, label: "Shell" },
-    ],
-  };
-
-  let panes = $derived(panesByProfile[profile] ?? panesByProfile["full"]);
 </script>
 
 <nav class="flex items-stretch bg-topbar border-t border-edge pane-bar">

@@ -1,4 +1,4 @@
-import type { WorktreeInfo } from "./types";
+import type { WorktreeInfo, AppConfig } from "./types";
 
 async function api<T = unknown>(path: string, opts?: RequestInit): Promise<T> {
   const res = await fetch(`/api/${path}`, {
@@ -10,17 +10,18 @@ async function api<T = unknown>(path: string, opts?: RequestInit): Promise<T> {
   return data as T;
 }
 
+export function fetchConfig(): Promise<AppConfig> {
+  return api<AppConfig>("config");
+}
+
 export function fetchWorktrees(): Promise<WorktreeInfo[]> {
   return api<WorktreeInfo[]>("worktrees");
 }
 
-export type Profile = "full" | "agent-yolo";
-export type Agent = "claude" | "codex";
-
 export function createWorktree(
   branch: string,
-  profile: Profile = "full",
-  agent: Agent = "claude",
+  profile: string,
+  agent: string,
 ): Promise<unknown> {
   return api("worktrees", {
     method: "POST",

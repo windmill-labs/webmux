@@ -38,22 +38,16 @@
     {/if}
     <span class="text-sm font-semibold truncate">{name ?? "Select a worktree"}</span>
     {#if !isMobile}
-      {#if worktree?.backendPort}
-        <a
-          href="{window.location.protocol}//{window.location.hostname}:{worktree.backendPort}"
-          target="_blank"
-          rel="noopener"
-          class="text-[11px] px-1.5 py-0.5 rounded border font-mono no-underline hover:opacity-80 {worktree.backendRunning ? 'text-success border-success/40' : 'text-muted border-edge pointer-events-none'}"
-        >BE :{worktree.backendPort}</a>
-      {/if}
-      {#if worktree?.frontendPort}
-        <a
-          href="{window.location.protocol}//{window.location.hostname}:{worktree.frontendPort}"
-          target="_blank"
-          rel="noopener"
-          class="text-[11px] px-1.5 py-0.5 rounded border font-mono no-underline hover:opacity-80 {worktree.frontendRunning ? 'text-success border-success/40' : 'text-muted border-edge pointer-events-none'}"
-        >FE :{worktree.frontendPort}</a>
-      {/if}
+      {#each worktree?.services ?? [] as svc}
+        {#if svc.port}
+          <a
+            href="{window.location.protocol}//{window.location.hostname}:{svc.port}"
+            target="_blank"
+            rel="noopener"
+            class="text-[11px] px-1.5 py-0.5 rounded border font-mono no-underline hover:opacity-80 {svc.running ? 'text-success border-success/40' : 'text-muted border-edge pointer-events-none'}"
+          >{svc.name} :{svc.port}</a>
+        {/if}
+      {/each}
       {#if cursorUrl}
         <a
           href={cursorUrl}

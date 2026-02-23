@@ -1,6 +1,7 @@
 import { $ } from "bun";
 import { startForwarding, stopForwarding } from "./socat";
 import { readEnvLocal } from "./env";
+import { expandTemplate, type ProfileConfig } from "./config";
 
 export interface Worktree {
   branch: string;
@@ -79,67 +80,25 @@ async function runChecked(args: string[]): Promise<string> {
   return stdout.trim();
 }
 
-export type Profile = "full" | "agent-yolo";
-export type Agent = "claude" | "codex";
-
 export { readEnvLocal } from "./env";
 
-function buildSandboxSystemPrompt(env: Record<string, string>): string {
-  const backendPort = env.BACKEND_PORT || "8000";
-  const frontendPort = env.FRONTEND_PORT || "3000";
-  const hasR2 = !!(process.env.R2_ENDPOINT && process.env.R2_BUCKET && process.env.R2_PUBLIC_URL);
-  console.log(`[workmux:buildSandboxSystemPrompt] hasR2=${hasR2}`);
-  const lines: string[] = [
-    "You are running inside a sandboxed container with full permissions.",
-    `This worktree is configured with the following ports:`,
-    `- Backend: port ${backendPort}. Start with: cd backend && PORT=${backendPort} DATABASE_URL=postgres://postgres:changeme@localhost:5432/windmill cargo watch -x run`,
-    `- Frontend: port ${frontendPort}. Start with: cd frontend && REMOTE=http://localhost:${backendPort} npm run dev -- --port ${frontendPort} --host 0.0.0.0`,
-  ];
-  if (hasR2) {
-    lines.push(
-      `--- Screenshots ---`,
-      `You can take screenshots of the frontend UI and upload them to R2 for use in PR descriptions.`,
-      `1) Take a screenshot: bunx playwright screenshot --browser chromium http://localhost:${frontendPort}/path/to/page /tmp/screenshot.png`,
-      `2) Upload to R2: aws s3 cp /tmp/screenshot.png "s3://$(printenv R2_BUCKET)/$(git rev-parse --abbrev-ref HEAD)/screenshot.png" --endpoint-url "$(printenv R2_ENDPOINT)"`,
-      `3) The public URL will be: $(printenv R2_PUBLIC_URL)/<branch>/screenshot.png`,
-      `4) Include screenshots in PR descriptions as markdown images: ![description]($(printenv R2_PUBLIC_URL)/<branch>/screenshot.png)`,
-    );
-  }
-  return lines.join(" ");
-}
-
-/** Env vars to forward into the sandbox container (via workmux env_passthrough). */
-const SANDBOX_ENV_PASSTHROUGH = [
-  "AWS_ACCESS_KEY_ID",
-  "AWS_SECRET_ACCESS_KEY",
-  "R2_ENDPOINT",
-  "R2_BUCKET",
-  "R2_PUBLIC_URL",
-];
-
-/** Build an inline env prefix (e.g. "KEY=val KEY2=val2 ") from process.env. */
-function buildEnvPrefix(): string {
-  const parts: string[] = [];
-  for (const key of SANDBOX_ENV_PASSTHROUGH) {
-    const val = process.env[key];
-    if (val) {
-      // Shell-escape the value (single quotes, escaping inner single quotes)
-      const escaped = val.replace(/'/g, "'\\''");
-      parts.push(`${key}='${escaped}'`);
-    }
-  }
-  return parts.length > 0 ? parts.join(" ") + " " : "";
-}
-
-function buildSandboxAgentCmd(env: Record<string, string>, agent: Agent): string {
-  const prompt = buildSandboxSystemPrompt(env);
-  const innerEscaped = prompt.replace(/["\\$`]/g, "\\$&");
-  const envPrefix = buildEnvPrefix();
+function buildAgentCmd(env: Record<string, string>, agent: string, profileConfig: ProfileConfig): string {
+  const systemPrompt = profileConfig.systemPrompt
+    ? expandTemplate(profileConfig.systemPrompt, env)
+    : "";
+  const innerEscaped = systemPrompt.replace(/["\\$`]/g, "\\$&");
+  const isSandbox = profileConfig.sandbox === true;
+  const prefix = isSandbox ? "workmux sandbox agent -- " : "";
 
   if (agent === "codex") {
-    return `${envPrefix}workmux sandbox agent -- codex --yolo -c '"developer_instructions=${innerEscaped}"'`;
+    return systemPrompt
+      ? `${prefix}codex --yolo -c '"developer_instructions=${innerEscaped}"'`
+      : `${prefix}codex --yolo`;
   }
-  return `${envPrefix}workmux sandbox agent -- claude --dangerously-skip-permissions --append-system-prompt '"${innerEscaped}"'`;
+  const skipPerms = isSandbox ? " --dangerously-skip-permissions" : "";
+  return systemPrompt
+    ? `${prefix}claude${skipPerms} --append-system-prompt '"${innerEscaped}"'`
+    : `${prefix}claude${skipPerms}`;
 }
 
 function ensureTmux(): void {
@@ -152,20 +111,23 @@ function ensureTmux(): void {
 
 export async function addWorktree(
   branch: string,
-  opts?: { prompt?: string; profile?: Profile; agent?: Agent }
+  opts?: { prompt?: string; profile?: string; agent?: string; profileConfig?: ProfileConfig }
 ): Promise<string> {
   ensureTmux();
-  const profile = opts?.profile ?? "full";
+  const profile = opts?.profile ?? "Full";
   const agent = opts?.agent ?? "claude";
+  const profileConfig = opts?.profileConfig;
+  const isSandbox = profileConfig?.sandbox === true;
+  const hasSystemPrompt = !!profileConfig?.systemPrompt;
   const args: string[] = ["workmux", "add", "-b"]; // -b = background (don't switch tmux)
 
-  // Skip default pane commands for non-full profiles
-  if (profile !== "full") {
+  // Skip default pane commands for profiles with a system prompt (custom pane setup)
+  if (hasSystemPrompt) {
     args.push("-C"); // --no-pane-cmds
   }
 
-  // Enable sandbox for yolo profile (safe to skip permissions inside container)
-  if (profile === "agent-yolo") {
+  // Enable sandbox if profile says so
+  if (isSandbox) {
     args.push("-S"); // --sandbox
   }
 
@@ -185,7 +147,7 @@ export async function addWorktree(
   );
   const wtDir = new TextDecoder().decode(wtDirResult.stdout).trim();
   const env = readEnvLocal(wtDir);
-  console.log(`[workmux:add] branch=${branch} dir=${wtDir} ports: backend=${env.BACKEND_PORT || "8000"} frontend=${env.FRONTEND_PORT || "3000"}`);
+  console.log(`[workmux:add] branch=${branch} dir=${wtDir} env=${JSON.stringify(env)}`);
 
   // Append profile to .env.local (worktree-env creates it, we just add to it)
   if (wtDir) {
@@ -196,8 +158,8 @@ export async function addWorktree(
     }
   }
 
-  // For non-full profiles, kill extra panes and send commands
-  if (profile !== "full") {
+  // For profiles with a system prompt, kill extra panes and send commands
+  if (hasSystemPrompt && profileConfig) {
     // Kill extra panes (highest index first to avoid shifting)
     const paneCountResult = Bun.spawnSync(
       ["tmux", "list-panes", "-t", windowTarget, "-F", "#{pane_index}"],
@@ -208,8 +170,8 @@ export async function addWorktree(
     for (let i = paneIds.length - 1; i >= 1; i--) {
       Bun.spawnSync(["tmux", "kill-pane", "-t", `${windowTarget}.${paneIds[i]}`]);
     }
-    // Build and send agent command for sandbox (env vars are inlined as a prefix)
-    const agentCmd = buildSandboxAgentCmd(env, agent);
+    // Build and send agent command
+    const agentCmd = buildAgentCmd(env, agent, profileConfig);
     console.log(`[workmux] sending command to ${windowTarget}.0:\n${agentCmd}`);
     Bun.spawnSync(["tmux", "send-keys", "-t", `${windowTarget}.0`, agentCmd, "Enter"]);
     // Open a shell pane on the right (1/3 width) in the worktree dir
@@ -218,9 +180,7 @@ export async function addWorktree(
     Bun.spawnSync(["tmux", "select-pane", "-t", `${windowTarget}.0`]);
 
     // Start socat port forwarding for sandbox containers (non-blocking).
-    // The container takes a few seconds to start after the tmux command is sent,
-    // so we poll in the background rather than blocking the API response.
-    if (profile === "agent-yolo" && wtDir) {
+    if (isSandbox && wtDir) {
       (async () => {
         console.log(`[socat] waiting for container to start for ${branch}...`);
         for (let i = 1; i <= 15; i++) {

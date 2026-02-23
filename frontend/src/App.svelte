@@ -7,10 +7,10 @@
   import CreateWorktreeDialog from "./lib/CreateWorktreeDialog.svelte";
   import SettingsDialog from "./lib/SettingsDialog.svelte";
   import PaneBar from "./lib/PaneBar.svelte";
-  import type { WorktreeInfo } from "./lib/types";
-  import type { Profile, Agent } from "./lib/api";
+  import type { WorktreeInfo, AppConfig } from "./lib/types";
   import * as api from "./lib/api";
 
+  let config = $state<AppConfig>({ services: [], profiles: [{ name: "Full", panes: [] }] });
   let worktrees = $state<WorktreeInfo[]>([]);
   let selectedBranch = $state<string | null>(null);
   let removeBranch = $state<string | null>(null);
@@ -37,12 +37,14 @@
   let isMain = $derived(selectedWorktree?.path === "(here)" || selectedBranch === "main");
   let canConnect = $derived(!!selectedBranch && !isMain);
 
-  let paneBarProfile = $derived(
-    selectedWorktree?.profile === "full" || selectedWorktree?.profile === "agent-yolo"
-      ? selectedWorktree.profile as "full" | "agent-yolo"
-      : null
-  );
-  let showPaneBar = $derived(isMobile && canConnect && paneBarProfile !== null);
+  let paneBarPanes = $derived.by(() => {
+    const profileName = selectedWorktree?.profile;
+    if (!profileName) return [];
+    const pc = config.profiles.find(p => p.name === profileName);
+    if (!pc || pc.panes.length === 0) return [];
+    return pc.panes.map((label, index) => ({ index, label }));
+  });
+  let showPaneBar = $derived(isMobile && canConnect && paneBarPanes.length > 0);
 
   async function refresh() {
     try {
@@ -73,7 +75,7 @@
       .replace(/\.lock$/i, "");           // no trailing .lock
   }
 
-  async function handleCreate(name: string, profile: Profile, agent: Agent) {
+  async function handleCreate(name: string, profile: string, agent: string) {
     const branch = (name && sanitizeBranchName(name)) || randomName(8);
     creating = true;
     try {
@@ -179,6 +181,7 @@
   }
 
   onMount(() => {
+    api.fetchConfig().then(c => { config = c; }).catch(() => {});
     refresh();
     const interval = setInterval(refresh, 5000);
     window.addEventListener("keydown", handleKeydown);
@@ -209,7 +212,7 @@
     {/if}
     <aside class="{isMobile ? 'fixed inset-0 z-50 w-full' : 'w-[220px] min-w-[220px]'} bg-sidebar border-r border-edge flex flex-col overflow-hidden">
       <div class="flex items-center justify-between p-4 border-b border-edge">
-        <h1 class="text-base font-semibold">Windmill</h1>
+        <h1 class="text-base font-semibold">Dashboard</h1>
         <div class="flex items-center gap-2">
           <button
             class="h-8 px-2 gap-1.5 rounded-md border border-edge bg-surface text-accent text-xs flex items-center justify-center cursor-pointer hover:bg-hover disabled:opacity-50 disabled:cursor-not-allowed"
@@ -278,7 +281,7 @@
     {/if}
 
     {#if showPaneBar}
-      <PaneBar {activePane} profile={paneBarProfile!} onselect={handlePaneSelect} />
+      <PaneBar {activePane} panes={paneBarPanes} onselect={handlePaneSelect} />
     {/if}
   </main>
 </div>
@@ -286,6 +289,7 @@
 {#if showCreateDialog}
   <CreateWorktreeDialog
     loading={creating}
+    profiles={config.profiles}
     oncreate={handleCreate}
     oncancel={() => (showCreateDialog = false)}
   />

@@ -1,34 +1,27 @@
 <script lang="ts">
-  import type { Profile, Agent } from "./api";
-
-  const AGENTS: { value: Agent; label: string }[] = [
-    { value: "claude", label: "Claude" },
-    { value: "codex", label: "Codex" },
-  ];
-
-  const PROFILES: { value: Profile; label: string }[] = [
-    { value: "full", label: "Full (agent + backend + frontend)" },
-    { value: "agent-yolo", label: "Agent (sandboxed, yolo mode)" },
-  ];
+  import type { ProfileConfig } from "./types";
 
   let {
     loading = false,
+    profiles = [],
     oncreate,
     oncancel,
   }: {
     loading?: boolean;
-    oncreate: (name: string, profile: Profile, agent: Agent) => void;
+    profiles: ProfileConfig[];
+    oncreate: (name: string, profile: string, agent: string) => void;
     oncancel: () => void;
   } = $props();
 
   const STORAGE_KEY = "wt-default-profile";
   const AGENT_STORAGE_KEY = "wt-default-agent";
-  const savedProfile = localStorage.getItem(STORAGE_KEY) as Profile | null;
-  const savedAgent = localStorage.getItem(AGENT_STORAGE_KEY) as Agent | null;
+  const savedProfile = localStorage.getItem(STORAGE_KEY);
+  const savedAgent = localStorage.getItem(AGENT_STORAGE_KEY);
 
+  let defaultProfile = $derived(savedProfile ?? profiles[0]?.name ?? "Full");
   let name = $state("");
-  let agent = $state<Agent>(savedAgent ?? "claude");
-  let profile = $state<Profile>(savedProfile ?? "full");
+  let agent = $state(savedAgent ?? "claude");
+  let profile = $state(savedProfile ?? "Full");
   let saveDefault = $state(false);
 
   let dialogEl: HTMLDialogElement;
@@ -37,14 +30,21 @@
     dialogEl?.showModal();
   });
 
+  // Sync profile when profiles prop changes or on initial load
+  $effect(() => {
+    if (!profiles.some(p => p.name === profile)) {
+      profile = defaultProfile;
+    }
+  });
+
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === "ArrowUp" || e.key === "ArrowDown") {
       e.preventDefault();
-      const idx = PROFILES.findIndex((p) => p.value === profile);
+      const idx = profiles.findIndex((p) => p.name === profile);
       const next = e.key === "ArrowDown"
-        ? (idx + 1) % PROFILES.length
-        : (idx - 1 + PROFILES.length) % PROFILES.length;
-      profile = PROFILES[next].value;
+        ? (idx + 1) % profiles.length
+        : (idx - 1 + profiles.length) % profiles.length;
+      profile = profiles[next].name;
     }
   }
 
@@ -85,46 +85,38 @@
         bind:value={name}
       />
     </div>
-    <div class="flex gap-2 mb-4">
-      {#each AGENTS as a}
-        <label
-          class="flex-1 flex items-center justify-center gap-2 p-2.5 rounded-lg border cursor-pointer text-[13px] transition-colors
-            {agent === a.value
-            ? 'border-accent bg-accent/10'
-            : 'border-edge hover:bg-hover'}"
-        >
-          <input
-            type="radio"
-            name="agent"
-            value={a.value}
-            checked={agent === a.value}
-            onchange={() => (agent = a.value)}
-            class="accent-[var(--accent)]"
-          />
-          {a.label}
-        </label>
-      {/each}
+    <div class="mb-4">
+      <label class="block text-xs text-muted mb-1.5" for="wt-agent">Agent</label>
+      <input
+        id="wt-agent"
+        type="text"
+        class="w-full px-2.5 py-1.5 rounded-md border border-edge bg-surface text-primary text-[13px] placeholder:text-muted/50 outline-none focus:border-accent"
+        placeholder="claude"
+        bind:value={agent}
+      />
     </div>
-    <div class="flex flex-col gap-2 mb-6">
-      {#each PROFILES as p}
-        <label
-          class="flex items-center gap-2.5 p-2.5 rounded-lg border cursor-pointer text-[13px] transition-colors
-            {profile === p.value
-            ? 'border-accent bg-accent/10'
-            : 'border-edge hover:bg-hover'}"
-        >
-          <input
-            type="radio"
-            name="profile"
-            value={p.value}
-            checked={profile === p.value}
-            onchange={() => (profile = p.value)}
-            class="accent-[var(--accent)]"
-          />
-          {p.label}
-        </label>
-      {/each}
-    </div>
+    {#if profiles.length > 1}
+      <div class="flex flex-col gap-2 mb-6">
+        {#each profiles as p}
+          <label
+            class="flex items-center gap-2.5 p-2.5 rounded-lg border cursor-pointer text-[13px] transition-colors
+              {profile === p.name
+              ? 'border-accent bg-accent/10'
+              : 'border-edge hover:bg-hover'}"
+          >
+            <input
+              type="radio"
+              name="profile"
+              value={p.name}
+              checked={profile === p.name}
+              onchange={() => (profile = p.name)}
+              class="accent-[var(--accent)]"
+            />
+            {p.name}
+          </label>
+        {/each}
+      </div>
+    {/if}
     <label
       class="flex items-center gap-2 mb-4 text-[13px] text-muted cursor-pointer"
     >

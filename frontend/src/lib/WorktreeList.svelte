@@ -41,14 +41,13 @@
             <span>main</span>
           {/if}
         </span>
-        {#if wt.backendPort || wt.frontendPort}
+        {#if wt.services.length > 0}
           <span class="flex gap-2 text-[11px] text-muted font-mono">
-            {#if wt.backendPort}
-              <span class={wt.backendRunning ? 'text-success' : ''}>BE:{wt.backendPort}</span>
-            {/if}
-            {#if wt.frontendPort}
-              <span class={wt.frontendRunning ? 'text-success' : ''}>FE:{wt.frontendPort}</span>
-            {/if}
+            {#each wt.services as svc}
+              {#if svc.port}
+                <span class={svc.running ? 'text-success' : ''}>{svc.name}:{svc.port}</span>
+              {/if}
+            {/each}
           </span>
         {/if}
       </button>

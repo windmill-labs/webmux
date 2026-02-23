@@ -7,8 +7,6 @@ import {
   openWorktree,
   mergeWorktree,
   readEnvLocal,
-  type Profile,
-  type Agent,
 } from "./workmux";
 import { reconcileForwarding, stopAll } from "./socat";
 import {
@@ -22,9 +20,12 @@ import {
   clearCallbacks,
   cleanupStaleSessions,
 } from "./terminal";
+import { loadConfig, type WmdevConfig } from "./config";
 
 const PORT = parseInt(process.env.DASHBOARD_PORT || "5111");
 const STATIC_DIR = process.env.WMDEV_STATIC_DIR || "";
+const PROJECT_DIR = process.env.WMDEV_PROJECT_DIR || process.cwd();
+const config: WmdevConfig = loadConfig(PROJECT_DIR);
 
 function ts(): string {
   return new Date().toISOString().slice(11, 23);
@@ -193,6 +194,11 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
   const parts = url.pathname.slice(5).split("/").filter(Boolean);
 
   try {
+    // GET /api/config
+    if (parts[0] === "config" && parts.length === 1 && method === "GET") {
+      return jsonResponse(config);
+    }
+
     // GET /api/worktrees
     if (parts[0] === "worktrees" && parts.length === 1 && method === "GET") {
       const [worktrees, status] = await Promise.all([listWorktrees(), getStatus()]);
@@ -203,12 +209,13 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
         );
         const wtDir = wtPaths.get(wt.branch);
         const env = wtDir ? readEnvLocal(wtDir) : {};
-        const backendPort = env.BACKEND_PORT ? parseInt(env.BACKEND_PORT) : null;
-        const frontendPort = env.FRONTEND_PORT ? parseInt(env.FRONTEND_PORT) : null;
-        const [backendRunning, frontendRunning] = await Promise.all([
-          backendPort ? isPortListening(backendPort) : false,
-          frontendPort ? isPortListening(frontendPort) : false,
-        ]);
+        const services = await Promise.all(
+          config.services.map(async (svc) => {
+            const port = env[svc.portEnv] ? parseInt(env[svc.portEnv]) : null;
+            const running = port ? await isPortListening(port) : false;
+            return { name: svc.name, port, running };
+          })
+        );
         return {
           ...wt,
           dir: wtDir ?? null,
@@ -217,10 +224,7 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
           title: st?.title ?? "",
           profile: env.PROFILE || null,
           agentName: env.AGENT || null,
-          backendPort,
-          frontendPort,
-          backendRunning,
-          frontendRunning,
+          services,
         };
       }));
       return jsonResponse(merged);
@@ -232,12 +236,14 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
       if (!body.branch) {
         return errorResponse("branch is required", 400);
       }
-      const validProfiles = ["full", "agent-yolo"] as const;
-      const validAgents = ["claude", "codex"] as const;
-      const profile = validProfiles.includes(body.profile as any) ? body.profile as Profile : "full";
-      const agent = validAgents.includes(body.agent as any) ? body.agent as Agent : "claude";
-      console.log(`[worktree:add] branch=${body.branch} agent=${agent} profile=${profile}${body.prompt ? ` prompt="${body.prompt.slice(0, 80)}"` : ""}`);
-      const result = await addWorktree(body.branch, { prompt: body.prompt, profile, agent });
+      const profileName = body.profile ?? config.profiles[0]?.name ?? "Full";
+      const profileConfig = config.profiles.find(p => p.name === profileName);
+      if (!profileConfig) {
+        return errorResponse(`Unknown profile: ${profileName}`, 400);
+      }
+      const agent = body.agent ?? "claude";
+      console.log(`[worktree:add] branch=${body.branch} agent=${agent} profile=${profileName}${body.prompt ? ` prompt="${body.prompt.slice(0, 80)}"` : ""}`);
+      const result = await addWorktree(body.branch, { prompt: body.prompt, profile: profileName, agent, profileConfig });
       console.log(`[worktree:add] done branch=${body.branch}: ${result}`);
       return jsonResponse({ message: result }, 201);
     }

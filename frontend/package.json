@@ -1,5 +1,5 @@
 {
-  "name": "windmill-dev-dashboard-frontend",
+  "name": "wmdev-frontend",
   "private": true,
   "type": "module",
   "scripts": {

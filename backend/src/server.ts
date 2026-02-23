@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import {
   listWorktrees,
   getStatus,
@@ -23,6 +24,7 @@ import {
 } from "./terminal";
 
 const PORT = parseInt(process.env.DASHBOARD_PORT || "5111");
+const STATIC_DIR = process.env.WMDEV_STATIC_DIR || "";
 
 function ts(): string {
   return new Date().toISOString().slice(11, 23);
@@ -107,6 +109,17 @@ Bun.serve<WsData>({
 
     if (url.pathname.startsWith("/api/")) {
       return handleApi(req, url);
+    }
+
+    // Serve static frontend files in production mode
+    if (STATIC_DIR) {
+      const filePath = join(STATIC_DIR, url.pathname === "/" ? "index.html" : url.pathname);
+      const file = Bun.file(filePath);
+      if (await file.exists()) {
+        return new Response(file);
+      }
+      // SPA fallback: serve index.html for unmatched routes
+      return new Response(Bun.file(join(STATIC_DIR, "index.html")));
     }
 
     return new Response("Not Found", { status: 404 });

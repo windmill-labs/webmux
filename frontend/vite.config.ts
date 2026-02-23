@@ -2,14 +2,18 @@ import { defineConfig } from "vite";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
 import tailwindcss from "@tailwindcss/vite";
 
+const backendPort = process.env.DASHBOARD_PORT || "5111";
+const backendUrl = `http://localhost:${backendPort}`;
+const backendWs = `ws://localhost:${backendPort}`;
+
 export default defineConfig({
   plugins: [svelte(), tailwindcss()],
   server: {
-    port: 5112,
+    port: parseInt(backendPort) + 1,
     proxy: {
-      "/api": "http://localhost:5111",
+      "/api": backendUrl,
       "/ws": {
-        target: "ws://localhost:5111",
+        target: backendWs,
         ws: true,
       },
     },
@@ -17,9 +21,9 @@ export default defineConfig({
   preview: {
     port: 4173,
     proxy: {
-      "/api": "http://localhost:5111",
+      "/api": backendUrl,
       "/ws": {
-        target: "ws://localhost:5111",
+        target: backendWs,
         ws: true,
       },
     },

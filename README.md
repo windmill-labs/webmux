@@ -11,7 +11,7 @@ sudo apt install tmux           # (or brew install tmux)
 curl -fsSL https://bun.sh/install | bash  # bun >1.3.5 required
 
 # 2. Install wmdev globally (from repo root)
-bun run build && bun install -g .
+bun install && bun run build && bun link
 
 # 3. Create a .wmdev.yaml in your project root (see Configuration below)
 

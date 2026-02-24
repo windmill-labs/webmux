@@ -246,12 +246,13 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
       if (!body.branch) {
         return errorResponse("branch is required", 400);
       }
+      const branch = body.branch.toLowerCase();
       const profileName = body.profile ?? config.profiles.default.name;
       const isSandbox = config.profiles.sandbox !== undefined && profileName === config.profiles.sandbox.name;
       const profileConfig = isSandbox ? config.profiles.sandbox! : config.profiles.default;
       const agent = body.agent ?? "claude";
-      console.log(`[worktree:add] branch=${body.branch} agent=${agent} profile=${profileName}${body.prompt ? ` prompt="${body.prompt.slice(0, 80)}"` : ""}`);
-      const result = await addWorktree(body.branch, {
+      console.log(`[worktree:add] branch=${branch} agent=${agent} profile=${profileName}${body.prompt ? ` prompt="${body.prompt.slice(0, 80)}"` : ""}`);
+      const result = await addWorktree(branch, {
         prompt: body.prompt,
         profile: profileName,
         agent,
@@ -261,7 +262,7 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
         services: config.services,
         mainRepoDir: PROJECT_DIR,
       });
-      console.log(`[worktree:add] done branch=${body.branch}: ${result}`);
+      console.log(`[worktree:add] done branch=${branch}: ${result}`);
       return jsonResponse({ message: result }, 201);
     }
 

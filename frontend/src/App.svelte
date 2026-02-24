@@ -87,6 +87,7 @@
       showCreateDialog = false;
       await refresh();
       selectedBranch = branch;
+      if (isMobile) sidebarOpen = false;
     } catch (err) {
       alert(`Failed to create: ${err instanceof Error ? err.message : err}`);
     } finally {

@@ -19,7 +19,6 @@
 
 <ul class="list-none overflow-y-auto flex-1 p-2">
   {#each worktrees as wt (wt.branch)}
-    {@const isMain = wt.path === "(here)" || wt.branch === "main"}
     {@const isActive = wt.branch === selected}
     {@const isRemoving = removing.has(wt.branch)}
     <li class="mb-0.5 group relative {isRemoving ? 'opacity-40 pointer-events-none' : ''}">
@@ -37,9 +36,6 @@
           {#if wt.profile}
             <span>{wt.profile}</span>
           {/if}
-          {#if isMain}
-            <span>main</span>
-          {/if}
         </span>
         {#if wt.services.length > 0}
           <span class="flex gap-2 text-[11px] text-muted font-mono">
@@ -51,14 +47,12 @@
           </span>
         {/if}
       </button>
-      {#if !isMain}
-        <button
-          type="button"
-          class="absolute top-2 right-2 w-5 h-5 rounded flex items-center justify-center text-muted hover:text-danger hover:bg-hover opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
-          title="Remove worktree"
-          onclick={(e) => { e.stopPropagation(); onremove(wt.branch); }}
-        >&times;</button>
-      {/if}
+      <button
+        type="button"
+        class="absolute top-2 right-2 w-5 h-5 rounded flex items-center justify-center text-muted hover:text-danger hover:bg-hover opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+        title="Remove worktree"
+        onclick={(e) => { e.stopPropagation(); onremove(wt.branch); }}
+      >&times;</button>
     </li>
   {/each}
 </ul>

@@ -31,11 +31,16 @@
   let terminalRef: { sendSelectPane: (pane: number) => void } | undefined = $state();
 
   let visibleWorktrees = $derived(
-    worktrees.filter((w) => w.path === "(here)" || w.branch === "main" || w.mux === "✓")
+    worktrees.filter((w) => w.mux === "✓")
   );
   let selectedWorktree = $derived(visibleWorktrees.find((w) => w.branch === selectedBranch));
-  let isMain = $derived(selectedWorktree?.path === "(here)" || selectedBranch === "main");
-  let canConnect = $derived(!!selectedBranch && !isMain);
+  let canConnect = $derived(!!selectedBranch);
+
+  $effect(() => {
+    if (!selectedBranch && visibleWorktrees.length > 0) {
+      selectedBranch = visibleWorktrees[0].branch;
+    }
+  });
 
   let paneBarPanes = $derived.by(() => {
     const count = selectedWorktree?.paneCount ?? 0;
@@ -93,8 +98,7 @@
     if (selectedBranch !== branch) return;
     const idx = visibleWorktrees.findIndex((w) => w.branch === branch);
     const neighbor = visibleWorktrees[idx - 1] ?? visibleWorktrees[idx + 1];
-    const isNeighborMain = neighbor && (neighbor.path === "(here)" || neighbor.branch === "main");
-    selectedBranch = neighbor && !isNeighborMain ? neighbor.branch : null;
+    selectedBranch = neighbor ? neighbor.branch : null;
   }
 
   async function handleRemove() {
@@ -134,7 +138,7 @@
 
   function selectNeighborWorktree(direction: -1 | 1) {
     const selectable = visibleWorktrees.filter(
-      (w) => w.path !== "(here)" && w.branch !== "main" && !removingBranches.has(w.branch)
+      (w) => !removingBranches.has(w.branch)
     );
     if (selectable.length === 0) return;
     if (!selectedBranch) {
@@ -166,10 +170,10 @@
       if (!creating) showCreateDialog = true;
     } else if (e.key === "m" || e.key === "M") {
       e.preventDefault();
-      if (selectedBranch && !isMain) mergeBranch = selectedBranch;
+      if (selectedBranch) mergeBranch = selectedBranch;
     } else if (e.key === "d" || e.key === "D") {
       e.preventDefault();
-      if (selectedBranch && !isMain) removeBranch = selectedBranch;
+      if (selectedBranch) removeBranch = selectedBranch;
     }
   }
 
@@ -186,6 +190,7 @@
 
     const mq = window.matchMedia("(max-width: 768px)");
     isMobile = mq.matches;
+    if (isMobile) sidebarOpen = true;
     function onMqChange(e: MediaQueryListEvent) { isMobile = e.matches; }
     mq.addEventListener("change", onMqChange);
 
@@ -268,13 +273,7 @@
       {/key}
     {:else}
       <div class="flex-1 flex items-center justify-center text-muted text-sm">
-        <p>
-          {#if isMain}
-            Main worktree — use workmux to manage
-          {:else}
-            Select a worktree from the sidebar to connect
-          {/if}
-        </p>
+        <p>Select a worktree from the sidebar to connect</p>
       </div>
     {/if}
 

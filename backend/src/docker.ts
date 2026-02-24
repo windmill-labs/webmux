@@ -6,7 +6,7 @@
  */
 
 import { $ } from "bun";
-import { type SandboxDockerConfig, type ServiceConfig } from "./config";
+import { type SandboxProfileConfig, type ServiceConfig } from "./config";
 
 /** Container naming: wm-{branch}-{timestamp} */
 function containerName(branch: string): string {
@@ -17,7 +17,7 @@ export interface LaunchContainerOpts {
   branch: string;
   wtDir: string;
   mainRepoDir: string;
-  sandboxConfig: SandboxDockerConfig;
+  sandboxConfig: SandboxProfileConfig;
   services: ServiceConfig[];
   env: Record<string, string>;
 }

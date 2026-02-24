@@ -257,7 +257,7 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
         agent,
         profileConfig,
         isSandbox,
-        sandboxConfig: isSandbox ? config.sandbox : undefined,
+        sandboxConfig: isSandbox ? config.profiles.sandbox : undefined,
         services: config.services,
         mainRepoDir: PROJECT_DIR,
       });

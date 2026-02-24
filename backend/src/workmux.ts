@@ -1,6 +1,6 @@
 import { $ } from "bun";
 import { readEnvLocal } from "./env";
-import { expandTemplate, type ProfileConfig, type SandboxDockerConfig, type ServiceConfig } from "./config";
+import { expandTemplate, type ProfileConfig, type SandboxProfileConfig, type ServiceConfig } from "./config";
 import { launchContainer, removeContainer } from "./docker";
 
 export interface Worktree {
@@ -132,7 +132,7 @@ export interface AddWorktreeOpts {
   agent?: string;
   profileConfig?: ProfileConfig;
   isSandbox?: boolean;
-  sandboxConfig?: SandboxDockerConfig;
+  sandboxConfig?: SandboxProfileConfig;
   services?: ServiceConfig[];
   mainRepoDir?: string;
 }

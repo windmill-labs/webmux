@@ -1,87 +1,142 @@
-# Dev Dashboard
+# wmdev
 
-Web-based dashboard for managing Windmill development worktrees. Lets you create, monitor, and interact with multiple isolated development environments, each running its own AI coding agent (Claude or Codex), backend, and frontend.
+Web-based dashboard for managing Git worktrees with integrated terminals and AI agent support. Create, monitor, and interact with multiple isolated development environments — each running its own AI coding agent (Claude or Codex), backend, and frontend.
 
 ## Quick start
 
 ```bash
-# 1. Install dependencies
+# 1. Install prerequisites
 cargo install workmux          # worktree orchestrator
-sudo apt install tmux socat    # (or brew install tmux socat)
+sudo apt install tmux           # (or brew install tmux)
 curl -fsSL https://bun.sh/install | bash  # bun >1.3.5 required
 
-# 2. Create the workmux global config
-mkdir -p ~/.config/workmux
-cat > ~/.config/workmux/config.yaml << 'EOF'
-nerdfont: false
+# 2. Install wmdev globally (from repo root)
+bun run build && bun install -g .
 
-sandbox:
-  image: windmill-sandbox
+# 3. Create a .wmdev.yaml in your project root (see Configuration below)
 
-  # Forward R2/AWS credentials into sandbox containers (for screenshot uploads).
-  # The actual values come from dev-dashboard/.env, sourced by dev.sh/run.sh.
-  env_passthrough:
-    - AWS_ACCESS_KEY_ID
-    - AWS_SECRET_ACCESS_KEY
-    - R2_ENDPOINT
-    - R2_BUCKET
-    - R2_PUBLIC_URL
-
-  extra_mounts:
-    # Codex agent credentials
-    - host_path: ~/.codex
-      guest_path: /tmp/.codex
-      writable: true
-    # EE repo access (optional — only needed for enterprise features)
-    - host_path: ~/windmill-ee-private
-      writable: true
-    - host_path: ~/windmill-ee-private__worktrees
-      writable: true
-EOF
-
-# 3. (Optional) Build sandbox image — only needed for agent-yolo profile
-docker build -f Dockerfile.sandbox -t windmill-sandbox .
-
-# 4. Install frontend deps
-cd dev-dashboard/frontend && bun install && cd ..
-
-# 5. Start the dashboard
-./dev.sh                       # dev mode (hot reload), UI on :5112
-# or
-./run.sh                       # production mode (build + serve), UI on :4173
-
-# 6. Open http://localhost:5112
+# 4. Start the dashboard from your project directory
+wmdev                          # UI on http://localhost:5111
+wmdev --port 8080              # or pick a custom port
 ```
+
+## Configuration
+
+wmdev reads a `.wmdev.yaml` file from the project root. This single file controls services, profiles, and Docker sandbox settings.
+
+### Full schema
+
+```yaml
+# Services to monitor — each maps a display name to a port env var.
+# The dashboard polls these ports to show health status.
+services:
+  - name: string             # Display name (e.g. "BE", "FE")
+    portEnv: string          # Env var holding the port number (e.g. "BACKEND_PORT")
+
+# Profiles define what runs inside a worktree.
+profiles:
+  default:                   # Required — used when no profile is specified
+    name: string             # Profile identifier (e.g. "full")
+    systemPrompt: string     # (optional) Instructions sent to the AI agent.
+                             # Supports ${VAR} placeholders expanded from env.
+    envPassthrough: string[] # (optional) Env vars to pass to the agent process
+
+  sandbox:                   # (optional) Docker-based sandboxed profile
+    name: string             # Profile identifier (e.g. "sandbox")
+    image: string            # Docker image name (must be pre-built)
+    systemPrompt: string     # (optional) Agent instructions (supports ${VAR})
+    envPassthrough: string[] # (optional) Host env vars forwarded into the container
+    extraMounts:             # (optional) Additional bind mounts
+      - hostPath: string     # Host path (supports ~ for $HOME)
+        guestPath: string    # (optional) Mount point inside container (defaults to hostPath)
+        writable: boolean    # (optional) true = read-write, false/omit = read-only
+```
+
+### Defaults
+
+If `.wmdev.yaml` is missing or empty, wmdev uses:
+
+```yaml
+services: []
+profiles:
+  default:
+    name: default
+```
+
+### Example
+
+```yaml
+services:
+  - name: BE
+    portEnv: BACKEND_PORT
+  - name: FE
+    portEnv: FRONTEND_PORT
+
+profiles:
+  default:
+    name: full
+
+  sandbox:
+    name: sandbox
+    image: my-sandbox
+    envPassthrough:
+      - AWS_ACCESS_KEY_ID
+      - AWS_SECRET_ACCESS_KEY
+    extraMounts:
+      - hostPath: ~/.codex
+        guestPath: /root/.codex
+        writable: true
+      - hostPath: ~/my-private-repo
+        writable: true
+    systemPrompt: >
+      You are running inside a sandboxed container.
+      Backend port: ${BACKEND_PORT}. Frontend port: ${FRONTEND_PORT}.
+```
+
+### Parameter reference
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `services[].name` | string | yes | Display name shown in the dashboard UI |
+| `services[].portEnv` | string | yes | Name of the env var containing the service port (read from each worktree's `.env.local`) |
+| `profiles.default.name` | string | yes | Identifier for the default profile |
+| `profiles.default.systemPrompt` | string | no | System prompt for the agent; `${VAR}` placeholders are expanded at runtime |
+| `profiles.default.envPassthrough` | string[] | no | Env vars passed through to the agent process |
+| `profiles.sandbox.name` | string | yes (if sandbox profile used) | Identifier for the sandbox profile |
+| `profiles.sandbox.image` | string | yes (if sandbox profile used) | Docker image for containers |
+| `profiles.sandbox.systemPrompt` | string | no | System prompt for sandbox agents; `${VAR}` placeholders are expanded at runtime |
+| `profiles.sandbox.envPassthrough` | string[] | no | Host env vars forwarded into the Docker container |
+| `profiles.sandbox.extraMounts[].hostPath` | string | yes | Host filesystem path to mount (`~` expands to `$HOME`) |
+| `profiles.sandbox.extraMounts[].guestPath` | string | no | Container mount path (defaults to `hostPath`) |
+| `profiles.sandbox.extraMounts[].writable` | boolean | no | `true` for read-write; omit or `false` for read-only |
 
 ## Architecture
 
 ```
-Browser (localhost:5112)
+Browser (localhost:5111)
     │
     ├── REST API (/api/*)  ──┐
     └── WebSocket (/ws/*)  ──┤
                              │
-                    Vite dev proxy
-                             │
-                    Backend (localhost:5111)
+                    Backend (Bun HTTP server)
                              │
               ┌──────────────┼──────────────┐
               │              │              │
-          workmux CLI    tmux sessions   socat
-          (worktree       (terminal      (port forwarding
-           lifecycle)      access)        for sandboxes)
+          workmux CLI    tmux sessions   Docker
+          (worktree       (terminal      (sandbox
+           lifecycle)      access)        containers)
 ```
 
-**Backend** — Bun/TypeScript HTTP + WebSocket server (`backend/src/server.ts`). Exposes two interfaces:
+**Backend** — Bun/TypeScript HTTP + WebSocket server (`backend/src/server.ts`). Two interfaces:
 
-- **REST API** (`/api/*`) — CRUD for worktrees. Wraps the `workmux` CLI to create/remove/merge worktrees and runs `socat` port forwarding for Docker sandbox containers. The `GET /api/worktrees` endpoint enriches each worktree with its directory, assigned ports (from `.env.local`), and whether the backend/frontend services are actually responding.
-- **WebSocket** (`/ws/*`) — Live terminal connection. This is what makes the in-browser terminal work. See [Terminal streaming](#terminal-streaming) below.
+- **REST API** (`/api/*`) — CRUD for worktrees. Wraps the `workmux` CLI to create/remove/merge worktrees. For sandbox profiles, manages Docker containers directly with published ports. The `GET /api/worktrees` endpoint enriches each worktree with its directory, assigned ports, and service health status.
+- **WebSocket** (`/ws/*`) — Bidirectional terminal bridge between xterm.js in the browser and tmux sessions on the server.
 
-**Frontend** — Svelte 5 SPA with Tailwind CSS and xterm.js (`frontend/src/`). Provides a two-panel UI: worktree list sidebar + embedded terminal. Polls the REST API every 5 seconds for status updates. The terminal is rendered by [xterm.js](https://xtermjs.org/), which handles all terminal emulation (escape sequences, colors, cursor, scrollback) in a `<canvas>`/DOM element.
+**Frontend** — Svelte 5 SPA with Tailwind CSS and xterm.js (`frontend/src/`). Two-panel UI: worktree list sidebar + embedded terminal. Polls the REST API for status updates. Responsive layout with mobile pane navigation.
 
 ### Terminal streaming
 
-The WebSocket provides a bidirectional bridge between xterm.js in the browser and a tmux session on the server. The data flow:
+The WebSocket provides a bidirectional bridge between xterm.js in the browser and a tmux session on the server:
 
 ```
 Browser (xterm.js)  ←— WebSocket —→  Backend  ←— stdin/stdout pipes —→  script (PTY)  ←— tmux attach —→  tmux grouped session
@@ -89,93 +144,77 @@ Browser (xterm.js)  ←— WebSocket —→  Backend  ←— stdin/stdout pipes 
 
 When a worktree is selected, the frontend opens a WebSocket to `/ws/<worktree>` and sends an initial `resize` message with the terminal dimensions. The backend then:
 
-1. Spawns `script -q -c "... tmux attach-session ..." /dev/null` — `script` allocates a real PTY (pseudo-terminal), which is necessary for tmux to produce proper terminal escape sequences, colors, and cursor movement.
-2. The tmux command creates a **grouped session** (`tmux new-session -t <main-session>`), which is a separate "view" into the same tmux windows. This allows the dashboard and a real terminal to view the same worktree simultaneously without fighting over window/pane focus.
-3. An async reader loop reads the PTY's stdout and forwards the data over the WebSocket as `{ type: "output" }` messages, which xterm.js renders.
-4. Keystrokes arrive as `{ type: "input" }` messages and are written to the PTY's stdin pipe.
-5. Resize events trigger `tmux resize-window` to keep dimensions in sync.
+1. Spawns `script -q -c "... tmux attach-session ..." /dev/null` — allocates a real PTY for proper terminal escape sequences.
+2. Creates a **grouped tmux session**, which is a separate view into the same windows. This allows the dashboard and a real terminal to view the same worktree simultaneously.
+3. Streams PTY stdout over the WebSocket as `{ type: "output" }` messages.
+4. Writes keystrokes from `{ type: "input" }` messages to the PTY's stdin.
+5. Handles `resize` events by calling `tmux resize-window`.
 
-Output is also buffered in a scrollback array (up to 5000 chunks) so that reconnecting clients receive recent history immediately.
+Output is buffered in a scrollback array (up to 5000 chunks) so reconnecting clients receive recent history immediately.
 
-### Worktree Profiles
+### Worktree profiles
 
-When creating a worktree, you pick a profile that determines what runs inside it:
+When creating a worktree, you pick a profile that determines the environment:
 
 | Profile | What it does |
 |---------|-------------|
-| `full` | Agent + Cargo backend + Vite frontend (uses pane layout from `.workmux.yaml`) |
-| `agent-yolo` | Agent runs inside a Docker sandbox container with `--dangerously-skip-permissions`. Socat forwards the container's ports to the host so they're reachable from your browser. |
+| `default` | Delegates to workmux — uses the pane layout and commands defined in your `.workmux.yaml` project config. wmdev doesn't manage panes or processes for this profile; workmux handles it all. |
+| `sandbox` | Managed entirely by wmdev, decoupled from workmux. wmdev launches a Docker container, sets up agent + shell panes, and publishes service ports directly with `docker run -p`. |
+
+### Docker sandbox containers
+
+For sandbox profiles, wmdev manages Docker containers directly:
+
+1. **Launch** — `docker run -d -p <ports>` with the configured image, mounts, and env vars
+2. **Mounts** — Worktree dir (rw), main repo `.git` (ro), Claude config, plus any `extraMounts`
+3. **Environment** — All `.env.local` vars + `envPassthrough` vars + `HOME`, `TERM`, `IS_SANDBOX=1`
+4. **Cleanup** — Containers are removed when the worktree is removed or merged
 
 ## Prerequisites
 
-### Required tools
-
 | Tool | Min version | Purpose |
 |------|-------------|---------|
-| [**bun**](https://bun.sh) | >1.3.5 | Runtime for both backend and frontend dev server |
-| [**workmux**](https://github.com/raine/workmux) | latest | Worktree + tmux orchestration (`cargo install workmux` or see its repo) |
-| **tmux** | 3.x | Terminal multiplexer — workmux manages sessions/windows through it |
-| **socat** | 1.7+ | TCP port forwarding for sandbox containers (only needed for `agent-yolo` profile) |
+| [**bun**](https://bun.sh) | >1.3.5 | Runtime for backend and frontend |
+| [**workmux**](https://github.com/raine/workmux) | latest | Worktree + tmux orchestration (`cargo install workmux`) |
+| **tmux** | 3.x | Terminal multiplexer |
 | **git** | 2.x | Worktree management |
-| **docker** | 28+ | Only needed for `agent-yolo` sandbox profile |
+| **docker** | 28+ | Only needed for sandbox profile |
 
-### Workmux global config
+## Environment variables
 
-Workmux reads a global config from `~/.config/workmux/config.yaml`. Create it if it doesn't exist:
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DASHBOARD_PORT` | `5111` | Backend API port (also configurable via `--port`) |
 
-```yaml
-nerdfont: false
+## Keyboard shortcuts
 
-sandbox:
-  image: windmill-sandbox
-  env_passthrough:
-    - AWS_ACCESS_KEY_ID
-    - AWS_SECRET_ACCESS_KEY
-    - R2_ENDPOINT
-    - R2_BUCKET
-    - R2_PUBLIC_URL
-  extra_mounts:
-    - host_path: ~/.codex
-      guest_path: /tmp/.codex
-      writable: true
-    - host_path: ~/windmill-ee-private
-      writable: true
-    - host_path: ~/windmill-ee-private__worktrees
-      writable: true
-```
+| Shortcut | Action |
+|----------|--------|
+| `Cmd+Up/Down` | Navigate between worktrees |
+| `Cmd+K` | Create new worktree |
+| `Cmd+M` | Merge selected worktree |
+| `Cmd+D` | Remove selected worktree |
 
-**Fields:**
+## API
 
-- **`nerdfont`** — Set to `true` if your terminal uses a Nerd Font (adds icons to `workmux list` output). Default `false`.
-- **`sandbox.image`** — Docker image used for `agent-yolo` sandboxed worktrees. Must be pre-built with `workmux sandbox build` or pulled with `workmux sandbox pull`.
-- **`sandbox.env_passthrough`** — Host env vars to forward into sandbox containers (global config only). Used here for R2 screenshot upload credentials.
-- **`sandbox.extra_mounts`** — Additional bind mounts into sandbox containers. Mounts Codex credentials and the EE repo for enterprise features.
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/config` | Load dashboard config |
+| `GET` | `/api/worktrees` | List all worktrees with status, ports, and service health |
+| `POST` | `/api/worktrees` | Create a worktree (`{ branch, profile?, agent?, prompt? }`) |
+| `DELETE` | `/api/worktrees/:name` | Remove a worktree |
+| `POST` | `/api/worktrees/:name/open` | Open/focus a worktree's tmux window |
+| `POST` | `/api/worktrees/:name/merge` | Merge worktree into main + cleanup |
+| `GET` | `/api/worktrees/:name/status` | Get agent status for a worktree |
+| `WS` | `/ws/:worktree` | Terminal WebSocket (xterm.js ↔ tmux) |
 
-To build the sandbox image (from the Windmill repo root):
+## Development
 
 ```bash
-docker build -f Dockerfile.sandbox -t windmill-sandbox .
+./dev.sh          # backend + frontend with hot reload, UI on :5112
 ```
 
-### Workmux project config
-
-The repo-level `.workmux.yaml` at the Windmill root configures how worktrees are created. Key settings:
-
-- **`post_create`** — Runs `./scripts/worktree-env` after creating a worktree, which generates a `.env.local` file with unique `BACKEND_PORT` and `FRONTEND_PORT` assignments so multiple worktrees don't collide.
-- **`panes`** — Defines the tmux pane layout for `full` profile: agent pane (focused), backend pane (`cargo watch`), and frontend pane (`npm run dev`).
-- **`files.copy`** — Copies `backend/.env` and `scripts/` into each new worktree.
-
-## Running
-
-From the `dev-dashboard/` directory:
-
-```bash
-./dev.sh
-```
-
-This starts both backend and frontend, with logs prefixed `[BE]` / `[FE]`. `Ctrl+C` stops both.
-
-You can also start them separately:
+Or start them separately:
 
 ```bash
 # Terminal 1: backend (auto-reloads on save)
@@ -185,63 +224,4 @@ cd backend && bun run dev
 cd frontend && bun run dev
 ```
 
-Open http://localhost:5112 in your browser.
-
-### Cursor IDE integration
-
-The top bar has a **Cursor** button that opens the selected worktree's directory in Cursor IDE via the `cursor://` protocol. Click the gear icon next to it to configure SSH remote host.
-
-By default, clicking the button reuses an existing Cursor window. To always open in a **new window**, add this to your Cursor `settings.json` (`Cmd+Shift+P` → "Preferences: Open Settings (JSON)"):
-
-```json
-"window.openFoldersInNewWindow": "on"
-```
-
-### Keyboard shortcuts
-
-| Shortcut | Action |
-|----------|--------|
-| `Cmd+Up/Down` | Navigate between worktrees |
-| `Cmd+K` | Create new worktree |
-| `Cmd+D` | Remove selected worktree |
-
-### Environment variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `DASHBOARD_PORT` | `5111` | Backend API port |
-
-The frontend dev server is hardcoded to port `5112` and proxies `/api/*` and `/ws/*` to the backend.
-
-### Screenshot uploads (optional)
-
-Sandbox agents can take screenshots of the frontend UI with Playwright and upload them to a Cloudflare R2 bucket for use in PR descriptions. To enable this, create a `dev-dashboard/.env` file (already gitignored):
-
-```bash
-# Cloudflare R2 credentials — get from:
-# Dashboard → R2 → Manage R2 API Tokens → Create API Token (Object Read & Write, scoped to your bucket)
-AWS_ACCESS_KEY_ID=<your-r2-access-key>
-AWS_SECRET_ACCESS_KEY=<your-r2-secret-key>
-
-# Account ID is on the R2 overview page (right sidebar)
-R2_ENDPOINT=https://<ACCOUNT_ID>.r2.cloudflarestorage.com
-R2_BUCKET=windmill-screenshots
-
-# Enable public access on the bucket (Settings → Public access → r2.dev subdomain)
-R2_PUBLIC_URL=https://pub-<hash>.r2.dev
-```
-
-When these are set, `dev.sh`/`run.sh` source the file and the env vars are inlined onto the `workmux sandbox agent` command. The workmux global config's `env_passthrough` (see [above](#workmux-global-config)) forwards them into the container. The agent's system prompt automatically includes screenshot instructions when R2 is configured.
-
-## API
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/api/worktrees` | List all worktrees with status, ports, and service health |
-| `POST` | `/api/worktrees` | Create a worktree (`{ branch, profile?, agent?, prompt? }`) |
-| `DELETE` | `/api/worktrees/:name` | Remove a worktree |
-| `POST` | `/api/worktrees/:name/open` | Open/focus a worktree's tmux window |
-| `POST` | `/api/worktrees/:name/close` | Close a worktree's tmux window (keeps the worktree) |
-| `POST` | `/api/worktrees/:name/send` | Send a prompt to the worktree's agent (`{ prompt }`) |
-| `GET` | `/api/worktrees/:name/status` | Get agent status for a worktree |
-| `WS` | `/ws/:worktree` | Terminal WebSocket (xterm.js ↔ tmux) |
+The frontend dev server runs on port `5112` and proxies `/api/*` and `/ws/*` to the backend.

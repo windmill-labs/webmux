@@ -69,6 +69,7 @@
   /** Sanitize user input into a valid git branch name */
   function sanitizeBranchName(raw: string): string {
     return raw
+      .toLowerCase()                     // workmux expects lowercase
       .replace(/\s+/g, "-")              // spaces → dashes
       .replace(/[~^:?*\[\]\\]+/g, "")    // remove git-invalid chars
       .replace(/\.{2,}/g, ".")            // collapse ".." → "."

@@ -99,3 +99,11 @@ export function loadConfig(dir: string): WmdevConfig {
 export function expandTemplate(template: string, env: Record<string, string>): string {
   return template.replace(/\$\{(\w+)\}/g, (_, key: string) => env[key] ?? "");
 }
+
+// deliberate type error for CI testing
+const brokenConfig: WmdevConfig = {
+  services: "not an array",
+  profiles: { default: { name: "default" } },
+  autoName: false,
+  linkedRepos: [],
+};

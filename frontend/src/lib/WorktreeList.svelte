@@ -29,10 +29,10 @@
         class="w-full py-2.5 px-3 rounded-md border cursor-pointer flex flex-col gap-1 text-left text-inherit text-sm bg-transparent hover:bg-hover {isActive ? 'bg-active border-accent' : 'border-transparent'}"
         onclick={() => onselect(wt.branch)}
       >
-        <span class="flex items-center gap-1.5 pr-5">
+        <span class="flex items-center gap-1.5 pr-5 flex-wrap">
           <span class="font-medium truncate">{wt.branch}</span>
           {#each wt.prs as pr (pr.repo)}
-            <PrBadge {pr} showRepo={wt.prs.length > 1} />
+            <PrBadge {pr} />
           {/each}
         </span>
         <span class="flex gap-2 text-[11px] text-muted items-center flex-wrap">

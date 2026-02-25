@@ -1,4 +1,5 @@
 import { upsertEnvLocal } from "./env";
+import type { LinkedRepoConfig } from "./config";
 
 export interface PrEntry {
   repo: string;
@@ -25,33 +26,20 @@ function summarizeChecks(checks: Array<{ conclusion: string; status: string }>):
   return allPass ? "success" : "failed";
 }
 
-/** Infer the current repo's short name via `gh repo view`. */
-function getCurrentRepoName(): string {
-  const result = Bun.spawnSync(
-    ["gh", "repo", "view", "--json", "name", "-q", ".name"],
-    { stdout: "pipe", stderr: "pipe" }
-  );
-  if (result.exitCode !== 0) return "unknown";
-  return new TextDecoder().decode(result.stdout).trim() || "unknown";
-}
-
-/** Fetch all PRs from a repo via gh CLI. Returns a map of branch name → PrEntry[]. */
-export function fetchAllPrs(repo?: string): Map<string, PrEntry> {
+/** Fetch all PRs from a repo via gh CLI. Returns a map of branch name → PrEntry. */
+export function fetchAllPrs(repoSlug?: string, repoLabel?: string): Map<string, PrEntry> {
   const args = ["gh", "pr", "list", "--state", "all", "--json", "number,headRefName,state,statusCheckRollup,url", "--limit", "100"];
-  if (repo) args.push("--repo", repo);
+  if (repoSlug) args.push("--repo", repoSlug);
 
   const result = Bun.spawnSync(args, { stdout: "pipe", stderr: "pipe" });
 
   const prs = new Map<string, PrEntry>();
   if (result.exitCode !== 0) {
     const stderr = new TextDecoder().decode(result.stderr).trim();
-    const label = repo ?? "current";
+    const label = repoSlug ?? "current";
     console.error(`[pr] gh pr list failed for ${label}: ${stderr}`);
     return prs;
   }
-
-  // Derive short repo name: last segment of slug, or infer current
-  const repoName = repo ? repo.split("/").pop()! : getCurrentRepoName();
 
   try {
     const entries: GhPrEntry[] = JSON.parse(new TextDecoder().decode(result.stdout));
@@ -59,7 +47,7 @@ export function fetchAllPrs(repo?: string): Map<string, PrEntry> {
       // If multiple PRs for same branch in same repo, the first (most recent) wins
       if (prs.has(entry.headRefName)) continue;
       prs.set(entry.headRefName, {
-        repo: repoName,
+        repo: repoLabel ?? "",
         number: entry.number,
         state: entry.state.toLowerCase(),
         url: entry.url,
@@ -67,7 +55,7 @@ export function fetchAllPrs(repo?: string): Map<string, PrEntry> {
       });
     }
   } catch (err) {
-    const label = repo ?? "current";
+    const label = repoSlug ?? "current";
     console.error(`[pr] failed to parse gh output for ${label}: ${err}`);
   }
 
@@ -77,12 +65,12 @@ export function fetchAllPrs(repo?: string): Map<string, PrEntry> {
 /** Sync PR status to .env.local for all worktrees that have PRs. */
 export function syncPrStatus(
   getWorktreePaths: () => Map<string, string>,
-  linkedRepos: string[],
+  linkedRepos: LinkedRepoConfig[],
 ): void {
-  // Fetch PRs from current repo + each linked repo
+  // Fetch PRs from current repo (repo label = "") + each linked repo (repo label = alias)
   const allRepoResults: Map<string, PrEntry>[] = [fetchAllPrs()];
-  for (const slug of linkedRepos) {
-    allRepoResults.push(fetchAllPrs(slug));
+  for (const { repo, alias } of linkedRepos) {
+    allRepoResults.push(fetchAllPrs(repo, alias));
   }
 
   // Group by branch → PrEntry[]
@@ -114,7 +102,7 @@ export function syncPrStatus(
 /** Start periodic PR status sync. Returns cleanup function. */
 export function startPrMonitor(
   getWorktreePaths: () => Map<string, string>,
-  linkedRepos: string[],
+  linkedRepos: LinkedRepoConfig[],
   intervalMs: number = 15_000,
 ): () => void {
   // Run once immediately

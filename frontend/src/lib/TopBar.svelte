@@ -69,7 +69,7 @@
       >{name ?? "Select a worktree"}</span
     >
     {#each worktree?.prs ?? [] as pr (pr.repo)}
-      <PrBadge {pr} showRepo={(worktree?.prs.length ?? 0) > 1} clickable />
+      <PrBadge {pr} clickable />
     {/each}
     {#if !isMobile}
       {#each worktree?.services ?? [] as svc}

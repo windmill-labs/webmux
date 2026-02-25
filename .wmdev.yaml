@@ -1,3 +1,7 @@
 profiles:
   default:
     name: default
+
+linkedRepos:
+  - repo: centdix/workmux-test-linked
+    alias: linked

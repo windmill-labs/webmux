@@ -17,6 +17,11 @@ export interface SandboxProfileConfig extends ProfileConfig {
   extraMounts?: { hostPath: string; guestPath?: string; writable?: boolean }[];
 }
 
+export interface LinkedRepoConfig {
+  repo: string;
+  alias: string;
+}
+
 export interface WmdevConfig {
   services: ServiceConfig[];
   profiles: {
@@ -24,7 +29,7 @@ export interface WmdevConfig {
     sandbox?: SandboxProfileConfig;
   };
   autoName: boolean;
-  linkedRepos: string[];
+  linkedRepos: LinkedRepoConfig[];
 }
 
 const DEFAULT_CONFIG: WmdevConfig = {
@@ -68,8 +73,13 @@ export function loadConfig(dir: string): WmdevConfig {
     const defaultProfile = profiles?.default as ProfileConfig | undefined;
     const sandboxProfile = profiles?.sandbox as SandboxProfileConfig | undefined;
     const autoName = hasAutoName(dir);
-    const linkedRepos = Array.isArray(parsed.linkedRepos)
-      ? (parsed.linkedRepos as string[]).filter((r) => typeof r === "string")
+    const linkedRepos: LinkedRepoConfig[] = Array.isArray(parsed.linkedRepos)
+      ? (parsed.linkedRepos as Array<Record<string, unknown>>)
+          .filter((r) => typeof r === "object" && r !== null && typeof r.repo === "string")
+          .map((r) => ({
+            repo: r.repo as string,
+            alias: typeof r.alias === "string" ? r.alias : (r.repo as string).split("/").pop()!,
+          }))
       : [];
     return {
       services: Array.isArray(parsed.services) ? parsed.services as ServiceConfig[] : DEFAULT_CONFIG.services,

@@ -18,11 +18,26 @@ export interface WorktreeStatus {
   title: string;
 }
 
-function parseTable<T>(output: string, mapper: (cols: string[]) => T): T[] {
+const WORKTREE_HEADERS = ["BRANCH", "AGENT", "MUX", "UNMERGED", "PATH"] as const;
+const STATUS_HEADERS   = ["WORKTREE", "STATUS", "ELAPSED", "TITLE"] as const;
+
+function parseTable<T>(
+  output: string,
+  mapper: (cols: string[]) => T,
+  expectedHeaders?: readonly string[],
+): T[] {
   const lines = output.trim().split("\n").filter(Boolean);
   if (lines.length < 2) return [];
 
   const headerLine = lines[0];
+
+  if (expectedHeaders) {
+    const actual = headerLine.trim().split(/\s+/).map(h => h.toUpperCase());
+    const match = expectedHeaders.every((h, i) => actual[i] === h.toUpperCase());
+    if (!match) {
+      console.warn(`[parseTable] unexpected headers: got [${actual.join(", ")}], expected [${expectedHeaders.join(", ")}]`);
+    }
+  }
 
   // Find column positions based on header spacing
   const colStarts: number[] = [];
@@ -61,7 +76,7 @@ export async function listWorktrees(): Promise<Worktree[]> {
     mux: cols[2] ?? "",
     unmerged: cols[3] ?? "",
     path: cols[4] ?? "",
-  }));
+  }), WORKTREE_HEADERS);
 }
 
 export async function getStatus(): Promise<WorktreeStatus[]> {
@@ -71,7 +86,7 @@ export async function getStatus(): Promise<WorktreeStatus[]> {
     status: cols[1] ?? "",
     elapsed: cols[2] ?? "",
     title: cols[3] ?? "",
-  }));
+  }), STATUS_HEADERS);
 }
 
 async function runChecked(args: string[]): Promise<string> {
@@ -88,36 +103,52 @@ async function runChecked(args: string[]): Promise<string> {
   return stdout.trim();
 }
 
+async function tryExec(args: string[]): Promise<{ ok: true; stdout: string } | { ok: false; error: string }> {
+  const proc = Bun.spawn(args, { stdout: "pipe", stderr: "pipe" });
+  const stdout = await new Response(proc.stdout).text();
+  const stderr = await new Response(proc.stderr).text();
+  const exitCode = await proc.exited;
+
+  if (exitCode !== 0) {
+    const msg = `${args.join(" ")} failed (exit ${exitCode}): ${stderr || stdout}`;
+    console.error(`[workmux:exec] ${msg}`);
+    return { ok: false, error: msg };
+  }
+  return { ok: true, stdout: stdout.trim() };
+}
+
 export { readEnvLocal } from "./env";
 
 function buildAgentCmd(env: Record<string, string>, agent: string, profileConfig: ProfileConfig, isSandbox: boolean): string {
   const systemPrompt = profileConfig.systemPrompt
     ? expandTemplate(profileConfig.systemPrompt, env)
     : "";
+  // Escape for double-quoted shell context: backslash, double-quote, dollar, backtick.
   const innerEscaped = systemPrompt.replace(/["\\$`]/g, "\\$&");
 
   // For sandbox, env is passed via Docker -e flags, no inline prefix needed.
   // For non-sandbox, build inline env prefix for passthrough vars.
+  // Merge host env with worktree env; worktree env takes precedence.
   const envPrefix = !isSandbox && profileConfig.envPassthrough?.length
-    ? buildEnvPrefix(profileConfig.envPassthrough)
+    ? buildEnvPrefix(profileConfig.envPassthrough, { ...process.env, ...env })
     : "";
 
   if (agent === "codex") {
     return systemPrompt
-      ? `${envPrefix}codex --yolo -c '"developer_instructions=${innerEscaped}"'`
+      ? `${envPrefix}codex --yolo -c "developer_instructions=${innerEscaped}"`
       : `${envPrefix}codex --yolo`;
   }
   const skipPerms = isSandbox ? " --dangerously-skip-permissions" : "";
   return systemPrompt
-    ? `${envPrefix}claude${skipPerms} --append-system-prompt '"${innerEscaped}"'`
+    ? `${envPrefix}claude${skipPerms} --append-system-prompt "${innerEscaped}"`
     : `${envPrefix}claude${skipPerms}`;
 }
 
-/** Build an inline env prefix (e.g. "KEY=val KEY2=val2 ") for vars listed in envPassthrough. */
-function buildEnvPrefix(keys: string[]): string {
+/** Build an inline env prefix (e.g. "KEY='val' KEY2='val2' ") for vars listed in envPassthrough. */
+function buildEnvPrefix(keys: string[], env: Record<string, string | undefined>): string {
   const parts: string[] = [];
   for (const key of keys) {
-    const val = process.env[key];
+    const val = env[key];
     if (val) {
       const escaped = val.replace(/'/g, "'\\''");
       parts.push(`${key}='${escaped}'`);
@@ -126,29 +157,45 @@ function buildEnvPrefix(keys: string[]): string {
   return parts.length > 0 ? parts.join(" ") + " " : "";
 }
 
-/** Find the on-disk path for a worktree branch via `git worktree list`. */
-function findWorktreeDir(branch: string): string {
-  const result = Bun.spawnSync(["git", "worktree", "list", "--porcelain"], { stdout: "pipe" });
-  const output = new TextDecoder().decode(result.stdout);
+/**
+ * Pure: parse `git worktree list --porcelain` output into a branch→path map.
+ * Detached HEAD entries (line === "detached") are skipped — they have no branch
+ * name to key on.
+ */
+export function parseWorktreePorcelain(output: string): Map<string, string> {
+  const paths = new Map<string, string>();
   let currentPath = "";
   for (const line of output.split("\n")) {
     if (line.startsWith("worktree ")) {
       currentPath = line.slice("worktree ".length);
     } else if (line.startsWith("branch ")) {
       const name = line.slice("branch ".length).replace("refs/heads/", "");
-      if (name === branch || currentPath.endsWith(`/${branch}`)) {
-        return currentPath;
-      }
+      if (currentPath) paths.set(name, currentPath);
     }
   }
-  return "";
+  return paths;
+}
+
+/** Find the on-disk path for a worktree branch via `git worktree list`. */
+function findWorktreeDir(branch: string): string | null {
+  const result = Bun.spawnSync(["git", "worktree", "list", "--porcelain"], { stdout: "pipe", stderr: "pipe" });
+  if (result.exitCode !== 0) {
+    console.warn(`[workmux] git worktree list failed (exit ${result.exitCode})`);
+    return null;
+  }
+  const output = new TextDecoder().decode(result.stdout);
+  return parseWorktreePorcelain(output).get(branch) ?? null;
 }
 
 function ensureTmux(): void {
   const check = Bun.spawnSync(["tmux", "list-sessions"], { stdout: "pipe", stderr: "pipe" });
   if (check.exitCode !== 0) {
-    Bun.spawnSync(["tmux", "new-session", "-d", "-s", "0"]);
-    console.log("[workmux] restarted tmux session");
+    const started = Bun.spawnSync(["tmux", "new-session", "-d", "-s", "0"]);
+    if (started.exitCode !== 0) {
+      console.log("[workmux] tmux session already exists (concurrent start)");
+    } else {
+      console.log("[workmux] restarted tmux session");
+    }
   }
 }
 
@@ -158,6 +205,7 @@ function sanitizeBranchName(raw: string): string {
     .toLowerCase()
     .replace(/\s+/g, "-")
     .replace(/[~^:?*\[\]\\]+/g, "")
+    .replace(/@\{/g, "")
     .replace(/\.{2,}/g, ".")
     .replace(/\/{2,}/g, "/")
     .replace(/-{2,}/g, "-")
@@ -174,9 +222,9 @@ function randomName(len: number): string {
   return result;
 }
 
-/** Parse "Branch: <name>" from workmux add output. */
+/** Parse branch name from workmux add output (e.g. "Branch: my-feature"). */
 function parseBranchFromOutput(output: string): string | null {
-  const match = output.match(/Branch:\s*(\S+)/);
+  const match = output.match(/branch[:\s]+(\S+)/i);
   return match?.[1] ?? null;
 }
 
@@ -200,7 +248,7 @@ export interface AddWorktreeResult {
 export async function addWorktree(
   rawBranch: string | undefined,
   opts?: AddWorktreeOpts
-): Promise<AddWorktreeResult> {
+): Promise<{ ok: true; branch: string; output: string } | { ok: false; error: string }> {
   ensureTmux();
   const profile = opts?.profile ?? "default";
   const agent = opts?.agent ?? "claude";
@@ -227,6 +275,9 @@ export async function addWorktree(
 
   if (rawBranch) {
     branch = sanitizeBranchName(rawBranch);
+    if (!branch) {
+      return { ok: false, error: `"${rawBranch}" is not a valid branch name after sanitization` };
+    }
     args.push(branch);
   } else if (useAutoName) {
     args.push("-A");
@@ -236,13 +287,17 @@ export async function addWorktree(
   }
 
   console.log(`[workmux:add] running: ${args.join(" ")}`);
-  const result = await runChecked(args);
+  const execResult = await tryExec(args);
+  if (!execResult.ok) return { ok: false, error: execResult.error };
+  const result = execResult.stdout;
   console.log(`[workmux:add] result: ${result}`);
 
   // When using -A, extract the branch name from workmux output
   if (useAutoName) {
     const parsed = parseBranchFromOutput(result);
-    if (!parsed) throw new Error("Failed to parse branch name from workmux output");
+    if (!parsed) {
+      return { ok: false, error: `Failed to parse branch name from workmux output: ${JSON.stringify(result)}` };
+    }
     branch = parsed;
   }
 
@@ -250,8 +305,8 @@ export async function addWorktree(
 
   // Read worktree dir from git (tmux pane may not have cd'd yet with -C)
   const wtDir = findWorktreeDir(branch);
-  const env = await readEnvLocal(wtDir);
-  console.log(`[workmux:add] branch=${branch} dir=${wtDir} env=${JSON.stringify(env)}`);
+  const env = wtDir ? await readEnvLocal(wtDir) : {};
+  console.log(`[workmux:add] branch=${branch} dir=${wtDir ?? "(not found)"} env=${JSON.stringify(env)}`);
 
   // Append profile to .env.local (worktree-env creates it, we just add to it)
   if (wtDir) {
@@ -267,12 +322,14 @@ export async function addWorktree(
     // Kill extra panes (highest index first to avoid shifting)
     const paneCountResult = Bun.spawnSync(
       ["tmux", "list-panes", "-t", windowTarget, "-F", "#{pane_index}"],
-      { stdout: "pipe" }
+      { stdout: "pipe", stderr: "pipe" }
     );
-    const paneIds = new TextDecoder().decode(paneCountResult.stdout).trim().split("\n");
-    // Kill all panes except pane 0
-    for (let i = paneIds.length - 1; i >= 1; i--) {
-      Bun.spawnSync(["tmux", "kill-pane", "-t", `${windowTarget}.${paneIds[i]}`]);
+    if (paneCountResult.exitCode === 0) {
+      const paneIds = new TextDecoder().decode(paneCountResult.stdout).trim().split("\n");
+      // Kill all panes except pane 0
+      for (let i = paneIds.length - 1; i >= 1; i--) {
+        Bun.spawnSync(["tmux", "kill-pane", "-t", `${windowTarget}.${paneIds[i]}`]);
+      }
     }
 
     // Launch Docker container for sandbox worktrees
@@ -302,27 +359,28 @@ export async function addWorktree(
       console.log(`[workmux] sending to ${windowTarget}.0:\n${entrypointThenAgent}`);
       Bun.spawnSync(["tmux", "send-keys", "-t", `${windowTarget}.0`, entrypointThenAgent, "Enter"]);
       // Shell pane: host shell in worktree dir
-      Bun.spawnSync(["tmux", "split-window", "-h", "-t", `${windowTarget}.0`, "-l", "25%", "-c", wtDir]);
+      Bun.spawnSync(["tmux", "split-window", "-h", "-t", `${windowTarget}.0`, "-l", "25%", "-c", wtDir ?? process.cwd()]);
     } else {
       // Non-sandbox: run agent directly in pane 0
       console.log(`[workmux] sending command to ${windowTarget}.0:\n${agentCmd}`);
       Bun.spawnSync(["tmux", "send-keys", "-t", `${windowTarget}.0`, agentCmd, "Enter"]);
       // Open a shell pane on the right (1/3 width) in the worktree dir
-      Bun.spawnSync(["tmux", "split-window", "-h", "-t", `${windowTarget}.0`, "-l", "25%", "-c", wtDir]);
+      Bun.spawnSync(["tmux", "split-window", "-h", "-t", `${windowTarget}.0`, "-l", "25%", "-c", wtDir ?? process.cwd()]);
     }
     // Keep focus on the agent pane (left)
     Bun.spawnSync(["tmux", "select-pane", "-t", `${windowTarget}.0`]);
   }
 
-  return { branch, output: result };
+  return { ok: true, branch, output: result };
 }
 
-export async function removeWorktree(name: string): Promise<string> {
+export async function removeWorktree(name: string): Promise<{ ok: true; output: string } | { ok: false; error: string }> {
   console.log(`[workmux:rm] running: workmux rm --force ${name}`);
   await removeContainer(name);
-  const result = await runChecked(["workmux", "rm", "--force", name]);
-  console.log(`[workmux:rm] result: ${result}`);
-  return result;
+  const result = await tryExec(["workmux", "rm", "--force", name]);
+  if (!result.ok) return result;
+  console.log(`[workmux:rm] result: ${result.stdout}`);
+  return { ok: true, output: result.stdout };
 }
 
 const TMUX_TIMEOUT_MS = 5_000;
@@ -417,16 +475,19 @@ async function findWorktreeSession(windowName: string): Promise<string | null> {
   return null;
 }
 
-export async function openWorktree(name: string): Promise<string> {
-  return runChecked(["workmux", "open", name]);
+export async function openWorktree(name: string): Promise<{ ok: true; output: string } | { ok: false; error: string }> {
+  const result = await tryExec(["workmux", "open", name]);
+  if (!result.ok) return result;
+  return { ok: true, output: result.stdout };
 }
 
-export async function mergeWorktree(name: string): Promise<string> {
+export async function mergeWorktree(name: string): Promise<{ ok: true; output: string } | { ok: false; error: string }> {
   console.log(`[workmux:merge] running: workmux merge ${name}`);
   await removeContainer(name);
-  const result = await runChecked(["workmux", "merge", name]);
-  console.log(`[workmux:merge] result: ${result}`);
-  return result;
+  const result = await tryExec(["workmux", "merge", name]);
+  if (!result.ok) return result;
+  console.log(`[workmux:merge] result: ${result.stdout}`);
+  return { ok: true, output: result.stdout };
 }
 
 export async function getTmuxSession(): Promise<string> {

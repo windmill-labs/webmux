@@ -8,6 +8,7 @@ import {
   mergeWorktree,
   sendPrompt,
   readEnvLocal,
+  parseWorktreePorcelain,
 } from "./workmux";
 import {
   attach,
@@ -36,27 +37,19 @@ function ts(): string {
  *  Skips the main working tree (always the first entry) since it's not
  *  a workmux-managed worktree and shouldn't have PR_DATA written to it. */
 function getWorktreePaths(): Map<string, string> {
-  const result = Bun.spawnSync(["git", "worktree", "list", "--porcelain"], { stdout: "pipe" });
+  const result = Bun.spawnSync(["git", "worktree", "list", "--porcelain"], { stdout: "pipe", stderr: "pipe" });
+  if (result.exitCode !== 0) return new Map();
   const output = new TextDecoder().decode(result.stdout);
+  const all = parseWorktreePorcelain(output);
   const paths = new Map<string, string>();
-  let currentPath = "";
   let isFirst = true;
-  for (const line of output.split("\n")) {
-    if (line.startsWith("worktree ")) {
-      currentPath = line.slice("worktree ".length);
-    } else if (line.startsWith("branch ")) {
-      // Skip the main working tree (first entry in porcelain output)
-      if (isFirst) {
-        isFirst = false;
-        continue;
-      }
-      // branch refs/heads/foo → "foo"
-      const branch = line.slice("branch ".length).replace("refs/heads/", "");
-      // Also map by directory basename (workmux uses basename as branch key)
-      const basename = currentPath.split("/").pop() ?? "";
-      paths.set(branch, currentPath);
-      if (basename !== branch) paths.set(basename, currentPath);
-    }
+  for (const [branch, path] of all) {
+    // Skip the main working tree (first entry in porcelain output)
+    if (isFirst) { isFirst = false; continue; }
+    paths.set(branch, path);
+    // Also map by directory basename (workmux uses basename as branch key)
+    const basename = path.split("/").pop() ?? "";
+    if (basename !== branch) paths.set(basename, path);
   }
   return paths;
 }
@@ -270,6 +263,7 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
         services: config.services,
         mainRepoDir: PROJECT_DIR,
       });
+      if (!result.ok) return errorResponse(result.error, 422);
       console.log(`[worktree:add] done branch=${result.branch}: ${result.output}`);
       return jsonResponse({ branch: result.branch }, 201);
     }
@@ -279,15 +273,18 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
       const name = decodeURIComponent(parts[1]);
       console.log(`[worktree:rm] name=${name}`);
       const result = await removeWorktree(name);
-      console.log(`[worktree:rm] done name=${name}: ${result}`);
-      return jsonResponse({ message: result });
+      if (!result.ok) return errorResponse(result.error, 422);
+      console.log(`[worktree:rm] done name=${name}: ${result.output}`);
+      return jsonResponse({ message: result.output });
     }
 
     // POST /api/worktrees/:name/open
     if (parts[0] === "worktrees" && parts.length === 3 && parts[2] === "open" && method === "POST") {
       const name = decodeURIComponent(parts[1]);
       console.log(`[worktree:open] name=${name}`);
-      return jsonResponse({ message: await openWorktree(name) });
+      const result = await openWorktree(name);
+      if (!result.ok) return errorResponse(result.error, 422);
+      return jsonResponse({ message: result.output });
     }
 
     // POST /api/worktrees/:name/send
@@ -306,8 +303,9 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
       const name = decodeURIComponent(parts[1]);
       console.log(`[worktree:merge] name=${name}`);
       const result = await mergeWorktree(name);
-      console.log(`[worktree:merge] done name=${name}: ${result}`);
-      return jsonResponse({ message: result });
+      if (!result.ok) return errorResponse(result.error, 422);
+      console.log(`[worktree:merge] done name=${name}: ${result.output}`);
+      return jsonResponse({ message: result.output });
     }
 
     // GET /api/ci-logs/:runId

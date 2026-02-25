@@ -11,7 +11,11 @@
   import type { WorktreeInfo, AppConfig, PrEntry } from "./lib/types";
   import * as api from "./lib/api";
 
-  let config = $state<AppConfig>({ services: [], profiles: { default: { name: "default" } }, autoName: false });
+  let config = $state<AppConfig>({
+    services: [],
+    profiles: { default: { name: "default" } },
+    autoName: false,
+  });
   let worktrees = $state<WorktreeInfo[]>([]);
   let selectedBranch = $state<string | null>(null);
   let removeBranch = $state<string | null>(null);
@@ -30,12 +34,22 @@
   let isMobile = $state(false);
   let sidebarOpen = $state(false);
   let activePane = $state(0);
-  let terminalRef: { sendSelectPane: (pane: number) => void; sendInput: (data: string) => void } | undefined = $state();
+  let terminalRef:
+    | {
+        sendSelectPane: (pane: number) => void;
+        sendInput: (data: string) => void;
+      }
+    | undefined = $state();
 
-  let visibleWorktrees = $derived(
-    worktrees.filter((w) => w.mux === "✓")
+  // Safety buffer after backend confirms paste-buffer completion.
+  // paste-buffer exits once tmux has queued the data, but the PTY write
+  // may not be fully flushed yet — this small delay lets it settle.
+  const ENTER_DELAY_MS = 200;
+
+  let visibleWorktrees = $derived(worktrees.filter((w) => w.mux === "✓"));
+  let selectedWorktree = $derived(
+    visibleWorktrees.find((w) => w.branch === selectedBranch),
   );
-  let selectedWorktree = $derived(visibleWorktrees.find((w) => w.branch === selectedBranch));
   let canConnect = $derived(!!selectedBranch);
 
   $effect(() => {
@@ -47,7 +61,10 @@
   let paneBarPanes = $derived.by(() => {
     const count = selectedWorktree?.paneCount ?? 0;
     if (count < 2) return [];
-    return Array.from({ length: count }, (_, i) => ({ index: i, label: String(i + 1) }));
+    return Array.from({ length: count }, (_, i) => ({
+      index: i,
+      label: String(i + 1),
+    }));
   });
   let showPaneBar = $derived(isMobile && canConnect && paneBarPanes.length > 0);
 
@@ -59,10 +76,20 @@
     }
   }
 
-  async function handleCreate(name: string, profile: string, agent: string, prompt: string) {
+  async function handleCreate(
+    name: string,
+    profile: string,
+    agent: string,
+    prompt: string,
+  ) {
     creating = true;
     try {
-      const result = await api.createWorktree(name || undefined, profile, agent, prompt || undefined);
+      const result = await api.createWorktree(
+        name || undefined,
+        profile,
+        agent,
+        prompt || undefined,
+      );
       await api.openWorktree(result.branch);
       showCreateDialog = false;
       await refresh();
@@ -95,7 +122,9 @@
     } catch (err) {
       alert(`Failed to remove: ${err instanceof Error ? err.message : err}`);
     } finally {
-      removingBranches = new Set([...removingBranches].filter((b) => b !== branch));
+      removingBranches = new Set(
+        [...removingBranches].filter((b) => b !== branch),
+      );
     }
   }
 
@@ -119,11 +148,12 @@
 
   function selectNeighborWorktree(direction: -1 | 1) {
     const selectable = visibleWorktrees.filter(
-      (w) => !removingBranches.has(w.branch)
+      (w) => !removingBranches.has(w.branch),
     );
     if (selectable.length === 0) return;
     if (!selectedBranch) {
-      selectedBranch = selectable[direction === 1 ? 0 : selectable.length - 1].branch;
+      selectedBranch =
+        selectable[direction === 1 ? 0 : selectable.length - 1].branch;
       return;
     }
     const idx = selectable.findIndex((w) => w.branch === selectedBranch);
@@ -164,7 +194,12 @@
   }
 
   onMount(() => {
-    api.fetchConfig().then(c => { config = c; }).catch(() => {});
+    api
+      .fetchConfig()
+      .then((c) => {
+        config = c;
+      })
+      .catch(() => {});
     refresh();
     const interval = setInterval(refresh, 5000);
     window.addEventListener("keydown", handleKeydown);
@@ -172,7 +207,9 @@
     const mq = window.matchMedia("(max-width: 768px)");
     isMobile = mq.matches;
     if (isMobile) sidebarOpen = true;
-    function onMqChange(e: MediaQueryListEvent) { isMobile = e.matches; }
+    function onMqChange(e: MediaQueryListEvent) {
+      isMobile = e.matches;
+    }
     mq.addEventListener("change", onMqChange);
 
     return () => {
@@ -191,10 +228,16 @@
       <div
         class="fixed inset-0 bg-black/50 z-40"
         onclick={() => (sidebarOpen = false)}
-        onkeydown={(e) => { if (e.key === "Escape") sidebarOpen = false; }}
+        onkeydown={(e) => {
+          if (e.key === "Escape") sidebarOpen = false;
+        }}
       ></div>
     {/if}
-    <aside class="{isMobile ? 'fixed inset-0 z-50 w-full' : 'w-[220px] min-w-[220px]'} bg-sidebar border-r border-edge flex flex-col overflow-hidden">
+    <aside
+      class="{isMobile
+        ? 'fixed inset-0 z-50 w-full'
+        : 'w-[220px] min-w-[220px]'} bg-sidebar border-r border-edge flex flex-col overflow-hidden"
+    >
       <div class="flex items-center justify-between p-4 border-b border-edge">
         <h1 class="text-base font-semibold">Dashboard</h1>
         <div class="flex items-center gap-2">
@@ -203,13 +246,14 @@
             onclick={() => (showCreateDialog = true)}
             disabled={creating}
             title="New Worktree (Cmd+K)"
-          ><span class="text-lg leading-none">+</span> New</button>
+            ><span class="text-lg leading-none">+</span> New</button
+          >
           {#if isMobile}
             <button
               class="h-8 w-8 rounded-md border border-edge bg-surface text-muted text-sm flex items-center justify-center cursor-pointer hover:bg-hover"
               onclick={() => (sidebarOpen = false)}
-              title="Close sidebar"
-            >&times;</button>
+              title="Close sidebar">&times;</button
+            >
           {/if}
         </div>
       </div>
@@ -217,15 +261,28 @@
         worktrees={visibleWorktrees}
         selected={selectedBranch}
         removing={removingBranches}
-        onselect={(b) => { selectedBranch = b; if (isMobile) sidebarOpen = false; }}
+        onselect={(b) => {
+          selectedBranch = b;
+          if (isMobile) sidebarOpen = false;
+        }}
         onremove={(b) => (removeBranch = b)}
       />
       {#if !isMobile}
-        <div class="shrink-0 border-t border-edge px-4 py-3 text-[11px] text-muted flex flex-col gap-1">
-          <div class="flex justify-between"><span>Navigate</span><kbd class="opacity-60">Cmd+Up/Down</kbd></div>
-          <div class="flex justify-between"><span>New worktree</span><kbd class="opacity-60">Cmd+K</kbd></div>
-          <div class="flex justify-between"><span>Merge</span><kbd class="opacity-60">Cmd+M</kbd></div>
-          <div class="flex justify-between"><span>Remove</span><kbd class="opacity-60">Cmd+D</kbd></div>
+        <div
+          class="shrink-0 border-t border-edge px-4 py-3 text-[11px] text-muted flex flex-col gap-1"
+        >
+          <div class="flex justify-between">
+            <span>Navigate</span><kbd class="opacity-60">Cmd+Up/Down</kbd>
+          </div>
+          <div class="flex justify-between">
+            <span>New worktree</span><kbd class="opacity-60">Cmd+K</kbd>
+          </div>
+          <div class="flex justify-between">
+            <span>Merge</span><kbd class="opacity-60">Cmd+M</kbd>
+          </div>
+          <div class="flex justify-between">
+            <span>Remove</span><kbd class="opacity-60">Cmd+D</kbd>
+          </div>
         </div>
       {/if}
     </aside>
@@ -238,8 +295,12 @@
       {sshHost}
       {isMobile}
       ontogglesidebar={() => (sidebarOpen = !sidebarOpen)}
-      onmerge={() => { if (selectedBranch) mergeBranch = selectedBranch; }}
-      onremove={() => { if (selectedBranch) removeBranch = selectedBranch; }}
+      onmerge={() => {
+        if (selectedBranch) mergeBranch = selectedBranch;
+      }}
+      onremove={() => {
+        if (selectedBranch) removeBranch = selectedBranch;
+      }}
       onsettings={() => (showSettingsDialog = true)}
       onciclick={(pr) => (ciDetailsPr = pr)}
     />
@@ -268,7 +329,10 @@
 {#if showCreateDialog}
   <CreateWorktreeDialog
     loading={creating}
-    profiles={[config.profiles.default, ...(config.profiles.sandbox ? [config.profiles.sandbox] : [])]}
+    profiles={[
+      config.profiles.default,
+      ...(config.profiles.sandbox ? [config.profiles.sandbox] : []),
+    ]}
     oncreate={handleCreate}
     oncancel={() => (showCreateDialog = false)}
   />
@@ -290,13 +354,19 @@
     loading={merging}
     error={mergeError}
     onconfirm={handleMerge}
-    oncancel={() => { mergeBranch = null; mergeError = ""; }}
+    oncancel={() => {
+      mergeBranch = null;
+      mergeError = "";
+    }}
   />
 {/if}
 
 {#if showSettingsDialog}
   <SettingsDialog
-    onsave={(host) => { sshHost = host; showSettingsDialog = false; }}
+    onsave={(host) => {
+      sshHost = host;
+      showSettingsDialog = false;
+    }}
     onclose={() => (showSettingsDialog = false)}
   />
 {/if}
@@ -308,9 +378,7 @@
     onclose={() => (ciDetailsPr = null)}
     onfixsuccess={() => {
       ciDetailsPr = null;
-      // Delay to let tmux finish streaming the paste buffer to the PTY
-      // before sending Enter — paste-buffer returns before the PTY write completes.
-      setTimeout(() => terminalRef?.sendInput("\r"), 300);
+      setTimeout(() => terminalRef?.sendInput("\r"), ENTER_DELAY_MS);
     }}
   />
 {/if}

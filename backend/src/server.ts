@@ -285,10 +285,10 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
     // POST /api/worktrees/:name/send
     if (parts[0] === "worktrees" && parts.length === 3 && parts[2] === "send" && method === "POST") {
       const name = decodeURIComponent(parts[1]);
-      const body = await req.json() as { text?: string };
+      const body = await req.json() as { text?: string; preamble?: string };
       if (!body.text) return errorResponse("Missing 'text' field", 400);
       console.log(`[worktree:send] name=${name} text="${body.text.slice(0, 80)}"`);
-      const result = sendPrompt(name, body.text);
+      const result = sendPrompt(name, body.text, 0, body.preamble);
       if (!result.ok) return errorResponse(result.error, 404);
       return jsonResponse({ ok: true });
     }
@@ -306,16 +306,32 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
     if (parts[0] === "ci-logs" && parts.length === 2 && method === "GET") {
       const runId = parts[1];
       if (!/^\d+$/.test(runId)) return errorResponse("Invalid run ID", 400);
-      const result = Bun.spawnSync(["gh", "run", "view", runId, "--log-failed"], {
+      const result = Bun.spawnSync(["gh", "run", "view", runId, "--log"], {
         stdout: "pipe",
         stderr: "pipe",
       });
-      const logs = new TextDecoder().decode(result.stdout);
-      if (result.exitCode !== 0) {
-        const stderr = new TextDecoder().decode(result.stderr).trim();
-        return errorResponse(`Failed to fetch logs: ${stderr}`, 502);
+
+      if (result.exitCode === 0) {
+        const logs = new TextDecoder().decode(result.stdout);
+        return jsonResponse({ logs });
       }
-      return jsonResponse({ logs });
+
+      // Fallback for cases where full logs are unavailable.
+      const fallback = Bun.spawnSync(["gh", "run", "view", runId, "--log-failed"], {
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      if (fallback.exitCode === 0) {
+        const logs = new TextDecoder().decode(fallback.stdout);
+        return jsonResponse({ logs });
+      }
+
+      const stderr = new TextDecoder().decode(result.stderr).trim();
+      const fallbackStderr = new TextDecoder().decode(fallback.stderr).trim();
+      return errorResponse(
+        `Failed to fetch logs: ${stderr || "unknown error"}${fallbackStderr ? ` (fallback: ${fallbackStderr})` : ""}`,
+        502
+      );
     }
 
     // GET /api/worktrees/:name/status

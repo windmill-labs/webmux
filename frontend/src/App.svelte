@@ -302,5 +302,9 @@
 {/if}
 
 {#if ciDetailsPr}
-  <CiDetailsDialog pr={ciDetailsPr} onclose={() => (ciDetailsPr = null)} />
+  <CiDetailsDialog
+    pr={ciDetailsPr}
+    branch={selectedWorktree?.branch ?? ""}
+    onclose={() => (ciDetailsPr = null)}
+  />
 {/if}

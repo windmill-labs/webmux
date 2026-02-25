@@ -51,3 +51,10 @@ export async function fetchCiLogs(runId: number): Promise<string> {
   const data = await api<{ logs: string }>(`ci-logs/${runId}`);
   return data.logs;
 }
+
+export async function sendWorktreePrompt(branch: string, text: string, preamble?: string): Promise<void> {
+  await api(`worktrees/${encodeURIComponent(branch)}/send`, {
+    method: "POST",
+    body: JSON.stringify({ text, ...(preamble ? { preamble } : {}) }),
+  });
+}

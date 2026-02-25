@@ -285,10 +285,10 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
     // POST /api/worktrees/:name/send
     if (parts[0] === "worktrees" && parts.length === 3 && parts[2] === "send" && method === "POST") {
       const name = decodeURIComponent(parts[1]);
-      const body = await req.json() as { text?: string };
+      const body = await req.json() as { text?: string; preamble?: string };
       if (!body.text) return errorResponse("Missing 'text' field", 400);
       console.log(`[worktree:send] name=${name} text="${body.text.slice(0, 80)}"`);
-      const result = sendPrompt(name, body.text);
+      const result = sendPrompt(name, body.text, 0, body.preamble);
       if (!result.ok) return errorResponse(result.error, 404);
       return jsonResponse({ ok: true });
     }
@@ -310,12 +310,14 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
         stdout: "pipe",
         stderr: "pipe",
       });
-      const logs = new TextDecoder().decode(result.stdout);
-      if (result.exitCode !== 0) {
-        const stderr = new TextDecoder().decode(result.stderr).trim();
-        return errorResponse(`Failed to fetch logs: ${stderr}`, 502);
+
+      if (result.exitCode === 0) {
+        const logs = new TextDecoder().decode(result.stdout);
+        return jsonResponse({ logs });
       }
-      return jsonResponse({ logs });
+
+      const stderr = new TextDecoder().decode(result.stderr).trim();
+      return errorResponse(`Failed to fetch logs: ${stderr || "unknown error"}`, 502);
     }
 
     // GET /api/worktrees/:name/status

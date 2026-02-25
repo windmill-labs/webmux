@@ -325,17 +325,81 @@ export async function removeWorktree(name: string): Promise<string> {
   return result;
 }
 
-export function sendPrompt(branch: string, text: string, pane = 0): { ok: true } | { ok: false; error: string } {
-  const session = `wm-${branch}`;
-  const check = Bun.spawnSync(["tmux", "has-session", "-t", session], { stderr: "pipe" });
-  if (check.exitCode !== 0) {
-    return { ok: false, error: `tmux session "${session}" not found` };
+export function sendPrompt(
+  branch: string,
+  text: string,
+  pane = 0,
+  preamble?: string,
+): { ok: true } | { ok: false; error: string } {
+  const windowName = `wm-${branch}`;
+  const session = findWorktreeSession(windowName);
+  if (!session) {
+    return { ok: false, error: `tmux window "${windowName}" not found` };
   }
-  const result = Bun.spawnSync(["tmux", "send-keys", "-t", `${session}.${pane}`, text, "Enter"]);
-  if (result.exitCode !== 0) {
-    return { ok: false, error: `send-keys failed (exit ${result.exitCode})` };
+  const target = `${session}:${windowName}.${pane}`;
+
+  // Type the preamble as regular keystrokes so it shows inline in the agent,
+  // then paste the bulk payload via a tmux buffer (appears as [pasted text]).
+  if (preamble) {
+    const pre = Bun.spawnSync(["tmux", "send-keys", "-t", target, "-l", "--", preamble], { stderr: "pipe" });
+    if (pre.exitCode !== 0) {
+      const stderr = new TextDecoder().decode(pre.stderr).trim();
+      return { ok: false, error: `send-keys preamble failed (exit ${pre.exitCode})${stderr ? `: ${stderr}` : ""}` };
+    }
   }
+
+  const cleaned = text.replace(/\0/g, "");
+
+  // Use a unique buffer name per invocation to avoid races when concurrent
+  // sendPrompt calls overlap (e.g. two worktrees sending at the same time).
+  const bufName = `wm-prompt-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+  // Load text into a named tmux buffer via stdin — avoids all send-keys
+  // escaping/chunking issues and handles any text size in a single operation.
+  const load = Bun.spawnSync(["tmux", "load-buffer", "-b", bufName, "-"], {
+    stdin: new TextEncoder().encode(cleaned),
+    stderr: "pipe",
+  });
+  if (load.exitCode !== 0) {
+    const stderr = new TextDecoder().decode(load.stderr).trim();
+    return { ok: false, error: `load-buffer failed (exit ${load.exitCode})${stderr ? `: ${stderr}` : ""}` };
+  }
+
+  // Paste buffer into target pane; -d deletes the buffer after pasting.
+  const paste = Bun.spawnSync(["tmux", "paste-buffer", "-b", bufName, "-t", target, "-d"], {
+    stderr: "pipe",
+  });
+  if (paste.exitCode !== 0) {
+    const stderr = new TextDecoder().decode(paste.stderr).trim();
+    return { ok: false, error: `paste-buffer failed (exit ${paste.exitCode})${stderr ? `: ${stderr}` : ""}` };
+  }
+
+  // Submit
+  const enter = Bun.spawnSync(["tmux", "send-keys", "-t", target, "Enter"], { stderr: "pipe" });
+  if (enter.exitCode !== 0) {
+    const stderr = new TextDecoder().decode(enter.stderr).trim();
+    return { ok: false, error: `send-keys Enter failed (exit ${enter.exitCode})${stderr ? `: ${stderr}` : ""}` };
+  }
+
   return { ok: true };
+}
+
+function findWorktreeSession(windowName: string): string | null {
+  const result = Bun.spawnSync(
+    ["tmux", "list-windows", "-a", "-F", "#{session_name}:#{window_name}"],
+    { stdout: "pipe", stderr: "pipe" }
+  );
+  if (result.exitCode !== 0) return null;
+  const output = new TextDecoder().decode(result.stdout).trim();
+  if (!output) return null;
+  for (const line of output.split("\n")) {
+    const colonIdx = line.indexOf(":");
+    if (colonIdx === -1) continue;
+    const session = line.slice(0, colonIdx);
+    const name = line.slice(colonIdx + 1);
+    if (name === windowName) return session;
+  }
+  return null;
 }
 
 export async function openWorktree(name: string): Promise<string> {

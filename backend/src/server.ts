@@ -22,15 +22,12 @@ import {
 } from "./terminal";
 import { loadConfig, type WmdevConfig } from "./config";
 import { startPrMonitor, type PrEntry } from "./pr";
+import { ts } from "./lib/utils";
 
-const PORT = parseInt(process.env.DASHBOARD_PORT || "5111");
-const STATIC_DIR = process.env.WMDEV_STATIC_DIR || "";
-const PROJECT_DIR = process.env.WMDEV_PROJECT_DIR || process.cwd();
+const PORT = parseInt(Bun.env.DASHBOARD_PORT || "5111");
+const STATIC_DIR = Bun.env.WMDEV_STATIC_DIR || "";
+const PROJECT_DIR = Bun.env.WMDEV_PROJECT_DIR || process.cwd();
 const config: WmdevConfig = loadConfig(PROJECT_DIR);
-
-function ts(): string {
-  return new Date().toISOString().slice(11, 23);
-}
 
 /** Map branch name → worktree directory using git worktree list.
  *  Skips the main working tree (always the first entry) since it's not
@@ -162,7 +159,7 @@ Bun.serve<WsData>({
           case "selectPane":
             if (ws.data.attached && typeof msg.pane === "number") {
               console.log(`[ws:${ts()}] selectPane pane=${msg.pane} worktree=${worktree}`);
-              selectPane(worktree, msg.pane);
+              await selectPane(worktree, msg.pane);
             }
             break;
           case "resize":
@@ -190,7 +187,7 @@ Bun.serve<WsData>({
                 ws.close();
               }
             } else {
-              resize(worktree, msg.cols, msg.rows);
+              await resize(worktree, msg.cols, msg.rows);
             }
             break;
         }

@@ -30,7 +30,12 @@
   let isMobile = $state(false);
   let sidebarOpen = $state(false);
   let activePane = $state(0);
-  let terminalRef: { sendSelectPane: (pane: number) => void } | undefined = $state();
+  let terminalRef: { sendSelectPane: (pane: number) => void; sendInput: (data: string) => void } | undefined = $state();
+
+  // Safety buffer after backend confirms paste-buffer completion.
+  // paste-buffer exits once tmux has queued the data, but the PTY write
+  // may not be fully flushed yet — this small delay lets it settle.
+  const ENTER_DELAY_MS = 200;
 
   let visibleWorktrees = $derived(
     worktrees.filter((w) => w.mux === "✓")
@@ -306,5 +311,9 @@
     pr={ciDetailsPr}
     branch={selectedWorktree?.branch ?? ""}
     onclose={() => (ciDetailsPr = null)}
+    onfixsuccess={() => {
+      ciDetailsPr = null;
+      setTimeout(() => terminalRef?.sendInput("\r"), ENTER_DELAY_MS);
+    }}
   />
 {/if}

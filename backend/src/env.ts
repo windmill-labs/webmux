@@ -1,8 +1,7 @@
 /** Read key=value pairs from a worktree's .env.local file. */
-export function readEnvLocal(wtDir: string): Record<string, string> {
+export async function readEnvLocal(wtDir: string): Promise<Record<string, string>> {
   try {
-    const content = Bun.spawnSync(["cat", `${wtDir}/.env.local`], { stdout: "pipe" });
-    const text = new TextDecoder().decode(content.stdout).trim();
+    const text = (await Bun.file(`${wtDir}/.env.local`).text()).trim();
     const env: Record<string, string> = {};
     for (const line of text.split("\n")) {
       const match = line.match(/^(\w+)=(.*)$/);
@@ -14,15 +13,12 @@ export function readEnvLocal(wtDir: string): Record<string, string> {
   }
 }
 
-
 /** Upsert a key=value pair in a worktree's .env.local file. */
-export function upsertEnvLocal(wtDir: string, key: string, value: string): void {
+export async function upsertEnvLocal(wtDir: string, key: string, value: string): Promise<void> {
   const filePath = `${wtDir}/.env.local`;
-  const file = Bun.file(filePath);
   let lines: string[] = [];
   try {
-    const text = Bun.spawnSync(["cat", filePath], { stdout: "pipe" });
-    const content = new TextDecoder().decode(text.stdout).trim();
+    const content = (await Bun.file(filePath).text()).trim();
     if (content) lines = content.split("\n");
   } catch {
     // File doesn't exist yet, start with empty lines
@@ -36,5 +32,5 @@ export function upsertEnvLocal(wtDir: string, key: string, value: string): void 
     lines.push(`${key}=${value}`);
   }
 
-  Bun.write(file, lines.join("\n") + "\n");
+  await Bun.write(filePath, lines.join("\n") + "\n");
 }

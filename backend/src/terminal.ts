@@ -163,7 +163,9 @@ export function write(worktreeName: string, data: string): void {
     console.log(`[term:${ts()}] write(${worktreeName}) NO STDIN - input dropped (${data.length} bytes)`);
     return;
   }
-  (session.proc.stdin as FileSink).write(new TextEncoder().encode(data));
+  const sink = session.proc.stdin as FileSink;
+  sink.write(new TextEncoder().encode(data));
+  sink.flush();
 }
 
 export function resize(worktreeName: string, cols: number, rows: number): void {

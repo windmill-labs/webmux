@@ -68,22 +68,23 @@ function mapChecks(checks: GhCheckEntry[]): CiCheck[] {
 }
 
 /** Fetch all PRs from a repo via gh CLI. Returns a map of branch name → PrEntry. */
-export function fetchAllPrs(repoSlug?: string, repoLabel?: string): Map<string, PrEntry> {
-  const args = ["gh", "pr", "list", "--state", "all", "--json", "number,headRefName,state,statusCheckRollup,url", "--limit", "100"];
+export async function fetchAllPrs(repoSlug?: string, repoLabel?: string): Promise<Map<string, PrEntry>> {
+  const args = ["gh", "pr", "list", "--state", "open", "--json", "number,headRefName,state,statusCheckRollup,url", "--limit", "50"];
   if (repoSlug) args.push("--repo", repoSlug);
 
-  const result = Bun.spawnSync(args, { stdout: "pipe", stderr: "pipe" });
+  const proc = Bun.spawn(args, { stdout: "pipe", stderr: "pipe" });
+  const exitCode = await proc.exited;
 
   const prs = new Map<string, PrEntry>();
-  if (result.exitCode !== 0) {
-    const stderr = new TextDecoder().decode(result.stderr).trim();
+  if (exitCode !== 0) {
+    const stderr = (await new Response(proc.stderr).text()).trim();
     const label = repoSlug ?? "current";
     console.error(`[pr] gh pr list failed for ${label}: ${stderr}`);
     return prs;
   }
 
   try {
-    const entries: GhPrEntry[] = JSON.parse(new TextDecoder().decode(result.stdout));
+    const entries: GhPrEntry[] = JSON.parse(await new Response(proc.stdout).text());
     for (const entry of entries) {
       // If multiple PRs for same branch in same repo, the first (most recent) wins
       if (prs.has(entry.headRefName)) continue;
@@ -105,15 +106,15 @@ export function fetchAllPrs(repoSlug?: string, repoLabel?: string): Map<string, 
 }
 
 /** Sync PR status to .env.local for all worktrees that have PRs. */
-export function syncPrStatus(
+export async function syncPrStatus(
   getWorktreePaths: () => Map<string, string>,
   linkedRepos: LinkedRepoConfig[],
-): void {
-  // Fetch PRs from current repo (repo label = "") + each linked repo (repo label = alias)
-  const allRepoResults: Map<string, PrEntry>[] = [fetchAllPrs()];
-  for (const { repo, alias } of linkedRepos) {
-    allRepoResults.push(fetchAllPrs(repo, alias));
-  }
+): Promise<void> {
+  // Fetch current repo + all linked repos in parallel
+  const allRepoResults = await Promise.all([
+    fetchAllPrs(),
+    ...linkedRepos.map(({ repo, alias }) => fetchAllPrs(repo, alias)),
+  ]);
 
   // Group by branch → PrEntry[]
   const branchPrs = new Map<string, PrEntry[]>();
@@ -135,7 +136,7 @@ export function syncPrStatus(
     if (!wtDir || seen.has(wtDir)) continue;
     seen.add(wtDir);
 
-    upsertEnvLocal(wtDir, "PR_DATA", JSON.stringify(entries));
+    await upsertEnvLocal(wtDir, "PR_DATA", JSON.stringify(entries));
   }
 
   console.log(`[pr] synced ${seen.size} worktree(s) with PR data from ${allRepoResults.length} repo(s)`);
@@ -145,14 +146,18 @@ export function syncPrStatus(
 export function startPrMonitor(
   getWorktreePaths: () => Map<string, string>,
   linkedRepos: LinkedRepoConfig[],
-  intervalMs: number = 15_000,
+  intervalMs: number = 20_000,
 ): () => void {
-  // Run once immediately
-  syncPrStatus(getWorktreePaths, linkedRepos);
+  const run = (): void => {
+    syncPrStatus(getWorktreePaths, linkedRepos).catch((err: unknown) => {
+      console.error(`[pr] sync error: ${err}`);
+    });
+  };
 
-  const timer = setInterval(() => {
-    syncPrStatus(getWorktreePaths, linkedRepos);
-  }, intervalMs);
+  // Run once immediately (non-blocking)
+  run();
+
+  const timer = setInterval(run, intervalMs);
 
   return (): void => {
     clearInterval(timer);

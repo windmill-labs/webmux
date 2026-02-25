@@ -23,6 +23,12 @@
     }
   }
 
+  export function sendInput(data: string) {
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "input", data }));
+    }
+  }
+
   onMount(() => {
     term = new Terminal({
       cursorBlink: true,

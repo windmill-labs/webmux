@@ -227,7 +227,7 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
           s.worktree.includes(wt.branch) || s.worktree.startsWith(wt.branch)
         );
         const wtDir = wtPaths.get(wt.branch);
-        const env = wtDir ? readEnvLocal(wtDir) : {};
+        const env = wtDir ? await readEnvLocal(wtDir) : {};
         const services = await Promise.all(
           config.services.map(async (svc) => {
             const port = env[svc.portEnv] ? parseInt(env[svc.portEnv]) : null;
@@ -296,7 +296,7 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
       const body = await req.json() as { text?: string; preamble?: string };
       if (!body.text) return errorResponse("Missing 'text' field", 400);
       console.log(`[worktree:send] name=${name} text="${body.text.slice(0, 80)}"`);
-      const result = sendPrompt(name, body.text, 0, body.preamble);
+      const result = await sendPrompt(name, body.text, 0, body.preamble);
       if (!result.ok) return errorResponse(result.error, 404);
       return jsonResponse({ ok: true });
     }
@@ -314,17 +314,18 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
     if (parts[0] === "ci-logs" && parts.length === 2 && method === "GET") {
       const runId = parts[1];
       if (!/^\d+$/.test(runId)) return errorResponse("Invalid run ID", 400);
-      const result = Bun.spawnSync(["gh", "run", "view", runId, "--log-failed"], {
+      const proc = Bun.spawn(["gh", "run", "view", runId, "--log-failed"], {
         stdout: "pipe",
         stderr: "pipe",
       });
+      const exitCode = await proc.exited;
 
-      if (result.exitCode === 0) {
-        const logs = new TextDecoder().decode(result.stdout);
+      if (exitCode === 0) {
+        const logs = await new Response(proc.stdout).text();
         return jsonResponse({ logs });
       }
 
-      const stderr = new TextDecoder().decode(result.stderr).trim();
+      const stderr = (await new Response(proc.stderr).text()).trim();
       return errorResponse(`Failed to fetch logs: ${stderr || "unknown error"}`, 502);
     }
 

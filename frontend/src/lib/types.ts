@@ -4,12 +4,20 @@ export interface ServiceStatus {
   running: boolean;
 }
 
+export interface CiCheck {
+  name: string;
+  status: string;
+  url: string;
+  runId: number;
+}
+
 export interface PrEntry {
   repo: string;
   number: number;
   state: string;
   url: string;
-  ciChecks: string;
+  ciStatus: string;
+  ciChecks: CiCheck[];
 }
 
 export interface WorktreeInfo {

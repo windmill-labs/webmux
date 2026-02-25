@@ -1,29 +1,70 @@
 import { upsertEnvLocal } from "./env";
 import type { LinkedRepoConfig } from "./config";
 
+export interface CiCheck {
+  name: string;
+  status: string;
+  url: string;
+  runId: number;
+}
+
 export interface PrEntry {
   repo: string;
   number: number;
   state: string;
   url: string;
-  ciChecks: string;
+  ciStatus: string;
+  ciChecks: CiCheck[];
+}
+
+interface GhCheckEntry {
+  conclusion: string;
+  status: string;
+  name: string;
+  detailsUrl: string;
 }
 
 interface GhPrEntry {
   number: number;
   headRefName: string;
   state: string;
-  statusCheckRollup: Array<{ conclusion: string; status: string }>;
+  statusCheckRollup: GhCheckEntry[];
   url: string;
 }
 
 /** Summarize CI check status from statusCheckRollup array. */
-function summarizeChecks(checks: Array<{ conclusion: string; status: string }>): string {
+function summarizeChecks(checks: GhCheckEntry[]): string {
   if (!checks || checks.length === 0) return "none";
   const allDone = checks.every((c) => c.status === "COMPLETED");
   if (!allDone) return "pending";
   const allPass = checks.every((c) => c.conclusion === "SUCCESS" || c.conclusion === "NEUTRAL" || c.conclusion === "SKIPPED");
   return allPass ? "success" : "failed";
+}
+
+/** Parse run ID from a GitHub Actions details URL. */
+function parseRunId(detailsUrl: string): number {
+  const match = detailsUrl.match(/\/actions\/runs\/(\d+)/);
+  return match ? parseInt(match[1], 10) : 0;
+}
+
+/** Derive per-check status string from GH conclusion/status fields. */
+function deriveCheckStatus(check: GhCheckEntry): string {
+  if (check.status !== "COMPLETED") return "pending";
+  const c = check.conclusion;
+  if (c === "SUCCESS" || c === "NEUTRAL") return "success";
+  if (c === "SKIPPED") return "skipped";
+  return "failed";
+}
+
+/** Map raw GH check entries to typed CiCheck array. */
+function mapChecks(checks: GhCheckEntry[]): CiCheck[] {
+  if (!checks || checks.length === 0) return [];
+  return checks.map((c) => ({
+    name: c.name,
+    status: deriveCheckStatus(c),
+    url: c.detailsUrl,
+    runId: parseRunId(c.detailsUrl),
+  }));
 }
 
 /** Fetch all PRs from a repo via gh CLI. Returns a map of branch name → PrEntry. */
@@ -51,7 +92,8 @@ export function fetchAllPrs(repoSlug?: string, repoLabel?: string): Map<string, 
         number: entry.number,
         state: entry.state.toLowerCase(),
         url: entry.url,
-        ciChecks: summarizeChecks(entry.statusCheckRollup),
+        ciStatus: summarizeChecks(entry.statusCheckRollup),
+        ciChecks: mapChecks(entry.statusCheckRollup),
       });
     }
   } catch (err) {

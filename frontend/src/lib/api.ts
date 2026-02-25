@@ -46,3 +46,8 @@ export function openWorktree(name: string): Promise<unknown> {
 export function mergeWorktree(name: string): Promise<unknown> {
   return api(`worktrees/${encodeURIComponent(name)}/merge`, { method: "POST" });
 }
+
+export async function fetchCiLogs(runId: number): Promise<string> {
+  const data = await api<{ logs: string }>(`ci-logs/${runId}`);
+  return data.logs;
+}

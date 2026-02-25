@@ -1,6 +1,7 @@
 <script lang="ts">
-  import type { WorktreeInfo } from "./types";
+  import type { WorktreeInfo, PrEntry } from "./types";
   import PrBadge from "./PrBadge.svelte";
+  import CiBadge from "./CiBadge.svelte";
 
   let {
     name,
@@ -11,6 +12,7 @@
     onmerge,
     onremove,
     onsettings,
+    onciclick,
   }: {
     name: string | null;
     worktree: WorktreeInfo | undefined;
@@ -20,6 +22,7 @@
     onmerge: () => void;
     onremove: () => void;
     onsettings: () => void;
+    onciclick: (pr: PrEntry) => void;
   } = $props();
 
   let cursorUrl = $derived.by(() => {
@@ -70,6 +73,9 @@
     >
     {#each worktree?.prs ?? [] as pr (pr.repo)}
       <PrBadge {pr} clickable />
+      {#if pr.ciChecks && pr.ciChecks.length > 0}
+        <CiBadge {pr} onclick={onciclick} />
+      {/if}
     {/each}
     {#if !isMobile}
       {#each worktree?.services ?? [] as svc}

@@ -6,8 +6,9 @@
   import ConfirmDialog from "./lib/ConfirmDialog.svelte";
   import CreateWorktreeDialog from "./lib/CreateWorktreeDialog.svelte";
   import SettingsDialog from "./lib/SettingsDialog.svelte";
+  import CiDetailsDialog from "./lib/CiDetailsDialog.svelte";
   import PaneBar from "./lib/PaneBar.svelte";
-  import type { WorktreeInfo, AppConfig } from "./lib/types";
+  import type { WorktreeInfo, AppConfig, PrEntry } from "./lib/types";
   import * as api from "./lib/api";
 
   let config = $state<AppConfig>({ services: [], profiles: { default: { name: "default" } }, autoName: false });
@@ -21,6 +22,7 @@
   const SSH_STORAGE_KEY = "wt-ssh-host";
   let showCreateDialog = $state(false);
   let showSettingsDialog = $state(false);
+  let ciDetailsPr = $state<PrEntry | null>(null);
   let creating = $state(false);
   let sshHost = $state(localStorage.getItem(SSH_STORAGE_KEY) ?? "");
 
@@ -239,6 +241,7 @@
       onmerge={() => { if (selectedBranch) mergeBranch = selectedBranch; }}
       onremove={() => { if (selectedBranch) removeBranch = selectedBranch; }}
       onsettings={() => (showSettingsDialog = true)}
+      onciclick={(pr) => (ciDetailsPr = pr)}
     />
 
     {#if canConnect}
@@ -296,4 +299,8 @@
     onsave={(host) => { sshHost = host; showSettingsDialog = false; }}
     onclose={() => (showSettingsDialog = false)}
   />
+{/if}
+
+{#if ciDetailsPr}
+  <CiDetailsDialog pr={ciDetailsPr} onclose={() => (ciDetailsPr = null)} />
 {/if}

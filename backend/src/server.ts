@@ -290,6 +290,22 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
       return jsonResponse({ message: result });
     }
 
+    // GET /api/ci-logs/:runId
+    if (parts[0] === "ci-logs" && parts.length === 2 && method === "GET") {
+      const runId = parts[1];
+      if (!/^\d+$/.test(runId)) return errorResponse("Invalid run ID", 400);
+      const result = Bun.spawnSync(["gh", "run", "view", runId, "--log-failed"], {
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const logs = new TextDecoder().decode(result.stdout);
+      if (result.exitCode !== 0) {
+        const stderr = new TextDecoder().decode(result.stderr).trim();
+        return errorResponse(`Failed to fetch logs: ${stderr}`, 502);
+      }
+      return jsonResponse({ logs });
+    }
+
     // GET /api/worktrees/:name/status
     if (parts[0] === "worktrees" && parts.length === 3 && parts[2] === "status" && method === "GET") {
       const name = decodeURIComponent(parts[1]);

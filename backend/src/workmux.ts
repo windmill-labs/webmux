@@ -325,6 +325,29 @@ export async function removeWorktree(name: string): Promise<string> {
   return result;
 }
 
+const TMUX_TIMEOUT_MS = 5_000;
+
+/** Run a tmux subprocess and await exit with a timeout. Kills the process on timeout. */
+async function tmuxExec(args: string[], opts: { stdin?: Uint8Array } = {}): Promise<{ exitCode: number; stderr: string }> {
+  const proc = Bun.spawn(args, {
+    stdin: opts.stdin ?? "ignore",
+    stdout: "ignore",
+    stderr: "pipe",
+  });
+
+  const timeout = Bun.sleep(TMUX_TIMEOUT_MS).then(() => {
+    proc.kill();
+    return "timeout" as const;
+  });
+
+  const result = await Promise.race([proc.exited, timeout]);
+  if (result === "timeout") {
+    return { exitCode: -1, stderr: "timed out after 5s (agent may be busy)" };
+  }
+  const stderr = (await new Response(proc.stderr).text()).trim();
+  return { exitCode: result, stderr };
+}
+
 export async function sendPrompt(
   branch: string,
   text: string,
@@ -337,15 +360,17 @@ export async function sendPrompt(
     return { ok: false, error: `tmux window "${windowName}" not found` };
   }
   const target = `${session}:${windowName}.${pane}`;
+  console.log(`[send:${branch}] target=${target} textBytes=${text.length}${preamble ? ` preamble=${preamble.length}b` : ""}`);
 
   // Type the preamble as regular keystrokes so it shows inline in the agent,
   // then paste the bulk payload via a tmux buffer (appears as [pasted text]).
   if (preamble) {
-    const pre = Bun.spawn(["tmux", "send-keys", "-t", target, "-l", "--", preamble], { stderr: "pipe" });
-    if (await pre.exited !== 0) {
-      const stderr = (await new Response(pre.stderr).text()).trim();
+    console.log(`[send:${branch}] send-keys preamble start`);
+    const { exitCode, stderr } = await tmuxExec(["tmux", "send-keys", "-t", target, "-l", "--", preamble]);
+    if (exitCode !== 0) {
       return { ok: false, error: `send-keys preamble failed${stderr ? `: ${stderr}` : ""}` };
     }
+    console.log(`[send:${branch}] send-keys preamble done`);
   }
 
   const cleaned = text.replace(/\0/g, "");
@@ -356,30 +381,20 @@ export async function sendPrompt(
 
   // Load text into a named tmux buffer via stdin — avoids all send-keys
   // escaping/chunking issues and handles any text size in a single operation.
-  const load = Bun.spawn(["tmux", "load-buffer", "-b", bufName, "-"], {
-    stdin: new TextEncoder().encode(cleaned),
-    stderr: "pipe",
-  });
-  if (await load.exited !== 0) {
-    const stderr = (await new Response(load.stderr).text()).trim();
-    return { ok: false, error: `load-buffer failed${stderr ? `: ${stderr}` : ""}` };
+  console.log(`[send:${branch}] load-buffer start buf=${bufName}`);
+  const load = await tmuxExec(["tmux", "load-buffer", "-b", bufName, "-"], { stdin: new TextEncoder().encode(cleaned) });
+  if (load.exitCode !== 0) {
+    return { ok: false, error: `load-buffer failed${load.stderr ? `: ${load.stderr}` : ""}` };
   }
+  console.log(`[send:${branch}] load-buffer done`);
 
   // Paste buffer into target pane; -d deletes the buffer after pasting.
-  const paste = Bun.spawn(["tmux", "paste-buffer", "-b", bufName, "-t", target, "-d"], {
-    stderr: "pipe",
-  });
-  if (await paste.exited !== 0) {
-    const stderr = (await new Response(paste.stderr).text()).trim();
-    return { ok: false, error: `paste-buffer failed${stderr ? `: ${stderr}` : ""}` };
+  console.log(`[send:${branch}] paste-buffer start`);
+  const paste = await tmuxExec(["tmux", "paste-buffer", "-b", bufName, "-t", target, "-d"]);
+  if (paste.exitCode !== 0) {
+    return { ok: false, error: `paste-buffer failed${paste.stderr ? `: ${paste.stderr}` : ""}` };
   }
-
-  // Submit
-  const enter = Bun.spawn(["tmux", "send-keys", "-t", target, "Enter"], { stderr: "pipe" });
-  if (await enter.exited !== 0) {
-    const stderr = (await new Response(enter.stderr).text()).trim();
-    return { ok: false, error: `send-keys Enter failed${stderr ? `: ${stderr}` : ""}` };
-  }
+  console.log(`[send:${branch}] done`);
 
   return { ok: true };
 }

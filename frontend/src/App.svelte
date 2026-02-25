@@ -30,7 +30,7 @@
   let isMobile = $state(false);
   let sidebarOpen = $state(false);
   let activePane = $state(0);
-  let terminalRef: { sendSelectPane: (pane: number) => void } | undefined = $state();
+  let terminalRef: { sendSelectPane: (pane: number) => void; sendInput: (data: string) => void } | undefined = $state();
 
   let visibleWorktrees = $derived(
     worktrees.filter((w) => w.mux === "✓")
@@ -306,5 +306,11 @@
     pr={ciDetailsPr}
     branch={selectedWorktree?.branch ?? ""}
     onclose={() => (ciDetailsPr = null)}
+    onfixsuccess={() => {
+      ciDetailsPr = null;
+      // Delay to let tmux finish streaming the paste buffer to the PTY
+      // before sending Enter — paste-buffer returns before the PTY write completes.
+      setTimeout(() => terminalRef?.sendInput("\r"), 300);
+    }}
   />
 {/if}

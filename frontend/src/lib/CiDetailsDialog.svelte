@@ -6,10 +6,12 @@
     pr,
     branch,
     onclose,
+    onfixsuccess,
   }: {
     pr: PrEntry;
     branch: string;
     onclose: () => void;
+    onfixsuccess: () => void;
   } = $props();
 
   let dialogEl: HTMLDialogElement;
@@ -20,7 +22,6 @@
   let copied = $state(false);
   let fixLoading = $state<number | null>(null);
   let fixError = $state("");
-  let fixSuccess = $state(false);
 
   function stripAnsi(input: string): string {
     return input
@@ -59,7 +60,6 @@
     logsLoading = true;
     copied = false;
     fixError = "";
-    fixSuccess = false;
     try {
       logs = await fetchCiLogs(runId);
     } catch (err) {
@@ -72,22 +72,19 @@
   async function handleFix(checkName: string): Promise<void> {
     if (!branch) return;
     fixError = "";
-    fixSuccess = false;
     fixLoading = expandedRunId ?? -1;
-    const preamble = [
-      "Fix the failing CI check.",
-      `PR: ${label}`,
-      `Check: ${checkName}`,
-      "",
-      "Logs:",
-    ].join("\n") + "\n";
+    const preamble =
+      [
+        "Fix the failing CI check.",
+        `PR: ${label}`,
+        `Check: ${checkName}`,
+        "",
+        "Logs:",
+      ].join("\n") + "\n";
     const sanitizedLogs = normalizeLogsForPrompt(logs);
     try {
       await sendWorktreePrompt(branch, sanitizedLogs, preamble);
-      fixSuccess = true;
-      setTimeout(() => {
-        fixSuccess = false;
-      }, 3000);
+      onfixsuccess();
     } catch (err) {
       fixError = err instanceof Error ? err.message : String(err);
     } finally {
@@ -197,8 +194,6 @@
             {/if}
             {#if fixError}
               <div class="text-[12px] text-danger py-1.5">{fixError}</div>
-            {:else if fixSuccess}
-              <div class="text-[12px] text-success py-1.5">Sent to agent.</div>
             {/if}
           </div>
         {/if}

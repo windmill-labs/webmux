@@ -239,8 +239,8 @@ export async function findContainer(branch: string): Promise<string | null> {
     .filter(Boolean)
     .filter(n => n.startsWith(prefix) && /^\d+$/.test(n.slice(prefix.length)));
 
-  // docker ps lists containers oldest-first; return the last (most recently started).
-  return names.at(-1) ?? null;
+  // docker ps lists containers newest-first; return the first match.
+  return names.at(0) ?? null;
 }
 
 /**

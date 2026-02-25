@@ -245,7 +245,10 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
           agentName: env.AGENT || null,
           services,
           paneCount: wt.mux === "✓" ? getTmuxPaneCount(wt.branch) : 0,
-          prs: env.PR_DATA ? (JSON.parse(env.PR_DATA) as PrEntry[]) : [],
+          prs: (() => {
+            if (!env.PR_DATA) return [];
+            try { return JSON.parse(env.PR_DATA) as PrEntry[]; } catch { return []; }
+          })(),
         };
       }));
       return jsonResponse(merged);
@@ -353,6 +356,6 @@ if (tmuxCheck.exitCode !== 0) {
 }
 
 cleanupStaleSessions();
-startPrMonitor(getWorktreePaths, config.linkedRepos);
+startPrMonitor(getWorktreePaths, config.linkedRepos, PROJECT_DIR);
 
 console.log(`Dev Dashboard API running at http://localhost:${PORT}`);

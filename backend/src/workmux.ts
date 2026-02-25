@@ -350,9 +350,13 @@ export function sendPrompt(
 
   const cleaned = text.replace(/\0/g, "");
 
+  // Use a unique buffer name per invocation to avoid races when concurrent
+  // sendPrompt calls overlap (e.g. two worktrees sending at the same time).
+  const bufName = `wm-prompt-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
   // Load text into a named tmux buffer via stdin — avoids all send-keys
   // escaping/chunking issues and handles any text size in a single operation.
-  const load = Bun.spawnSync(["tmux", "load-buffer", "-b", "wm-prompt", "-"], {
+  const load = Bun.spawnSync(["tmux", "load-buffer", "-b", bufName, "-"], {
     stdin: new TextEncoder().encode(cleaned),
     stderr: "pipe",
   });
@@ -362,7 +366,7 @@ export function sendPrompt(
   }
 
   // Paste buffer into target pane; -d deletes the buffer after pasting.
-  const paste = Bun.spawnSync(["tmux", "paste-buffer", "-b", "wm-prompt", "-t", target, "-d"], {
+  const paste = Bun.spawnSync(["tmux", "paste-buffer", "-b", bufName, "-t", target, "-d"], {
     stderr: "pipe",
   });
   if (paste.exitCode !== 0) {

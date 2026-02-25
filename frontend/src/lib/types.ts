@@ -24,7 +24,7 @@ export interface WorktreeInfo {
   profile: string | null;
   agentName: string | null;
   services: ServiceStatus[];
-  paneCount: number;
+  paneCount: string;
   prs: PrEntry[];
 }
 

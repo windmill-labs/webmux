@@ -45,8 +45,16 @@ function parseTable<T>(output: string, mapper: (cols: string[]) => T): T[] {
   });
 }
 
+/** Build env with TMUX set so workmux can resolve agent states outside tmux. */
+function workmuxEnv(): Record<string, string | undefined> {
+  if (process.env.TMUX) return process.env;
+  const tmpdir = process.env.TMUX_TMPDIR || "/tmp";
+  const uid = process.getuid?.() ?? 1000;
+  return { ...process.env, TMUX: `${tmpdir}/tmux-${uid}/default,0,0` };
+}
+
 export async function listWorktrees(): Promise<Worktree[]> {
-  const result = await $`workmux list`.text();
+  const result = await $`workmux list`.env(workmuxEnv()).text();
   return parseTable(result, (cols) => ({
     branch: cols[0] ?? "",
     agent: cols[1] ?? "",
@@ -57,7 +65,7 @@ export async function listWorktrees(): Promise<Worktree[]> {
 }
 
 export async function getStatus(): Promise<WorktreeStatus[]> {
-  const result = await $`workmux status`.text();
+  const result = await $`workmux status`.env(workmuxEnv()).text();
   return parseTable(result, (cols) => ({
     worktree: cols[0] ?? "",
     status: cols[1] ?? "",

@@ -54,6 +54,3 @@ export interface AppConfig {
   };
   autoName: boolean;
 }
-
-// Deliberate type error to test CI failure detection
-const _testCiFail: string = 42;

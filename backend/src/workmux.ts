@@ -227,6 +227,7 @@ export async function addWorktree(
 
   if (rawBranch) {
     branch = sanitizeBranchName(rawBranch);
+    if (!branch) throw new Error(`Branch name "${rawBranch}" is invalid after sanitization`);
     args.push(branch);
   } else if (useAutoName) {
     args.push("-A");

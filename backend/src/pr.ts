@@ -107,7 +107,7 @@ export async function fetchAllPrs(repoSlug?: string, repoLabel?: string): Promis
 
 /** Sync PR status to .env.local for all worktrees that have PRs. */
 export async function syncPrStatus(
-  getWorktreePaths: () => Map<string, string>,
+  getWorktreePaths: () => Promise<Map<string, string>>,
   linkedRepos: LinkedRepoConfig[],
 ): Promise<void> {
   // Fetch current repo + all linked repos in parallel
@@ -128,7 +128,7 @@ export async function syncPrStatus(
 
   if (branchPrs.size === 0) return;
 
-  const wtPaths = getWorktreePaths();
+  const wtPaths = await getWorktreePaths();
   const seen = new Set<string>();
 
   for (const [branch, entries] of branchPrs) {
@@ -144,7 +144,7 @@ export async function syncPrStatus(
 
 /** Start periodic PR status sync. Returns cleanup function. */
 export function startPrMonitor(
-  getWorktreePaths: () => Map<string, string>,
+  getWorktreePaths: () => Promise<Map<string, string>>,
   linkedRepos: LinkedRepoConfig[],
   intervalMs: number = 20_000,
 ): () => void {

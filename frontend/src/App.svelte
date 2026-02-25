@@ -32,6 +32,11 @@
   let activePane = $state(0);
   let terminalRef: { sendSelectPane: (pane: number) => void; sendInput: (data: string) => void } | undefined = $state();
 
+  // Safety buffer after backend confirms paste-buffer completion.
+  // paste-buffer exits once tmux has queued the data, but the PTY write
+  // may not be fully flushed yet — this small delay lets it settle.
+  const ENTER_DELAY_MS = 200;
+
   let visibleWorktrees = $derived(
     worktrees.filter((w) => w.mux === "✓")
   );
@@ -308,9 +313,7 @@
     onclose={() => (ciDetailsPr = null)}
     onfixsuccess={() => {
       ciDetailsPr = null;
-      // Delay to let tmux finish streaming the paste buffer to the PTY
-      // before sending Enter — paste-buffer returns before the PTY write completes.
-      setTimeout(() => terminalRef?.sendInput("\r"), 300);
+      setTimeout(() => terminalRef?.sendInput("\r"), ENTER_DELAY_MS);
     }}
   />
 {/if}

@@ -16,10 +16,16 @@
 
 {#snippet icon()}
   {#if status === "working"}
-    <span
-      class="spinner text-success"
-      style="width:{size}px;height:{size}px;border-width:1.5px;"
-    ></span>
+    <svg
+      class="text-success"
+      xmlns="http://www.w3.org/2000/svg"
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      stroke="none"
+      ><circle cx="5" cy="12" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="19" cy="12" r="1.5" /></svg
+    >
   {:else if status === "waiting"}
     <svg
       class="text-warning"

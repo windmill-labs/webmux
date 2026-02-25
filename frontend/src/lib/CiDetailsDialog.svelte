@@ -94,6 +94,7 @@
       fixLoading = null;
     }
   }
+
   async function handleCopy(): Promise<void> {
     await navigator.clipboard.writeText(logs);
     copied = true;

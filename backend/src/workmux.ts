@@ -393,8 +393,11 @@ function findWorktreeSession(windowName: string): string | null {
   const output = new TextDecoder().decode(result.stdout).trim();
   if (!output) return null;
   for (const line of output.split("\n")) {
-    const [session, name] = line.split(":");
-    if (name === windowName) return session ?? null;
+    const colonIdx = line.indexOf(":");
+    if (colonIdx === -1) continue;
+    const session = line.slice(0, colonIdx);
+    const name = line.slice(colonIdx + 1);
+    if (name === windowName) return session;
   }
   return null;
 }

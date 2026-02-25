@@ -325,6 +325,19 @@ export async function removeWorktree(name: string): Promise<string> {
   return result;
 }
 
+export function sendPrompt(branch: string, text: string, pane = 0): { ok: true } | { ok: false; error: string } {
+  const session = `wm-${branch}`;
+  const check = Bun.spawnSync(["tmux", "has-session", "-t", session], { stderr: "pipe" });
+  if (check.exitCode !== 0) {
+    return { ok: false, error: `tmux session "${session}" not found` };
+  }
+  const result = Bun.spawnSync(["tmux", "send-keys", "-t", `${session}.${pane}`, text, "Enter"]);
+  if (result.exitCode !== 0) {
+    return { ok: false, error: `send-keys failed (exit ${result.exitCode})` };
+  }
+  return { ok: true };
+}
+
 export async function openWorktree(name: string): Promise<string> {
   return runChecked(["workmux", "open", name]);
 }

@@ -6,6 +6,7 @@ import {
   removeWorktree,
   openWorktree,
   mergeWorktree,
+  sendPrompt,
   readEnvLocal,
 } from "./workmux";
 import {
@@ -279,6 +280,17 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
       const name = decodeURIComponent(parts[1]);
       console.log(`[worktree:open] name=${name}`);
       return jsonResponse({ message: await openWorktree(name) });
+    }
+
+    // POST /api/worktrees/:name/send
+    if (parts[0] === "worktrees" && parts.length === 3 && parts[2] === "send" && method === "POST") {
+      const name = decodeURIComponent(parts[1]);
+      const body = await req.json() as { text?: string };
+      if (!body.text) return errorResponse("Missing 'text' field", 400);
+      console.log(`[worktree:send] name=${name} text="${body.text.slice(0, 80)}"`);
+      const result = sendPrompt(name, body.text);
+      if (!result.ok) return errorResponse(result.error, 404);
+      return jsonResponse({ ok: true });
     }
 
     // POST /api/worktrees/:name/merge

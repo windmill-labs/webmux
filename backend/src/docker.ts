@@ -26,6 +26,7 @@ function sanitiseBranchForName(branch: string): string {
     .replace(/[^a-zA-Z0-9_.-]/g, "-")
     .replace(/-{2,}/g, "-")
     .replace(/^[^a-zA-Z0-9]+/, "")
+    .replace(/-+$/, "")
     .slice(0, 46);
   return s || "x";
 }
@@ -56,24 +57,24 @@ export interface LaunchContainerOpts {
 }
 
 /**
- * Launch a sandbox container for a worktree. Returns the container name.
- * If a container for this branch is already running, returns its name without launching a second one.
+ * Build the `docker run` argument list from the given options.
+ *
+ * This is a pure function — all I/O (path existence checks, env reads) must
+ * be resolved by the caller and passed in as parameters.
+ *
+ * @param opts          - Launch options (branch, dirs, config, env).
+ * @param existingPaths - Set of host paths confirmed to exist; used to decide
+ *                        which credential mounts to include.
+ * @param home          - Resolved home directory (e.g. Bun.env.HOME ?? "/root").
+ * @param name          - Pre-generated container name.
  */
-export async function launchContainer(opts: LaunchContainerOpts): Promise<string> {
-  const { branch, wtDir, mainRepoDir, sandboxConfig, services, env } = opts;
-
-  // Idempotency: reuse an already-running container for this branch.
-  const existing = await findContainer(branch);
-  if (existing) {
-    console.log(`[docker] reusing existing container ${existing} for branch ${branch}`);
-    return existing;
-  }
-
-  if (!sandboxConfig.image) {
-    throw new Error("sandboxConfig.image is required but was empty");
-  }
-
-  const name = containerName(branch);
+export function buildDockerRunArgs(
+  opts: LaunchContainerOpts,
+  existingPaths: Set<string>,
+  home: string,
+  name: string,
+): string[] {
+  const { wtDir, mainRepoDir, sandboxConfig, services, env } = opts;
 
   const args: string[] = [
     "docker", "run", "-d",
@@ -97,7 +98,7 @@ export async function launchContainer(opts: LaunchContainerOpts): Promise<string
     args.push("-p", `127.0.0.1:${port}:${port}`);
   }
 
-  // Core env vars — defined first so .env.local passthrough cannot override them.
+  // Core env vars — defined first so passthrough cannot override them.
   const reservedKeys = new Set([
     "HOME", "TERM", "IS_SANDBOX",
     "GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0",
@@ -121,6 +122,7 @@ export async function launchContainer(opts: LaunchContainerOpts): Promise<string
         console.warn(`[docker] skipping invalid envPassthrough key: ${JSON.stringify(key)}`);
         continue;
       }
+      if (reservedKeys.has(key)) continue;
       const val = Bun.env[key];
       if (val !== undefined) {
         args.push("-e", `${key}=${val}`);
@@ -143,20 +145,31 @@ export async function launchContainer(opts: LaunchContainerOpts): Promise<string
   args.push("-v", `${mainRepoDir}/.git:${mainRepoDir}/.git`);
   args.push("-v", `${mainRepoDir}:${mainRepoDir}:ro`);
 
-  const home = Bun.env.HOME ?? "/root";
-
   // Claude config mounts.
   args.push("-v", `${home}/.claude:/root/.claude`);
   args.push("-v", `${home}/.claude.json:/root/.claude.json`);
 
-  // Git/GitHub credential mounts (read-only, only if they exist on host).
+  // Compute which guest paths are already covered by extraMounts so credential
+  // mounts for the same path can be skipped (extraMounts win).
+  const extraMountGuestPaths = new Set<string>();
+  if (sandboxConfig.extraMounts) {
+    for (const mount of sandboxConfig.extraMounts) {
+      const hostPath = mount.hostPath.replace(/^~/, home);
+      if (!hostPath.startsWith("/")) continue;
+      extraMountGuestPaths.add(mount.guestPath ?? hostPath);
+    }
+  }
+
+  // Git/GitHub credential mounts (read-only, only if they exist on host and
+  // are not overridden by an extraMount for the same guest path).
   const credentialMounts = [
     { hostPath: `${home}/.gitconfig`, guestPath: "/root/.gitconfig" },
     { hostPath: `${home}/.ssh`, guestPath: "/root/.ssh" },
     { hostPath: `${home}/.config/gh`, guestPath: "/root/.config/gh" },
   ];
   for (const { hostPath, guestPath } of credentialMounts) {
-    if (await pathExists(hostPath)) {
+    if (extraMountGuestPaths.has(guestPath)) continue;
+    if (existingPaths.has(hostPath)) {
       args.push("-v", `${hostPath}:${guestPath}:ro`);
     }
   }
@@ -178,6 +191,43 @@ export async function launchContainer(opts: LaunchContainerOpts): Promise<string
   // Image + command.
   args.push(sandboxConfig.image, "sleep", "infinity");
 
+  return args;
+}
+
+/**
+ * Launch a sandbox container for a worktree. Returns the container name.
+ * If a container for this branch is already running, returns its name without launching a second one.
+ */
+export async function launchContainer(opts: LaunchContainerOpts): Promise<string> {
+  const { branch } = opts;
+
+  // Idempotency: reuse an already-running container for this branch.
+  const existing = await findContainer(branch);
+  if (existing) {
+    console.log(`[docker] reusing existing container ${existing} for branch ${branch}`);
+    return existing;
+  }
+
+  if (!opts.sandboxConfig.image) {
+    throw new Error("sandboxConfig.image is required but was empty");
+  }
+
+  const name = containerName(branch);
+  const home = Bun.env.HOME ?? "/root";
+
+  // Resolve which credential paths exist on the host before building args.
+  const credentialHostPaths = [
+    `${home}/.gitconfig`,
+    `${home}/.ssh`,
+    `${home}/.config/gh`,
+  ];
+  const existingPaths = new Set<string>();
+  await Promise.all(credentialHostPaths.map(async (p) => {
+    if (await pathExists(p)) existingPaths.add(p);
+  }));
+
+  const args = buildDockerRunArgs(opts, existingPaths, home, name);
+
   console.log(`[docker] launching container: ${name}`);
   const proc = Bun.spawn(args, { stdout: "pipe", stderr: "pipe" });
 
@@ -195,13 +245,13 @@ export async function launchContainer(opts: LaunchContainerOpts): Promise<string
   ]);
 
   if (exitResult === "timeout") {
-    Bun.spawn(["docker", "rm", "-f", name], { stdout: "ignore", stderr: "ignore" });
+    await Bun.spawn(["docker", "rm", "-f", name], { stdout: "ignore", stderr: "ignore" }).exited;
     throw new Error(`docker run timed out after ${DOCKER_RUN_TIMEOUT_MS / 1000}s`);
   }
 
   if (exitResult !== 0) {
     // Clean up any stopped container docker may have left behind.
-    Bun.spawn(["docker", "rm", "-f", name], { stdout: "ignore", stderr: "ignore" });
+    await Bun.spawn(["docker", "rm", "-f", name], { stdout: "ignore", stderr: "ignore" }).exited;
     throw new Error(`docker run failed (exit ${exitResult}): ${stderr}`);
   }
 

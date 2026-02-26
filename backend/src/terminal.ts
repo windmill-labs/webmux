@@ -1,25 +1,57 @@
-import { FileSink } from "bun";
+import { ts } from "./lib/utils";
 import { getTmuxSession } from "./workmux";
 
 interface TerminalSession {
-  proc?: ReturnType<typeof Bun.spawn>;
+  proc: Bun.Subprocess<"pipe", "pipe", "pipe">;
   groupedSessionName: string;
   scrollback: string[];
+  scrollbackBytes: number;
   onData: ((data: string) => void) | null;
   onExit: ((exitCode: number) => void) | null;
+  cancelled: boolean;
+}
+
+interface AttachCmdOptions {
+  gName: string;
+  worktreeName: string;
+  tmuxSession: string;
+  cols: number;
+  rows: number;
+  initialPane?: number;
 }
 
 const SESSION_PREFIX = "wm-dash-";
-const MAX_SCROLLBACK = 5000;
+const MAX_SCROLLBACK_BYTES = 1 * 1024 * 1024; // 1 MB
 const sessions = new Map<string, TerminalSession>();
 let sessionCounter = 0;
 
-function ts(): string {
-  return new Date().toISOString().slice(11, 23);
-}
-
 function groupedName(): string {
   return `${SESSION_PREFIX}${++sessionCounter}`;
+}
+
+function buildAttachCmd(opts: AttachCmdOptions): string {
+  const windowTarget = `wm-${opts.worktreeName}`;
+  const paneTarget = `${opts.gName}:${windowTarget}.${opts.initialPane ?? 0}`;
+  return [
+    `tmux new-session -d -s "${opts.gName}" -t "${opts.tmuxSession}"`,
+    `tmux set-option -t "${opts.gName}" mouse on`,
+    `tmux set-option -t "${opts.gName}" set-clipboard on`,
+    `tmux select-window -t "${opts.gName}:${windowTarget}"`,
+    // Unzoom if a previous session left a pane zoomed (zoom state is shared across grouped sessions)
+    `if [ "$(tmux display-message -t '${opts.gName}:${windowTarget}' -p '#{window_zoomed_flag}')" = "1" ]; then tmux resize-pane -Z -t '${opts.gName}:${windowTarget}'; fi`,
+    `tmux select-pane -t "${paneTarget}"`,
+    // On mobile, zoom the selected pane to fill the window
+    ...(opts.initialPane !== undefined ? [`tmux resize-pane -Z -t "${paneTarget}"`] : []),
+    `stty rows ${opts.rows} cols ${opts.cols}`,
+    `exec tmux attach-session -t "${opts.gName}"`,
+  ].join(" && ");
+}
+
+async function asyncTmux(args: string[]): Promise<{ exitCode: number; stderr: string }> {
+  const proc = Bun.spawn(args, { stdin: "ignore", stdout: "ignore", stderr: "pipe" });
+  const exitCode = await proc.exited;
+  const stderr = (await new Response(proc.stderr).text()).trim();
+  return { exitCode, stderr };
 }
 
 /** Kill any orphaned wm-dash-* tmux sessions left from previous server runs. */
@@ -41,11 +73,15 @@ export function cleanupStaleSessions(): void {
   }
 }
 
-/** Kill a tmux session by name, ignoring errors. */
+/** Kill a tmux session by name, logging unexpected failures. */
 function killTmuxSession(name: string): void {
-  try {
-    Bun.spawnSync(["tmux", "kill-session", "-t", name]);
-  } catch {}
+  const result = Bun.spawnSync(["tmux", "kill-session", "-t", name], { stderr: "pipe" });
+  if (result.exitCode !== 0) {
+    const stderr = new TextDecoder().decode(result.stderr).trim();
+    if (!stderr.includes("can't find session")) {
+      console.warn(`[term:${ts()}] killTmuxSession(${name}) exit=${result.exitCode} ${stderr}`);
+    }
+  }
 }
 
 export async function attach(
@@ -63,44 +99,31 @@ export async function attach(
 
   const tmuxSession = await getTmuxSession();
   const gName = groupedName();
-  const windowTarget = `wm-${worktreeName}`;
-  console.log(`[term:${ts()}] attach(${worktreeName}) tmuxSession=${tmuxSession} gName=${gName} window=${windowTarget}`);
+  console.log(`[term:${ts()}] attach(${worktreeName}) tmuxSession=${tmuxSession} gName=${gName} window=wm-${worktreeName}`);
 
   // Kill stale session with same name if it exists (leftover from previous server run)
   killTmuxSession(gName);
 
-  const paneTarget = `${gName}:${windowTarget}.${initialPane ?? 0}`;
-  const cmd = [
-    `tmux new-session -d -s "${gName}" -t "${tmuxSession}"`,
-    `tmux set-option -t "${gName}" mouse on`,
-    `tmux set-option -t "${gName}" set-clipboard on`,
-    `tmux select-window -t "${gName}:${windowTarget}"`,
-    // Unzoom if a previous session left a pane zoomed (zoom state is shared across grouped sessions)
-    `if [ "$(tmux display-message -t '${gName}:${windowTarget}' -p '#{window_zoomed_flag}')" = "1" ]; then tmux resize-pane -Z -t '${gName}:${windowTarget}'; fi`,
-    `tmux select-pane -t "${paneTarget}"`,
-    // On mobile, zoom the selected pane to fill the window
-    ...(initialPane !== undefined ? [`tmux resize-pane -Z -t "${paneTarget}"`] : []),
-    `stty rows ${rows} cols ${cols}`,
-    `exec tmux attach-session -t "${gName}"`,
-  ].join(" && ");
-
-  const session: TerminalSession = {
-    groupedSessionName: gName,
-    scrollback: [],
-    onData: null,
-    onExit: null,
-  };
-
-  sessions.set(worktreeName, session);
+  const cmd = buildAttachCmd({ gName, worktreeName, tmuxSession, cols, rows, initialPane });
 
   const proc = Bun.spawn(["script", "-q", "-c", cmd, "/dev/null"], {
     stdin: "pipe",
     stdout: "pipe",
     stderr: "pipe",
-    env: { ...process.env, TERM: "xterm-256color" },
+    env: { ...Bun.env, TERM: "xterm-256color" },
   });
 
-  session.proc = proc;
+  const session: TerminalSession = {
+    proc,
+    groupedSessionName: gName,
+    scrollback: [],
+    scrollbackBytes: 0,
+    onData: null,
+    onExit: null,
+    cancelled: false,
+  };
+
+  sessions.set(worktreeName, session);
   console.log(`[term:${ts()}] attach(${worktreeName}) spawned pid=${proc.pid}`);
 
   // Read stdout → push to scrollback + callback
@@ -108,18 +131,38 @@ export async function attach(
     const reader = proc.stdout.getReader();
     try {
       while (true) {
+        if (session.cancelled) break;
         const { done, value } = await reader.read();
         if (done) break;
         const str = new TextDecoder().decode(value);
+        const encoder = new TextEncoder();
+        session.scrollbackBytes += encoder.encode(str).byteLength;
         session.scrollback.push(str);
-        if (session.scrollback.length > MAX_SCROLLBACK) {
-          session.scrollback.shift();
+        while (session.scrollbackBytes > MAX_SCROLLBACK_BYTES && session.scrollback.length > 0) {
+          const removed = session.scrollback.shift()!;
+          session.scrollbackBytes -= encoder.encode(removed).byteLength;
         }
         session.onData?.(str);
       }
-    } catch {
-      // Stream closed
+    } catch (err) {
+      // Stream closed normally — no action needed.
+      // Log anything unexpected so it surfaces during debugging.
+      if (!session.cancelled) {
+        console.error(`[term:${ts()}] stdout reader error(${worktreeName}):`, err);
+      }
     }
+  })();
+
+  // Read stderr → log for diagnostics
+  (async () => {
+    const reader = proc.stderr.getReader();
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        console.error(`[term:${ts()}] stderr(${worktreeName}): ${new TextDecoder().decode(value).trimEnd()}`);
+      }
+    } catch { /* stream closed */ }
   })();
 
   proc.exited.then((exitCode) => {
@@ -144,8 +187,9 @@ export async function detach(worktreeName: string): Promise<void> {
     return;
   }
 
-  console.log(`[term:${ts()}] detach(${worktreeName}) killing pid=${session.proc?.pid} tmux=${session.groupedSessionName}`);
-  session.proc?.kill();
+  console.log(`[term:${ts()}] detach(${worktreeName}) killing pid=${session.proc.pid} tmux=${session.groupedSessionName}`);
+  session.cancelled = true;
+  session.proc.kill();
   sessions.delete(worktreeName);
 
   killTmuxSession(session.groupedSessionName);
@@ -158,20 +202,19 @@ export function write(worktreeName: string, data: string): void {
     console.log(`[term:${ts()}] write(${worktreeName}) NO SESSION - input dropped (${data.length} bytes)`);
     return;
   }
-  if (!session.proc?.stdin) {
-    console.log(`[term:${ts()}] write(${worktreeName}) NO STDIN - input dropped (${data.length} bytes)`);
-    return;
+  try {
+    session.proc.stdin.write(new TextEncoder().encode(data));
+    session.proc.stdin.flush();
+  } catch (err) {
+    console.warn(`[term:${ts()}] write(${worktreeName}) stdin closed:`, err);
   }
-  const sink = session.proc.stdin as FileSink;
-  sink.write(new TextEncoder().encode(data));
-  sink.flush();
 }
 
-export function resize(worktreeName: string, cols: number, rows: number): void {
+export async function resize(worktreeName: string, cols: number, rows: number): Promise<void> {
   const session = sessions.get(worktreeName);
   if (!session) return;
-  // Resize via tmux directly (we don't have access to script's internal PTY)
-  Bun.spawnSync(["tmux", "resize-window", "-t", session.groupedSessionName, "-x", String(cols), "-y", String(rows)]);
+  const result = await asyncTmux(["tmux", "resize-window", "-t", session.groupedSessionName, "-x", String(cols), "-y", String(rows)]);
+  if (result.exitCode !== 0) console.warn(`[term:${ts()}] resize failed: ${result.stderr}`);
 }
 
 export function getScrollback(worktreeName: string): string {
@@ -190,7 +233,7 @@ export function setCallbacks(
   }
 }
 
-export function selectPane(worktreeName: string, paneIndex: number): void {
+export async function selectPane(worktreeName: string, paneIndex: number): Promise<void> {
   const session = sessions.get(worktreeName);
   if (!session) {
     console.log(`[term:${ts()}] selectPane(${worktreeName}) no session found`);
@@ -199,8 +242,10 @@ export function selectPane(worktreeName: string, paneIndex: number): void {
   const windowTarget = `wm-${worktreeName}`;
   const target = `${session.groupedSessionName}:${windowTarget}.${paneIndex}`;
   console.log(`[term:${ts()}] selectPane(${worktreeName}) pane=${paneIndex} target=${target}`);
-  const r1 = Bun.spawnSync(["tmux", "select-pane", "-t", target]);
-  const r2 = Bun.spawnSync(["tmux", "resize-pane", "-Z", "-t", target]);
+  const [r1, r2] = await Promise.all([
+    asyncTmux(["tmux", "select-pane", "-t", target]),
+    asyncTmux(["tmux", "resize-pane", "-Z", "-t", target]),
+  ]);
   console.log(`[term:${ts()}] selectPane(${worktreeName}) select=${r1.exitCode} zoom=${r2.exitCode}`);
 }
 

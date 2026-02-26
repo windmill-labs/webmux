@@ -1,4 +1,5 @@
 import { join, resolve } from "node:path";
+import { ts } from "./lib/utils";
 import {
   listWorktrees,
   getStatus,
@@ -28,10 +29,6 @@ const PORT = parseInt(Bun.env.DASHBOARD_PORT || "5111", 10);
 const STATIC_DIR = Bun.env.WMDEV_STATIC_DIR || "";
 const PROJECT_DIR = Bun.env.WMDEV_PROJECT_DIR || process.cwd();
 const config: WmdevConfig = loadConfig(PROJECT_DIR);
-
-function ts(): string {
-  return new Date().toISOString().slice(11, 23);
-}
 
 // --- WebSocket protocol types ---
 
@@ -415,7 +412,7 @@ Bun.serve({
         case "selectPane":
           if (ws.data.attached) {
             console.log(`[ws:${ts()}] selectPane pane=${msg.pane} worktree=${worktree}`);
-            selectPane(worktree, msg.pane);
+            await selectPane(worktree, msg.pane);
           }
           break;
         case "resize":
@@ -442,7 +439,7 @@ Bun.serve({
               ws.close(1011, errMsg.slice(0, 123)); // 1011 = Internal Error
             }
           } else {
-            resize(worktree, msg.cols, msg.rows);
+            await resize(worktree, msg.cols, msg.rows);
           }
           break;
       }

@@ -7,10 +7,10 @@
   import CreateWorktreeDialog from "./lib/CreateWorktreeDialog.svelte";
   import SettingsDialog from "./lib/SettingsDialog.svelte";
   import CiDetailsDialog from "./lib/CiDetailsDialog.svelte";
+  import CommentReviewDialog from "./lib/CommentReviewDialog.svelte";
   import PaneBar from "./lib/PaneBar.svelte";
   import type { WorktreeInfo, AppConfig, PrEntry } from "./lib/types";
   import * as api from "./lib/api";
-  import { normalizeTextForPrompt } from "./lib/promptUtils";
 
   let config = $state<AppConfig>({
     services: [],
@@ -28,6 +28,7 @@
   let showCreateDialog = $state(false);
   let showSettingsDialog = $state(false);
   let ciDetailsPr = $state<PrEntry | null>(null);
+  let commentReviewPr = $state<PrEntry | null>(null);
   let creating = $state(false);
   let sshHost = $state(localStorage.getItem(SSH_STORAGE_KEY) ?? "");
 
@@ -304,24 +305,7 @@
       }}
       onsettings={() => (showSettingsDialog = true)}
       onciclick={(pr) => (ciDetailsPr = pr)}
-      onreviewsclick={async (pr) => {
-        if (!selectedBranch) return;
-        const label = pr.repo ? `${pr.repo} #${pr.number}` : `PR #${pr.number}`;
-        const preamble = [
-          "Review the PR comments and elaborate a plan to address them.",
-          `PR: ${label}`,
-          "",
-          "Comments:",
-        ].join("\n") + "\n";
-        const content = pr.comments
-          .map((c, i) => `[${i + 1}] @${c.author} (${c.createdAt.slice(0, 10)}):\n${c.body}`)
-          .join("\n\n");
-        try {
-          await api.sendWorktreePrompt(selectedBranch, normalizeTextForPrompt(content, 20000), preamble);
-        } catch (err) {
-          console.error("Failed to send reviews prompt:", err);
-        }
-      }}
+      onreviewsclick={(pr) => (commentReviewPr = pr)}
     />
 
     {#if canConnect}
@@ -397,6 +381,18 @@
     onclose={() => (ciDetailsPr = null)}
     onfixsuccess={() => {
       ciDetailsPr = null;
+      setTimeout(() => terminalRef?.sendInput("\r"), ENTER_DELAY_MS);
+    }}
+  />
+{/if}
+
+{#if commentReviewPr}
+  <CommentReviewDialog
+    pr={commentReviewPr}
+    branch={selectedWorktree?.branch ?? ""}
+    onclose={() => (commentReviewPr = null)}
+    onsendsuccess={() => {
+      commentReviewPr = null;
       setTimeout(() => terminalRef?.sendInput("\r"), ENTER_DELAY_MS);
     }}
   />

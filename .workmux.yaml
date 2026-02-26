@@ -31,16 +31,30 @@ auto_name:
     Output ONLY the branch name, nothing else.
   background: true
 
+post_create:
+  - ./scripts/worktree-env
+
 panes:
   - command: >-
+      source .env.local 2>/dev/null || true;
       claude --dangerously-skip-permissions --append-system-prompt
       "You are running inside a git worktree managed by workmux.
       To create a new worktree for a parallel subtask, run:
       workmux add -b -p \"PROMPT\" BRANCH
       You must supply an explicit BRANCH name. Good branch names: kebab-case, 1-3 words, describe the change not the process.
       When creating multiple worktrees, create them one at a time — run the command, wait for it to complete, then create the next.
-      Example: workmux add -b -p 'Add CSV export to reports table, download visible rows as report.csv' export-csv"
+      Example: workmux add -b -p 'Add CSV export to reports table, download visible rows as report.csv' export-csv
+
+      This worktree has dedicated ports (from .env.local):
+      - Backend (bun): DASHBOARD_PORT — start with: cd backend && DASHBOARD_PORT=\$DASHBOARD_PORT bun run dev
+      - Frontend (vite): FRONTEND_PORT — start with: cd frontend && DASHBOARD_PORT=\$DASHBOARD_PORT bun run dev"
     focus: true
+  - command: >-
+      source .env.local 2>/dev/null || true;
+      cd backend && DASHBOARD_PORT=${DASHBOARD_PORT:-5111} bun run dev
+  - command: >-
+      source .env.local 2>/dev/null || true;
+      cd frontend && DASHBOARD_PORT=${DASHBOARD_PORT:-5111} bun run dev
 
 sandbox:
   enabled: false

@@ -1,4 +1,5 @@
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { ts } from "./lib/utils";
 import {
   listWorktrees,
   getStatus,
@@ -8,6 +9,7 @@ import {
   mergeWorktree,
   sendPrompt,
   readEnvLocal,
+  parseWorktreePorcelain,
 } from "./workmux";
 import {
   attach,
@@ -22,61 +24,59 @@ import {
 } from "./terminal";
 import { loadConfig, type WmdevConfig } from "./config";
 import { startPrMonitor, type PrEntry } from "./pr";
-import { ts } from "./lib/utils";
 
-const PORT = parseInt(Bun.env.DASHBOARD_PORT || "5111");
+const PORT = parseInt(Bun.env.DASHBOARD_PORT || "5111", 10);
 const STATIC_DIR = Bun.env.WMDEV_STATIC_DIR || "";
 const PROJECT_DIR = Bun.env.WMDEV_PROJECT_DIR || process.cwd();
 const config: WmdevConfig = loadConfig(PROJECT_DIR);
 
-/** Map branch name → worktree directory using git worktree list.
- *  Skips the main working tree (always the first entry) since it's not
- *  a workmux-managed worktree and shouldn't have PR_DATA written to it. */
-function getWorktreePaths(): Map<string, string> {
-  const result = Bun.spawnSync(["git", "worktree", "list", "--porcelain"], { stdout: "pipe" });
-  const output = new TextDecoder().decode(result.stdout);
-  const paths = new Map<string, string>();
-  let currentPath = "";
-  let isFirst = true;
-  for (const line of output.split("\n")) {
-    if (line.startsWith("worktree ")) {
-      currentPath = line.slice("worktree ".length);
-    } else if (line.startsWith("branch ")) {
-      // Skip the main working tree (first entry in porcelain output)
-      if (isFirst) {
-        isFirst = false;
-        continue;
-      }
-      // branch refs/heads/foo → "foo"
-      const branch = line.slice("branch ".length).replace("refs/heads/", "");
-      // Also map by directory basename (workmux uses basename as branch key)
-      const basename = currentPath.split("/").pop() ?? "";
-      paths.set(branch, currentPath);
-      if (basename !== branch) paths.set(basename, currentPath);
+// --- WebSocket protocol types ---
+
+interface WsData {
+  worktree: string;
+  attached: boolean;
+}
+
+type WsInboundMessage =
+  | { type: "input"; data: string }
+  | { type: "selectPane"; pane: number }
+  | { type: "resize"; cols: number; rows: number; initialPane?: number };
+
+type WsOutboundMessage =
+  | { type: "output"; data: string }
+  | { type: "exit"; exitCode: number }
+  | { type: "error"; message: string }
+  | { type: "scrollback"; data: string };
+
+function parseWsMessage(raw: string | Buffer): WsInboundMessage | null {
+  try {
+    const str = typeof raw === "string" ? raw : new TextDecoder().decode(raw);
+    const msg: unknown = JSON.parse(str);
+    if (!msg || typeof msg !== "object") return null;
+    const m = msg as Record<string, unknown>;
+    switch (m.type) {
+      case "input":
+        return typeof m.data === "string" ? { type: "input", data: m.data } : null;
+      case "selectPane":
+        return typeof m.pane === "number" ? { type: "selectPane", pane: m.pane } : null;
+      case "resize":
+        return typeof m.cols === "number" && typeof m.rows === "number"
+          ? {
+              type: "resize",
+              cols: m.cols,
+              rows: m.rows,
+              initialPane: typeof m.initialPane === "number" ? m.initialPane : undefined,
+            }
+          : null;
+      default:
+        return null;
     }
+  } catch {
+    return null;
   }
-  return paths;
 }
 
-/** Count tmux panes for a worktree window. */
-function getTmuxPaneCount(branch: string): number {
-  const result = Bun.spawnSync(
-    ["tmux", "list-panes", "-t", `wm-${branch}`, "-F", "#{pane_index}"],
-    { stdout: "pipe", stderr: "pipe" }
-  );
-  if (result.exitCode !== 0) return 0;
-  return new TextDecoder().decode(result.stdout).trim().split("\n").filter(Boolean).length;
-}
-
-/** Check if a port has a service responding (not just a TCP handshake). */
-function isPortListening(port: number): Promise<boolean> {
-  return new Promise((resolve) => {
-    const timeout = setTimeout(() => { resolve(false); }, 1000);
-    fetch(`http://127.0.0.1:${port}/`, { signal: AbortSignal.timeout(1000) })
-      .then((res) => { clearTimeout(timeout); resolve(true); })
-      .catch(() => { clearTimeout(timeout); resolve(false); });
-  });
-}
+// --- HTTP helpers ---
 
 function jsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -89,48 +89,296 @@ function errorResponse(message: string, status = 500): Response {
   return jsonResponse({ error: message }, status);
 }
 
-interface WsData {
-  worktree: string;
-  attached: boolean;
+function sendWs(ws: { send: (data: string) => void }, msg: WsOutboundMessage): void {
+  ws.send(JSON.stringify(msg));
 }
 
-function makeCallbacks(ws: { send: (data: string) => void; readyState: number }) {
+function isValidWorktreeName(name: string): boolean {
+  return name.length > 0 && /^[a-z0-9][a-z0-9\-_./]*$/.test(name) && !name.includes("..");
+}
+
+/** Wrap an async API handler to catch and log unhandled errors. */
+function catching(label: string, fn: () => Promise<Response>): Promise<Response> {
+  return fn().catch((err: unknown) => {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[api:error] ${label}: ${msg}`);
+    return errorResponse(msg);
+  });
+}
+
+function safeJsonParse<T>(str: string): T | null {
+  try {
+    return JSON.parse(str) as T;
+  } catch {
+    return null;
+  }
+}
+
+// --- Process helpers ---
+
+/** Map branch name → worktree directory using git worktree list.
+ *  Skips the main working tree (always the first entry). */
+async function getWorktreePaths(): Promise<Map<string, string>> {
+  const proc = Bun.spawn(["git", "worktree", "list", "--porcelain"], { stdout: "pipe" });
+  await proc.exited;
+  const output = await new Response(proc.stdout).text();
+  const all = parseWorktreePorcelain(output);
+  const paths = new Map<string, string>();
+  let isFirst = true;
+  for (const [branch, path] of all) {
+    // Skip the main working tree (first entry in porcelain output)
+    if (isFirst) { isFirst = false; continue; }
+    paths.set(branch, path);
+    // Also map by directory basename (workmux uses basename as branch key)
+    const basename = path.split("/").pop() ?? "";
+    if (basename !== branch) paths.set(basename, path);
+  }
+  return paths;
+}
+
+/** Count tmux panes for a worktree window. */
+async function getTmuxPaneCount(branch: string): Promise<number> {
+  const proc = Bun.spawn(
+    ["tmux", "list-panes", "-t", `wm-${branch}`, "-F", "#{pane_index}"],
+    { stdout: "pipe", stderr: "pipe" }
+  );
+  const exitCode = await proc.exited;
+  if (exitCode !== 0) return 0;
+  const out = await new Response(proc.stdout).text();
+  return out.trim().split("\n").filter(Boolean).length;
+}
+
+/** Check if a port has a service responding (not just a TCP handshake). */
+function isPortListening(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => { resolve(false); }, 1000);
+    fetch(`http://127.0.0.1:${port}/`, { signal: AbortSignal.timeout(1000) })
+      .then(() => { clearTimeout(timeout); resolve(true); })
+      .catch(() => { clearTimeout(timeout); resolve(false); });
+  });
+}
+
+function makeCallbacks(ws: { send: (data: string) => void; readyState: number }): {
+  onData: (data: string) => void;
+  onExit: (exitCode: number) => void;
+} {
   return {
     onData: (data: string) => {
-      if (ws.readyState <= 1) {
-        ws.send(JSON.stringify({ type: "output", data }));
-      }
+      if (ws.readyState <= 1) sendWs(ws, { type: "output", data });
     },
     onExit: (exitCode: number) => {
-      if (ws.readyState <= 1) {
-        ws.send(JSON.stringify({ type: "exit", exitCode }));
-      }
+      if (ws.readyState <= 1) sendWs(ws, { type: "exit", exitCode });
     },
   };
 }
 
-Bun.serve<WsData>({
+// --- API handler functions (thin I/O layer, testable by injecting deps) ---
+
+async function apiGetWorktrees(): Promise<Response> {
+  const [worktrees, status, wtPaths] = await Promise.all([
+    listWorktrees(),
+    getStatus(),
+    getWorktreePaths(),
+  ]);
+  const merged = await Promise.all(worktrees.map(async (wt) => {
+    const st = status.find(s =>
+      s.worktree.includes(wt.branch) || s.worktree.startsWith(wt.branch)
+    );
+    const wtDir = wtPaths.get(wt.branch);
+    const env = wtDir ? await readEnvLocal(wtDir) : {};
+    const services = await Promise.all(
+      config.services.map(async (svc) => {
+        const port = env[svc.portEnv] ? parseInt(env[svc.portEnv], 10) : null;
+        const running = port !== null && port >= 1 && port <= 65535
+          ? await isPortListening(port)
+          : false;
+        return { name: svc.name, port, running };
+      })
+    );
+    return {
+      ...wt,
+      dir: wtDir ?? null,
+      status: st?.status ?? "",
+      elapsed: st?.elapsed ?? "",
+      title: st?.title ?? "",
+      profile: env.PROFILE || null,
+      agentName: env.AGENT || null,
+      services,
+      paneCount: wt.mux === "✓" ? await getTmuxPaneCount(wt.branch) : 0,
+      prs: env.PR_DATA ? (safeJsonParse<PrEntry[]>(env.PR_DATA) ?? []).map(pr => ({ ...pr, comments: pr.comments ?? [] })) : [],
+    };
+  }));
+  return jsonResponse(merged);
+}
+
+async function apiCreateWorktree(req: Request): Promise<Response> {
+  const raw: unknown = await req.json();
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return errorResponse("Invalid request body", 400);
+  }
+  const body = raw as Record<string, unknown>;
+  const branch = typeof body.branch === "string" ? body.branch : undefined;
+  const prompt = typeof body.prompt === "string" ? body.prompt : undefined;
+  const profileName = typeof body.profile === "string" ? body.profile : config.profiles.default.name;
+  const agent = typeof body.agent === "string" ? body.agent : "claude";
+  const isSandbox = config.profiles.sandbox !== undefined && profileName === config.profiles.sandbox.name;
+  const profileConfig = isSandbox ? config.profiles.sandbox! : config.profiles.default;
+  console.log(`[worktree:add] agent=${agent} profile=${profileName}${branch ? ` branch=${branch}` : ""}${prompt ? ` prompt="${prompt.slice(0, 80)}"` : ""}`);
+  const result = await addWorktree(branch, {
+    prompt,
+    profile: profileName,
+    agent,
+    autoName: config.autoName,
+    profileConfig,
+    isSandbox,
+    sandboxConfig: isSandbox ? config.profiles.sandbox : undefined,
+    services: config.services,
+    mainRepoDir: PROJECT_DIR,
+  });
+  if (!result.ok) return errorResponse(result.error, 422);
+  console.log(`[worktree:add] done branch=${result.branch}: ${result.output}`);
+  return jsonResponse({ branch: result.branch }, 201);
+}
+
+async function apiDeleteWorktree(name: string): Promise<Response> {
+  console.log(`[worktree:rm] name=${name}`);
+  const result = await removeWorktree(name);
+  if (!result.ok) return errorResponse(result.error, 422);
+  console.log(`[worktree:rm] done name=${name}: ${result.output}`);
+  return jsonResponse({ message: result.output });
+}
+
+async function apiOpenWorktree(name: string): Promise<Response> {
+  console.log(`[worktree:open] name=${name}`);
+  const result = await openWorktree(name);
+  if (!result.ok) return errorResponse(result.error, 422);
+  return jsonResponse({ message: result.output });
+}
+
+async function apiSendPrompt(name: string, req: Request): Promise<Response> {
+  const raw: unknown = await req.json();
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return errorResponse("Invalid request body", 400);
+  }
+  const body = raw as Record<string, unknown>;
+  const text = typeof body.text === "string" ? body.text : "";
+  if (!text) return errorResponse("Missing 'text' field", 400);
+  const preamble = typeof body.preamble === "string" ? body.preamble : undefined;
+  console.log(`[worktree:send] name=${name} text="${text.slice(0, 80)}"`);
+  const result = await sendPrompt(name, text, 0, preamble);
+  if (!result.ok) return errorResponse(result.error, 503);
+  return jsonResponse({ ok: true });
+}
+
+async function apiMergeWorktree(name: string): Promise<Response> {
+  console.log(`[worktree:merge] name=${name}`);
+  const result = await mergeWorktree(name);
+  if (!result.ok) return errorResponse(result.error, 422);
+  console.log(`[worktree:merge] done name=${name}: ${result.output}`);
+  return jsonResponse({ message: result.output });
+}
+
+async function apiWorktreeStatus(name: string): Promise<Response> {
+  const statuses = await getStatus();
+  const match = statuses.find(s => s.worktree.includes(name));
+  if (!match) return errorResponse("Worktree status not found", 404);
+  return jsonResponse(match);
+}
+
+async function apiCiLogs(runId: string): Promise<Response> {
+  if (!/^\d+$/.test(runId)) return errorResponse("Invalid run ID", 400);
+  const proc = Bun.spawn(["gh", "run", "view", runId, "--log-failed"], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const exitCode = await proc.exited;
+  if (exitCode === 0) {
+    const logs = await new Response(proc.stdout).text();
+    return jsonResponse({ logs });
+  }
+  const stderr = (await new Response(proc.stderr).text()).trim();
+  return errorResponse(`Failed to fetch logs: ${stderr || "unknown error"}`, 502);
+}
+
+// --- Server ---
+
+Bun.serve({
   port: PORT,
   idleTimeout: 255, // seconds; worktree removal can take >10s
 
-  async fetch(req, server) {
-    const url = new URL(req.url);
+  routes: {
+    "/ws/:worktree": (req, server) => {
+      const worktree = decodeURIComponent(req.params.worktree);
+      return server.upgrade(req, { data: { worktree, attached: false } })
+        ? undefined
+        : new Response("WebSocket upgrade failed", { status: 400 });
+    },
 
-    const wsMatch = url.pathname.match(/^\/ws\/(.+)$/);
-    if (wsMatch) {
-      const worktree = decodeURIComponent(wsMatch[1]);
-      const upgraded = server.upgrade(req, { data: { worktree, attached: false } });
-      if (upgraded) return undefined as unknown as Response;
-      return new Response("WebSocket upgrade failed", { status: 400 });
-    }
+    "/api/config": {
+      GET: () => jsonResponse(config),
+    },
 
-    if (url.pathname.startsWith("/api/")) {
-      return handleApi(req, url);
-    }
+    "/api/worktrees": {
+      GET: () => catching("GET /api/worktrees", apiGetWorktrees),
+      POST: (req) => catching("POST /api/worktrees", () => apiCreateWorktree(req)),
+    },
 
-    // Serve static frontend files in production mode
+    "/api/worktrees/:name": {
+      DELETE: (req) => {
+        const name = decodeURIComponent(req.params.name);
+        if (!isValidWorktreeName(name)) return errorResponse("Invalid worktree name", 400);
+        return catching(`DELETE /api/worktrees/${name}`, () => apiDeleteWorktree(name));
+      },
+    },
+
+    "/api/worktrees/:name/open": {
+      POST: (req) => {
+        const name = decodeURIComponent(req.params.name);
+        if (!isValidWorktreeName(name)) return errorResponse("Invalid worktree name", 400);
+        return catching(`POST /api/worktrees/${name}/open`, () => apiOpenWorktree(name));
+      },
+    },
+
+    "/api/worktrees/:name/send": {
+      POST: (req) => {
+        const name = decodeURIComponent(req.params.name);
+        if (!isValidWorktreeName(name)) return errorResponse("Invalid worktree name", 400);
+        return catching(`POST /api/worktrees/${name}/send`, () => apiSendPrompt(name, req));
+      },
+    },
+
+    "/api/worktrees/:name/merge": {
+      POST: (req) => {
+        const name = decodeURIComponent(req.params.name);
+        if (!isValidWorktreeName(name)) return errorResponse("Invalid worktree name", 400);
+        return catching(`POST /api/worktrees/${name}/merge`, () => apiMergeWorktree(name));
+      },
+    },
+
+    "/api/worktrees/:name/status": {
+      GET: (req) => {
+        const name = decodeURIComponent(req.params.name);
+        if (!isValidWorktreeName(name)) return errorResponse("Invalid worktree name", 400);
+        return catching(`GET /api/worktrees/${name}/status`, () => apiWorktreeStatus(name));
+      },
+    },
+
+    "/api/ci-logs/:runId": {
+      GET: (req) => catching(`GET /api/ci-logs/${req.params.runId}`, () => apiCiLogs(req.params.runId)),
+    },
+  },
+
+  async fetch(req) {
+    // Static frontend files in production mode (fallback for unmatched routes)
     if (STATIC_DIR) {
-      const filePath = join(STATIC_DIR, url.pathname === "/" ? "index.html" : url.pathname);
+      const url = new URL(req.url);
+      const rawPath = url.pathname === "/" ? "index.html" : url.pathname;
+      const filePath = join(STATIC_DIR, rawPath);
+      const staticRoot = resolve(STATIC_DIR);
+      // Path traversal protection: resolved path must stay within STATIC_DIR
+      if (!resolve(filePath).startsWith(staticRoot + "/")) {
+        return new Response("Forbidden", { status: 403 });
+      }
       const file = Bun.file(filePath);
       if (await file.exists()) {
         return new Response(file);
@@ -138,61 +386,62 @@ Bun.serve<WsData>({
       // SPA fallback: serve index.html for unmatched routes
       return new Response(Bun.file(join(STATIC_DIR, "index.html")));
     }
-
     return new Response("Not Found", { status: 404 });
   },
 
   websocket: {
+    // Type ws.data via the data property (Bun.serve<T> generic is deprecated)
+    data: {} as WsData,
+
     open(ws) {
       console.log(`[ws:${ts()}] open worktree=${ws.data.worktree}`);
     },
 
     async message(ws, message) {
-      try {
-        const msg = JSON.parse(typeof message === "string" ? message : new TextDecoder().decode(message));
-        const { worktree } = ws.data;
+      const msg = parseWsMessage(message);
+      if (!msg) {
+        sendWs(ws, { type: "error", message: "malformed message" });
+        return;
+      }
+      const { worktree } = ws.data;
 
-        switch (msg.type) {
-          case "input":
-            write(worktree, msg.data);
-            break;
-          case "selectPane":
-            if (ws.data.attached && typeof msg.pane === "number") {
-              console.log(`[ws:${ts()}] selectPane pane=${msg.pane} worktree=${worktree}`);
-              await selectPane(worktree, msg.pane);
-            }
-            break;
-          case "resize":
-            if (!ws.data.attached) {
-              // First resize = client reporting actual dimensions. Spawn now.
-              ws.data.attached = true;
-              console.log(`[ws:${ts()}] first resize (attaching) worktree=${worktree} cols=${msg.cols} rows=${msg.rows}`);
-              try {
-                const initialPane = typeof msg.initialPane === "number" ? msg.initialPane : undefined;
-                if (initialPane !== undefined) {
-                  console.log(`[ws:${ts()}] initialPane=${initialPane} worktree=${worktree}`);
-                }
-                await attach(worktree, msg.cols, msg.rows, initialPane);
-                const { onData, onExit } = makeCallbacks(ws);
-                setCallbacks(worktree, onData, onExit);
-                const scrollback = getScrollback(worktree);
-                console.log(`[ws:${ts()}] attached worktree=${worktree} scrollback=${scrollback.length} bytes`);
-                if (scrollback) {
-                  ws.send(JSON.stringify({ type: "scrollback", data: scrollback }));
-                }
-              } catch (err: unknown) {
-                const errMsg = err instanceof Error ? err.message : String(err);
-                console.log(`[ws:${ts()}] attach failed worktree=${worktree}: ${errMsg}`);
-                ws.send(JSON.stringify({ type: "error", message: errMsg }));
-                ws.close();
+      switch (msg.type) {
+        case "input":
+          write(worktree, msg.data);
+          break;
+        case "selectPane":
+          if (ws.data.attached) {
+            console.log(`[ws:${ts()}] selectPane pane=${msg.pane} worktree=${worktree}`);
+            await selectPane(worktree, msg.pane);
+          }
+          break;
+        case "resize":
+          if (!ws.data.attached) {
+            // First resize = client reporting actual dimensions. Attach now.
+            ws.data.attached = true;
+            console.log(`[ws:${ts()}] first resize (attaching) worktree=${worktree} cols=${msg.cols} rows=${msg.rows}`);
+            try {
+              if (msg.initialPane !== undefined) {
+                console.log(`[ws:${ts()}] initialPane=${msg.initialPane} worktree=${worktree}`);
               }
-            } else {
-              await resize(worktree, msg.cols, msg.rows);
+              await attach(worktree, msg.cols, msg.rows, msg.initialPane);
+              const { onData, onExit } = makeCallbacks(ws);
+              setCallbacks(worktree, onData, onExit);
+              const scrollback = getScrollback(worktree);
+              console.log(`[ws:${ts()}] attached worktree=${worktree} scrollback=${scrollback.length} bytes`);
+              if (scrollback.length > 0) {
+                sendWs(ws, { type: "scrollback", data: scrollback });
+              }
+            } catch (err: unknown) {
+              const errMsg = err instanceof Error ? err.message : String(err);
+              console.log(`[ws:${ts()}] attach failed worktree=${worktree}: ${errMsg}`);
+              sendWs(ws, { type: "error", message: errMsg });
+              ws.close(1011, errMsg.slice(0, 123)); // 1011 = Internal Error
             }
-            break;
-        }
-      } catch {
-        // Ignore malformed messages
+          } else {
+            await resize(worktree, msg.cols, msg.rows);
+          }
+          break;
       }
     },
 
@@ -205,142 +454,6 @@ Bun.serve<WsData>({
   },
 });
 
-async function handleApi(req: Request, url: URL): Promise<Response> {
-  const method = req.method;
-  const parts = url.pathname.slice(5).split("/").filter(Boolean);
-
-  try {
-    // GET /api/config
-    if (parts[0] === "config" && parts.length === 1 && method === "GET") {
-      return jsonResponse(config);
-    }
-
-    // GET /api/worktrees
-    if (parts[0] === "worktrees" && parts.length === 1 && method === "GET") {
-      const [worktrees, status] = await Promise.all([listWorktrees(), getStatus()]);
-      const wtPaths = getWorktreePaths();
-      const merged = await Promise.all(worktrees.map(async (wt) => {
-        const st = status.find(s =>
-          s.worktree.includes(wt.branch) || s.worktree.startsWith(wt.branch)
-        );
-        const wtDir = wtPaths.get(wt.branch);
-        const env = wtDir ? await readEnvLocal(wtDir) : {};
-        const services = await Promise.all(
-          config.services.map(async (svc) => {
-            const port = env[svc.portEnv] ? parseInt(env[svc.portEnv]) : null;
-            const running = port ? await isPortListening(port) : false;
-            return { name: svc.name, port, running };
-          })
-        );
-        return {
-          ...wt,
-          dir: wtDir ?? null,
-          status: st?.status ?? "",
-          elapsed: st?.elapsed ?? "",
-          title: st?.title ?? "",
-          profile: env.PROFILE || null,
-          agentName: env.AGENT || null,
-          services,
-          paneCount: wt.mux === "✓" ? getTmuxPaneCount(wt.branch) : 0,
-          prs: env.PR_DATA ? (JSON.parse(env.PR_DATA) as PrEntry[]) : [],
-        };
-      }));
-      return jsonResponse(merged);
-    }
-
-    // POST /api/worktrees
-    if (parts[0] === "worktrees" && parts.length === 1 && method === "POST") {
-      const body = await req.json() as { branch?: string; prompt?: string; profile?: string; agent?: string };
-      const profileName = body.profile ?? config.profiles.default.name;
-      const isSandbox = config.profiles.sandbox !== undefined && profileName === config.profiles.sandbox.name;
-      const profileConfig = isSandbox ? config.profiles.sandbox! : config.profiles.default;
-      const agent = body.agent ?? "claude";
-      console.log(`[worktree:add] agent=${agent} profile=${profileName}${body.branch ? ` branch=${body.branch}` : ""}${body.prompt ? ` prompt="${body.prompt.slice(0, 80)}"` : ""}`);
-      const result = await addWorktree(body.branch, {
-        prompt: body.prompt,
-        profile: profileName,
-        agent,
-        autoName: config.autoName,
-        profileConfig,
-        isSandbox,
-        sandboxConfig: isSandbox ? config.profiles.sandbox : undefined,
-        services: config.services,
-        mainRepoDir: PROJECT_DIR,
-      });
-      console.log(`[worktree:add] done branch=${result.branch}: ${result.output}`);
-      return jsonResponse({ branch: result.branch }, 201);
-    }
-
-    // DELETE /api/worktrees/:name
-    if (parts[0] === "worktrees" && parts.length === 2 && method === "DELETE") {
-      const name = decodeURIComponent(parts[1]);
-      console.log(`[worktree:rm] name=${name}`);
-      const result = await removeWorktree(name);
-      console.log(`[worktree:rm] done name=${name}: ${result}`);
-      return jsonResponse({ message: result });
-    }
-
-    // POST /api/worktrees/:name/open
-    if (parts[0] === "worktrees" && parts.length === 3 && parts[2] === "open" && method === "POST") {
-      const name = decodeURIComponent(parts[1]);
-      console.log(`[worktree:open] name=${name}`);
-      return jsonResponse({ message: await openWorktree(name) });
-    }
-
-    // POST /api/worktrees/:name/send
-    if (parts[0] === "worktrees" && parts.length === 3 && parts[2] === "send" && method === "POST") {
-      const name = decodeURIComponent(parts[1]);
-      const body = await req.json() as { text?: string; preamble?: string };
-      if (!body.text) return errorResponse("Missing 'text' field", 400);
-      console.log(`[worktree:send] name=${name} text="${body.text.slice(0, 80)}"`);
-      const result = await sendPrompt(name, body.text, 0, body.preamble);
-      if (!result.ok) return errorResponse(result.error, 404);
-      return jsonResponse({ ok: true });
-    }
-
-    // POST /api/worktrees/:name/merge
-    if (parts[0] === "worktrees" && parts.length === 3 && parts[2] === "merge" && method === "POST") {
-      const name = decodeURIComponent(parts[1]);
-      console.log(`[worktree:merge] name=${name}`);
-      const result = await mergeWorktree(name);
-      console.log(`[worktree:merge] done name=${name}: ${result}`);
-      return jsonResponse({ message: result });
-    }
-
-    // GET /api/ci-logs/:runId
-    if (parts[0] === "ci-logs" && parts.length === 2 && method === "GET") {
-      const runId = parts[1];
-      if (!/^\d+$/.test(runId)) return errorResponse("Invalid run ID", 400);
-      const proc = Bun.spawn(["gh", "run", "view", runId, "--log-failed"], {
-        stdout: "pipe",
-        stderr: "pipe",
-      });
-      const exitCode = await proc.exited;
-
-      if (exitCode === 0) {
-        const logs = await new Response(proc.stdout).text();
-        return jsonResponse({ logs });
-      }
-
-      const stderr = (await new Response(proc.stderr).text()).trim();
-      return errorResponse(`Failed to fetch logs: ${stderr || "unknown error"}`, 502);
-    }
-
-    // GET /api/worktrees/:name/status
-    if (parts[0] === "worktrees" && parts.length === 3 && parts[2] === "status" && method === "GET") {
-      const name = decodeURIComponent(parts[1]);
-      const status = await getStatus();
-      const match = status.find(s => s.worktree.includes(name));
-      return jsonResponse(match ?? { status: "unknown" });
-    }
-
-    return errorResponse("Not Found", 404);
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error(`[api:error] ${method} ${url.pathname}: ${message}`);
-    return errorResponse(message);
-  }
-}
 
 // Ensure tmux server is running (needs at least one session to persist)
 const tmuxCheck = Bun.spawnSync(["tmux", "list-sessions"], { stdout: "pipe", stderr: "pipe" });
@@ -350,6 +463,6 @@ if (tmuxCheck.exitCode !== 0) {
 }
 
 cleanupStaleSessions();
-startPrMonitor(getWorktreePaths, config.linkedRepos);
+startPrMonitor(getWorktreePaths, config.linkedRepos, PROJECT_DIR);
 
 console.log(`Dev Dashboard API running at http://localhost:${PORT}`);

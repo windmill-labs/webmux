@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { PrEntry } from "./types";
   import { fetchCiLogs, sendWorktreePrompt } from "./api";
+  import { normalizeTextForPrompt } from "./promptUtils";
 
   let {
     pr,
@@ -22,24 +23,6 @@
   let copied = $state(false);
   let fixLoading = $state<number | null>(null);
   let fixError = $state("");
-
-  function stripAnsi(input: string): string {
-    return input
-      .replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, "")
-      .replace(/\x1B[@-_]/g, "");
-  }
-
-  const MAX_LOG_CHARS = 30000;
-
-  function normalizeLogsForPrompt(input: string): string {
-    const noAnsi = stripAnsi(input).replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-    // Keep tabs/newlines and printable ASCII only to avoid terminal control issues.
-    const cleaned = noAnsi.replace(/[^\x09\x0A\x20-\x7E]/g, "");
-    if (cleaned.length > MAX_LOG_CHARS) {
-      return "[... truncated]\n" + cleaned.slice(-MAX_LOG_CHARS);
-    }
-    return cleaned;
-  }
 
   $effect(() => {
     dialogEl?.showModal();
@@ -81,7 +64,7 @@
         "",
         "Logs:",
       ].join("\n") + "\n";
-    const sanitizedLogs = normalizeLogsForPrompt(logs);
+    const sanitizedLogs = normalizeTextForPrompt(logs);
     try {
       await sendWorktreePrompt(branch, sanitizedLogs, preamble);
       onfixsuccess();

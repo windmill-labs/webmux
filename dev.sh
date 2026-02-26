@@ -7,6 +7,11 @@ if [ -f .env ]; then
   set -a; source .env; set +a
 fi
 
+# Load worktree-specific port assignments (DASHBOARD_PORT, FRONTEND_PORT)
+if [ -f .env.local ]; then
+  set -a; source .env.local; set +a
+fi
+
 cleanup() {
   kill $BE_PID $FE_PID 2>/dev/null || true
 }

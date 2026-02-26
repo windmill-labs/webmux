@@ -2,6 +2,8 @@ import { describe, expect, it } from "bun:test";
 import { buildDockerRunArgs, type LaunchContainerOpts } from "../docker";
 
 const HOME = "/home/testuser";
+const RPC_SECRET = "test-rpc-secret";
+const RPC_PORT = "5111";
 
 /** Minimal valid opts; individual tests override what they need. */
 function makeOpts(overrides: Partial<LaunchContainerOpts> = {}): LaunchContainerOpts {
@@ -56,6 +58,8 @@ describe("buildDockerRunArgs — extraMounts", () => {
       new Set(),
       HOME,
       "wm-test-123",
+      RPC_SECRET,
+      RPC_PORT,
     );
     expect(mounts(args)).toContain("/data/shared:/mnt/shared:ro");
   });
@@ -68,6 +72,8 @@ describe("buildDockerRunArgs — extraMounts", () => {
       new Set(),
       HOME,
       "wm-test-123",
+      RPC_SECRET,
+      RPC_PORT,
     );
     expect(mounts(args)).toContain("/data/shared:/mnt/shared");
     expect(mounts(args)).not.toContain("/data/shared:/mnt/shared:ro");
@@ -81,6 +87,8 @@ describe("buildDockerRunArgs — extraMounts", () => {
       new Set(),
       HOME,
       "wm-test-123",
+      RPC_SECRET,
+      RPC_PORT,
     );
     expect(mounts(args)).toContain("/data/shared:/mnt/shared:ro");
   });
@@ -93,6 +101,8 @@ describe("buildDockerRunArgs — extraMounts", () => {
       new Set(),
       HOME,
       "wm-test-123",
+      RPC_SECRET,
+      RPC_PORT,
     );
     expect(mounts(args)).toContain("/data/shared:/data/shared:ro");
   });
@@ -105,6 +115,8 @@ describe("buildDockerRunArgs — extraMounts", () => {
       new Set(),
       HOME,
       "wm-test-123",
+      RPC_SECRET,
+      RPC_PORT,
     );
     expect(mounts(args)).toContain(`${HOME}/projects:/root/projects:ro`);
   });
@@ -117,6 +129,8 @@ describe("buildDockerRunArgs — extraMounts", () => {
       new Set(),
       HOME,
       "wm-test-123",
+      RPC_SECRET,
+      RPC_PORT,
     );
     expect(mounts(args).join("\n")).not.toContain("/mnt/data");
   });
@@ -130,6 +144,8 @@ describe("buildDockerRunArgs — extraMounts", () => {
       new Set(),
       HOME,
       "wm-test-123",
+      RPC_SECRET,
+      RPC_PORT,
     );
     const m = mounts(args);
     expect(m).toContain("/data/a:/mnt/a");
@@ -155,6 +171,8 @@ describe("buildDockerRunArgs — extraMounts override credential mounts", () => 
       existingPaths,
       HOME,
       "wm-test-123",
+      RPC_SECRET,
+      RPC_PORT,
     );
 
     const m = mounts(args);
@@ -174,6 +192,8 @@ describe("buildDockerRunArgs — extraMounts override credential mounts", () => 
       existingPaths,
       HOME,
       "wm-test-123",
+      RPC_SECRET,
+      RPC_PORT,
     );
 
     const m = mounts(args);
@@ -193,6 +213,8 @@ describe("buildDockerRunArgs — extraMounts override credential mounts", () => 
       existingPaths,
       HOME,
       "wm-test-123",
+      RPC_SECRET,
+      RPC_PORT,
     );
 
     const m = mounts(args);
@@ -211,6 +233,8 @@ describe("buildDockerRunArgs — extraMounts override credential mounts", () => 
       existingPaths,
       HOME,
       "wm-test-123",
+      RPC_SECRET,
+      RPC_PORT,
     );
 
     const m = mounts(args);
@@ -224,6 +248,8 @@ describe("buildDockerRunArgs — extraMounts override credential mounts", () => 
       new Set(), // nothing exists
       HOME,
       "wm-test-123",
+      RPC_SECRET,
+      RPC_PORT,
     );
 
     const m = mounts(args);
@@ -246,6 +272,8 @@ describe("buildDockerRunArgs — ports", () => {
       new Set(),
       HOME,
       "wm-test-123",
+      RPC_SECRET,
+      RPC_PORT,
     );
     expect(ports(args)).toContain("127.0.0.1:3000:3000");
   });
@@ -259,6 +287,8 @@ describe("buildDockerRunArgs — ports", () => {
       new Set(),
       HOME,
       "wm-test-123",
+      RPC_SECRET,
+      RPC_PORT,
     );
     expect(ports(args)).toHaveLength(0);
   });
@@ -275,6 +305,8 @@ describe("buildDockerRunArgs — ports", () => {
       new Set(),
       HOME,
       "wm-test-123",
+      RPC_SECRET,
+      RPC_PORT,
     );
     expect(ports(args).filter(p => p.startsWith("127.0.0.1:3000"))).toHaveLength(1);
   });
@@ -291,6 +323,8 @@ describe("buildDockerRunArgs — reserved env vars", () => {
       new Set(),
       HOME,
       "wm-test-123",
+      RPC_SECRET,
+      RPC_PORT,
     );
     const flags = envFlags(args);
     expect(flags).toContain("HOME=/root");
@@ -303,6 +337,8 @@ describe("buildDockerRunArgs — reserved env vars", () => {
       new Set(),
       HOME,
       "wm-test-123",
+      RPC_SECRET,
+      RPC_PORT,
     );
     const flags = envFlags(args);
     expect(flags).toContain("IS_SANDBOX=1");

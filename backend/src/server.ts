@@ -24,6 +24,8 @@ import {
 } from "./terminal";
 import { loadConfig, type WmdevConfig } from "./config";
 import { startPrMonitor, type PrEntry } from "./pr";
+import { handleWorkmuxRpc } from "./rpc";
+import { jsonResponse, errorResponse } from "./http";
 
 const PORT = parseInt(Bun.env.DASHBOARD_PORT || "5111", 10);
 const STATIC_DIR = Bun.env.WMDEV_STATIC_DIR || "";
@@ -77,17 +79,6 @@ function parseWsMessage(raw: string | Buffer): WsInboundMessage | null {
 }
 
 // --- HTTP helpers ---
-
-function jsonResponse(data: unknown, status = 200): Response {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
-}
-
-function errorResponse(message: string, status = 500): Response {
-  return jsonResponse({ error: message }, status);
-}
 
 function sendWs(ws: { send: (data: string) => void }, msg: WsOutboundMessage): void {
   ws.send(JSON.stringify(msg));
@@ -312,6 +303,10 @@ Bun.serve({
       return server.upgrade(req, { data: { worktree, attached: false } })
         ? undefined
         : new Response("WebSocket upgrade failed", { status: 400 });
+    },
+
+    "/rpc/workmux": {
+      POST: (req) => handleWorkmuxRpc(req),
     },
 
     "/api/config": {

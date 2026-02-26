@@ -7,6 +7,7 @@
 
 import { stat } from "node:fs/promises";
 import { type SandboxProfileConfig, type ServiceConfig } from "./config";
+import { loadRpcSecret } from "./rpc-secret";
 
 const DOCKER_RUN_TIMEOUT_MS = 60_000;
 
@@ -56,6 +57,39 @@ export interface LaunchContainerOpts {
   env: Record<string, string>;
 }
 
+function buildWorkmuxStub(): string {
+  return `#!/usr/bin/env python3
+import sys, json, os, urllib.request
+
+cmd = sys.argv[1] if len(sys.argv) > 1 else ""
+args = sys.argv[2:]
+host = os.environ.get("WORKMUX_RPC_HOST", "host.docker.internal")
+port = os.environ.get("WORKMUX_RPC_PORT", "5111")
+token = os.environ.get("WORKMUX_RPC_TOKEN", "")
+
+payload = {"command": cmd}
+if args:
+    payload["name"] = args[0]
+data = json.dumps(payload).encode()
+req = urllib.request.Request(
+    f"http://{host}:{port}/rpc/workmux",
+    data=data,
+    headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"}
+)
+try:
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        result = json.loads(resp.read())
+        if result.get("ok"):
+            print(result.get("output", ""))
+        else:
+            print(result.get("error", "RPC failed"), file=sys.stderr)
+            sys.exit(1)
+except Exception as e:
+    print(f"workmux rpc error: {e}", file=sys.stderr)
+    sys.exit(1)
+`;
+}
+
 /**
  * Build the `docker run` argument list from the given options.
  *
@@ -73,6 +107,8 @@ export function buildDockerRunArgs(
   existingPaths: Set<string>,
   home: string,
   name: string,
+  rpcSecret: string,
+  rpcPort: string,
 ): string[] {
   const { wtDir, mainRepoDir, sandboxConfig, services, env } = opts;
 
@@ -188,6 +224,11 @@ export function buildDockerRunArgs(
     }
   }
 
+  // RPC env vars so workmux stub inside the container can reach the host.
+  args.push("-e", `WORKMUX_RPC_HOST=host.docker.internal`);
+  args.push("-e", `WORKMUX_RPC_PORT=${rpcPort}`);
+  args.push("-e", `WORKMUX_RPC_TOKEN=${rpcSecret}`);
+
   // Image + command.
   args.push(sandboxConfig.image, "sleep", "infinity");
 
@@ -214,6 +255,8 @@ export async function launchContainer(opts: LaunchContainerOpts): Promise<string
 
   const name = containerName(branch);
   const home = Bun.env.HOME ?? "/root";
+  const rpcSecret = await loadRpcSecret();
+  const rpcPort = Bun.env.DASHBOARD_PORT ?? "5111";
 
   // Resolve which credential paths exist on the host before building args.
   const credentialHostPaths = [
@@ -226,7 +269,7 @@ export async function launchContainer(opts: LaunchContainerOpts): Promise<string
     if (await pathExists(p)) existingPaths.add(p);
   }));
 
-  const args = buildDockerRunArgs(opts, existingPaths, home, name);
+  const args = buildDockerRunArgs(opts, existingPaths, home, name, rpcSecret, rpcPort);
 
   console.log(`[docker] launching container: ${name}`);
   const proc = Bun.spawn(args, { stdout: "pipe", stderr: "pipe" });
@@ -256,6 +299,27 @@ export async function launchContainer(opts: LaunchContainerOpts): Promise<string
   }
 
   console.log(`[docker] container ${name} ready (id=${containerId.trim().slice(0, 12)})`);
+
+  // Inject workmux stub so agents inside the container can call host-side workmux.
+  const stub = buildWorkmuxStub();
+  const injectProc = Bun.spawn(
+    ["docker", "exec", "-i", name, "sh", "-c",
+     "cat > /usr/local/bin/workmux && chmod +x /usr/local/bin/workmux"],
+    { stdin: "pipe", stdout: "pipe", stderr: "pipe" },
+  );
+  const { stdin } = injectProc;
+  if (stdin) {
+    stdin.write(stub);
+    stdin.end();
+  }
+  const injectExit = await injectProc.exited;
+  if (injectExit !== 0) {
+    const injectStderr = await new Response(injectProc.stderr).text();
+    console.warn(`[docker] workmux stub injection failed for ${name}: ${injectStderr}`);
+  } else {
+    console.log(`[docker] workmux stub injected into ${name}`);
+  }
+
   return name;
 }
 

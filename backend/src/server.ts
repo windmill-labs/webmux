@@ -457,6 +457,7 @@ Bun.serve({
   },
 });
 
+
 // Ensure tmux server is running (needs at least one session to persist)
 const tmuxCheck = Bun.spawnSync(["tmux", "list-sessions"], { stdout: "pipe", stderr: "pipe" });
 if (tmuxCheck.exitCode !== 0) {
@@ -465,6 +466,6 @@ if (tmuxCheck.exitCode !== 0) {
 }
 
 cleanupStaleSessions();
-startPrMonitor(getWorktreePaths, config.linkedRepos);
+startPrMonitor(getWorktreePaths, config.linkedRepos, PROJECT_DIR);
 
 console.log(`Dev Dashboard API running at http://localhost:${PORT}`);

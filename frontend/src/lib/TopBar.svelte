@@ -2,6 +2,7 @@
   import type { WorktreeInfo, PrEntry } from "./types";
   import PrBadge from "./PrBadge.svelte";
   import CiBadge from "./CiBadge.svelte";
+  import ReviewsBadge from "./ReviewsBadge.svelte";
 
   let {
     name,
@@ -13,6 +14,7 @@
     onremove,
     onsettings,
     onciclick,
+    onreviewsclick,
   }: {
     name: string | null;
     worktree: WorktreeInfo | undefined;
@@ -23,6 +25,7 @@
     onremove: () => void;
     onsettings: () => void;
     onciclick: (pr: PrEntry) => void;
+    onreviewsclick: (pr: PrEntry) => void;
   } = $props();
 
   let cursorUrl = $derived.by(() => {
@@ -75,6 +78,9 @@
       <PrBadge {pr} clickable />
       {#if pr.ciChecks && pr.ciChecks.length > 0}
         <CiBadge {pr} onclick={onciclick} />
+      {/if}
+      {#if pr.comments.length > 0}
+        <ReviewsBadge {pr} onclick={onreviewsclick} />
       {/if}
     {/each}
     {#if !isMobile}

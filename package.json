@@ -12,8 +12,8 @@
     "start": "bun bin/wmdev.js",
     "build": "cd frontend && bun run build",
     "prepublishOnly": "bun run build",
-    "test": "cd backend && bun test && cd ../frontend && bun run test",
-    "test:coverage": "cd backend && bun test --coverage && cd ../frontend && bun run test:coverage"
+    "test": "bun run --cwd backend test && bun run --cwd frontend test",
+    "test:coverage": "bun run --cwd backend test --coverage && bun run --cwd frontend test:coverage"
   },
   "files": [
     "bin/",

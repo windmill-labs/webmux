@@ -9,7 +9,7 @@ export default mergeConfig(viteConfig, defineConfig({
     coverage: {
       provider: "v8",
       include: ["src/**/*.ts", "src/**/*.svelte"],
-      exclude: ["src/test-setup.ts", "src/vite-env.d.ts"],
+      exclude: ["src/test-setup.ts", "src/vite-env.d.ts", "src/**/__tests__/**"],
     },
   },
 }));

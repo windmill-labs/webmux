@@ -1,4 +1,4 @@
-import { upsertEnvLocal } from "./env";
+import { readEnvLocal, upsertEnvLocal } from "./env";
 import type { LinkedRepoConfig } from "./config";
 
 const PR_FETCH_LIMIT = 50;
@@ -203,6 +203,55 @@ export async function fetchAllPrs(
   }
 }
 
+/** Fetch the current state of a PR by its URL. Returns null on error. */
+async function fetchPrState(url: string): Promise<PrEntry["state"] | null> {
+  const proc = Bun.spawn(["gh", "pr", "view", url, "--json", "state"], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+
+  const timeout = Bun.sleep(GH_TIMEOUT_MS).then(() => {
+    proc.kill();
+    return "timeout" as const;
+  });
+
+  const raceResult = await Promise.race([proc.exited, timeout]);
+  if (raceResult === "timeout" || raceResult !== 0) return null;
+
+  try {
+    const data = JSON.parse(await new Response(proc.stdout).text()) as { state: string };
+    return data.state.toLowerCase() as PrEntry["state"];
+  } catch {
+    return null;
+  }
+}
+
+/** Update PR_DATA for a worktree whose PR is no longer in the open PR list.
+ *  Fetches the actual current state for any entry still marked "open". */
+async function refreshStalePrData(wtDir: string): Promise<void> {
+  const env = await readEnvLocal(wtDir);
+  if (!env.PR_DATA) return;
+
+  let entries: PrEntry[];
+  try {
+    entries = JSON.parse(env.PR_DATA) as PrEntry[];
+  } catch {
+    return;
+  }
+
+  if (!entries.some((e) => e.state === "open")) return;
+
+  const updated = await Promise.all(
+    entries.map(async (entry) => {
+      if (entry.state !== "open") return entry;
+      const state = await fetchPrState(entry.url);
+      return state ? { ...entry, state } : entry;
+    }),
+  );
+
+  await upsertEnvLocal(wtDir, "PR_DATA", JSON.stringify(updated));
+}
+
 /** Sync PR status to .env.local for all worktrees that have open PRs. */
 export async function syncPrStatus(
   getWorktreePaths: () => Promise<Map<string, string>>,
@@ -229,8 +278,6 @@ export async function syncPrStatus(
     }
   }
 
-  if (branchPrs.size === 0) return;
-
   const wtPaths = await getWorktreePaths();
   const seen = new Set<string>();
 
@@ -242,9 +289,21 @@ export async function syncPrStatus(
     await upsertEnvLocal(wtDir, "PR_DATA", JSON.stringify(entries));
   }
 
-  console.log(
-    `[pr] synced ${seen.size} worktree(s) with PR data from ${allRepoResults.length} repo(s)`,
-  );
+  if (seen.size > 0) {
+    console.log(
+      `[pr] synced ${seen.size} worktree(s) with PR data from ${allRepoResults.length} repo(s)`,
+    );
+  }
+
+  // For worktrees not matched by the open-PR sync, refresh any stale "open"
+  // entries so merged/closed PRs are reflected in PR_DATA.
+  const uniqueDirs = new Set(wtPaths.values());
+  const staleRefreshes: Promise<void>[] = [];
+  for (const wtDir of uniqueDirs) {
+    if (seen.has(wtDir)) continue;
+    staleRefreshes.push(refreshStalePrData(wtDir));
+  }
+  await Promise.all(staleRefreshes);
 }
 
 /** Start periodic PR status sync. Returns a cleanup function that stops the monitor. */

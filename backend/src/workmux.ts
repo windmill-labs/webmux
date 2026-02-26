@@ -89,20 +89,6 @@ export async function getStatus(): Promise<WorktreeStatus[]> {
   }), STATUS_HEADERS);
 }
 
-async function runChecked(args: string[]): Promise<string> {
-  const proc = Bun.spawn(args, { stdout: "pipe", stderr: "pipe" });
-  const stdout = await new Response(proc.stdout).text();
-  const stderr = await new Response(proc.stderr).text();
-  const exitCode = await proc.exited;
-
-  if (exitCode !== 0) {
-    const msg = `${args.join(" ")} failed (exit ${exitCode}): ${stderr || stdout}`;
-    console.error(`[workmux:exec] ${msg}`);
-    throw new Error(msg);
-  }
-  return stdout.trim();
-}
-
 async function tryExec(args: string[]): Promise<{ ok: true; stdout: string } | { ok: false; error: string }> {
   const proc = Bun.spawn(args, { stdout: "pipe", stderr: "pipe" });
   const stdout = await new Response(proc.stdout).text();
@@ -224,7 +210,7 @@ function randomName(len: number): string {
 
 /** Parse branch name from workmux add output (e.g. "Branch: my-feature"). */
 function parseBranchFromOutput(output: string): string | null {
-  const match = output.match(/branch[:\s]+(\S+)/i);
+  const match = output.match(/branch:\s*(\S+)/i);
   return match?.[1] ?? null;
 }
 
@@ -238,11 +224,6 @@ export interface AddWorktreeOpts {
   sandboxConfig?: SandboxProfileConfig;
   services?: ServiceConfig[];
   mainRepoDir?: string;
-}
-
-export interface AddWorktreeResult {
-  branch: string;
-  output: string;
 }
 
 export async function addWorktree(

@@ -135,18 +135,19 @@ export async function attach(
         const { done, value } = await reader.read();
         if (done) break;
         const str = new TextDecoder().decode(value);
-        session.scrollbackBytes += str.length;
+        const encoder = new TextEncoder();
+        session.scrollbackBytes += encoder.encode(str).byteLength;
         session.scrollback.push(str);
-        while (session.scrollbackBytes > MAX_SCROLLBACK_BYTES && session.scrollback.length > 1) {
+        while (session.scrollbackBytes > MAX_SCROLLBACK_BYTES && session.scrollback.length > 0) {
           const removed = session.scrollback.shift()!;
-          session.scrollbackBytes -= removed.length;
+          session.scrollbackBytes -= encoder.encode(removed).byteLength;
         }
         session.onData?.(str);
       }
     } catch (err) {
       // Stream closed normally — no action needed.
       // Log anything unexpected so it surfaces during debugging.
-      if (!(err instanceof Error && err.message.includes("closed"))) {
+      if (!session.cancelled) {
         console.error(`[term:${ts()}] stdout reader error(${worktreeName}):`, err);
       }
     }

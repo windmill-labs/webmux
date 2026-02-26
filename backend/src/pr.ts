@@ -23,6 +23,18 @@ type GhCheckConclusion =
   | "TIMED_OUT"
   | "ACTION_REQUIRED";
 
+export interface PrComment {
+  author: string;
+  body: string;
+  createdAt: string;
+}
+
+interface GhComment {
+  author: { login: string };
+  body: string;
+  createdAt: string;
+}
+
 interface GhCheckEntry {
   conclusion: GhCheckConclusion | null;
   status: GhCheckStatus;
@@ -36,6 +48,7 @@ interface GhPrEntry {
   state: string;
   statusCheckRollup: GhCheckEntry[] | null;
   url: string;
+  comments: GhComment[];
 }
 
 // ── Public types ──────────────────────────────────────────────────────────────
@@ -54,6 +67,7 @@ export interface PrEntry {
   url: string;
   ciStatus: "none" | "pending" | "success" | "failed";
   ciChecks: CiCheck[];
+  comments: PrComment[];
 }
 
 type FetchPrsResult =
@@ -121,6 +135,11 @@ export function parsePrResponse(
       url: entry.url,
       ciStatus: summarizeChecks(entry.statusCheckRollup),
       ciChecks: mapChecks(entry.statusCheckRollup),
+      comments: (entry.comments ?? []).map((c) => ({
+        author: c.author?.login ?? "unknown",
+        body: c.body ?? "",
+        createdAt: c.createdAt ?? "",
+      })),
     });
   }
   return prs;
@@ -146,7 +165,7 @@ export async function fetchAllPrs(
     "--state",
     "open",
     "--json",
-    "number,headRefName,state,statusCheckRollup,url",
+    "number,headRefName,state,statusCheckRollup,url,comments",
     "--limit",
     String(PR_FETCH_LIMIT),
   ];
@@ -186,7 +205,7 @@ export async function fetchAllPrs(
 
 /** Sync PR status to .env.local for all worktrees that have open PRs. */
 export async function syncPrStatus(
-  getWorktreePaths: () => Map<string, string>,
+  getWorktreePaths: () => Promise<Map<string, string>>,
   linkedRepos: LinkedRepoConfig[],
   projectDir?: string,
 ): Promise<void> {
@@ -212,7 +231,7 @@ export async function syncPrStatus(
 
   if (branchPrs.size === 0) return;
 
-  const wtPaths = getWorktreePaths();
+  const wtPaths = await getWorktreePaths();
   const seen = new Set<string>();
 
   for (const [branch, entries] of branchPrs) {
@@ -230,7 +249,7 @@ export async function syncPrStatus(
 
 /** Start periodic PR status sync. Returns a cleanup function that stops the monitor. */
 export function startPrMonitor(
-  getWorktreePaths: () => Map<string, string>,
+  getWorktreePaths: () => Promise<Map<string, string>>,
   linkedRepos: LinkedRepoConfig[],
   projectDir?: string,
   intervalMs: number = 20_000,

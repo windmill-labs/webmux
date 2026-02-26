@@ -11,7 +11,9 @@
     "dev": "bash dev.sh",
     "start": "bun bin/wmdev.js",
     "build": "cd frontend && bun run build",
-    "prepublishOnly": "bun run build"
+    "prepublishOnly": "bun run build",
+    "test": "bun run --cwd backend test && bun run --cwd frontend test",
+    "test:coverage": "bun run --cwd backend test --coverage && bun run --cwd frontend test:coverage"
   },
   "files": [
     "bin/",

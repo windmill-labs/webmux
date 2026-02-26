@@ -2,7 +2,7 @@ import { FileSink } from "bun";
 import { getTmuxSession } from "./workmux";
 
 interface TerminalSession {
-  proc: ReturnType<typeof Bun.spawn>;
+  proc?: ReturnType<typeof Bun.spawn>;
   groupedSessionName: string;
   scrollback: string[];
   onData: ((data: string) => void) | null;
@@ -85,7 +85,6 @@ export async function attach(
   ].join(" && ");
 
   const session: TerminalSession = {
-    proc: null as any,
     groupedSessionName: gName,
     scrollback: [],
     onData: null,
@@ -145,8 +144,8 @@ export async function detach(worktreeName: string): Promise<void> {
     return;
   }
 
-  console.log(`[term:${ts()}] detach(${worktreeName}) killing pid=${session.proc.pid} tmux=${session.groupedSessionName}`);
-  session.proc.kill();
+  console.log(`[term:${ts()}] detach(${worktreeName}) killing pid=${session.proc?.pid} tmux=${session.groupedSessionName}`);
+  session.proc?.kill();
   sessions.delete(worktreeName);
 
   killTmuxSession(session.groupedSessionName);
@@ -159,7 +158,7 @@ export function write(worktreeName: string, data: string): void {
     console.log(`[term:${ts()}] write(${worktreeName}) NO SESSION - input dropped (${data.length} bytes)`);
     return;
   }
-  if (!session.proc.stdin) {
+  if (!session.proc?.stdin) {
     console.log(`[term:${ts()}] write(${worktreeName}) NO STDIN - input dropped (${data.length} bytes)`);
     return;
   }

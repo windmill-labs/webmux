@@ -4,6 +4,12 @@ export interface ServiceStatus {
   running: boolean;
 }
 
+export interface PrComment {
+  author: string;
+  body: string;
+  createdAt: string;
+}
+
 export interface CiCheck {
   name: string;
   status: string;
@@ -18,6 +24,7 @@ export interface PrEntry {
   url: string;
   ciStatus: string;
   ciChecks: CiCheck[];
+  comments: PrComment[];
 }
 
 export interface WorktreeInfo {

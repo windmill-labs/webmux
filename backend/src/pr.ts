@@ -1,6 +1,12 @@
 import { upsertEnvLocal } from "./env";
 import type { LinkedRepoConfig } from "./config";
 
+export interface PrComment {
+  author: string;
+  body: string;
+  createdAt: string;
+}
+
 export interface CiCheck {
   name: string;
   status: string;
@@ -15,6 +21,13 @@ export interface PrEntry {
   url: string;
   ciStatus: string;
   ciChecks: CiCheck[];
+  comments: PrComment[];
+}
+
+interface GhComment {
+  author: { login: string };
+  body: string;
+  createdAt: string;
 }
 
 interface GhCheckEntry {
@@ -30,6 +43,7 @@ interface GhPrEntry {
   state: string;
   statusCheckRollup: GhCheckEntry[];
   url: string;
+  comments: GhComment[];
 }
 
 /** Summarize CI check status from statusCheckRollup array. */
@@ -69,7 +83,7 @@ function mapChecks(checks: GhCheckEntry[]): CiCheck[] {
 
 /** Fetch all PRs from a repo via gh CLI. Returns a map of branch name → PrEntry. */
 export async function fetchAllPrs(repoSlug?: string, repoLabel?: string): Promise<Map<string, PrEntry>> {
-  const args = ["gh", "pr", "list", "--state", "open", "--json", "number,headRefName,state,statusCheckRollup,url", "--limit", "50"];
+  const args = ["gh", "pr", "list", "--state", "open", "--json", "number,headRefName,state,statusCheckRollup,url,comments", "--limit", "50"];
   if (repoSlug) args.push("--repo", repoSlug);
 
   const proc = Bun.spawn(args, { stdout: "pipe", stderr: "pipe" });
@@ -95,6 +109,11 @@ export async function fetchAllPrs(repoSlug?: string, repoLabel?: string): Promis
         url: entry.url,
         ciStatus: summarizeChecks(entry.statusCheckRollup),
         ciChecks: mapChecks(entry.statusCheckRollup),
+        comments: (entry.comments ?? []).map((c) => ({
+          author: c.author?.login ?? "unknown",
+          body: c.body ?? "",
+          createdAt: c.createdAt ?? "",
+        })),
       });
     }
   } catch (err) {
@@ -107,7 +126,7 @@ export async function fetchAllPrs(repoSlug?: string, repoLabel?: string): Promis
 
 /** Sync PR status to .env.local for all worktrees that have PRs. */
 export async function syncPrStatus(
-  getWorktreePaths: () => Map<string, string>,
+  getWorktreePaths: () => Promise<Map<string, string>>,
   linkedRepos: LinkedRepoConfig[],
 ): Promise<void> {
   // Fetch current repo + all linked repos in parallel
@@ -128,7 +147,7 @@ export async function syncPrStatus(
 
   if (branchPrs.size === 0) return;
 
-  const wtPaths = getWorktreePaths();
+  const wtPaths = await getWorktreePaths();
   const seen = new Set<string>();
 
   for (const [branch, entries] of branchPrs) {
@@ -144,7 +163,7 @@ export async function syncPrStatus(
 
 /** Start periodic PR status sync. Returns cleanup function. */
 export function startPrMonitor(
-  getWorktreePaths: () => Map<string, string>,
+  getWorktreePaths: () => Promise<Map<string, string>>,
   linkedRepos: LinkedRepoConfig[],
   intervalMs: number = 20_000,
 ): () => void {

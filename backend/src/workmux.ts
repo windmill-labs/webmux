@@ -471,17 +471,3 @@ export async function mergeWorktree(name: string): Promise<{ ok: true; output: s
   return { ok: true, output: result.stdout };
 }
 
-export async function getTmuxSession(): Promise<string> {
-  try {
-    const result = await $`tmux list-windows -a -F "#{session_name}:#{window_name}"`.text();
-    for (const line of result.trim().split("\n")) {
-      const [session, window] = line.split(":");
-      if (window?.startsWith("wm-")) {
-        return session!;
-      }
-    }
-  } catch {
-    // No tmux server running
-  }
-  return "0";
-}

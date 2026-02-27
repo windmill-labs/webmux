@@ -86,37 +86,51 @@ function killTmuxSession(name: string): void {
   }
 }
 
+/**
+ * Pure: parse `tmux list-windows -a` output to find the session owning
+ * a worktree window.  Skips wm-dash-* viewer sessions.
+ * Returns the session name, or null if not found.
+ */
+export function parseTmuxSessionForWorktree(
+  tmuxOutput: string,
+  worktreeName: string,
+): string | null {
+  const windowName = `wm-${worktreeName}`;
+  const lines = tmuxOutput.trim().split("\n").filter(Boolean);
+  // First pass: exact window match, skip viewer sessions
+  for (const line of lines) {
+    const colonIdx = line.indexOf(":");
+    if (colonIdx === -1) continue;
+    const session = line.slice(0, colonIdx);
+    const name = line.slice(colonIdx + 1);
+    if (name === windowName && !session.startsWith("wm-dash-")) {
+      return session;
+    }
+  }
+  // Fallback: any non-viewer session with a wm-* window
+  for (const line of lines) {
+    const colonIdx = line.indexOf(":");
+    if (colonIdx === -1) continue;
+    const session = line.slice(0, colonIdx);
+    const name = line.slice(colonIdx + 1);
+    if (name.startsWith("wm-") && !session.startsWith("wm-dash-")) {
+      return session;
+    }
+  }
+  return null;
+}
+
 /** Find the tmux session that owns the window for a given worktree.
  *  Skips wm-dash-* grouped/viewer sessions to find the real workmux session. */
 async function findTmuxSessionForWorktree(worktreeName: string): Promise<string> {
-  const windowName = `wm-${worktreeName}`;
   try {
     const proc = Bun.spawn(
       ["tmux", "list-windows", "-a", "-F", "#{session_name}:#{window_name}"],
       { stdout: "pipe", stderr: "pipe" },
     );
     if (await proc.exited !== 0) return "0";
-    const output = (await new Response(proc.stdout).text()).trim();
-    // First pass: look for the exact window, skipping viewer sessions
-    for (const line of output.split("\n")) {
-      const colonIdx = line.indexOf(":");
-      if (colonIdx === -1) continue;
-      const session = line.slice(0, colonIdx);
-      const name = line.slice(colonIdx + 1);
-      if (name === windowName && !session.startsWith("wm-dash-")) {
-        return session;
-      }
-    }
-    // Fallback: any non-viewer session with a wm-* window
-    for (const line of output.split("\n")) {
-      const colonIdx = line.indexOf(":");
-      if (colonIdx === -1) continue;
-      const session = line.slice(0, colonIdx);
-      const name = line.slice(colonIdx + 1);
-      if (name.startsWith("wm-") && !session.startsWith("wm-dash-")) {
-        return session;
-      }
-    }
+    const output = await new Response(proc.stdout).text();
+    return parseTmuxSessionForWorktree(output, worktreeName) ?? "0";
   } catch {
     // No tmux server running
   }

@@ -37,8 +37,6 @@
     }
     return `cursor://file${dir}`;
   });
-
-
 </script>
 
 <div

@@ -6,7 +6,6 @@
   import BaseDialog from "./BaseDialog.svelte";
   import Btn from "./Btn.svelte";
   import LinkBtn from "./LinkBtn.svelte";
-  import CtaBtn from "./CtaBtn.svelte";
 
   let {
     pr,
@@ -146,7 +145,9 @@
                 <LinkBtn onclick={handleCopy}
                   >{copied ? "Copied!" : "Copy logs"}</LinkBtn
                 >
-                <CtaBtn
+                <Btn
+                  variant="cta"
+                  small
                   disabled={!branch ||
                     !logs ||
                     logsLoading ||
@@ -154,7 +155,7 @@
                   onclick={() => handleFix(check.name)}
                   >{fixLoading !== null
                     ? "Asking agent..."
-                    : "Ask agent to fix"}</CtaBtn
+                    : "Ask agent to fix"}</Btn
                 >
               </div>
             {/if}

@@ -6,7 +6,6 @@
   import { prLabel, errorMessage } from "./utils";
   import BaseDialog from "./BaseDialog.svelte";
   import Btn from "./Btn.svelte";
-  import CtaBtn from "./CtaBtn.svelte";
   import LinkBtn from "./LinkBtn.svelte";
 
   let {
@@ -122,11 +121,13 @@
 
   <div class="flex justify-end gap-2">
     <Btn type="button" onclick={onclose}>Cancel</Btn>
-    <CtaBtn
+    <Btn
+      variant="cta"
+      small
       disabled={noneSelected || sending}
       onclick={handleSend}
     >
       {sending ? "Sending..." : `Send ${selected.size} to agent`}
-    </CtaBtn>
+    </Btn>
   </div>
 </BaseDialog>

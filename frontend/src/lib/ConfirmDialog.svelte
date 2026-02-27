@@ -25,6 +25,7 @@
         variant={variant === "accent" ? "cta" : "danger"}
         class="flex items-center gap-1.5"
         disabled={loading}
+        autofocus
       >{#if loading}<span class="spinner"></span>{/if} {confirmLabel}</Btn>
     </div>
   </form>

@@ -67,9 +67,7 @@ host = os.environ.get("WORKMUX_RPC_HOST", "host.docker.internal")
 port = os.environ.get("WORKMUX_RPC_PORT", "5111")
 token = os.environ.get("WORKMUX_RPC_TOKEN", "")
 
-payload = {"command": cmd}
-if args:
-    payload["name"] = args[0]
+payload = {"command": cmd, "args": args}
 data = json.dumps(payload).encode()
 req = urllib.request.Request(
     f"http://{host}:{port}/rpc/workmux",

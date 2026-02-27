@@ -56,6 +56,6 @@ RUN PUPPETEER_SKIP_DOWNLOAD=true npm i -g @mermaid-js/mermaid-cli \
     && printf '{"args":["--no-sandbox","--disable-setuid-sandbox"],"executablePath":"%s"}\n' "$CHROMIUM" \
        > /root/.puppeteerrc.json
 
-# ── Entrypoint ────────────────────────────────────────────────────────────────
+# ── Entrypoint (run explicitly via docker exec, not on container start) ──────
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh

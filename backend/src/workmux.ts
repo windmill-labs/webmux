@@ -105,12 +105,13 @@ async function tryExec(args: string[]): Promise<{ ok: true; stdout: string } | {
 
 export { readEnvLocal } from "./env";
 
-function buildAgentCmd(env: Record<string, string>, agent: string, profileConfig: ProfileConfig, isSandbox: boolean): string {
+function buildAgentCmd(env: Record<string, string>, agent: string, profileConfig: ProfileConfig, isSandbox: boolean, prompt?: string): string {
   const systemPrompt = profileConfig.systemPrompt
     ? expandTemplate(profileConfig.systemPrompt, env)
     : "";
   // Escape for double-quoted shell context: backslash, double-quote, dollar, backtick.
   const innerEscaped = systemPrompt.replace(/["\\$`]/g, "\\$&");
+  const promptEscaped = prompt ? prompt.replace(/["\\$`]/g, "\\$&") : "";
 
   // For sandbox, env is passed via Docker -e flags, no inline prefix needed.
   // For non-sandbox, build inline env prefix for passthrough vars.
@@ -119,15 +120,17 @@ function buildAgentCmd(env: Record<string, string>, agent: string, profileConfig
     ? buildEnvPrefix(profileConfig.envPassthrough, { ...process.env, ...env })
     : "";
 
+  const promptSuffix = promptEscaped ? ` "${promptEscaped}"` : "";
+
   if (agent === "codex") {
     return systemPrompt
-      ? `${envPrefix}codex --yolo -c "developer_instructions=${innerEscaped}"`
-      : `${envPrefix}codex --yolo`;
+      ? `${envPrefix}codex --yolo -c "developer_instructions=${innerEscaped}"${promptSuffix}`
+      : `${envPrefix}codex --yolo${promptSuffix}`;
   }
   const skipPerms = isSandbox ? " --dangerously-skip-permissions" : "";
   return systemPrompt
-    ? `${envPrefix}claude${skipPerms} --append-system-prompt "${innerEscaped}"`
-    : `${envPrefix}claude${skipPerms}`;
+    ? `${envPrefix}claude${skipPerms} --append-system-prompt "${innerEscaped}"${promptSuffix}`
+    : `${envPrefix}claude${skipPerms}${promptSuffix}`;
 }
 
 /** Build an inline env prefix (e.g. "KEY='val' KEY2='val2' ") for vars listed in envPassthrough. */
@@ -237,34 +240,49 @@ export async function addWorktree(
   const isSandbox = opts?.isSandbox === true;
   const hasSystemPrompt = !!profileConfig?.systemPrompt;
   const args: string[] = ["workmux", "add", "-b"]; // -b = background (don't switch tmux)
-
-  // Skip default pane commands for profiles with a system prompt (custom pane setup)
-  if (hasSystemPrompt) {
-    args.push("-C"); // --no-pane-cmds
-  }
-
-  // No -S flag — we manage Docker ourselves
-
-  if (opts?.prompt) args.push("-p", opts.prompt);
-
-  // Branch name resolution:
-  // 1. User provided a name → sanitize and use it
-  // 2. No name + prompt + autoName → let workmux generate via -A
-  // 3. No name + (no prompt or no autoName) → random
-  const useAutoName = !rawBranch && !!opts?.prompt && !!opts?.autoName;
   let branch = "";
+  let useAutoName = false;
 
-  if (rawBranch) {
-    branch = sanitizeBranchName(rawBranch);
-    if (!branch) {
-      return { ok: false, error: `"${rawBranch}" is not a valid branch name after sanitization` };
+  if (isSandbox) {
+    // Sandbox: we manage panes ourselves, don't pass -p (we pass prompt to claude directly)
+    args.push("-C"); // --no-pane-cmds
+    // No -p: workmux can't use it with -C
+    // No -A: auto-name needs -p which we can't pass
+    if (rawBranch) {
+      branch = sanitizeBranchName(rawBranch);
+      if (!branch) {
+        return { ok: false, error: `"${rawBranch}" is not a valid branch name after sanitization` };
+      }
+    } else {
+      branch = randomName(8);
     }
     args.push(branch);
-  } else if (useAutoName) {
-    args.push("-A");
   } else {
-    branch = randomName(8);
-    args.push(branch);
+    // Non-sandbox: skip default pane commands for profiles with a system prompt (custom pane setup)
+    if (hasSystemPrompt) {
+      args.push("-C"); // --no-pane-cmds
+    }
+
+    if (opts?.prompt) args.push("-p", opts.prompt);
+
+    // Branch name resolution:
+    // 1. User provided a name → sanitize and use it
+    // 2. No name + prompt + autoName → let workmux generate via -A
+    // 3. No name + (no prompt or no autoName) → random
+    useAutoName = !rawBranch && !!opts?.prompt && !!opts?.autoName;
+
+    if (rawBranch) {
+      branch = sanitizeBranchName(rawBranch);
+      if (!branch) {
+        return { ok: false, error: `"${rawBranch}" is not a valid branch name after sanitization` };
+      }
+      args.push(branch);
+    } else if (useAutoName) {
+      args.push("-A");
+    } else {
+      branch = randomName(8);
+      args.push(branch);
+    }
   }
 
   console.log(`[workmux:add] running: ${args.join(" ")}`);
@@ -327,8 +345,8 @@ export async function addWorktree(
       });
     }
 
-    // Build and send agent command
-    const agentCmd = buildAgentCmd(env, agent, profileConfig, isSandbox);
+    // Build and send agent command (pass prompt for sandbox — we handle it directly)
+    const agentCmd = buildAgentCmd(env, agent, profileConfig, isSandbox, isSandbox ? opts?.prompt : undefined);
 
     if (containerName) {
       // Sandbox: enter container, run entrypoint visibly, then start agent

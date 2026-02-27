@@ -1,5 +1,4 @@
 import { ts } from "./lib/utils";
-import { getTmuxSession } from "./workmux";
 
 interface TerminalSession {
   proc: Bun.Subprocess<"pipe", "pipe", "pipe">;
@@ -20,7 +19,10 @@ interface AttachCmdOptions {
   initialPane?: number;
 }
 
-const SESSION_PREFIX = "wm-dash-";
+// Scope session names per backend instance using the dashboard port so multiple
+// dashboards sharing the same tmux server don't collide or kill each other's sessions.
+const DASH_PORT = Bun.env.DASHBOARD_PORT || "5111";
+const SESSION_PREFIX = `wm-dash-${DASH_PORT}-`;
 const MAX_SCROLLBACK_BYTES = 1 * 1024 * 1024; // 1 MB
 const sessions = new Map<string, TerminalSession>();
 let sessionCounter = 0;
@@ -84,6 +86,43 @@ function killTmuxSession(name: string): void {
   }
 }
 
+/** Find the tmux session that owns the window for a given worktree.
+ *  Skips wm-dash-* grouped/viewer sessions to find the real workmux session. */
+async function findTmuxSessionForWorktree(worktreeName: string): Promise<string> {
+  const windowName = `wm-${worktreeName}`;
+  try {
+    const proc = Bun.spawn(
+      ["tmux", "list-windows", "-a", "-F", "#{session_name}:#{window_name}"],
+      { stdout: "pipe", stderr: "pipe" },
+    );
+    if (await proc.exited !== 0) return "0";
+    const output = (await new Response(proc.stdout).text()).trim();
+    // First pass: look for the exact window, skipping viewer sessions
+    for (const line of output.split("\n")) {
+      const colonIdx = line.indexOf(":");
+      if (colonIdx === -1) continue;
+      const session = line.slice(0, colonIdx);
+      const name = line.slice(colonIdx + 1);
+      if (name === windowName && !session.startsWith("wm-dash-")) {
+        return session;
+      }
+    }
+    // Fallback: any non-viewer session with a wm-* window
+    for (const line of output.split("\n")) {
+      const colonIdx = line.indexOf(":");
+      if (colonIdx === -1) continue;
+      const session = line.slice(0, colonIdx);
+      const name = line.slice(colonIdx + 1);
+      if (name.startsWith("wm-") && !session.startsWith("wm-dash-")) {
+        return session;
+      }
+    }
+  } catch {
+    // No tmux server running
+  }
+  return "0";
+}
+
 export async function attach(
   worktreeName: string,
   cols: number,
@@ -97,7 +136,7 @@ export async function attach(
     console.log(`[term:${ts()}] attach(${worktreeName}) detach complete`);
   }
 
-  const tmuxSession = await getTmuxSession();
+  const tmuxSession = await findTmuxSessionForWorktree(worktreeName);
   const gName = groupedName();
   console.log(`[term:${ts()}] attach(${worktreeName}) tmuxSession=${tmuxSession} gName=${gName} window=wm-${worktreeName}`);
 

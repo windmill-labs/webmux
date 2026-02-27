@@ -5,7 +5,10 @@ cd "$(dirname "$0")"
 # Usage: ./dev.sh [-p PORT]
 while getopts "p:" opt; do
   case $opt in
-    p) export DASHBOARD_PORT="$OPTARG" ;;
+    p) 
+      export DASHBOARD_PORT="$OPTARG"
+      export PORT=$((DASHBOARD_PORT + 1))
+      ;;
     *) echo "Usage: $0 [-p backend_port]" >&2; exit 1 ;;
   esac
 done

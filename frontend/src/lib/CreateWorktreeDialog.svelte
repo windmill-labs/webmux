@@ -55,6 +55,20 @@
   >
     <h2 class="text-base mb-4">New Worktree</h2>
     <div class="mb-4">
+      <label class="block text-xs text-muted mb-1.5" for="wt-prompt"
+        >Prompt <span class="opacity-60">(optional)</span></label
+      >
+      <textarea
+        id="wt-prompt"
+        rows="3"
+        autofocus
+        class="w-full px-2.5 py-1.5 rounded-md border border-edge bg-surface text-primary text-[13px] placeholder:text-muted/50 outline-none focus:border-accent resize-y"
+        placeholder="Describe the task for the agent..."
+        bind:value={prompt}
+        onkeydown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); e.currentTarget.form?.requestSubmit(); } }}
+      ></textarea>
+    </div>
+    <div class="mb-4">
       <label class="block text-xs text-muted mb-1.5" for="wt-name"
         >Name <span class="opacity-60">(optional)</span></label
       >
@@ -65,19 +79,6 @@
         placeholder="auto-generated if empty"
         bind:value={name}
       />
-    </div>
-    <div class="mb-4">
-      <label class="block text-xs text-muted mb-1.5" for="wt-prompt"
-        >Prompt <span class="opacity-60">(optional)</span></label
-      >
-      <textarea
-        id="wt-prompt"
-        rows="3"
-        class="w-full px-2.5 py-1.5 rounded-md border border-edge bg-surface text-primary text-[13px] placeholder:text-muted/50 outline-none focus:border-accent resize-y"
-        placeholder="Describe the task for the agent..."
-        bind:value={prompt}
-        onkeydown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); e.currentTarget.form?.requestSubmit(); } }}
-      ></textarea>
     </div>
     <div class="flex gap-2 mb-4">
       {#each AGENTS as a}

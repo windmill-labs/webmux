@@ -5,11 +5,12 @@ import tailwindcss from "@tailwindcss/vite";
 const backendPort = process.env.DASHBOARD_PORT || "5111";
 const backendUrl = `http://localhost:${backendPort}`;
 const backendWs = `ws://localhost:${backendPort}`;
+const port = parseInt(process.env.PORT || "5112");
 
 export default defineConfig({
   plugins: [svelte(), tailwindcss()],
   server: {
-    port: parseInt(backendPort) + 1,
+    port,
     proxy: {
       "/api": backendUrl,
       "/ws": {

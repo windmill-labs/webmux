@@ -2,6 +2,10 @@
   import type { PrEntry } from "./types";
   import { fetchCiLogs, sendWorktreePrompt } from "./api";
   import { normalizeTextForPrompt } from "./promptUtils";
+  import { prLabel, errorMessage } from "./utils";
+  import BaseDialog from "./BaseDialog.svelte";
+  import Btn from "./Btn.svelte";
+  import LinkBtn from "./LinkBtn.svelte";
 
   let {
     pr,
@@ -15,7 +19,6 @@
     onfixsuccess: () => void;
   } = $props();
 
-  let dialogEl: HTMLDialogElement;
   let expandedRunId = $state<number | null>(null);
   let logs = $state("");
   let logsLoading = $state(false);
@@ -24,13 +27,7 @@
   let fixLoading = $state<number | null>(null);
   let fixError = $state("");
 
-  $effect(() => {
-    dialogEl?.showModal();
-  });
-
-  let label = $derived(
-    pr.repo ? `${pr.repo} #${pr.number}` : `PR #${pr.number}`,
-  );
+  let label = $derived(prLabel(pr));
 
   async function handleViewLogs(runId: number): Promise<void> {
     if (expandedRunId === runId) {
@@ -46,7 +43,7 @@
     try {
       logs = await fetchCiLogs(runId);
     } catch (err) {
-      logsError = err instanceof Error ? err.message : String(err);
+      logsError = errorMessage(err);
     } finally {
       logsLoading = false;
     }
@@ -69,7 +66,7 @@
       await sendWorktreePrompt(branch, sanitizedLogs, preamble);
       onfixsuccess();
     } catch (err) {
-      fixError = err instanceof Error ? err.message : String(err);
+      fixError = errorMessage(err);
     } finally {
       fixLoading = null;
     }
@@ -96,20 +93,9 @@
     if (status === "pending") return "text-warning";
     return "text-muted";
   }
-
-  const btn =
-    "px-3 py-1.5 rounded-md border border-edge bg-surface text-primary text-xs cursor-pointer hover:bg-hover";
-  const linkBtn =
-    "text-[11px] text-accent cursor-pointer bg-transparent border-none p-0 hover:underline disabled:opacity-50 disabled:cursor-not-allowed";
-  const ctaBtn =
-    "text-[11px] font-semibold text-white bg-accent border border-accent px-2.5 py-1 rounded-md cursor-pointer hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed";
 </script>
 
-<dialog
-  bind:this={dialogEl}
-  {onclose}
-  class="bg-sidebar text-primary border border-edge rounded-xl p-6 max-w-[560px] w-[90%]"
->
+<BaseDialog {onclose} wide>
   <h2 class="text-base mb-4">CI Checks &mdash; {label}</h2>
 
   <ul class="list-none p-0 m-0 flex flex-col gap-2 mb-4">
@@ -128,13 +114,11 @@
         </div>
         <div class="flex items-center gap-2 mt-1.5">
           {#if check.status === "failed" && check.runId}
-            <button
-              type="button"
-              class={linkBtn}
+            <LinkBtn
               onclick={() => handleViewLogs(check.runId)}
               >{expandedRunId === check.runId
                 ? "Hide logs"
-                : "View logs"}</button
+                : "View logs"}</LinkBtn
             >
           {/if}
           {#if check.url}
@@ -158,12 +142,12 @@
               <pre
                 class="bg-surface border border-edge rounded-md p-3 text-[11px] font-mono overflow-x-auto max-h-[300px] overflow-y-auto whitespace-pre-wrap m-0">{logs}</pre>
               <div class="flex justify-end items-center gap-2 mt-1.5">
-                <button type="button" class={linkBtn} onclick={handleCopy}
-                  >{copied ? "Copied!" : "Copy logs"}</button
+                <LinkBtn onclick={handleCopy}
+                  >{copied ? "Copied!" : "Copy logs"}</LinkBtn
                 >
-                <button
-                  type="button"
-                  class={ctaBtn}
+                <Btn
+                  variant="cta"
+                  small
                   disabled={!branch ||
                     !logs ||
                     logsLoading ||
@@ -171,7 +155,7 @@
                   onclick={() => handleFix(check.name)}
                   >{fixLoading !== null
                     ? "Asking agent..."
-                    : "Ask agent to fix"}</button
+                    : "Ask agent to fix"}</Btn
                 >
               </div>
             {/if}
@@ -185,6 +169,6 @@
   </ul>
 
   <div class="flex justify-end">
-    <button type="button" class={btn} onclick={onclose}>Close</button>
+    <Btn type="button" onclick={onclose}>Close</Btn>
   </div>
-</dialog>
+</BaseDialog>

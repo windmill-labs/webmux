@@ -1,5 +1,7 @@
 <script lang="ts">
   import type { ProfileConfig } from "./types";
+  import BaseDialog from "./BaseDialog.svelte";
+  import Btn from "./Btn.svelte";
 
   let {
     loading = false,
@@ -30,30 +32,15 @@
   let profile = $state(savedProfile ?? "Full");
   let saveDefault = $state(false);
 
-  let dialogEl: HTMLDialogElement;
-
-  $effect(() => {
-    dialogEl?.showModal();
-  });
-
-  // Sync profile when profiles prop changes or on initial load
   $effect(() => {
     if (!profiles.some(p => p.name === profile)) {
       profile = defaultProfile;
     }
   });
-
-  const btn =
-    "px-3 py-1.5 rounded-md border border-edge bg-surface text-primary text-xs cursor-pointer hover:bg-hover";
 </script>
 
-<dialog
-  bind:this={dialogEl}
-  onclose={oncancel}
-  class="bg-sidebar text-primary border border-edge rounded-xl p-6 max-w-[380px] w-[90%]"
->
+<BaseDialog onclose={oncancel}>
   <form
-    method="dialog"
     onsubmit={(e) => {
       e.preventDefault();
       if (saveDefault) {
@@ -145,15 +132,13 @@
       Save as default
     </label>
     <div class="flex justify-end gap-2">
-      <button type="button" class={btn} onclick={oncancel} disabled={loading}
-        >Cancel</button
-      >
-      <button
+      <Btn type="button" onclick={oncancel} disabled={loading}>Cancel</Btn>
+      <Btn
         type="submit"
-        class="{btn} !bg-accent !text-white !border-accent hover:!opacity-90 disabled:!opacity-50 disabled:!cursor-not-allowed flex items-center gap-1.5"
+        variant="cta"
+        class="flex items-center gap-1.5"
         disabled={loading}
-        >{#if loading}<span class="spinner"></span>{/if} Create</button
-      >
+      >{#if loading}<span class="spinner"></span>{/if} Create</Btn>
     </div>
   </form>
-</dialog>
+</BaseDialog>

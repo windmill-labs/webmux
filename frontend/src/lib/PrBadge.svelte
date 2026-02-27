@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { PrEntry } from "./types";
+  import { prLabel } from "./utils";
 
   let { pr, clickable = false }: {
     pr: PrEntry;
@@ -13,7 +14,7 @@
     return "bg-muted/20 text-muted";
   }
 
-  let label = $derived(pr.repo ? `${pr.repo} #${pr.number}` : `PR #${pr.number}`);
+  let label = $derived(prLabel(pr));
 </script>
 
 {#if clickable && pr.url}

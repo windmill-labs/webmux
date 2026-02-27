@@ -72,13 +72,14 @@
       }
     });
 
-    // Let app-level shortcuts (Cmd+Arrow, Cmd+N, Cmd+D) bubble up instead of
-    // being consumed by xterm.  Return false → xterm ignores the event.
+    // Let app-level shortcuts (Cmd+Arrow, Cmd+K, Cmd+M, Cmd+D) bubble up
+    // instead of being consumed by xterm.  Return false → xterm ignores the event.
     term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
       if (e.type !== "keydown") return true;
       const mod = e.metaKey || e.ctrlKey;
       if (mod && (e.key === "ArrowUp" || e.key === "ArrowDown")) return false;
       if (mod && (e.key === "k" || e.key === "K")) return false;
+      if (mod && (e.key === "m" || e.key === "M")) return false;
       if (mod && (e.key === "d" || e.key === "D")) return false;
       return true;
     });

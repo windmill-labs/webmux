@@ -3,6 +3,7 @@
   import PrBadge from "./PrBadge.svelte";
   import CiBadge from "./CiBadge.svelte";
   import ReviewsBadge from "./ReviewsBadge.svelte";
+  import Btn from "./Btn.svelte";
 
   let {
     name,
@@ -37,8 +38,7 @@
     return `cursor://file${dir}`;
   });
 
-  const btn =
-    "px-3 py-1.5 rounded-md border border-edge bg-surface text-primary text-xs cursor-pointer hover:bg-hover";
+
 </script>
 
 <div
@@ -131,15 +131,15 @@
   </div>
   {#if name}
     <div class="flex gap-2 items-center">
-      <button
-        class="{btn} !text-accent !border-accent hover:!bg-accent/10"
+      <Btn
+        variant="accent-outline"
         onclick={onmerge}
-        title="Merge worktree">{isMobile ? "M" : "Merge"}</button
+        title="Merge worktree">{isMobile ? "M" : "Merge"}</Btn
       >
-      <button
-        class="{btn} !text-danger !border-danger hover:!bg-danger/10"
+      <Btn
+        variant="danger-outline"
         onclick={onremove}
-        title="Remove worktree">{isMobile ? "R" : "Remove"}</button
+        title="Remove worktree">{isMobile ? "R" : "Remove"}</Btn
       >
     </div>
   {/if}

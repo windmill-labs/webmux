@@ -3,6 +3,11 @@
   import type { PrEntry } from "./types";
   import { sendWorktreePrompt } from "./api";
   import { normalizeTextForPrompt } from "./promptUtils";
+  import { prLabel, errorMessage } from "./utils";
+  import BaseDialog from "./BaseDialog.svelte";
+  import Btn from "./Btn.svelte";
+  import CtaBtn from "./CtaBtn.svelte";
+  import LinkBtn from "./LinkBtn.svelte";
 
   let {
     pr,
@@ -16,7 +21,6 @@
     onsendsuccess: () => void;
   } = $props();
 
-  let dialogEl: HTMLDialogElement;
   let selected = $state(new SvelteSet<number>());
   let sending = $state(false);
   let sendError = $state("");
@@ -25,13 +29,7 @@
     selected = new SvelteSet(pr.comments.map((_, i) => i));
   });
 
-  $effect(() => {
-    dialogEl?.showModal();
-  });
-
-  let label = $derived(
-    pr.repo ? `${pr.repo} #${pr.number}` : `PR #${pr.number}`,
-  );
+  let label = $derived(prLabel(pr));
   let allSelected = $derived(selected.size === pr.comments.length);
   let noneSelected = $derived(selected.size === 0);
 
@@ -77,31 +75,20 @@
       );
       onsendsuccess();
     } catch (err) {
-      sendError = err instanceof Error ? err.message : String(err);
+      sendError = errorMessage(err);
     } finally {
       sending = false;
     }
   }
-
-  const btn =
-    "px-3 py-1.5 rounded-md border border-edge bg-surface text-primary text-xs cursor-pointer hover:bg-hover";
-  const linkBtn =
-    "text-[11px] text-accent cursor-pointer bg-transparent border-none p-0 hover:underline disabled:opacity-50 disabled:cursor-not-allowed";
-  const ctaBtn =
-    "text-[11px] font-semibold text-white bg-accent border border-accent px-2.5 py-1 rounded-md cursor-pointer hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed";
 </script>
 
-<dialog
-  bind:this={dialogEl}
-  {onclose}
-  class="bg-sidebar text-primary border border-edge rounded-xl p-6 max-w-[560px] w-[90%]"
->
+<BaseDialog {onclose} wide>
   <h2 class="text-base mb-4">PR Comments &mdash; {label}</h2>
 
   <div class="flex items-center justify-between mb-3">
-    <button type="button" class={linkBtn} onclick={toggleAll}>
+    <LinkBtn onclick={toggleAll}>
       {allSelected ? "Deselect all" : "Select all"}
-    </button>
+    </LinkBtn>
     <span class="text-[11px] text-muted">
       {selected.size} of {pr.comments.length} selected
     </span>
@@ -134,14 +121,12 @@
   {/if}
 
   <div class="flex justify-end gap-2">
-    <button type="button" class={btn} onclick={onclose}>Cancel</button>
-    <button
-      type="button"
-      class={ctaBtn}
+    <Btn type="button" onclick={onclose}>Cancel</Btn>
+    <CtaBtn
       disabled={noneSelected || sending}
       onclick={handleSend}
     >
       {sending ? "Sending..." : `Send ${selected.size} to agent`}
-    </button>
+    </CtaBtn>
   </div>
-</dialog>
+</BaseDialog>

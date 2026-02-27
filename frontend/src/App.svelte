@@ -10,6 +10,7 @@
   import CommentReviewDialog from "./lib/CommentReviewDialog.svelte";
   import PaneBar from "./lib/PaneBar.svelte";
   import type { WorktreeInfo, AppConfig, PrEntry } from "./lib/types";
+  import { SSH_STORAGE_KEY, errorMessage } from "./lib/utils";
   import * as api from "./lib/api";
 
   let config = $state<AppConfig>({
@@ -24,7 +25,6 @@
   let merging = $state(false);
   let mergeError = $state("");
   let removingBranches = $state<Set<string>>(new Set());
-  const SSH_STORAGE_KEY = "wt-ssh-host";
   let showCreateDialog = $state(false);
   let showSettingsDialog = $state(false);
   let ciDetailsPr = $state<PrEntry | null>(null);
@@ -98,7 +98,7 @@
       selectedBranch = result.branch;
       if (isMobile) sidebarOpen = false;
     } catch (err) {
-      alert(`Failed to create: ${err instanceof Error ? err.message : err}`);
+      alert(`Failed to create: ${errorMessage(err)}`);
     } finally {
       creating = false;
     }
@@ -122,7 +122,7 @@
       await api.removeWorktree(branch);
       await refresh();
     } catch (err) {
-      alert(`Failed to remove: ${err instanceof Error ? err.message : err}`);
+      alert(`Failed to remove: ${errorMessage(err)}`);
     } finally {
       removingBranches = new Set(
         [...removingBranches].filter((b) => b !== branch),
@@ -142,7 +142,7 @@
       selectNeighborOf(branch);
       await refresh();
     } catch (err) {
-      mergeError = err instanceof Error ? err.message : String(err);
+      mergeError = errorMessage(err);
     } finally {
       merging = false;
     }

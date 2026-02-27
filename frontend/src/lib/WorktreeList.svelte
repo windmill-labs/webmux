@@ -35,9 +35,9 @@
         onclick={() => onselect(wt.branch)}
       >
         <span class="flex items-center gap-1.5 pr-5 flex-wrap">
-          <div class="flex items-center gap-2">
+          <div class="flex items-center gap-2 max-w-[90%] min-w-0">
             <span class="font-medium truncate">{wt.branch}</span>
-            <AgentStatusIcon status={wt.agent} size={14} />
+            <span class="shrink-0"><AgentStatusIcon status={wt.agent} size={14} /></span>
           </div>
           {#each wt.prs as pr (pr.repo)}
             <PrBadge {pr} />

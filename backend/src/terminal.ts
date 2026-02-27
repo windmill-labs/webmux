@@ -34,6 +34,7 @@ function buildAttachCmd(opts: AttachCmdOptions): string {
   const paneTarget = `${opts.gName}:${windowTarget}.${opts.initialPane ?? 0}`;
   return [
     `tmux new-session -d -s "${opts.gName}" -t "${opts.tmuxSession}"`,
+    `tmux set-option -t "${opts.tmuxSession}" window-size latest`,
     `tmux set-option -t "${opts.gName}" mouse on`,
     `tmux set-option -t "${opts.gName}" set-clipboard on`,
     `tmux select-window -t "${opts.gName}:${windowTarget}"`,

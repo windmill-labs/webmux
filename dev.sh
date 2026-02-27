@@ -2,6 +2,14 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# Usage: ./dev.sh [-p PORT]
+while getopts "p:" opt; do
+  case $opt in
+    p) export DASHBOARD_PORT="$OPTARG" ;;
+    *) echo "Usage: $0 [-p backend_port]" >&2; exit 1 ;;
+  esac
+done
+
 # Load env vars (R2 credentials, etc.) if present
 if [ -f .env ]; then
   set -a; source .env; set +a

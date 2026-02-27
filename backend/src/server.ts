@@ -1,4 +1,5 @@
 import { join, resolve } from "node:path";
+import { networkInterfaces } from "node:os";
 import { ts } from "./lib/utils";
 import {
   listWorktrees,
@@ -461,3 +462,11 @@ cleanupStaleSessions();
 startPrMonitor(getWorktreePaths, config.linkedRepos, PROJECT_DIR);
 
 console.log(`Dev Dashboard API running at http://localhost:${PORT}`);
+const nets = networkInterfaces();
+for (const addrs of Object.values(nets)) {
+  for (const a of addrs ?? []) {
+    if (a.family === "IPv4" && !a.internal) {
+      console.log(`  Network: http://${a.address}:${PORT}`);
+    }
+  }
+}

@@ -50,9 +50,10 @@ ENV PATH="/root/.local/bin:$PATH"
 RUN npm i -g @openai/codex
 
 # ── Mermaid CLI ───────────────────────────────────────────────────────────────
-# Skip puppeteer's own Chromium download; reuse the one Playwright already installed
+# Skip puppeteer's own Chromium download; reuse Playwright's headless shell
+# (the full "chrome" binary crashes with a crashpad handler error in containers)
 RUN PUPPETEER_SKIP_DOWNLOAD=true npm i -g @mermaid-js/mermaid-cli \
-    && CHROMIUM=$(find /root/.cache/ms-playwright -name 'chrome' -executable -type f | head -1) \
+    && CHROMIUM=$(find /root/.cache/ms-playwright -name 'chrome-headless-shell' -executable -type f | head -1) \
     && printf '{"args":["--no-sandbox","--disable-setuid-sandbox"],"executablePath":"%s"}\n' "$CHROMIUM" \
        > /root/.puppeteerrc.json
 

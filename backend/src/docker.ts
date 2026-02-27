@@ -107,6 +107,7 @@ export function buildDockerRunArgs(
   name: string,
   rpcSecret: string,
   rpcPort: string,
+  sshAuthSock?: string,
 ): string[] {
   const { wtDir, mainRepoDir, sandboxConfig, services, env } = opts;
 
@@ -134,7 +135,7 @@ export function buildDockerRunArgs(
 
   // Core env vars — defined first so passthrough cannot override them.
   const reservedKeys = new Set([
-    "HOME", "TERM", "IS_SANDBOX",
+    "HOME", "TERM", "IS_SANDBOX", "SSH_AUTH_SOCK",
     "GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0",
     "GIT_CONFIG_KEY_1", "GIT_CONFIG_VALUE_1",
   ]);
@@ -208,6 +209,13 @@ export function buildDockerRunArgs(
     }
   }
 
+  // SSH agent forwarding — mount the socket so git+ssh works with
+  // passphrase-protected keys and hardware tokens.
+  if (sshAuthSock && existingPaths.has(sshAuthSock)) {
+    args.push("-v", `${sshAuthSock}:${sshAuthSock}`);
+    args.push("-e", `SSH_AUTH_SOCK=${sshAuthSock}`);
+  }
+
   // Extra mounts from config; require absolute host paths after ~ expansion.
   if (sandboxConfig.extraMounts) {
     for (const mount of sandboxConfig.extraMounts) {
@@ -257,17 +265,19 @@ export async function launchContainer(opts: LaunchContainerOpts): Promise<string
   const rpcPort = Bun.env.DASHBOARD_PORT ?? "5111";
 
   // Resolve which credential paths exist on the host before building args.
+  const sshAuthSock = Bun.env.SSH_AUTH_SOCK;
   const credentialHostPaths = [
     `${home}/.gitconfig`,
     `${home}/.ssh`,
     `${home}/.config/gh`,
+    ...(sshAuthSock ? [sshAuthSock] : []),
   ];
   const existingPaths = new Set<string>();
   await Promise.all(credentialHostPaths.map(async (p) => {
     if (await pathExists(p)) existingPaths.add(p);
   }));
 
-  const args = buildDockerRunArgs(opts, existingPaths, home, name, rpcSecret, rpcPort);
+  const args = buildDockerRunArgs(opts, existingPaths, home, name, rpcSecret, rpcPort, sshAuthSock);
 
   console.log(`[docker] launching container: ${name}`);
   const proc = Bun.spawn(args, { stdout: "pipe", stderr: "pipe" });

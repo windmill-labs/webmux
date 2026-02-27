@@ -345,3 +345,65 @@ describe("buildDockerRunArgs — reserved env vars", () => {
     expect(flags.filter(f => f.startsWith("IS_SANDBOX="))).toHaveLength(1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// SSH agent forwarding
+// ---------------------------------------------------------------------------
+
+describe("buildDockerRunArgs — SSH agent forwarding", () => {
+  const SOCK = "/run/user/1000/keyring/ssh";
+
+  it("mounts the socket and sets SSH_AUTH_SOCK when present", () => {
+    const args = buildDockerRunArgs(
+      makeOpts(),
+      new Set([SOCK]),
+      HOME,
+      "wm-test-123",
+      RPC_SECRET,
+      RPC_PORT,
+      SOCK,
+    );
+    expect(mounts(args)).toContain(`${SOCK}:${SOCK}`);
+    expect(envFlags(args)).toContain(`SSH_AUTH_SOCK=${SOCK}`);
+  });
+
+  it("does nothing when sshAuthSock is undefined", () => {
+    const args = buildDockerRunArgs(
+      makeOpts(),
+      new Set(),
+      HOME,
+      "wm-test-123",
+      RPC_SECRET,
+      RPC_PORT,
+      undefined,
+    );
+    expect(mounts(args).join("\n")).not.toContain("SSH_AUTH_SOCK");
+    expect(envFlags(args).join("\n")).not.toContain("SSH_AUTH_SOCK");
+  });
+
+  it("does nothing when socket path is not in existingPaths", () => {
+    const args = buildDockerRunArgs(
+      makeOpts(),
+      new Set(), // socket doesn't exist
+      HOME,
+      "wm-test-123",
+      RPC_SECRET,
+      RPC_PORT,
+      SOCK,
+    );
+    expect(mounts(args).join("\n")).not.toContain(SOCK);
+    expect(envFlags(args).join("\n")).not.toContain("SSH_AUTH_SOCK");
+  });
+
+  it("SSH_AUTH_SOCK from envPassthrough is blocked by reservedKeys", () => {
+    const args = buildDockerRunArgs(
+      makeOpts({ sandboxConfig: { name: "sandbox", image: "img", envPassthrough: ["SSH_AUTH_SOCK"] } }),
+      new Set(),
+      HOME,
+      "wm-test-123",
+      RPC_SECRET,
+      RPC_PORT,
+    );
+    expect(envFlags(args).filter(f => f.startsWith("SSH_AUTH_SOCK="))).toHaveLength(0);
+  });
+});

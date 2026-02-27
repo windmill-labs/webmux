@@ -5,7 +5,7 @@
  * Containers run as root with published ports (no socat needed).
  */
 
-import { stat } from "node:fs/promises";
+import { access, constants, stat } from "node:fs/promises";
 import { type SandboxProfileConfig, type ServiceConfig } from "./config";
 import { loadRpcSecret } from "./rpc-secret";
 
@@ -107,7 +107,9 @@ export function buildDockerRunArgs(
   name: string,
   rpcSecret: string,
   rpcPort: string,
-  sshAuthSock?: string,
+  sshAuthSock: string | undefined,
+  hostUid: number,
+  hostGid: number,
 ): string[] {
   const { wtDir, mainRepoDir, sandboxConfig, services, env } = opts;
 
@@ -116,6 +118,9 @@ export function buildDockerRunArgs(
     "--name", name,
     "-w", wtDir,
     "--add-host", "host.docker.internal:host-gateway",
+    // Run as the host user so files created in mounted dirs (.git, worktree)
+    // are owned by the right UID/GID instead of root.
+    "--user", `${hostUid}:${hostGid}`,
   ];
 
   // Publish service ports bound to loopback only to avoid exposing dev services
@@ -210,9 +215,10 @@ export function buildDockerRunArgs(
   }
 
   // SSH agent forwarding — mount the socket so git+ssh works with
-  // passphrase-protected keys and hardware tokens.
+  // passphrase-protected keys and hardware tokens.  Use --mount instead
+  // of -v because Docker's -v tries to mkdir socket paths and fails.
   if (sshAuthSock && existingPaths.has(sshAuthSock)) {
-    args.push("-v", `${sshAuthSock}:${sshAuthSock}`);
+    args.push("--mount", `type=bind,source=${sshAuthSock},target=${sshAuthSock}`);
     args.push("-e", `SSH_AUTH_SOCK=${sshAuthSock}`);
   }
 
@@ -265,7 +271,21 @@ export async function launchContainer(opts: LaunchContainerOpts): Promise<string
   const rpcPort = Bun.env.DASHBOARD_PORT ?? "5111";
 
   // Resolve which credential paths exist on the host before building args.
-  const sshAuthSock = Bun.env.SSH_AUTH_SOCK;
+  // Only forward SSH_AUTH_SOCK if the socket is world-accessible so the
+  // Docker daemon (separate process) can bind-mount it.
+  let sshAuthSock = Bun.env.SSH_AUTH_SOCK;
+  if (sshAuthSock) {
+    try {
+      const st = await stat(sshAuthSock);
+      // eslint-disable-next-line no-bitwise
+      if (!st.isSocket() || (st.mode & 0o007) === 0) {
+        console.log(`[docker] skipping SSH_AUTH_SOCK (not world-accessible): ${sshAuthSock}`);
+        sshAuthSock = undefined;
+      }
+    } catch {
+      sshAuthSock = undefined;
+    }
+  }
   const credentialHostPaths = [
     `${home}/.gitconfig`,
     `${home}/.ssh`,
@@ -277,7 +297,7 @@ export async function launchContainer(opts: LaunchContainerOpts): Promise<string
     if (await pathExists(p)) existingPaths.add(p);
   }));
 
-  const args = buildDockerRunArgs(opts, existingPaths, home, name, rpcSecret, rpcPort, sshAuthSock);
+  const args = buildDockerRunArgs(opts, existingPaths, home, name, rpcSecret, rpcPort, sshAuthSock, process.getuid!(), process.getgid!());
 
   console.log(`[docker] launching container: ${name}`);
   const proc = Bun.spawn(args, { stdout: "pipe", stderr: "pipe" });

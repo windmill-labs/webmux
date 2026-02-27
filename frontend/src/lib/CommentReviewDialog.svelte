@@ -17,9 +17,13 @@
   } = $props();
 
   let dialogEl: HTMLDialogElement;
-  let selected = new SvelteSet(pr.comments.map((_, i) => i));
+  let selected = $state(new SvelteSet<number>());
   let sending = $state(false);
   let sendError = $state("");
+
+  $effect(() => {
+    selected = new SvelteSet(pr.comments.map((_, i) => i));
+  });
 
   $effect(() => {
     dialogEl?.showModal();

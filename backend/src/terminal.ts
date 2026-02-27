@@ -267,7 +267,8 @@ export function write(worktreeName: string, data: string): void {
 export async function resize(worktreeName: string, cols: number, rows: number): Promise<void> {
   const session = sessions.get(worktreeName);
   if (!session) return;
-  const result = await asyncTmux(["tmux", "resize-window", "-t", session.groupedSessionName, "-x", String(cols), "-y", String(rows)]);
+  const windowTarget = `${session.groupedSessionName}:wm-${worktreeName}`;
+  const result = await asyncTmux(["tmux", "resize-window", "-t", windowTarget, "-x", String(cols), "-y", String(rows)]);
   if (result.exitCode !== 0) console.warn(`[term:${ts()}] resize failed: ${result.stderr}`);
 }
 

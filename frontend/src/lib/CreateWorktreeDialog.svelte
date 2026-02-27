@@ -43,17 +43,6 @@
     }
   });
 
-  function handleKeydown(e: KeyboardEvent) {
-    if (e.key === "ArrowUp" || e.key === "ArrowDown") {
-      e.preventDefault();
-      const idx = profiles.findIndex((p) => p.name === profile);
-      const next = e.key === "ArrowDown"
-        ? (idx + 1) % profiles.length
-        : (idx - 1 + profiles.length) % profiles.length;
-      profile = profiles[next].name;
-    }
-  }
-
   const btn =
     "px-3 py-1.5 rounded-md border border-edge bg-surface text-primary text-xs cursor-pointer hover:bg-hover";
 </script>
@@ -61,7 +50,6 @@
 <dialog
   bind:this={dialogEl}
   onclose={oncancel}
-  onkeydown={handleKeydown}
   class="bg-sidebar text-primary border border-edge rounded-xl p-6 max-w-[380px] w-[90%]"
 >
   <form

@@ -1,7 +1,3 @@
-# Workmux
-
-Git worktree manager with integrated terminals. Bun backend + Svelte 5 frontend.
-
 ## Implementing a new feature
 
 Follow these steps in order. Do not skip ahead.

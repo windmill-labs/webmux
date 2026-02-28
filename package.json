@@ -5,9 +5,9 @@
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/centdix/wmdev.git"
+    "url": "git+https://github.com/windmill-labs/workmux-web.git"
   },
-  "homepage": "https://github.com/centdix/wmdev",
+  "homepage": "https://github.com/windmill-labs/workmux-web",
   "keywords": [
     "workmux",
     "git-worktree",

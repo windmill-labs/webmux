@@ -34,10 +34,8 @@ cargo install workmux          # or: brew install raine/workmux/workmux
 sudo apt install tmux           # or: brew install tmux
 curl -fsSL https://bun.sh/install | bash
 
-# 2. Clone and build
-git clone https://github.com/centdix/wmdev.git
-cd wmdev
-bun install && bun run build && bun link
+# 2. Install wmdev
+bun install -g wmdev
 
 # 3. Set up your project
 cd /path/to/your/project

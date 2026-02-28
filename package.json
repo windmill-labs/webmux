@@ -1,8 +1,21 @@
 {
   "name": "wmdev",
   "version": "0.1.0",
-  "description": "Dev dashboard for managing Git worktrees with integrated terminals",
+  "description": "Web dashboard for workmux — browser UI with embedded terminals, PR monitoring, and CI integration",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/centdix/wmdev.git"
+  },
+  "homepage": "https://github.com/centdix/wmdev",
+  "keywords": [
+    "workmux",
+    "git-worktree",
+    "tmux",
+    "dashboard",
+    "terminal",
+    "ai-agent"
+  ],
   "bin": {
     "wmdev": "bin/wmdev.js"
   },

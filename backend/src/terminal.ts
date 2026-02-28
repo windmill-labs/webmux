@@ -1,4 +1,4 @@
-import { ts } from "./lib/utils";
+import { log } from "./lib/log";
 
 interface TerminalSession {
   proc: Bun.Subprocess<"pipe", "pipe", "pipe">;
@@ -82,7 +82,7 @@ function killTmuxSession(name: string): void {
   if (result.exitCode !== 0) {
     const stderr = new TextDecoder().decode(result.stderr).trim();
     if (!stderr.includes("can't find session")) {
-      console.warn(`[term:${ts()}] killTmuxSession(${name}) exit=${result.exitCode} ${stderr}`);
+      log.warn(`[term] killTmuxSession(${name}) exit=${result.exitCode} ${stderr}`);
     }
   }
 }
@@ -144,16 +144,14 @@ export async function attach(
   rows: number,
   initialPane?: number
 ): Promise<string> {
-  console.log(`[term:${ts()}] attach(${worktreeName}) cols=${cols} rows=${rows} existing=${sessions.has(worktreeName)}`);
+  log.debug(`[term] attach(${worktreeName}) cols=${cols} rows=${rows} existing=${sessions.has(worktreeName)}`);
   if (sessions.has(worktreeName)) {
-    console.log(`[term:${ts()}] attach(${worktreeName}) detaching existing session first`);
     await detach(worktreeName);
-    console.log(`[term:${ts()}] attach(${worktreeName}) detach complete`);
   }
 
   const tmuxSession = await findTmuxSessionForWorktree(worktreeName);
   const gName = groupedName();
-  console.log(`[term:${ts()}] attach(${worktreeName}) tmuxSession=${tmuxSession} gName=${gName} window=wm-${worktreeName}`);
+  log.debug(`[term] attach(${worktreeName}) tmuxSession=${tmuxSession} gName=${gName} window=wm-${worktreeName}`);
 
   // Kill stale session with same name if it exists (leftover from previous server run)
   killTmuxSession(gName);
@@ -178,7 +176,7 @@ export async function attach(
   };
 
   sessions.set(worktreeName, session);
-  console.log(`[term:${ts()}] attach(${worktreeName}) spawned pid=${proc.pid}`);
+  log.debug(`[term] attach(${worktreeName}) spawned pid=${proc.pid}`);
 
   // Read stdout → push to scrollback + callback
   (async () => {
@@ -202,7 +200,7 @@ export async function attach(
       // Stream closed normally — no action needed.
       // Log anything unexpected so it surfaces during debugging.
       if (!session.cancelled) {
-        console.error(`[term:${ts()}] stdout reader error(${worktreeName}):`, err);
+        log.error(`[term] stdout reader error(${worktreeName})`, err);
       }
     }
   })();
@@ -214,19 +212,19 @@ export async function attach(
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        console.error(`[term:${ts()}] stderr(${worktreeName}): ${new TextDecoder().decode(value).trimEnd()}`);
+        log.debug(`[term] stderr(${worktreeName}): ${new TextDecoder().decode(value).trimEnd()}`);
       }
     } catch { /* stream closed */ }
   })();
 
   proc.exited.then((exitCode) => {
-    console.log(`[term:${ts()}] proc exited(${worktreeName}) pid=${proc.pid} code=${exitCode}`);
+    log.debug(`[term] proc exited(${worktreeName}) pid=${proc.pid} code=${exitCode}`);
     // Only clean up if this session is still the active one (not replaced by a new attach)
     if (sessions.get(worktreeName) === session) {
       session.onExit?.(exitCode);
       sessions.delete(worktreeName);
     } else {
-      console.log(`[term:${ts()}] proc exited(${worktreeName}) stale session, skipping cleanup`);
+      log.debug(`[term] proc exited(${worktreeName}) stale session, skipping cleanup`);
     }
     killTmuxSession(gName);
   });
@@ -237,30 +235,29 @@ export async function attach(
 export async function detach(worktreeName: string): Promise<void> {
   const session = sessions.get(worktreeName);
   if (!session) {
-    console.log(`[term:${ts()}] detach(${worktreeName}) no session found`);
+    log.debug(`[term] detach(${worktreeName}) no session found`);
     return;
   }
 
-  console.log(`[term:${ts()}] detach(${worktreeName}) killing pid=${session.proc.pid} tmux=${session.groupedSessionName}`);
+  log.debug(`[term] detach(${worktreeName}) killing pid=${session.proc.pid} tmux=${session.groupedSessionName}`);
   session.cancelled = true;
   session.proc.kill();
   sessions.delete(worktreeName);
 
   killTmuxSession(session.groupedSessionName);
-  console.log(`[term:${ts()}] detach(${worktreeName}) done`);
 }
 
 export function write(worktreeName: string, data: string): void {
   const session = sessions.get(worktreeName);
   if (!session) {
-    console.log(`[term:${ts()}] write(${worktreeName}) NO SESSION - input dropped (${data.length} bytes)`);
+    log.warn(`[term] write(${worktreeName}) NO SESSION - input dropped (${data.length} bytes)`);
     return;
   }
   try {
     session.proc.stdin.write(new TextEncoder().encode(data));
     session.proc.stdin.flush();
   } catch (err) {
-    console.warn(`[term:${ts()}] write(${worktreeName}) stdin closed:`, err);
+    log.error(`[term] write(${worktreeName}) stdin closed`, err);
   }
 }
 
@@ -269,7 +266,7 @@ export async function resize(worktreeName: string, cols: number, rows: number): 
   if (!session) return;
   const windowTarget = `${session.groupedSessionName}:wm-${worktreeName}`;
   const result = await asyncTmux(["tmux", "resize-window", "-t", windowTarget, "-x", String(cols), "-y", String(rows)]);
-  if (result.exitCode !== 0) console.warn(`[term:${ts()}] resize failed: ${result.stderr}`);
+  if (result.exitCode !== 0) log.warn(`[term] resize failed: ${result.stderr}`);
 }
 
 export function getScrollback(worktreeName: string): string {
@@ -291,17 +288,17 @@ export function setCallbacks(
 export async function selectPane(worktreeName: string, paneIndex: number): Promise<void> {
   const session = sessions.get(worktreeName);
   if (!session) {
-    console.log(`[term:${ts()}] selectPane(${worktreeName}) no session found`);
+    log.debug(`[term] selectPane(${worktreeName}) no session found`);
     return;
   }
   const windowTarget = `wm-${worktreeName}`;
   const target = `${session.groupedSessionName}:${windowTarget}.${paneIndex}`;
-  console.log(`[term:${ts()}] selectPane(${worktreeName}) pane=${paneIndex} target=${target}`);
+  log.debug(`[term] selectPane(${worktreeName}) pane=${paneIndex} target=${target}`);
   const [r1, r2] = await Promise.all([
     asyncTmux(["tmux", "select-pane", "-t", target]),
     asyncTmux(["tmux", "resize-pane", "-Z", "-t", target]),
   ]);
-  console.log(`[term:${ts()}] selectPane(${worktreeName}) select=${r1.exitCode} zoom=${r2.exitCode}`);
+  log.debug(`[term] selectPane(${worktreeName}) select=${r1.exitCode} zoom=${r2.exitCode}`);
 }
 
 export function clearCallbacks(worktreeName: string): void {

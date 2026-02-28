@@ -2,6 +2,7 @@ import { $ } from "bun";
 import { readEnvLocal } from "./env";
 import { expandTemplate, type ProfileConfig, type SandboxProfileConfig, type ServiceConfig } from "./config";
 import { launchContainer, removeContainer } from "./docker";
+import { log } from "./lib/log";
 
 export interface Worktree {
   branch: string;
@@ -35,7 +36,7 @@ function parseTable<T>(
     const actual = headerLine.trim().split(/\s+/).map(h => h.toUpperCase());
     const match = expectedHeaders.every((h, i) => actual[i] === h.toUpperCase());
     if (!match) {
-      console.warn(`[parseTable] unexpected headers: got [${actual.join(", ")}], expected [${expectedHeaders.join(", ")}]`);
+      log.warn(`[parseTable] unexpected headers: got [${actual.join(", ")}], expected [${expectedHeaders.join(", ")}]`);
     }
   }
 
@@ -97,7 +98,7 @@ async function tryExec(args: string[]): Promise<{ ok: true; stdout: string } | {
 
   if (exitCode !== 0) {
     const msg = `${args.join(" ")} failed (exit ${exitCode}): ${stderr || stdout}`;
-    console.error(`[workmux:exec] ${msg}`);
+    log.error(`[workmux:exec] ${msg}`);
     return { ok: false, error: msg };
   }
   return { ok: true, stdout: stdout.trim() };
@@ -169,7 +170,7 @@ export function parseWorktreePorcelain(output: string): Map<string, string> {
 function findWorktreeDir(branch: string): string | null {
   const result = Bun.spawnSync(["git", "worktree", "list", "--porcelain"], { stdout: "pipe", stderr: "pipe" });
   if (result.exitCode !== 0) {
-    console.warn(`[workmux] git worktree list failed (exit ${result.exitCode})`);
+    log.warn(`[workmux] git worktree list failed (exit ${result.exitCode})`);
     return null;
   }
   const output = new TextDecoder().decode(result.stdout);
@@ -181,9 +182,9 @@ function ensureTmux(): void {
   if (check.exitCode !== 0) {
     const started = Bun.spawnSync(["tmux", "new-session", "-d", "-s", "0"]);
     if (started.exitCode !== 0) {
-      console.log("[workmux] tmux session already exists (concurrent start)");
+      log.debug("[workmux] tmux session already exists (concurrent start)");
     } else {
-      console.log("[workmux] restarted tmux session");
+      log.debug("[workmux] restarted tmux session");
     }
   }
 }
@@ -285,11 +286,10 @@ export async function addWorktree(
     }
   }
 
-  console.log(`[workmux:add] running: ${args.join(" ")}`);
+  log.debug(`[workmux:add] running: ${args.join(" ")}`);
   const execResult = await tryExec(args);
   if (!execResult.ok) return { ok: false, error: execResult.error };
   const result = execResult.stdout;
-  console.log(`[workmux:add] result: ${result}`);
 
   // When using -A, extract the branch name from workmux output
   if (useAutoName) {
@@ -305,7 +305,7 @@ export async function addWorktree(
   // Read worktree dir from git (tmux pane may not have cd'd yet with -C)
   const wtDir = findWorktreeDir(branch);
   const env = wtDir ? await readEnvLocal(wtDir) : {};
-  console.log(`[workmux:add] branch=${branch} dir=${wtDir ?? "(not found)"} env=${JSON.stringify(env)}`);
+  log.debug(`[workmux:add] branch=${branch} dir=${wtDir ?? "(not found)"} env=${JSON.stringify(env)}`);
 
   // Append profile to .env.local (worktree-env creates it, we just add to it)
   if (wtDir) {
@@ -355,13 +355,13 @@ export async function addWorktree(
       // Wait for shell to be ready, then chain entrypoint → agent
       await Bun.sleep(500);
       const entrypointThenAgent = `/usr/local/bin/entrypoint.sh && ${agentCmd}`;
-      console.log(`[workmux] sending to ${windowTarget}.0:\n${entrypointThenAgent}`);
+      log.debug(`[workmux] sending to ${windowTarget}.0:\n${entrypointThenAgent}`);
       Bun.spawnSync(["tmux", "send-keys", "-t", `${windowTarget}.0`, entrypointThenAgent, "Enter"]);
       // Shell pane: host shell in worktree dir
       Bun.spawnSync(["tmux", "split-window", "-h", "-t", `${windowTarget}.0`, "-l", "25%", "-c", wtDir ?? process.cwd()]);
     } else {
       // Non-sandbox: run agent directly in pane 0
-      console.log(`[workmux] sending command to ${windowTarget}.0:\n${agentCmd}`);
+      log.debug(`[workmux] sending command to ${windowTarget}.0:\n${agentCmd}`);
       Bun.spawnSync(["tmux", "send-keys", "-t", `${windowTarget}.0`, agentCmd, "Enter"]);
       // Open a shell pane on the right (1/3 width) in the worktree dir
       Bun.spawnSync(["tmux", "split-window", "-h", "-t", `${windowTarget}.0`, "-l", "25%", "-c", wtDir ?? process.cwd()]);
@@ -374,11 +374,10 @@ export async function addWorktree(
 }
 
 export async function removeWorktree(name: string): Promise<{ ok: true; output: string } | { ok: false; error: string }> {
-  console.log(`[workmux:rm] running: workmux rm --force ${name}`);
+  log.debug(`[workmux:rm] running: workmux rm --force ${name}`);
   await removeContainer(name);
   const result = await tryExec(["workmux", "rm", "--force", name]);
   if (!result.ok) return result;
-  console.log(`[workmux:rm] result: ${result.stdout}`);
   return { ok: true, output: result.stdout };
 }
 
@@ -417,17 +416,15 @@ export async function sendPrompt(
     return { ok: false, error: `tmux window "${windowName}" not found` };
   }
   const target = `${session}:${windowName}.${pane}`;
-  console.log(`[send:${branch}] target=${target} textBytes=${text.length}${preamble ? ` preamble=${preamble.length}b` : ""}`);
+  log.debug(`[send:${branch}] target=${target} textBytes=${text.length}${preamble ? ` preamble=${preamble.length}b` : ""}`);
 
   // Type the preamble as regular keystrokes so it shows inline in the agent,
   // then paste the bulk payload via a tmux buffer (appears as [pasted text]).
   if (preamble) {
-    console.log(`[send:${branch}] send-keys preamble start`);
     const { exitCode, stderr } = await tmuxExec(["tmux", "send-keys", "-t", target, "-l", "--", preamble]);
     if (exitCode !== 0) {
       return { ok: false, error: `send-keys preamble failed${stderr ? `: ${stderr}` : ""}` };
     }
-    console.log(`[send:${branch}] send-keys preamble done`);
   }
 
   const cleaned = text.replace(/\0/g, "");
@@ -438,20 +435,16 @@ export async function sendPrompt(
 
   // Load text into a named tmux buffer via stdin — avoids all send-keys
   // escaping/chunking issues and handles any text size in a single operation.
-  console.log(`[send:${branch}] load-buffer start buf=${bufName}`);
   const load = await tmuxExec(["tmux", "load-buffer", "-b", bufName, "-"], { stdin: new TextEncoder().encode(cleaned) });
   if (load.exitCode !== 0) {
     return { ok: false, error: `load-buffer failed${load.stderr ? `: ${load.stderr}` : ""}` };
   }
-  console.log(`[send:${branch}] load-buffer done`);
 
   // Paste buffer into target pane; -d deletes the buffer after pasting.
-  console.log(`[send:${branch}] paste-buffer start`);
   const paste = await tmuxExec(["tmux", "paste-buffer", "-b", bufName, "-t", target, "-d"]);
   if (paste.exitCode !== 0) {
     return { ok: false, error: `paste-buffer failed${paste.stderr ? `: ${paste.stderr}` : ""}` };
   }
-  console.log(`[send:${branch}] done`);
 
   return { ok: true };
 }
@@ -481,11 +474,10 @@ export async function openWorktree(name: string): Promise<{ ok: true; output: st
 }
 
 export async function mergeWorktree(name: string): Promise<{ ok: true; output: string } | { ok: false; error: string }> {
-  console.log(`[workmux:merge] running: workmux merge ${name}`);
+  log.debug(`[workmux:merge] running: workmux merge ${name}`);
   await removeContainer(name);
   const result = await tryExec(["workmux", "merge", name]);
   if (!result.ok) return result;
-  console.log(`[workmux:merge] result: ${result.stdout}`);
   return { ok: true, output: result.stdout };
 }
 

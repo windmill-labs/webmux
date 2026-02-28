@@ -15,6 +15,7 @@ wmdev — Dev dashboard for managing Git worktrees
 Usage:
   wmdev              Start the dashboard
   wmdev --port N     Set port (default: 5111)
+  wmdev --debug      Show debug-level logs
   wmdev --help       Show this help message
 
 Environment:
@@ -26,6 +27,7 @@ Environment:
 
 const args = process.argv.slice(2);
 let port = parseInt(process.env.DASHBOARD_PORT || "5111");
+let debug = false;
 
 for (let i = 0; i < args.length; i++) {
   switch (args[i]) {
@@ -35,6 +37,9 @@ for (let i = 0; i < args.length; i++) {
         console.error("Error: --port requires a numeric value");
         process.exit(1);
       }
+      break;
+    case "--debug":
+      debug = true;
       break;
     case "--help":
     case "-h":
@@ -70,7 +75,7 @@ await loadEnvFile(resolve(process.cwd(), ".env"));
 
 // ── Shared env for child processes ───────────────────────────────────────────
 
-const baseEnv = { ...process.env, DASHBOARD_PORT: String(port), WMDEV_PROJECT_DIR: process.cwd() };
+const baseEnv = { ...process.env, DASHBOARD_PORT: String(port), WMDEV_PROJECT_DIR: process.cwd(), ...(debug ? { WMDEV_DEBUG: "1" } : {}) };
 
 // ── Prefixed output ──────────────────────────────────────────────────────────
 

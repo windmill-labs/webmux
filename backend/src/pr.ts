@@ -1,5 +1,6 @@
 import { readEnvLocal, upsertEnvLocal } from "./env";
 import type { LinkedRepoConfig } from "./config";
+import { log } from "./lib/log";
 
 const PR_FETCH_LIMIT = 50;
 const GH_TIMEOUT_MS = 15_000;
@@ -268,7 +269,7 @@ export async function syncPrStatus(
   const branchPrs = new Map<string, PrEntry[]>();
   for (const result of allRepoResults) {
     if (!result.ok) {
-      console.error(`[pr] ${result.error}`);
+      log.error(`[pr] ${result.error}`);
       continue;
     }
     for (const [branch, entry] of result.data) {
@@ -290,7 +291,7 @@ export async function syncPrStatus(
   }
 
   if (seen.size > 0) {
-    console.log(
+    log.debug(
       `[pr] synced ${seen.size} worktree(s) with PR data from ${allRepoResults.length} repo(s)`,
     );
   }
@@ -316,7 +317,7 @@ export function startPrMonitor(
   const run = (): void => {
     syncPrStatus(getWorktreePaths, linkedRepos, projectDir).catch(
       (err: unknown) => {
-        console.error(`[pr] sync error: ${err}`);
+        log.error(`[pr] sync error: ${err}`);
       },
     );
   };

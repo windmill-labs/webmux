@@ -7,6 +7,7 @@
 
 import { access, constants, stat } from "node:fs/promises";
 import { type SandboxProfileConfig, type ServiceConfig } from "./config";
+import { log } from "./lib/log";
 import { loadRpcSecret } from "./rpc-secret";
 
 const DOCKER_RUN_TIMEOUT_MS = 60_000;
@@ -131,7 +132,7 @@ export function buildDockerRunArgs(
     const port = env[svc.portEnv];
     if (!port) continue;
     if (!isValidPort(port)) {
-      console.warn(`[docker] skipping invalid port for ${svc.portEnv}: ${JSON.stringify(port)}`);
+      log.warn(`[docker] skipping invalid port for ${svc.portEnv}: ${JSON.stringify(port)}`);
       continue;
     }
     if (seenPorts.has(port)) continue;
@@ -160,7 +161,7 @@ export function buildDockerRunArgs(
   if (sandboxConfig.envPassthrough) {
     for (const key of sandboxConfig.envPassthrough) {
       if (!isValidEnvKey(key)) {
-        console.warn(`[docker] skipping invalid envPassthrough key: ${JSON.stringify(key)}`);
+        log.warn(`[docker] skipping invalid envPassthrough key: ${JSON.stringify(key)}`);
         continue;
       }
       if (reservedKeys.has(key)) continue;
@@ -174,7 +175,7 @@ export function buildDockerRunArgs(
   // Pass through .env.local vars; skip reserved keys and invalid key names.
   for (const [key, val] of Object.entries(env)) {
     if (!isValidEnvKey(key)) {
-      console.warn(`[docker] skipping invalid .env.local key: ${JSON.stringify(key)}`);
+      log.warn(`[docker] skipping invalid .env.local key: ${JSON.stringify(key)}`);
       continue;
     }
     if (reservedKeys.has(key)) continue;
@@ -228,7 +229,7 @@ export function buildDockerRunArgs(
     for (const mount of sandboxConfig.extraMounts) {
       const hostPath = mount.hostPath.replace(/^~/, home);
       if (!hostPath.startsWith("/")) {
-        console.warn(`[docker] skipping extra mount with non-absolute host path: ${JSON.stringify(hostPath)}`);
+        log.warn(`[docker] skipping extra mount with non-absolute host path: ${JSON.stringify(hostPath)}`);
         continue;
       }
       const guestPath = mount.guestPath ?? hostPath;
@@ -259,7 +260,7 @@ export async function launchContainer(opts: LaunchContainerOpts): Promise<string
   // Idempotency: reuse an already-running container for this branch.
   const existing = await findContainer(branch);
   if (existing) {
-    console.log(`[docker] reusing existing container ${existing} for branch ${branch}`);
+    log.info(`[docker] reusing existing container ${existing} for branch ${branch}`);
     return existing;
   }
 
@@ -281,7 +282,7 @@ export async function launchContainer(opts: LaunchContainerOpts): Promise<string
       const st = await stat(sshAuthSock);
       // eslint-disable-next-line no-bitwise
       if (!st.isSocket() || (st.mode & 0o007) === 0) {
-        console.log(`[docker] skipping SSH_AUTH_SOCK (not world-accessible): ${sshAuthSock}`);
+        log.debug(`[docker] skipping SSH_AUTH_SOCK (not world-accessible): ${sshAuthSock}`);
         sshAuthSock = undefined;
       }
     } catch {
@@ -301,7 +302,7 @@ export async function launchContainer(opts: LaunchContainerOpts): Promise<string
 
   const args = buildDockerRunArgs(opts, existingPaths, home, name, rpcSecret, rpcPort, sshAuthSock, process.getuid!(), process.getgid!());
 
-  console.log(`[docker] launching container: ${name}`);
+  log.info(`[docker] launching container: ${name}`);
   const proc = Bun.spawn(args, { stdout: "pipe", stderr: "pipe" });
 
   // Race process exit against a hard timeout so a hung daemon or slow image
@@ -328,7 +329,7 @@ export async function launchContainer(opts: LaunchContainerOpts): Promise<string
     throw new Error(`docker run failed (exit ${exitResult}): ${stderr}`);
   }
 
-  console.log(`[docker] container ${name} ready (id=${containerId.trim().slice(0, 12)})`);
+  log.info(`[docker] container ${name} ready (id=${containerId.trim().slice(0, 12)})`);
 
   // Inject workmux stub so agents inside the container can call host-side workmux.
   const stub = buildWorkmuxStub();
@@ -345,9 +346,9 @@ export async function launchContainer(opts: LaunchContainerOpts): Promise<string
   const injectExit = await injectProc.exited;
   if (injectExit !== 0) {
     const injectStderr = await new Response(injectProc.stderr).text();
-    console.warn(`[docker] workmux stub injection failed for ${name}: ${injectStderr}`);
+    log.warn(`[docker] workmux stub injection failed for ${name}: ${injectStderr}`);
   } else {
-    console.log(`[docker] workmux stub injected into ${name}`);
+    log.debug(`[docker] workmux stub injected into ${name}`);
   }
 
   return name;
@@ -405,7 +406,7 @@ export async function removeContainer(branch: string): Promise<void> {
   ]);
 
   if (listExit !== 0) {
-    console.error(`[docker] removeContainer: docker ps failed for ${branch}: ${listErr}`);
+    log.error(`[docker] removeContainer: docker ps failed for ${branch}: ${listErr}`);
     return;
   }
 
@@ -417,14 +418,14 @@ export async function removeContainer(branch: string): Promise<void> {
 
   await Promise.all(
     names.map(async (cname) => {
-      console.log(`[docker] removing container: ${cname}`);
+      log.info(`[docker] removing container: ${cname}`);
       const rmProc = Bun.spawn(["docker", "rm", "-f", cname], { stdout: "ignore", stderr: "pipe" });
       const [rmExit, rmErr] = await Promise.all([
         rmProc.exited,
         new Response(rmProc.stderr).text(),
       ]);
       if (rmExit !== 0) {
-        console.error(`[docker] failed to remove container ${cname}: ${rmErr}`);
+        log.error(`[docker] failed to remove container ${cname}: ${rmErr}`);
       }
     }),
   );

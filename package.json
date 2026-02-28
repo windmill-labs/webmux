@@ -30,7 +30,8 @@
   },
   "files": [
     "bin/",
-    "backend/src/",
+    "backend/src/*.ts",
+    "backend/src/lib/",
     "backend/tsconfig.json",
     "frontend/dist/"
   ],

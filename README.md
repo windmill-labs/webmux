@@ -205,7 +205,7 @@ Output is buffered (up to 1 MB) so reconnecting clients receive recent history i
 For sandbox profiles, wmdev manages Docker containers directly:
 
 1. **Launch** — `docker run -d -p <ports>` with the configured image, mounts, and env vars. Runs as the host user (`--user uid:gid`) so file ownership matches.
-2. **Mounts** — Worktree dir (rw), main repo `.git` (rw), main repo root (ro), `~/.claude`, plus any `extraMounts`. Conditionally mounts `~/.gitconfig`, `~/.ssh`, `~/.config/gh` if they exist.
+2. **Mounts** — Worktree dir (rw), main repo `.git` (rw), main repo root (ro), `~/.claude` (dir) and `~/.claude.json` (settings file), plus any `extraMounts`. Conditionally mounts `~/.gitconfig`, `~/.ssh`, `~/.config/gh` if they exist.
 3. **Environment** — All `.env.local` vars + `envPassthrough` vars + `HOME`, `TERM`, `IS_SANDBOX=1`.
 4. **Cleanup** — Containers are removed when the worktree is removed or merged.
 

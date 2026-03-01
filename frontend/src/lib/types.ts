@@ -53,6 +53,15 @@ export interface ProfileConfig {
   systemPrompt?: string;
 }
 
+export interface AppNotification {
+  id: number;
+  branch: string;
+  type: "agent_stopped" | "pr_opened";
+  message: string;
+  url?: string;
+  timestamp: number;
+}
+
 export interface AppConfig {
   services: ServiceConfig[];
   profiles: {

@@ -9,7 +9,8 @@
   import CiDetailsDialog from "./lib/CiDetailsDialog.svelte";
   import CommentReviewDialog from "./lib/CommentReviewDialog.svelte";
   import PaneBar from "./lib/PaneBar.svelte";
-  import type { WorktreeInfo, AppConfig, PrEntry } from "./lib/types";
+  import NotificationToast from "./lib/NotificationToast.svelte";
+  import type { WorktreeInfo, AppConfig, AppNotification, PrEntry } from "./lib/types";
   import { SSH_STORAGE_KEY, errorMessage } from "./lib/utils";
   import * as api from "./lib/api";
 
@@ -31,6 +32,33 @@
   let commentReviewPr = $state<PrEntry | null>(null);
   let creating = $state(false);
   let sshHost = $state(localStorage.getItem(SSH_STORAGE_KEY) ?? "");
+
+  // Notifications
+  let notifications = $state<AppNotification[]>([]);
+  const AUTO_DISMISS_MS = 8000;
+
+  let notifiedBranches = $derived(new Set(notifications.map((n) => n.branch)));
+
+  function handleNotification(n: AppNotification): void {
+    notifications = [...notifications, n];
+    // Auto-dismiss after timeout
+    setTimeout(() => {
+      notifications = notifications.filter((x) => x.id !== n.id);
+    }, AUTO_DISMISS_MS);
+    // Browser notification when tab is hidden
+    if (document.hidden && Notification.permission === "granted") {
+      new Notification(n.message, { body: n.url ?? n.branch, tag: `wm-${n.id}` });
+    }
+  }
+
+  function handleDismissNotification(id: number): void {
+    notifications = notifications.filter((n) => n.id !== id);
+    api.dismissNotification(id).catch(() => {});
+  }
+
+  function handleSseDismiss(id: number): void {
+    notifications = notifications.filter((n) => n.id !== id);
+  }
 
   // Mobile state
   let isMobile = $state(false);
@@ -205,6 +233,11 @@
     refresh();
     const interval = setInterval(refresh, 5000);
     window.addEventListener("keydown", handleKeydown);
+    const unsubNotifications = api.subscribeNotifications(handleNotification, handleSseDismiss);
+    // Request notification permission (no-op if already granted/denied)
+    if (Notification.permission === "default") {
+      Notification.requestPermission().catch(() => {});
+    }
 
     const mq = window.matchMedia("(max-width: 768px)");
     isMobile = mq.matches;
@@ -218,6 +251,7 @@
       clearInterval(interval);
       window.removeEventListener("keydown", handleKeydown);
       mq.removeEventListener("change", onMqChange);
+      unsubNotifications();
     };
   });
 </script>
@@ -263,6 +297,7 @@
         worktrees={visibleWorktrees}
         selected={selectedBranch}
         removing={removingBranches}
+        {notifiedBranches}
         onselect={(b) => {
           selectedBranch = b;
           if (isMobile) sidebarOpen = false;
@@ -397,3 +432,12 @@
     }}
   />
 {/if}
+
+<NotificationToast
+  {notifications}
+  ondismiss={handleDismissNotification}
+  onselect={(branch) => {
+    selectedBranch = branch;
+    if (isMobile) sidebarOpen = false;
+  }}
+/>

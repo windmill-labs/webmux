@@ -410,10 +410,16 @@ Bun.serve({
       }
       const file = Bun.file(filePath);
       if (await file.exists()) {
-        return new Response(file);
+        // Vite-hashed assets are immutable — cache forever
+        const headers: HeadersInit = rawPath.startsWith("/assets/")
+          ? { "Cache-Control": "public, max-age=31536000, immutable" }
+          : {};
+        return new Response(file, { headers });
       }
-      // SPA fallback: serve index.html for unmatched routes
-      return new Response(Bun.file(join(STATIC_DIR, "index.html")));
+      // SPA fallback: serve index.html (never cache so new deploys take effect)
+      return new Response(Bun.file(join(STATIC_DIR, "index.html")), {
+        headers: { "Cache-Control": "no-cache" },
+      });
     }
     return new Response("Not Found", { status: 404 });
   },

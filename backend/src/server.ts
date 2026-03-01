@@ -128,16 +128,28 @@ async function getWorktreePaths(): Promise<Map<string, string>> {
   return paths;
 }
 
-/** Count tmux panes for a worktree window. */
-async function getTmuxPaneCount(branch: string): Promise<number> {
+/** Get pane counts for all wm-* windows in a single tmux call. */
+async function getAllPaneCounts(): Promise<Map<string, number>> {
   const proc = Bun.spawn(
-    ["tmux", "list-panes", "-t", `wm-${branch}`, "-F", "#{pane_index}"],
+    ["tmux", "list-windows", "-a", "-F", "#{window_name} #{window_panes}"],
     { stdout: "pipe", stderr: "pipe" }
   );
-  const exitCode = await proc.exited;
-  if (exitCode !== 0) return 0;
+  if (await proc.exited !== 0) return new Map();
   const out = await new Response(proc.stdout).text();
-  return out.trim().split("\n").filter(Boolean).length;
+  const counts = new Map<string, number>();
+  for (const line of out.trim().split("\n")) {
+    const spaceIdx = line.lastIndexOf(" ");
+    if (spaceIdx === -1) continue;
+    const name = line.slice(0, spaceIdx);
+    if (!name.startsWith("wm-")) continue;
+    const branch = name.slice(3);
+    // Keep the highest count (multiple sessions may share the window)
+    const count = parseInt(line.slice(spaceIdx + 1), 10) || 0;
+    if (!counts.has(branch) || count > counts.get(branch)!) {
+      counts.set(branch, count);
+    }
+  }
+  return counts;
 }
 
 /** Check if a port has a service responding. 200ms is plenty for localhost. */
@@ -164,10 +176,11 @@ function makeCallbacks(ws: { send: (data: string) => void; readyState: number })
 // --- API handler functions (thin I/O layer, testable by injecting deps) ---
 
 async function apiGetWorktrees(): Promise<Response> {
-  const [worktrees, status, wtPaths] = await Promise.all([
+  const [worktrees, status, wtPaths, paneCounts] = await Promise.all([
     listWorktrees(),
     getStatus(),
     getWorktreePaths(),
+    getAllPaneCounts(),
   ]);
   const merged = await Promise.all(worktrees.map(async (wt) => {
     const st = status.find(s =>
@@ -193,7 +206,7 @@ async function apiGetWorktrees(): Promise<Response> {
       profile: env.PROFILE || null,
       agentName: env.AGENT || null,
       services,
-      paneCount: wt.mux === "✓" ? await getTmuxPaneCount(wt.branch) : 0,
+      paneCount: wt.mux === "✓" ? (paneCounts.get(wt.branch) ?? 0) : 0,
       prs: env.PR_DATA ? (safeJsonParse<PrEntry[]>(env.PR_DATA) ?? []).map(pr => ({ ...pr, comments: pr.comments ?? [] })) : [],
     };
   }));

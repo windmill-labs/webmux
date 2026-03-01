@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { WorktreeInfo, PrEntry } from "./types";
+  import type { WorktreeInfo, AppNotification, PrEntry } from "./types";
   import PrBadge from "./PrBadge.svelte";
   import CiBadge from "./CiBadge.svelte";
   import ReviewsBadge from "./ReviewsBadge.svelte";
@@ -10,24 +10,46 @@
     worktree,
     sshHost,
     isMobile = false,
+    notificationHistory = [],
+    unreadCount = 0,
     ontogglesidebar,
     onmerge,
     onremove,
     onsettings,
     onciclick,
     onreviewsclick,
+    onbellopen,
+    onnotificationselect,
   }: {
     name: string | null;
     worktree: WorktreeInfo | undefined;
     sshHost: string;
     isMobile?: boolean;
+    notificationHistory?: AppNotification[];
+    unreadCount?: number;
     ontogglesidebar?: () => void;
     onmerge: () => void;
     onremove: () => void;
     onsettings: () => void;
     onciclick: (pr: PrEntry) => void;
     onreviewsclick: (pr: PrEntry) => void;
+    onbellopen?: () => void;
+    onnotificationselect?: (branch: string) => void;
   } = $props();
+
+  let bellOpen = $state(false);
+
+  function toggleBell(): void {
+    bellOpen = !bellOpen;
+    if (bellOpen) onbellopen?.();
+  }
+
+  function handleClickOutside(e: MouseEvent): void {
+    const target = e.target as HTMLElement;
+    if (!target.closest(".bell-container")) {
+      bellOpen = false;
+    }
+  }
 
   let cursorUrl = $derived.by(() => {
     const dir = worktree?.dir;
@@ -127,8 +149,8 @@
       {/if}
     {/if}
   </div>
-  {#if name}
-    <div class="flex gap-2 items-center">
+  <div class="flex gap-2 items-center">
+    {#if name}
       <Btn
         variant="accent-outline"
         onclick={onmerge}
@@ -139,6 +161,77 @@
         onclick={onremove}
         title="Remove worktree">{isMobile ? "R" : "Remove"}</Btn
       >
+    {/if}
+
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="bell-container relative ml-3" onkeydown={() => {}}>
+      <button
+        type="button"
+        class="relative p-1.5 rounded-md cursor-pointer bg-transparent border border-transparent text-muted hover:text-primary hover:border-edge"
+        title="Notifications"
+        onclick={toggleBell}
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+          <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+        </svg>
+        {#if unreadCount > 0}
+          <span class="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full bg-accent text-white text-[10px] flex items-center justify-center leading-none">{unreadCount > 9 ? "9+" : unreadCount}</span>
+        {/if}
+      </button>
+
+      {#if bellOpen}
+        <div class="bell-dropdown">
+          <div class="text-xs font-semibold text-muted px-3 py-2 border-b border-edge">Notifications</div>
+          {#if notificationHistory.length === 0}
+            <div class="px-3 py-4 text-xs text-muted text-center">No notifications yet</div>
+          {:else}
+            <ul class="list-none max-h-64 overflow-y-auto">
+              {#each notificationHistory as n (n.id)}
+                <li>
+                  <button
+                    type="button"
+                    class="w-full px-3 py-2 text-left bg-transparent border-none text-inherit cursor-pointer hover:bg-hover flex items-center gap-2"
+                    onclick={() => {
+                      onnotificationselect?.(n.branch);
+                      bellOpen = false;
+                    }}
+                  >
+                    <span class="shrink-0 text-sm">
+                      {#if n.type === "agent_stopped"}
+                        <span class="text-success">&#10003;</span>
+                      {:else}
+                        <span class="text-accent">&#9741;</span>
+                      {/if}
+                    </span>
+                    <span class="flex flex-col gap-0.5 min-w-0">
+                      <span class="text-xs text-primary truncate">{n.message}</span>
+                      <span class="text-[10px] text-muted">{new Date(n.timestamp).toLocaleTimeString()}</span>
+                    </span>
+                  </button>
+                </li>
+              {/each}
+            </ul>
+          {/if}
+        </div>
+      {/if}
     </div>
-  {/if}
+  </div>
 </div>
+
+<svelte:window onclick={handleClickOutside} />
+
+<style>
+  .bell-dropdown {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 0.25rem;
+    width: 18rem;
+    border-radius: 0.5rem;
+    border: 1px solid var(--color-edge);
+    background: var(--color-topbar);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    z-index: 50;
+  }
+</style>

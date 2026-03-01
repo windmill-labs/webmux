@@ -35,12 +35,17 @@
 
   // Notifications
   let notifications = $state<AppNotification[]>([]);
+  let notificationHistory = $state<AppNotification[]>([]);
+  let unreadCount = $state(0);
   const AUTO_DISMISS_MS = 8000;
+  const MAX_HISTORY = 10;
 
   let notifiedBranches = $derived(new Set(notifications.map((n) => n.branch)));
 
   function handleNotification(n: AppNotification): void {
     notifications = [...notifications, n];
+    notificationHistory = [n, ...notificationHistory].slice(0, MAX_HISTORY);
+    unreadCount++;
     // Auto-dismiss after timeout
     setTimeout(() => {
       notifications = notifications.filter((x) => x.id !== n.id);
@@ -58,6 +63,10 @@
 
   function handleSseDismiss(id: number): void {
     notifications = notifications.filter((n) => n.id !== id);
+  }
+
+  function handleBellOpen(): void {
+    unreadCount = 0;
   }
 
   // Mobile state
@@ -331,6 +340,8 @@
       worktree={selectedWorktree}
       {sshHost}
       {isMobile}
+      {notificationHistory}
+      {unreadCount}
       ontogglesidebar={() => (sidebarOpen = !sidebarOpen)}
       onmerge={() => {
         if (selectedBranch) mergeBranch = selectedBranch;
@@ -341,6 +352,11 @@
       onsettings={() => (showSettingsDialog = true)}
       onciclick={(pr) => (ciDetailsPr = pr)}
       onreviewsclick={(pr) => (commentReviewPr = pr)}
+      onbellopen={handleBellOpen}
+      onnotificationselect={(branch) => {
+        selectedBranch = branch;
+        if (isMobile) sidebarOpen = false;
+      }}
     />
 
     {#if canConnect}

@@ -2,7 +2,7 @@ FROM debian:bookworm-slim
 
 # ── System packages ───────────────────────────────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl ca-certificates git unzip openssh-client build-essential \
+    curl ca-certificates git unzip openssh-client build-essential sudo \
     && rm -rf /var/lib/apt/lists/*
 
 # ── Node.js 22 ────────────────────────────────────────────────────────────────
@@ -46,6 +46,9 @@ ENV AWS_DEFAULT_REGION=auto
 RUN curl -fsSL https://claude.ai/install.sh | bash
 ENV PATH="/root/.local/bin:$PATH"
 
+# ── npm globals (install to /usr/local so bins land on PATH for all users) ────
+ENV NPM_CONFIG_PREFIX=/usr/local
+
 # ── Codex ─────────────────────────────────────────────────────────────────────
 RUN npm i -g @openai/codex
 
@@ -58,8 +61,11 @@ RUN PUPPETEER_SKIP_DOWNLOAD=true npm i -g @mermaid-js/mermaid-cli \
        > /root/.puppeteerrc.json
 
 # ── Allow non-root UID (--user) to access tools installed in /root ───────────
+# Give UID 1000 a proper passwd entry, passwordless sudo, and full access to /root
 RUN chmod -R 777 /root \
-    && echo "agent:x:1000:100::/root:/bin/bash" >> /etc/passwd
+    && useradd -u 1000 -g 100 -d /root -s /bin/bash -M agent \
+    && echo "agent ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/agent \
+    && chmod 0440 /etc/sudoers.d/agent
 
 # ── Entrypoint (run explicitly via docker exec, not on container start) ──────
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh

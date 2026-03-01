@@ -33,6 +33,10 @@ const STATIC_DIR = Bun.env.WMDEV_STATIC_DIR || "";
 const PROJECT_DIR = Bun.env.WMDEV_PROJECT_DIR || gitRoot(process.cwd());
 const config: WmdevConfig = loadConfig(PROJECT_DIR);
 
+// --- Worktree list cache (short TTL to deduplicate rapid polls) ---
+const WORKTREE_CACHE_TTL_MS = 2000;
+let wtCache: { json: string; etag: string; expiry: number } | null = null;
+
 // --- WebSocket protocol types ---
 
 interface WsData {
@@ -175,7 +179,19 @@ function makeCallbacks(ws: { send: (data: string) => void; readyState: number })
 
 // --- API handler functions (thin I/O layer, testable by injecting deps) ---
 
-async function apiGetWorktrees(): Promise<Response> {
+async function apiGetWorktrees(req: Request): Promise<Response> {
+  const now = Date.now();
+
+  // Serve from cache if still fresh
+  if (wtCache && now < wtCache.expiry) {
+    if (req.headers.get("if-none-match") === wtCache.etag) {
+      return new Response(null, { status: 304 });
+    }
+    return new Response(wtCache.json, {
+      headers: { "Content-Type": "application/json", "ETag": wtCache.etag },
+    });
+  }
+
   const [worktrees, status, wtPaths, paneCounts] = await Promise.all([
     listWorktrees(),
     getStatus(),
@@ -210,7 +226,14 @@ async function apiGetWorktrees(): Promise<Response> {
       prs: env.PR_DATA ? (safeJsonParse<PrEntry[]>(env.PR_DATA) ?? []).map(pr => ({ ...pr, comments: pr.comments ?? [] })) : [],
     };
   }));
-  return jsonResponse(merged);
+
+  const json = JSON.stringify(merged);
+  const etag = `"${Bun.hash(json).toString(36)}"`;
+  wtCache = { json, etag, expiry: now + WORKTREE_CACHE_TTL_MS };
+
+  return new Response(json, {
+    headers: { "Content-Type": "application/json", "ETag": etag },
+  });
 }
 
 async function apiCreateWorktree(req: Request): Promise<Response> {
@@ -325,7 +348,7 @@ Bun.serve({
     },
 
     "/api/worktrees": {
-      GET: () => catching("GET /api/worktrees", apiGetWorktrees),
+      GET: (req) => catching("GET /api/worktrees", () => apiGetWorktrees(req)),
       POST: (req) => catching("POST /api/worktrees", () => apiCreateWorktree(req)),
     },
 

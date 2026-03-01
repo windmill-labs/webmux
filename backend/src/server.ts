@@ -33,6 +33,10 @@ const STATIC_DIR = Bun.env.WMDEV_STATIC_DIR || "";
 const PROJECT_DIR = Bun.env.WMDEV_PROJECT_DIR || gitRoot(process.cwd());
 const config: WmdevConfig = loadConfig(PROJECT_DIR);
 
+// --- Worktree list cache (short TTL to deduplicate rapid polls) ---
+const WORKTREE_CACHE_TTL_MS = 2000;
+let wtCache: { json: string; etag: string; expiry: number } | null = null;
+
 // --- WebSocket protocol types ---
 
 interface WsData {
@@ -81,8 +85,19 @@ function parseWsMessage(raw: string | Buffer): WsInboundMessage | null {
 
 // --- HTTP helpers ---
 
+/** Send a WsOutboundMessage. Hot-path messages (output/scrollback) use a
+ *  single-character prefix to avoid JSON encode/decode overhead. */
 function sendWs(ws: { send: (data: string) => void }, msg: WsOutboundMessage): void {
-  ws.send(JSON.stringify(msg));
+  switch (msg.type) {
+    case "output":
+      ws.send("o" + msg.data);
+      break;
+    case "scrollback":
+      ws.send("s" + msg.data);
+      break;
+    default:
+      ws.send(JSON.stringify(msg));
+  }
 }
 
 function isValidWorktreeName(name: string): boolean {
@@ -128,25 +143,43 @@ async function getWorktreePaths(): Promise<Map<string, string>> {
   return paths;
 }
 
-/** Count tmux panes for a worktree window. */
-async function getTmuxPaneCount(branch: string): Promise<number> {
+/** Get pane counts for all wm-* windows in a single tmux call. */
+async function getAllPaneCounts(): Promise<Map<string, number>> {
   const proc = Bun.spawn(
-    ["tmux", "list-panes", "-t", `wm-${branch}`, "-F", "#{pane_index}"],
+    ["tmux", "list-windows", "-a", "-F", "#{window_name} #{window_panes}"],
     { stdout: "pipe", stderr: "pipe" }
   );
-  const exitCode = await proc.exited;
-  if (exitCode !== 0) return 0;
+  if (await proc.exited !== 0) return new Map();
   const out = await new Response(proc.stdout).text();
-  return out.trim().split("\n").filter(Boolean).length;
+  const counts = new Map<string, number>();
+  for (const line of out.trim().split("\n")) {
+    const spaceIdx = line.lastIndexOf(" ");
+    if (spaceIdx === -1) continue;
+    const name = line.slice(0, spaceIdx);
+    if (!name.startsWith("wm-")) continue;
+    const branch = name.slice(3);
+    // Keep the highest count (multiple sessions may share the window)
+    const count = parseInt(line.slice(spaceIdx + 1), 10) || 0;
+    if (!counts.has(branch) || count > counts.get(branch)!) {
+      counts.set(branch, count);
+    }
+  }
+  return counts;
 }
 
-/** Check if a port has a service responding (not just a TCP handshake). */
+/** Check if a port is accepting TCP connections. Faster than HTTP for localhost. */
 function isPortListening(port: number): Promise<boolean> {
   return new Promise((resolve) => {
-    const timeout = setTimeout(() => { resolve(false); }, 1000);
-    fetch(`http://127.0.0.1:${port}/`, { signal: AbortSignal.timeout(1000) })
-      .then(() => { clearTimeout(timeout); resolve(true); })
-      .catch(() => { clearTimeout(timeout); resolve(false); });
+    const timer = setTimeout(() => resolve(false), 300);
+    Bun.connect({
+      hostname: "127.0.0.1",
+      port,
+      socket: {
+        open(socket) { clearTimeout(timer); socket.end(); resolve(true); },
+        error() { clearTimeout(timer); resolve(false); },
+        data() {},
+      },
+    }).catch(() => { clearTimeout(timer); resolve(false); });
   });
 }
 
@@ -166,11 +199,24 @@ function makeCallbacks(ws: { send: (data: string) => void; readyState: number })
 
 // --- API handler functions (thin I/O layer, testable by injecting deps) ---
 
-async function apiGetWorktrees(): Promise<Response> {
-  const [worktrees, status, wtPaths] = await Promise.all([
+async function apiGetWorktrees(req: Request): Promise<Response> {
+  const now = Date.now();
+
+  // Serve from cache if still fresh
+  if (wtCache && now < wtCache.expiry) {
+    if (req.headers.get("if-none-match") === wtCache.etag) {
+      return new Response(null, { status: 304 });
+    }
+    return new Response(wtCache.json, {
+      headers: { "Content-Type": "application/json", "ETag": wtCache.etag },
+    });
+  }
+
+  const [worktrees, status, wtPaths, paneCounts] = await Promise.all([
     listWorktrees(),
     getStatus(),
     getWorktreePaths(),
+    getAllPaneCounts(),
   ]);
   const merged = await Promise.all(worktrees.map(async (wt) => {
     const st = status.find(s =>
@@ -196,11 +242,18 @@ async function apiGetWorktrees(): Promise<Response> {
       profile: env.PROFILE || null,
       agentName: env.AGENT || null,
       services,
-      paneCount: wt.mux === "✓" ? await getTmuxPaneCount(wt.branch) : 0,
+      paneCount: wt.mux === "✓" ? (paneCounts.get(wt.branch) ?? 0) : 0,
       prs: env.PR_DATA ? (safeJsonParse<PrEntry[]>(env.PR_DATA) ?? []).map(pr => ({ ...pr, comments: pr.comments ?? [] })) : [],
     };
   }));
-  return jsonResponse(merged);
+
+  const json = JSON.stringify(merged);
+  const etag = `"${Bun.hash(json).toString(36)}"`;
+  wtCache = { json, etag, expiry: now + WORKTREE_CACHE_TTL_MS };
+
+  return new Response(json, {
+    headers: { "Content-Type": "application/json", "ETag": etag },
+  });
 }
 
 async function apiCreateWorktree(req: Request): Promise<Response> {
@@ -229,6 +282,7 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
   });
   if (!result.ok) return errorResponse(result.error, 422);
   log.debug(`[worktree:add] done branch=${result.branch}: ${result.output}`);
+  wtCache = null;
   return jsonResponse({ branch: result.branch }, 201);
 }
 
@@ -237,6 +291,7 @@ async function apiDeleteWorktree(name: string): Promise<Response> {
   const result = await removeWorktree(name);
   if (!result.ok) return errorResponse(result.error, 422);
   log.debug(`[worktree:rm] done name=${name}: ${result.output}`);
+  wtCache = null;
   return jsonResponse({ message: result.output });
 }
 
@@ -267,6 +322,7 @@ async function apiMergeWorktree(name: string): Promise<Response> {
   const result = await mergeWorktree(name);
   if (!result.ok) return errorResponse(result.error, 422);
   log.debug(`[worktree:merge] done name=${name}: ${result.output}`);
+  wtCache = null;
   return jsonResponse({ message: result.output });
 }
 
@@ -315,7 +371,7 @@ Bun.serve({
     },
 
     "/api/worktrees": {
-      GET: () => catching("GET /api/worktrees", apiGetWorktrees),
+      GET: (req) => catching("GET /api/worktrees", () => apiGetWorktrees(req)),
       POST: (req) => catching("POST /api/worktrees", () => apiCreateWorktree(req)),
     },
 
@@ -377,10 +433,16 @@ Bun.serve({
       }
       const file = Bun.file(filePath);
       if (await file.exists()) {
-        return new Response(file);
+        // Vite-hashed assets are immutable — cache forever
+        const headers: HeadersInit = rawPath.startsWith("/assets/")
+          ? { "Cache-Control": "public, max-age=31536000, immutable" }
+          : {};
+        return new Response(file, { headers });
       }
-      // SPA fallback: serve index.html for unmatched routes
-      return new Response(Bun.file(join(STATIC_DIR, "index.html")));
+      // SPA fallback: serve index.html (never cache so new deploys take effect)
+      return new Response(Bun.file(join(STATIC_DIR, "index.html")), {
+        headers: { "Cache-Control": "no-cache" },
+      });
     }
     return new Response("Not Found", { status: 404 });
   },

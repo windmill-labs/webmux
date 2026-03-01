@@ -19,6 +19,9 @@ interface AttachCmdOptions {
   initialPane?: number;
 }
 
+const textDecoder = new TextDecoder();
+const textEncoder = new TextEncoder();
+
 // Scope session names per backend instance using the dashboard port so multiple
 // dashboards sharing the same tmux server don't collide or kill each other's sessions.
 const DASH_PORT = Bun.env.DASHBOARD_PORT || "5111";
@@ -65,7 +68,7 @@ export function cleanupStaleSessions(): void {
       { stdout: "pipe", stderr: "pipe" }
     );
     if (result.exitCode !== 0) return;
-    const lines = new TextDecoder().decode(result.stdout).trim().split("\n");
+    const lines = textDecoder.decode(result.stdout).trim().split("\n");
     for (const name of lines) {
       if (name.startsWith(SESSION_PREFIX)) {
         Bun.spawnSync(["tmux", "kill-session", "-t", name]);
@@ -80,7 +83,7 @@ export function cleanupStaleSessions(): void {
 function killTmuxSession(name: string): void {
   const result = Bun.spawnSync(["tmux", "kill-session", "-t", name], { stderr: "pipe" });
   if (result.exitCode !== 0) {
-    const stderr = new TextDecoder().decode(result.stderr).trim();
+    const stderr = textDecoder.decode(result.stderr).trim();
     if (!stderr.includes("can't find session")) {
       log.warn(`[term] killTmuxSession(${name}) exit=${result.exitCode} ${stderr}`);
     }
@@ -186,13 +189,12 @@ export async function attach(
         if (session.cancelled) break;
         const { done, value } = await reader.read();
         if (done) break;
-        const str = new TextDecoder().decode(value);
-        const encoder = new TextEncoder();
-        session.scrollbackBytes += encoder.encode(str).byteLength;
+        const str = textDecoder.decode(value);
+        session.scrollbackBytes += textEncoder.encode(str).byteLength;
         session.scrollback.push(str);
         while (session.scrollbackBytes > MAX_SCROLLBACK_BYTES && session.scrollback.length > 0) {
           const removed = session.scrollback.shift()!;
-          session.scrollbackBytes -= encoder.encode(removed).byteLength;
+          session.scrollbackBytes -= textEncoder.encode(removed).byteLength;
         }
         session.onData?.(str);
       }
@@ -212,7 +214,7 @@ export async function attach(
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        log.debug(`[term] stderr(${worktreeName}): ${new TextDecoder().decode(value).trimEnd()}`);
+        log.debug(`[term] stderr(${worktreeName}): ${textDecoder.decode(value).trimEnd()}`);
       }
     } catch { /* stream closed */ }
   })();
@@ -254,7 +256,7 @@ export function write(worktreeName: string, data: string): void {
     return;
   }
   try {
-    session.proc.stdin.write(new TextEncoder().encode(data));
+    session.proc.stdin.write(textEncoder.encode(data));
     session.proc.stdin.flush();
   } catch (err) {
     log.error(`[term] write(${worktreeName}) stdin closed`, err);

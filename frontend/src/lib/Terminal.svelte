@@ -16,6 +16,7 @@
   let fitAddon: FitAddon;
   let ws: WebSocket;
   let resizeObs: ResizeObserver;
+  let resizeTimer: ReturnType<typeof setTimeout>;
 
   function copyToClipboard(text: string): void {
     if (navigator.clipboard?.writeText) {
@@ -116,13 +117,17 @@
     ws = new WebSocket(`${protocol}//${location.host}/ws/${encodeURIComponent(worktree)}`);
 
     ws.onmessage = (event) => {
+      const raw = event.data as string;
+      // Hot-path: prefix-based protocol for output ("o") and scrollback ("s")
+      const prefix = raw[0];
+      if (prefix === "o" || prefix === "s") {
+        term.write(raw.slice(1));
+        return;
+      }
+      // Infrequent control messages use JSON
       try {
-        const msg = JSON.parse(event.data);
+        const msg = JSON.parse(raw);
         switch (msg.type) {
-          case "scrollback":
-          case "output":
-            term.write(msg.data);
-            break;
           case "exit":
             term.writeln(`\r\n\x1b[33m[Process exited with code ${msg.exitCode}]\x1b[0m`);
             break;
@@ -155,15 +160,19 @@
     });
 
     resizeObs = new ResizeObserver(() => {
-      fitAddon.fit();
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
-      }
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        fitAddon.fit();
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
+        }
+      }, 150);
     });
     resizeObs.observe(containerEl);
   });
 
   onDestroy(() => {
+    clearTimeout(resizeTimer);
     resizeObs?.disconnect();
     ws?.close();
     term?.dispose();

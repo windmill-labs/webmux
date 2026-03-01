@@ -172,20 +172,9 @@ If your `.workmux.yaml` has `auto_name.model` configured, the create-worktree di
 
 ## Architecture
 
-```
-Browser (localhost:5111)
-    │
-    ├── REST API (/api/*)  ──┐
-    └── WebSocket (/ws/*)  ──┤
-                             │
-                    Backend (Bun HTTP server)
-                             │
-              ┌──────────────┼──────────────┐
-              │              │              │
-          workmux CLI    tmux sessions   Docker
-          (worktree       (terminal      (sandbox
-           lifecycle)      access)        containers)
-```
+<p align="center">
+  <img src="docs/architecture.svg" alt="Architecture diagram" />
+</p>
 
 **Backend** — Bun/TypeScript HTTP + WebSocket server (`backend/src/server.ts`):
 
@@ -196,9 +185,9 @@ Browser (localhost:5111)
 
 ### Terminal streaming
 
-```
-Browser (xterm.js)  ←— WebSocket —→  Backend  ←— stdin/stdout pipes —→  script (PTY)  ←— tmux attach —→  tmux grouped session
-```
+<p align="center">
+  <img src="docs/terminal-streaming.svg" alt="Terminal streaming diagram" />
+</p>
 
 When a worktree is selected, the frontend opens a WebSocket to `/ws/<worktree>`. The backend spawns a PTY via `script` and attaches to a **grouped tmux session** — a separate view into the same windows. This allows the dashboard and a real terminal to view the same worktree simultaneously.
 

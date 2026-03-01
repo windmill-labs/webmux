@@ -49,17 +49,3 @@ If you are not 100% sure where a bug comes from, do not propose a speculative fi
 3. **Run the code** with the logging in place and read the output.
 4. **Only then** propose a fix based on what the logs reveal.
 5. **Remove the debug logging** after the fix is confirmed.
-
-### Why
-
-- A targeted fix based on observed data is worth ten speculative patches.
-- Logging proves your assumption before you change production logic.
-- It avoids the cycle of guess-fix-test-revert that wastes time.
-
-### What to log
-
-- Function arguments and return values at the boundary where the bug might live.
-- Conditional branches — log which branch was taken and why.
-- Async timing — log before and after `await` calls to catch ordering issues.
-- State mutations — log the before/after value of any state that's being updated.
-- External process output — log stdout/stderr from spawned commands (`Bun.spawn`, `Bun.$`).

@@ -1,0 +1,36 @@
+# Git Worktrees
+
+git worktree list                          # show all worktrees with their branches and paths
+git worktree list --porcelain              # machine-readable worktree listing (useful for scripting)
+git branch -a                              # list all local and remote branches
+git branch -vv                             # list branches with tracking info and last commit
+git log --oneline --all --graph            # visualise commit history across all branches
+git status                                 # show staged, unstaged, and untracked files
+
+# Workmux
+
+workmux list                               # list all active workmux worktrees (branch, agent, mux, path)
+workmux status                             # show agent status, elapsed time, and title per worktree
+
+# Tmux
+
+tmux list-sessions                                                                          # list all tmux sessions
+tmux list-sessions -F "#{session_name} #{session_windows} #{session_attached}"              # sessions with window count and attach state
+tmux list-windows -a                                                                        # list all windows across all sessions
+tmux list-windows -a -F "#{session_name}:#{window_name} #{window_active} #{window_panes}"   # windows with active flag and pane count
+tmux list-panes -a                                                                          # list every pane across all sessions
+tmux list-panes -a -F "#{session_name}:#{window_name}.#{pane_index} #{pane_pid} #{pane_current_command}"  # panes with PID and running command
+tmux display-message -p "#{session_name}"                                                   # print the name of the current session
+tmux show-environment                                                                       # show environment variables set in tmux
+tmux show-options -g                                                                        # show all global tmux options
+
+# Docker (workmux containers use the wm-* prefix)
+
+docker ps --filter "name=wm-"              # list running workmux containers
+docker ps -a --filter "name=wm-"           # list all workmux containers including stopped ones
+docker logs <container>                    # print stdout/stderr logs for a container
+
+# Combined quick checks
+
+tmux list-sessions -F "#{session_name}" | grep -v wm-dash   # list real workmux sessions (exclude dashboard viewers)
+git worktree list && workmux list && tmux list-sessions      # one-shot overview of worktrees, workmux, and tmux state

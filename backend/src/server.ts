@@ -156,11 +156,20 @@ async function getAllPaneCounts(): Promise<Map<string, number>> {
   return counts;
 }
 
-/** Check if a port has a service responding. 200ms is plenty for localhost. */
+/** Check if a port is accepting TCP connections. Faster than HTTP for localhost. */
 function isPortListening(port: number): Promise<boolean> {
-  return fetch(`http://127.0.0.1:${port}/`, { signal: AbortSignal.timeout(200) })
-    .then(() => true)
-    .catch(() => false);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(false), 200);
+    Bun.connect({
+      hostname: "127.0.0.1",
+      port,
+      socket: {
+        open(socket) { clearTimeout(timer); socket.end(); resolve(true); },
+        error() { clearTimeout(timer); resolve(false); },
+        data() {},
+      },
+    }).catch(() => { clearTimeout(timer); resolve(false); });
+  });
 }
 
 function makeCallbacks(ws: { send: (data: string) => void; readyState: number }): {

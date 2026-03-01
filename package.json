@@ -27,15 +27,14 @@
     "dev": "bash dev.sh",
     "start": "bun bin/wmdev.js",
     "build": "cd frontend && bun run build",
-    "prepublishOnly": "bun run build",
+    "build:backend": "bun build backend/src/server.ts --target=bun --outfile=backend/dist/server.js",
+    "prepublishOnly": "bun run build && bun run build:backend",
     "test": "bun run --cwd backend test && bun run --cwd frontend test",
     "test:coverage": "bun run --cwd backend test --coverage && bun run --cwd frontend test:coverage"
   },
   "files": [
     "bin/",
-    "backend/src/*.ts",
-    "backend/src/lib/",
-    "backend/tsconfig.json",
+    "backend/dist/",
     "frontend/dist/"
   ],
   "devDependencies": {

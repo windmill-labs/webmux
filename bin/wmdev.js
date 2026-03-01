@@ -126,7 +126,7 @@ process.on("SIGTERM", cleanup);
 
 // ── Start ────────────────────────────────────────────────────────────────────
 
-const backendEntry = join(PKG_ROOT, "backend", "src", "server.ts");
+const backendEntry = join(PKG_ROOT, "backend", "dist", "server.js");
 const staticDir = join(PKG_ROOT, "frontend", "dist");
 
 if (!existsSync(staticDir)) {

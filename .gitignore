@@ -4,6 +4,7 @@ backend/node_modules/
 backend/bun.lock
 frontend/node_modules/
 frontend/bun.lock
+backend/dist/
 frontend/dist/
 frontend/.vite/
 public/

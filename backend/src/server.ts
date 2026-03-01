@@ -140,14 +140,11 @@ async function getTmuxPaneCount(branch: string): Promise<number> {
   return out.trim().split("\n").filter(Boolean).length;
 }
 
-/** Check if a port has a service responding (not just a TCP handshake). */
+/** Check if a port has a service responding. 200ms is plenty for localhost. */
 function isPortListening(port: number): Promise<boolean> {
-  return new Promise((resolve) => {
-    const timeout = setTimeout(() => { resolve(false); }, 1000);
-    fetch(`http://127.0.0.1:${port}/`, { signal: AbortSignal.timeout(1000) })
-      .then(() => { clearTimeout(timeout); resolve(true); })
-      .catch(() => { clearTimeout(timeout); resolve(false); });
-  });
+  return fetch(`http://127.0.0.1:${port}/`, { signal: AbortSignal.timeout(200) })
+    .then(() => true)
+    .catch(() => false);
 }
 
 function makeCallbacks(ws: { send: (data: string) => void; readyState: number }): {

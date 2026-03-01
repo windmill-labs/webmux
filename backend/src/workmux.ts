@@ -166,17 +166,6 @@ export function parseWorktreePorcelain(output: string): Map<string, string> {
   return paths;
 }
 
-/** Find the on-disk path for a worktree branch via `git worktree list`. */
-function findWorktreeDir(branch: string): string | null {
-  const result = Bun.spawnSync(["git", "worktree", "list", "--porcelain"], { stdout: "pipe", stderr: "pipe" });
-  if (result.exitCode !== 0) {
-    log.warn(`[workmux] git worktree list failed (exit ${result.exitCode})`);
-    return null;
-  }
-  const output = new TextDecoder().decode(result.stdout);
-  return parseWorktreePorcelain(output).get(branch) ?? null;
-}
-
 function ensureTmux(): void {
   const check = Bun.spawnSync(["tmux", "list-sessions"], { stdout: "pipe", stderr: "pipe" });
   if (check.exitCode !== 0) {
@@ -302,13 +291,14 @@ export async function addWorktree(
 
   const windowTarget = `wm-${branch}`;
 
-  // Read worktree dir from git (tmux pane may not have cd'd yet with -C)
-  const wtDir = findWorktreeDir(branch);
+  // Parse worktree list once — used for both dir lookup and port allocation
+  const porcelainResult = Bun.spawnSync(["git", "worktree", "list", "--porcelain"], { stdout: "pipe", stderr: "pipe" });
+  const worktreeMap = parseWorktreePorcelain(new TextDecoder().decode(porcelainResult.stdout));
+  const wtDir = worktreeMap.get(branch) ?? null;
 
   // Allocate ports + write PROFILE/AGENT to .env.local
   if (wtDir) {
-    const porcelainResult = Bun.spawnSync(["git", "worktree", "list", "--porcelain"], { stdout: "pipe", stderr: "pipe" });
-    const allPaths = [...parseWorktreePorcelain(new TextDecoder().decode(porcelainResult.stdout)).values()];
+    const allPaths = [...worktreeMap.values()];
     const existingEnvs = await readAllWorktreeEnvs(allPaths, wtDir);
     const portAssignments = opts?.services ? allocatePorts(existingEnvs, opts.services) : {};
     await writeEnvLocal(wtDir, { ...portAssignments, PROFILE: profile, AGENT: agent });

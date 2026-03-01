@@ -17,24 +17,7 @@ export async function readEnvLocal(wtDir: string): Promise<Record<string, string
 
 /** Upsert a key=value pair in a worktree's .env.local file. */
 export async function upsertEnvLocal(wtDir: string, key: string, value: string): Promise<void> {
-  const filePath = `${wtDir}/.env.local`;
-  let lines: string[] = [];
-  try {
-    const content = (await Bun.file(filePath).text()).trim();
-    if (content) lines = content.split("\n");
-  } catch {
-    // File doesn't exist yet, start with empty lines
-  }
-
-  const pattern = new RegExp(`^${key}=`);
-  const idx = lines.findIndex((l) => pattern.test(l));
-  if (idx >= 0) {
-    lines[idx] = `${key}=${value}`;
-  } else {
-    lines.push(`${key}=${value}`);
-  }
-
-  await Bun.write(filePath, lines.join("\n") + "\n");
+  await writeEnvLocal(wtDir, { [key]: value });
 }
 
 /** Batch-write multiple key=value pairs to a worktree's .env.local (upsert each key). */

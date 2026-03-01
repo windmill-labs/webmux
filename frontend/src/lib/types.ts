@@ -4,6 +4,9 @@ export interface ServiceStatus {
   running: boolean;
 }
 
+// Deliberate type error to test CI
+const willFail: string = 42;
+
 export interface PrComment {
   author: string;
   body: string;

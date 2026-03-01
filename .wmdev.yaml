@@ -1,8 +1,12 @@
 services:
   - name: BE
     portEnv: DASHBOARD_PORT
+    portStart: 5111
+    portStep: 10
   - name: FE
     portEnv: FRONTEND_PORT
+    portStart: 5112
+    portStep: 10
 
 profiles:
   default:

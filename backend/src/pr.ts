@@ -1,4 +1,4 @@
-import { readEnvLocal, upsertEnvLocal } from "./env";
+import { readEnvLocal, writeEnvLocal } from "./env";
 import type { LinkedRepoConfig } from "./config";
 import { log } from "./lib/log";
 
@@ -250,7 +250,7 @@ async function refreshStalePrData(wtDir: string): Promise<void> {
     }),
   );
 
-  await upsertEnvLocal(wtDir, "PR_DATA", JSON.stringify(updated));
+  await writeEnvLocal(wtDir, { PR_DATA: JSON.stringify(updated) });
 }
 
 /** Sync PR status to .env.local for all worktrees that have open PRs. */
@@ -287,7 +287,7 @@ export async function syncPrStatus(
     if (!wtDir || seen.has(wtDir)) continue;
     seen.add(wtDir);
 
-    await upsertEnvLocal(wtDir, "PR_DATA", JSON.stringify(entries));
+    await writeEnvLocal(wtDir, { PR_DATA: JSON.stringify(entries) });
   }
 
   if (seen.size > 0) {

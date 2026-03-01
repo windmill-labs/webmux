@@ -4,6 +4,8 @@ import { parse as parseYaml } from "yaml";
 export interface ServiceConfig {
   name: string;
   portEnv: string;
+  portStart?: number;
+  portStep?: number;
 }
 
 export interface ProfileConfig {

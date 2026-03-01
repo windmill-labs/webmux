@@ -116,13 +116,17 @@
     ws = new WebSocket(`${protocol}//${location.host}/ws/${encodeURIComponent(worktree)}`);
 
     ws.onmessage = (event) => {
+      const raw = event.data as string;
+      // Hot-path: prefix-based protocol for output ("o") and scrollback ("s")
+      const prefix = raw[0];
+      if (prefix === "o" || prefix === "s") {
+        term.write(raw.slice(1));
+        return;
+      }
+      // Infrequent control messages use JSON
       try {
-        const msg = JSON.parse(event.data);
+        const msg = JSON.parse(raw);
         switch (msg.type) {
-          case "scrollback":
-          case "output":
-            term.write(msg.data);
-            break;
           case "exit":
             term.writeln(`\r\n\x1b[33m[Process exited with code ${msg.exitCode}]\x1b[0m`);
             break;

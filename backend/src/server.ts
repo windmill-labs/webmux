@@ -85,8 +85,19 @@ function parseWsMessage(raw: string | Buffer): WsInboundMessage | null {
 
 // --- HTTP helpers ---
 
+/** Send a WsOutboundMessage. Hot-path messages (output/scrollback) use a
+ *  single-character prefix to avoid JSON encode/decode overhead. */
 function sendWs(ws: { send: (data: string) => void }, msg: WsOutboundMessage): void {
-  ws.send(JSON.stringify(msg));
+  switch (msg.type) {
+    case "output":
+      ws.send("o" + msg.data);
+      break;
+    case "scrollback":
+      ws.send("s" + msg.data);
+      break;
+    default:
+      ws.send(JSON.stringify(msg));
+  }
 }
 
 function isValidWorktreeName(name: string): boolean {

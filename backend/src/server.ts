@@ -27,6 +27,7 @@ import { loadConfig, gitRoot, type WmdevConfig } from "./config";
 import { startPrMonitor, type PrEntry } from "./pr";
 import { handleWorkmuxRpc } from "./rpc";
 import { jsonResponse, errorResponse } from "./http";
+import { handleNotificationStream, handleDismissNotification, installHookScripts } from "./notifications";
 
 const PORT = parseInt(Bun.env.DASHBOARD_PORT || "5111", 10);
 const STATIC_DIR = Bun.env.WMDEV_STATIC_DIR || "";
@@ -418,6 +419,18 @@ Bun.serve({
     "/api/ci-logs/:runId": {
       GET: (req) => catching(`GET /api/ci-logs/${req.params.runId}`, () => apiCiLogs(req.params.runId)),
     },
+
+    "/api/notifications/stream": {
+      GET: () => handleNotificationStream(),
+    },
+
+    "/api/notifications/:id/dismiss": {
+      POST: (req) => {
+        const id = parseInt(req.params.id, 10);
+        if (isNaN(id)) return errorResponse("Invalid notification ID", 400);
+        return handleDismissNotification(id);
+      },
+    },
   },
 
   async fetch(req) {
@@ -521,6 +534,9 @@ if (tmuxCheck.exitCode !== 0) {
 
 cleanupStaleSessions();
 startPrMonitor(getWorktreePaths, config.linkedRepos, PROJECT_DIR);
+installHookScripts().catch((err: unknown) => {
+  log.error(`[notify] failed to install hook scripts: ${err instanceof Error ? err.message : String(err)}`);
+});
 
 log.info(`Dev Dashboard API running at http://localhost:${PORT}`);
 const nets = networkInterfaces();

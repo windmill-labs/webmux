@@ -1,5 +1,6 @@
 import { loadRpcSecret } from "./rpc-secret";
 import { jsonResponse } from "./http";
+import { addNotification } from "./notifications";
 
 interface RpcRequest {
   command: string;
@@ -59,6 +60,16 @@ export async function handleWorkmuxRpc(req: Request): Promise<Response> {
   const { command, args = [], branch } = raw;
   if (!command) {
     return jsonResponse({ ok: false, error: "Missing command" } satisfies RpcResponse, 400);
+  }
+
+  // Handle "notify" in-process — no subprocess needed
+  if (command === "notify" && branch) {
+    const [type, url] = args;
+    if (type === "agent_stopped" || type === "pr_opened") {
+      addNotification(branch, type, url);
+      return jsonResponse({ ok: true, output: "ok" } satisfies RpcResponse);
+    }
+    return jsonResponse({ ok: false, error: `Unknown notification type: ${type}` } satisfies RpcResponse, 400);
   }
 
   try {

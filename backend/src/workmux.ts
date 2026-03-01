@@ -1,4 +1,5 @@
 import { $ } from "bun";
+import { mkdir } from "node:fs/promises";
 import { readEnvLocal, writeEnvLocal, readAllWorktreeEnvs, allocatePorts } from "./env";
 import { expandTemplate, type ProfileConfig, type SandboxProfileConfig, type ServiceConfig } from "./config";
 import { launchContainer, removeContainer } from "./docker";
@@ -310,6 +311,16 @@ export async function addWorktree(
     const existingEnvs = await readAllWorktreeEnvs(allPaths, wtDir);
     const portAssignments = opts?.services ? allocatePorts(existingEnvs, opts.services) : {};
     await writeEnvLocal(wtDir, { ...portAssignments, PROFILE: profile, AGENT: agent });
+
+    // Inject Claude hook settings so notifications fire in managed worktrees
+    const hooksConfig = {
+      hooks: {
+        Stop: [{ hooks: [{ type: "command", command: "~/.config/workmux/hooks/notify-stop.sh", async: true }] }],
+        PostToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "~/.config/workmux/hooks/notify-pr.sh", async: true }] }],
+      },
+    };
+    await mkdir(`${wtDir}/.claude`, { recursive: true });
+    await Bun.write(`${wtDir}/.claude/settings.local.json`, JSON.stringify(hooksConfig, null, 2) + "\n");
   }
 
   const env = wtDir ? await readEnvLocal(wtDir) : {};

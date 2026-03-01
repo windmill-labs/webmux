@@ -19,7 +19,7 @@
         <button
           type="button"
           class="flex-1 flex items-center gap-2 text-left bg-transparent border-none text-inherit cursor-pointer p-0"
-          onclick={() => onselect(n.branch)}
+          onclick={() => { ondismiss(n.id); onselect(n.branch); }}
         >
           <span class="shrink-0 text-base">
             {#if n.type === "agent_stopped"}

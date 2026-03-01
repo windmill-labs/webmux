@@ -58,7 +58,8 @@ RUN PUPPETEER_SKIP_DOWNLOAD=true npm i -g @mermaid-js/mermaid-cli \
        > /root/.puppeteerrc.json
 
 # ── Allow non-root UID (--user) to access tools installed in /root ───────────
-RUN chmod -R 777 /root
+RUN chmod -R 777 /root \
+    && echo "agent:x:1000:100::/root:/bin/bash" >> /etc/passwd
 
 # ── Entrypoint (run explicitly via docker exec, not on container start) ──────
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh

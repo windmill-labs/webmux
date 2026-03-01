@@ -1,6 +1,6 @@
 {
   "name": "wmdev",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Web dashboard for workmux — browser UI with embedded terminals, PR monitoring, and CI integration",
   "type": "module",
   "repository": {
@@ -19,7 +19,10 @@
   "bin": {
     "wmdev": "bin/wmdev.js"
   },
-  "workspaces": ["backend", "frontend"],
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
   "scripts": {
     "dev": "bash dev.sh",
     "start": "bun bin/wmdev.js",

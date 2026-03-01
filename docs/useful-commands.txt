@@ -34,3 +34,40 @@ docker logs <container>                    # print stdout/stderr logs for a cont
 
 tmux list-sessions -F "#{session_name}" | grep -v wm-dash   # list real workmux sessions (exclude dashboard viewers)
 git worktree list && workmux list && tmux list-sessions      # one-shot overview of worktrees, workmux, and tmux state
+
+# Systemd wmdev services — setup
+#
+# Service files live at ~/.config/systemd/user/wmdev-{windmill,workmux}.service
+# Rebuild timer/service at ~/.config/systemd/user/wmdev-rebuild.{timer,service}
+# Rebuild script at ~/.local/bin/wmdev-rebuild.sh
+#
+# To create a new wmdev service for a project:
+#   1. Create ~/.config/systemd/user/wmdev-<name>.service:
+#        [Unit]
+#        Description=wmdev for <name>
+#        [Service]
+#        Type=simple
+#        WorkingDirectory=/path/to/project
+#        ExecStart=/run/current-system/sw/bin/bun /home/farhad/Desktop/workmux-web/bin/wmdev.js --port <PORT>
+#        Restart=on-failure
+#        RestartSec=5
+#        Environment=PATH=/home/farhad/.cargo/bin:/run/current-system/sw/bin:/usr/bin:/bin
+#        [Install]
+#        WantedBy=default.target
+#   2. systemctl --user daemon-reload
+#   3. systemctl --user enable --now wmdev-<name>
+#   4. sudo loginctl enable-linger farhad          # (once) keep services running without login
+#
+# Current instances:
+#   wmdev-windmill  → port 5111, WorkingDirectory=/home/farhad/Desktop/windmill
+#   wmdev-workmux   → port 6111, WorkingDirectory=/home/farhad/Desktop/workmux-web
+
+# Systemd wmdev services
+
+systemctl --user status wmdev-windmill                     # check windmill dashboard status (port 5111)
+systemctl --user status wmdev-workmux                      # check workmux-web dashboard status (port 6111)
+systemctl --user restart wmdev-windmill wmdev-workmux      # restart both dashboards
+journalctl --user -u wmdev-windmill -f                     # follow windmill dashboard logs
+journalctl --user -u wmdev-workmux -f                      # follow workmux-web dashboard logs
+systemctl --user list-timers wmdev-rebuild.timer            # check next scheduled rebuild (daily 5am)
+journalctl --user -u wmdev-rebuild                         # check rebuild job logs

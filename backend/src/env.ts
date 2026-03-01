@@ -15,11 +15,6 @@ export async function readEnvLocal(wtDir: string): Promise<Record<string, string
   }
 }
 
-/** Upsert a key=value pair in a worktree's .env.local file. */
-export async function upsertEnvLocal(wtDir: string, key: string, value: string): Promise<void> {
-  await writeEnvLocal(wtDir, { [key]: value });
-}
-
 /** Batch-write multiple key=value pairs to a worktree's .env.local (upsert each key). */
 export async function writeEnvLocal(wtDir: string, entries: Record<string, string>): Promise<void> {
   const filePath = `${wtDir}/.env.local`;

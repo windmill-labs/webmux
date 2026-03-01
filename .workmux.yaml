@@ -31,9 +31,6 @@ auto_name:
     Output ONLY the branch name, nothing else.
   background: true
 
-post_create:
-  - ./scripts/worktree-env
-
 panes:
   - command: >-
       claude --dangerously-skip-permissions --append-system-prompt

@@ -1,5 +1,5 @@
 import { $ } from "bun";
-import { readEnvLocal } from "./env";
+import { readEnvLocal, writeEnvLocal, readAllWorktreeEnvs, allocatePorts } from "./env";
 import { expandTemplate, type ProfileConfig, type SandboxProfileConfig, type ServiceConfig } from "./config";
 import { launchContainer, removeContainer } from "./docker";
 import { log } from "./lib/log";
@@ -304,17 +304,18 @@ export async function addWorktree(
 
   // Read worktree dir from git (tmux pane may not have cd'd yet with -C)
   const wtDir = findWorktreeDir(branch);
+
+  // Allocate ports + write PROFILE/AGENT to .env.local
+  if (wtDir) {
+    const porcelainResult = Bun.spawnSync(["git", "worktree", "list", "--porcelain"], { stdout: "pipe", stderr: "pipe" });
+    const allPaths = [...parseWorktreePorcelain(new TextDecoder().decode(porcelainResult.stdout)).values()];
+    const existingEnvs = await readAllWorktreeEnvs(allPaths, wtDir);
+    const portAssignments = opts?.services ? allocatePorts(existingEnvs, opts.services) : {};
+    await writeEnvLocal(wtDir, { ...portAssignments, PROFILE: profile, AGENT: agent });
+  }
+
   const env = wtDir ? await readEnvLocal(wtDir) : {};
   log.debug(`[workmux:add] branch=${branch} dir=${wtDir ?? "(not found)"} env=${JSON.stringify(env)}`);
-
-  // Append profile to .env.local (worktree-env creates it, we just add to it)
-  if (wtDir) {
-    const envPath = `${wtDir}/.env.local`;
-    const existing = await Bun.file(envPath).text().catch(() => "");
-    if (!existing.includes("PROFILE=")) {
-      await Bun.write(envPath, existing.trimEnd() + `\nPROFILE=${profile}\nAGENT=${agent}\n`);
-    }
-  }
 
   // For profiles with a system prompt, kill extra panes and send commands
   if (hasSystemPrompt && profileConfig) {

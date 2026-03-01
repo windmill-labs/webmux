@@ -14,8 +14,24 @@ export function fetchConfig(): Promise<AppConfig> {
   return api<AppConfig>("config");
 }
 
-export function fetchWorktrees(): Promise<WorktreeInfo[]> {
-  return api<WorktreeInfo[]>("worktrees");
+let _wtEtag: string | null = null;
+let _wtCache: WorktreeInfo[] | null = null;
+
+export async function fetchWorktrees(): Promise<WorktreeInfo[]> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (_wtEtag) headers["If-None-Match"] = _wtEtag;
+
+  const res = await fetch("/api/worktrees", { headers });
+  if (res.status === 304 && _wtCache) return _wtCache;
+  if (!res.ok) {
+    const data = await res.json();
+    throw new Error(data.error || `HTTP ${res.status}`);
+  }
+
+  const data = (await res.json()) as WorktreeInfo[];
+  _wtEtag = res.headers.get("etag");
+  _wtCache = data;
+  return data;
 }
 
 export function createWorktree(

@@ -21,6 +21,11 @@ jobs:
       - uses: actions/checkout@v4
         if: ${{ steps.release.outputs.release_created }}
 
+      - uses: actions/setup-node@v4
+        if: ${{ steps.release.outputs.release_created }}
+        with:
+          registry-url: https://registry.npmjs.org
+
       - uses: oven-sh/setup-bun@v2
         if: ${{ steps.release.outputs.release_created }}
 

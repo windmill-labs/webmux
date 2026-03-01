@@ -40,16 +40,15 @@ export async function writeEnvLocal(wtDir: string, entries: Record<string, strin
 }
 
 /** Read .env.local from all worktree paths, optionally excluding one directory. */
-export async function readAllWorktreeEnvs(
+export function readAllWorktreeEnvs(
   worktreePaths: string[],
   excludeDir?: string,
 ): Promise<Record<string, string>[]> {
-  const results: Record<string, string>[] = [];
-  for (const p of worktreePaths) {
-    if (excludeDir && p === excludeDir) continue;
-    results.push(await readEnvLocal(p));
-  }
-  return results;
+  return Promise.all(
+    worktreePaths
+      .filter(p => !excludeDir || p !== excludeDir)
+      .map(p => readEnvLocal(p))
+  );
 }
 
 /**

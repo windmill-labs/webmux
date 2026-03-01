@@ -154,11 +154,15 @@
       }
     });
 
+    let resizeTimer: ReturnType<typeof setTimeout>;
     resizeObs = new ResizeObserver(() => {
-      fitAddon.fit();
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
-      }
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        fitAddon.fit();
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
+        }
+      }, 150);
     });
     resizeObs.observe(containerEl);
   });

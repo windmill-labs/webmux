@@ -16,6 +16,7 @@
   let fitAddon: FitAddon;
   let ws: WebSocket;
   let resizeObs: ResizeObserver;
+  let resizeTimer: ReturnType<typeof setTimeout>;
 
   function copyToClipboard(text: string): void {
     if (navigator.clipboard?.writeText) {
@@ -158,7 +159,6 @@
       }
     });
 
-    let resizeTimer: ReturnType<typeof setTimeout>;
     resizeObs = new ResizeObserver(() => {
       clearTimeout(resizeTimer);
       resizeTimer = setTimeout(() => {
@@ -172,6 +172,7 @@
   });
 
   onDestroy(() => {
+    clearTimeout(resizeTimer);
     resizeObs?.disconnect();
     ws?.close();
     term?.dispose();

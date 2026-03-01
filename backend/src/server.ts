@@ -282,6 +282,7 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
   });
   if (!result.ok) return errorResponse(result.error, 422);
   log.debug(`[worktree:add] done branch=${result.branch}: ${result.output}`);
+  wtCache = null;
   return jsonResponse({ branch: result.branch }, 201);
 }
 
@@ -290,6 +291,7 @@ async function apiDeleteWorktree(name: string): Promise<Response> {
   const result = await removeWorktree(name);
   if (!result.ok) return errorResponse(result.error, 422);
   log.debug(`[worktree:rm] done name=${name}: ${result.output}`);
+  wtCache = null;
   return jsonResponse({ message: result.output });
 }
 
@@ -320,6 +322,7 @@ async function apiMergeWorktree(name: string): Promise<Response> {
   const result = await mergeWorktree(name);
   if (!result.ok) return errorResponse(result.error, 422);
   log.debug(`[worktree:merge] done name=${name}: ${result.output}`);
+  wtCache = null;
   return jsonResponse({ message: result.output });
 }
 

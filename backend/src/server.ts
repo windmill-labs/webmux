@@ -170,7 +170,7 @@ async function getAllPaneCounts(): Promise<Map<string, number>> {
 /** Check if a port is accepting TCP connections. Faster than HTTP for localhost. */
 function isPortListening(port: number): Promise<boolean> {
   return new Promise((resolve) => {
-    const timer = setTimeout(() => resolve(false), 200);
+    const timer = setTimeout(() => resolve(false), 300);
     Bun.connect({
       hostname: "127.0.0.1",
       port,

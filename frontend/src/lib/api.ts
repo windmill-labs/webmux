@@ -18,7 +18,7 @@ let _wtEtag: string | null = null;
 let _wtCache: WorktreeInfo[] | null = null;
 
 export async function fetchWorktrees(): Promise<WorktreeInfo[]> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const headers: Record<string, string> = {};
   if (_wtEtag) headers["If-None-Match"] = _wtEtag;
 
   const res = await fetch("/api/worktrees", { headers });

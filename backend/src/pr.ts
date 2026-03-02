@@ -25,9 +25,14 @@ type GhCheckConclusion =
   | "ACTION_REQUIRED";
 
 export interface PrComment {
+  type: "comment" | "inline";
   author: string;
   body: string;
   createdAt: string;
+  path?: string;
+  line?: number | null;
+  diffHunk?: string;
+  isReply?: boolean;
 }
 
 interface GhComment {
@@ -64,16 +69,6 @@ interface GhPrEntry {
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
-export interface PrReviewComment {
-  author: string;
-  body: string;
-  createdAt: string;
-  path: string;
-  line: number | null;
-  diffHunk: string;
-  isReply: boolean;
-}
-
 export interface CiCheck {
   name: string;
   status: "pending" | "success" | "failed" | "skipped";
@@ -89,7 +84,6 @@ export interface PrEntry {
   ciStatus: "none" | "pending" | "success" | "failed";
   ciChecks: CiCheck[];
   comments: PrComment[];
-  reviewComments: PrReviewComment[];
 }
 
 type FetchPrsResult =
@@ -141,12 +135,13 @@ export function mapChecks(checks: GhCheckEntry[] | null): CiCheck[] {
 }
 
 /** Parse raw `gh api` review comments JSON into typed array. Keeps most recent 50. */
-export function parseReviewComments(json: string): PrReviewComment[] {
+export function parseReviewComments(json: string): PrComment[] {
   const raw = JSON.parse(json) as GhReviewComment[];
   const sorted = raw.sort(
     (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
   );
   return sorted.slice(0, PR_FETCH_LIMIT).map((c) => ({
+    type: "inline" as const,
     author: c.user?.login ?? "unknown",
     body: c.body ?? "",
     createdAt: c.created_at ?? "",
@@ -175,11 +170,11 @@ export function parsePrResponse(
       ciStatus: summarizeChecks(entry.statusCheckRollup),
       ciChecks: mapChecks(entry.statusCheckRollup),
       comments: (entry.comments ?? []).map((c) => ({
+        type: "comment" as const,
         author: c.author?.login ?? "unknown",
         body: c.body ?? "",
         createdAt: c.createdAt ?? "",
       })),
-      reviewComments: [],
     });
   }
   return prs;
@@ -268,7 +263,7 @@ async function fetchReviewComments(
   prNumber: number,
   repoSlug?: string,
   cwd?: string,
-): Promise<PrReviewComment[]> {
+): Promise<PrComment[]> {
   const repoFlag = repoSlug
     ? repoSlug
     : "{owner}/{repo}";
@@ -375,7 +370,8 @@ export async function syncPrStatus(
     }
   }
 
-  // Fetch inline review comments for all open PRs (concurrency-limited).
+  // Fetch inline review comments for all open PRs (concurrency-limited)
+  // and merge into comments array, sorted by date.
   const reviewTuples: { entry: PrEntry; repoSlug: string | undefined }[] = [];
   for (const entries of branchPrs.values()) {
     for (const entry of entries) {
@@ -392,7 +388,10 @@ export async function syncPrStatus(
       fetchReviewComments(t.entry.number, t.repoSlug, projectDir),
     );
     for (let i = 0; i < reviewTuples.length; i++) {
-      reviewTuples[i].entry.reviewComments = reviewResults[i];
+      const entry = reviewTuples[i].entry;
+      entry.comments = [...entry.comments, ...reviewResults[i]].sort(
+        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+      );
     }
   }
 

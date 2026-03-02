@@ -5,19 +5,14 @@ export interface ServiceStatus {
 }
 
 export interface PrComment {
+  type: "comment" | "inline";
   author: string;
   body: string;
   createdAt: string;
-}
-
-export interface PrReviewComment {
-  author: string;
-  body: string;
-  createdAt: string;
-  path: string;
-  line: number | null;
-  diffHunk: string;
-  isReply: boolean;
+  path?: string;
+  line?: number | null;
+  diffHunk?: string;
+  isReply?: boolean;
 }
 
 export interface CiCheck {
@@ -35,7 +30,6 @@ export interface PrEntry {
   ciStatus: string;
   ciChecks: CiCheck[];
   comments: PrComment[];
-  reviewComments?: PrReviewComment[];
 }
 
 export interface LinearIssueLabel {

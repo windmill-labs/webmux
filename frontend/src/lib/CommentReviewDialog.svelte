@@ -1,17 +1,13 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
-  import type { PrEntry, PrComment, PrReviewComment } from "./types";
+  import type { PrEntry, PrComment } from "./types";
   import { sendWorktreePrompt } from "./api";
   import { normalizeTextForPrompt } from "./promptUtils";
   import { prLabel, errorMessage } from "./utils";
   import BaseDialog from "./BaseDialog.svelte";
   import Btn from "./Btn.svelte";
   import LinkBtn from "./LinkBtn.svelte";
-
-  type CommentItem =
-    | { kind: "comment"; data: PrComment }
-    | { kind: "review"; data: PrReviewComment };
 
   let {
     pr,
@@ -28,18 +24,10 @@
   let sending = $state(false);
   let sendError = $state("");
 
-  let items = $derived.by((): CommentItem[] => {
-    const comments: CommentItem[] = pr.comments.map((c) => ({ kind: "comment", data: c }));
-    const reviews: CommentItem[] = (pr.reviewComments ?? []).map((r) => ({ kind: "review", data: r }));
-    return [...comments, ...reviews].sort(
-      (a, b) => new Date(a.data.createdAt).getTime() - new Date(b.data.createdAt).getTime(),
-    );
-  });
-
   const selected = new SvelteSet<number>();
 
   $effect(() => {
-    const len = items.length;
+    const len = pr.comments.length;
     untrack(() => {
       selected.clear();
       for (let i = 0; i < len; i++) selected.add(i);
@@ -47,14 +35,14 @@
   });
 
   let label = $derived(prLabel(pr));
-  let allSelected = $derived(selected.size === items.length);
+  let allSelected = $derived(selected.size === pr.comments.length);
   let noneSelected = $derived(selected.size === 0);
 
   function toggleAll(): void {
     if (allSelected) {
       selected.clear();
     } else {
-      for (let i = 0; i < items.length; i++) selected.add(i);
+      for (let i = 0; i < pr.comments.length; i++) selected.add(i);
     }
   }
 
@@ -66,14 +54,12 @@
     }
   }
 
-  function formatItem(item: CommentItem, idx: number): string {
-    if (item.kind === "review") {
-      const r = item.data;
-      const loc = r.line ? `${r.path}:${r.line}` : r.path;
-      const hunk = r.diffHunk ? `\n\`\`\`diff\n${r.diffHunk}\n\`\`\`\n` : "\n";
-      return `[${idx}] @${r.author} (${r.createdAt.slice(0, 10)}) on ${loc}:${hunk}${r.body}`;
+  function formatComment(c: PrComment, idx: number): string {
+    if (c.type === "inline") {
+      const loc = c.line ? `${c.path}:${c.line}` : c.path;
+      const hunk = c.diffHunk ? `\n\`\`\`diff\n${c.diffHunk}\n\`\`\`\n` : "\n";
+      return `[${idx}] @${c.author} (${c.createdAt.slice(0, 10)}) on ${loc}:${hunk}${c.body}`;
     }
-    const c = item.data;
     return `[${idx}] @${c.author} (${c.createdAt.slice(0, 10)}):\n${c.body}`;
   }
 
@@ -88,9 +74,9 @@
         "",
         "Comments:",
       ].join("\n") + "\n";
-    const content = items
+    const content = pr.comments
       .filter((_, i) => selected.has(i))
-      .map((item, i) => formatItem(item, i + 1))
+      .map((c, i) => formatComment(c, i + 1))
       .join("\n\n");
     try {
       await sendWorktreePrompt(
@@ -115,12 +101,12 @@
       {allSelected ? "Deselect all" : "Select all"}
     </LinkBtn>
     <span class="text-[11px] text-muted">
-      {selected.size} of {items.length} selected
+      {selected.size} of {pr.comments.length} selected
     </span>
   </div>
 
   <ul class="list-none p-0 m-0 flex flex-col gap-2 mb-4 max-h-[400px] overflow-y-auto">
-    {#each items as item, i (i)}
+    {#each pr.comments as comment, i (i)}
       <li class="rounded-md border border-edge bg-surface p-3">
         <label class="flex items-start gap-2 cursor-pointer">
           <input
@@ -130,22 +116,22 @@
             class="mt-0.5 accent-accent"
           />
           <div class="flex-1 min-w-0">
-            {#if item.kind === "review"}
-              <div class="text-[10px] font-mono text-accent mb-1 truncate" title={item.data.path}>
-                {item.data.path}{item.data.line ? `:${item.data.line}` : ""}
-                {#if item.data.isReply}
+            {#if comment.type === "inline"}
+              <div class="text-[10px] font-mono text-accent mb-1 truncate" title={comment.path}>
+                {comment.path}{comment.line ? `:${comment.line}` : ""}
+                {#if comment.isReply}
                   <span class="text-muted ml-1">(reply)</span>
                 {/if}
               </div>
             {/if}
             <div class="text-[12px] text-muted mb-1">
-              <span class="font-medium text-primary">@{item.data.author}</span>
-              &middot; {item.data.createdAt.slice(0, 10)}
-              {#if item.kind === "review"}
+              <span class="font-medium text-primary">@{comment.author}</span>
+              &middot; {comment.createdAt.slice(0, 10)}
+              {#if comment.type === "inline"}
                 <span class="text-accent/60 ml-1">review</span>
               {/if}
             </div>
-            <pre class="text-[11px] font-mono whitespace-pre-wrap m-0 text-primary/80">{item.data.body}</pre>
+            <pre class="text-[11px] font-mono whitespace-pre-wrap m-0 text-primary/80">{comment.body}</pre>
           </div>
         </label>
       </li>

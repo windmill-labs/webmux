@@ -257,7 +257,7 @@ async function apiGetWorktrees(req: Request): Promise<Response> {
       agentName: env.AGENT || null,
       services,
       paneCount: wt.mux === "✓" ? (paneCounts.get(wt.branch) ?? 0) : 0,
-      prs: env.PR_DATA ? (safeJsonParse<PrEntry[]>(env.PR_DATA) ?? []).map(pr => ({ ...pr, comments: pr.comments ?? [], reviewComments: pr.reviewComments ?? [] })) : [],
+      prs: env.PR_DATA ? (safeJsonParse<PrEntry[]>(env.PR_DATA) ?? []).map(pr => ({ ...pr, comments: pr.comments ?? [] })) : [],
       linearIssue,
     };
   }));

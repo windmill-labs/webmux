@@ -26,12 +26,14 @@ describe("parseReviewComments", () => {
     const result = parseReviewComments(json);
     expect(result).toHaveLength(2);
     // Sorted by most recent first
+    expect(result[0].type).toBe("inline");
     expect(result[0].author).toBe("bob");
     expect(result[0].path).toBe("src/utils.ts");
     expect(result[0].line).toBe(10);
     expect(result[0].isReply).toBe(true);
     expect(result[0].diffHunk).toBe("@@ -8,3 +8,5 @@");
 
+    expect(result[1].type).toBe("inline");
     expect(result[1].author).toBe("alice");
     expect(result[1].line).toBe(42);
     expect(result[1].isReply).toBe(false);
@@ -56,6 +58,7 @@ describe("parseReviewComments", () => {
 
     const result = parseReviewComments(json);
     expect(result).toHaveLength(1);
+    expect(result[0].type).toBe("inline");
     expect(result[0].author).toBe("unknown");
     expect(result[0].body).toBe("");
     expect(result[0].path).toBe("");

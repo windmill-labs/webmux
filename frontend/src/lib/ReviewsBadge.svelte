@@ -6,7 +6,6 @@
     onclick: (pr: PrEntry) => void;
   } = $props();
 
-  let total = $derived(pr.comments.length + (pr.reviewComments?.length ?? 0));
 </script>
 
 <button
@@ -16,5 +15,5 @@
   title="Send PR comments to Claude for review"
 >
   <span class="inline-block w-1.5 h-1.5 rounded-full bg-accent"></span>
-  {total} {total === 1 ? 'comment' : 'comments'}
+  {pr.comments.length} {pr.comments.length === 1 ? 'comment' : 'comments'}
 </button>

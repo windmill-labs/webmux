@@ -107,7 +107,7 @@
       {#if pr.ciChecks && pr.ciChecks.length > 0}
         <CiBadge {pr} onclick={onciclick} />
       {/if}
-      {#if pr.comments.length > 0 || (pr.reviewComments?.length ?? 0) > 0}
+      {#if pr.comments.length > 0}
         <ReviewsBadge {pr} onclick={onreviewsclick} />
       {/if}
     {/each}

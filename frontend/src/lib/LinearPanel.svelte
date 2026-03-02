@@ -38,7 +38,7 @@
             <a
               href={issue.url}
               target="_blank"
-              rel="noopener"
+              rel="noopener noreferrer"
               class="font-mono text-[11px] text-accent no-underline hover:underline"
             >{issue.identifier}</a>
             <span class="text-[10px] text-muted">{issue.priorityLabel}</span>

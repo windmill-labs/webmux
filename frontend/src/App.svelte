@@ -126,7 +126,7 @@
     linearLastFetch = now;
     api.fetchLinearIssues().then((data) => {
       linearIssues = data;
-    }).catch(() => {});
+    }).catch((err: unknown) => console.warn("[linear]", err));
   }
 
   async function refresh() {

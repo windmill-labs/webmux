@@ -24,7 +24,7 @@
     <a
       href={issue.url}
       target="_blank"
-      rel="noopener"
+      rel="noopener noreferrer"
       class="font-mono text-xs text-accent no-underline hover:underline"
     >{issue.identifier}</a>
     <span class="text-[11px] text-muted">{issue.state.name}</span>

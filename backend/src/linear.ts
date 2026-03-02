@@ -26,7 +26,7 @@ interface GqlIssueNode {
   id: string;
   identifier: string;
   title: string;
-  description: string;
+  description: string | null;
   priority: number;
   priorityLabel: string;
   url: string;
@@ -54,7 +54,7 @@ export interface LinearIssue {
   id: string;
   identifier: string;
   title: string;
-  description: string;
+  description: string | null;
   priority: number;
   priorityLabel: string;
   url: string;
@@ -138,8 +138,8 @@ export function parseIssuesResponse(raw: GqlResponse): FetchIssuesResult {
 }
 
 /** Match a worktree branch to a Linear issue branch name.
- *  Linear generates branches like `user/eng-123-desc` — we strip any prefix
- *  before the last `/` segment group that contains the identifier. */
+ *  Linear generates branches like `user/eng-123-desc` — we strip the first
+ *  `/`-delimited prefix segment from each side to find a match. */
 export function branchMatchesIssue(
   worktreeBranch: string,
   issueBranchName: string,
@@ -163,6 +163,8 @@ export function branchMatchesIssue(
 }
 
 // --- I/O: fetch with cache ---
+// On fetch error, stale cache continues to be served until TTL expires.
+// This is intentional — availability over freshness for a read-only sidebar.
 
 const CACHE_TTL_MS = 60_000;
 let issueCache: { data: FetchIssuesResult; expiry: number } | null = null;

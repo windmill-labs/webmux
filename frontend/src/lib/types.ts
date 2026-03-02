@@ -32,24 +32,30 @@ export interface LinearIssueLabel {
   color: string;
 }
 
+export interface LinearIssueState {
+  name: string;
+  color: string;
+  type: string;
+}
+
 export interface LinkedLinearIssue {
   identifier: string;
   url: string;
-  state: { name: string; color: string; type: string };
+  state: LinearIssueState;
 }
 
 export interface LinearIssue {
   id: string;
   identifier: string;
   title: string;
-  description: string;
+  description: string | null;
   priority: number;
   priorityLabel: string;
   url: string;
   branchName: string;
   dueDate: string | null;
   updatedAt: string;
-  state: { name: string; color: string; type: string };
+  state: LinearIssueState;
   team: { name: string; key: string };
   labels: LinearIssueLabel[];
   project: string | null;

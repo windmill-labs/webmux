@@ -69,6 +69,9 @@
             title={issue.title}
             onclick={() => onselect(issue)}
           >{issue.title}</button>
+          {#if issue.description}
+            <p class="text-[10px] text-muted truncate m-0 mb-1">{issue.description}</p>
+          {/if}
           <div class="flex items-center justify-between gap-2">
             <span class="text-[10px] text-muted truncate">
               {issue.team.key}{#if issue.project} · {issue.project}{/if}

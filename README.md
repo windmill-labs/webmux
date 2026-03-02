@@ -62,6 +62,10 @@ wmdev uses two config files in the project root:
 ### `.wmdev.yaml` schema
 
 ```yaml
+# Project name displayed in the sidebar header and browser tab title.
+# Falls back to "Dashboard" if omitted.
+name: string
+
 # Services to monitor — each maps a display name to a port env var.
 # The dashboard polls these ports and shows health status badges.
 # When portStart is set, wmdev auto-allocates ports for new worktrees
@@ -112,6 +116,8 @@ linkedRepos: []
 ### Example
 
 ```yaml
+name: My Project
+
 services:
   - name: BE
     portEnv: BACKEND_PORT
@@ -149,6 +155,7 @@ linkedRepos:
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
+| `name` | string | no | Project name shown in the sidebar header and browser tab title. Defaults to "Dashboard" |
 | `services[].name` | string | yes | Display name shown in the dashboard |
 | `services[].portEnv` | string | yes | Env var containing the service port (read from each worktree's `.env.local`) |
 | `services[].portStart` | number | no | Base port for slot 0. When set, wmdev auto-allocates ports for new worktrees |

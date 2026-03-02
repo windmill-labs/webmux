@@ -1,3 +1,5 @@
+name: Webmux
+
 services:
   - name: BE
     portEnv: BACKEND_PORT

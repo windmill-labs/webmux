@@ -49,9 +49,9 @@ panes:
       Create one at a time — run the command, wait for completion, then create the next.\n\n
       IMPORTANT: Read docs/autonomous-mode.md before starting any work."
     focus: true
-  - command: 'ROOT="$(git rev-parse --show-toplevel)"; [ -f "$ROOT/.env.local" ] && source "$ROOT/.env.local"; cd "$ROOT/backend" && bun install && BACKEND_PORT=$BACKEND_PORT bun run dev'
+  - command: 'ROOT="$(git rev-parse --show-toplevel)"; cd "$ROOT/backend" && bun install && { until [ -f "$ROOT/.env.local" ]; do sleep 0.2; done; source "$ROOT/.env.local"; BACKEND_PORT=$BACKEND_PORT bun run dev; }'
     split: horizontal
-  - command: 'ROOT="$(git rev-parse --show-toplevel)"; [ -f "$ROOT/.env.local" ] && source "$ROOT/.env.local"; cd "$ROOT/frontend" && bun install && BACKEND_PORT=$BACKEND_PORT PORT=$FRONTEND_PORT bun run dev'
+  - command: 'ROOT="$(git rev-parse --show-toplevel)"; cd "$ROOT/frontend" && bun install && { until [ -f "$ROOT/.env.local" ]; do sleep 0.2; done; source "$ROOT/.env.local"; BACKEND_PORT=$BACKEND_PORT PORT=$FRONTEND_PORT bun run dev; }'
     split: horizontal
 
 sandbox:

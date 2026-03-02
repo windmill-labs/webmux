@@ -1,4 +1,5 @@
 import { $ } from "bun";
+import { mkdir } from "node:fs/promises";
 import { readEnvLocal, writeEnvLocal, readAllWorktreeEnvs, allocatePorts } from "./env";
 import { expandTemplate, type ProfileConfig, type SandboxProfileConfig, type ServiceConfig } from "./config";
 import { launchContainer, removeContainer } from "./docker";
@@ -310,6 +311,29 @@ export async function addWorktree(
     const existingEnvs = await readAllWorktreeEnvs(allPaths, wtDir);
     const portAssignments = opts?.services ? allocatePorts(existingEnvs, opts.services) : {};
     await writeEnvLocal(wtDir, { ...portAssignments, PROFILE: profile, AGENT: agent });
+
+    // Inject Claude hook settings so notifications fire in managed worktrees.
+    // Bake the backend port into the command so hooks always reach the right backend,
+    // even when multiple projects run separate backends on different ports.
+    const rpcPort = Bun.env.DASHBOARD_PORT || "5111";
+    const hooksConfig = {
+      hooks: {
+        Stop: [{ hooks: [{ type: "command", command: `WORKMUX_RPC_PORT=${rpcPort} ~/.config/workmux/hooks/notify-stop.sh`, async: true }] }],
+        PostToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: `WORKMUX_RPC_PORT=${rpcPort} ~/.config/workmux/hooks/notify-pr.sh`, async: true }] }],
+      },
+    };
+    await mkdir(`${wtDir}/.claude`, { recursive: true });
+    const settingsPath = `${wtDir}/.claude/settings.local.json`;
+    let existing: Record<string, unknown> = {};
+    try {
+      const file = Bun.file(settingsPath);
+      if (await file.exists()) {
+        existing = (await file.json()) as Record<string, unknown>;
+      }
+    } catch { /* corrupted file — overwrite */ }
+    const existingHooks = (existing.hooks as Record<string, unknown>) ?? {};
+    const merged = { ...existing, hooks: { ...existingHooks, ...hooksConfig.hooks } };
+    await Bun.write(settingsPath, JSON.stringify(merged, null, 2) + "\n");
   }
 
   const env = wtDir ? await readEnvLocal(wtDir) : {};

@@ -1,4 +1,4 @@
-import type { WorktreeInfo, AppConfig } from "./types";
+import type { WorktreeInfo, AppConfig, AppNotification } from "./types";
 
 async function api<T = unknown>(path: string, opts?: RequestInit): Promise<T> {
   const res = await fetch(`/api/${path}`, {
@@ -73,4 +73,39 @@ export async function sendWorktreePrompt(branch: string, text: string, preamble?
     method: "POST",
     body: JSON.stringify({ text, ...(preamble ? { preamble } : {}) }),
   });
+}
+
+export function subscribeNotifications(
+  onNotification: (n: AppNotification) => void,
+  onDismiss: (id: number) => void,
+  onInitial?: (n: AppNotification) => void,
+): () => void {
+  const es = new EventSource("/api/notifications/stream");
+
+  es.addEventListener("initial", (e: MessageEvent) => {
+    try {
+      const n = JSON.parse(e.data as string) as AppNotification;
+      onInitial?.(n);
+    } catch { /* ignore malformed SSE data */ }
+  });
+
+  es.addEventListener("notification", (e: MessageEvent) => {
+    try {
+      const n = JSON.parse(e.data as string) as AppNotification;
+      onNotification(n);
+    } catch { /* ignore malformed SSE data */ }
+  });
+
+  es.addEventListener("dismiss", (e: MessageEvent) => {
+    try {
+      const { id } = JSON.parse(e.data as string) as { id: number };
+      onDismiss(id);
+    } catch { /* ignore malformed SSE data */ }
+  });
+
+  return () => es.close();
+}
+
+export async function dismissNotification(id: number): Promise<void> {
+  await api(`notifications/${id}/dismiss`, { method: "POST" });
 }

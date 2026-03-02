@@ -7,12 +7,14 @@
     worktrees,
     selected,
     removing,
+    notifiedBranches,
     onselect,
     onremove,
   }: {
     worktrees: WorktreeInfo[];
     selected: string | null;
     removing: Set<string>;
+    notifiedBranches: Set<string>;
     onselect: (branch: string) => void;
     onremove: (branch: string) => void;
   } = $props();
@@ -38,6 +40,9 @@
           <div class="flex items-center gap-2 max-w-[90%] min-w-0">
             <span class="font-medium truncate">{wt.branch}</span>
             <span class="shrink-0"><AgentStatusIcon status={wt.agent} size={14} /></span>
+            {#if notifiedBranches.has(wt.branch)}
+              <span class="shrink-0 w-2 h-2 rounded-full bg-accent"></span>
+            {/if}
           </div>
           {#each wt.prs as pr (pr.repo)}
             <PrBadge {pr} />

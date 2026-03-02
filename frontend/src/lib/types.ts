@@ -10,6 +10,15 @@ export interface PrComment {
   createdAt: string;
 }
 
+export interface PrReviewComment {
+  author: string;
+  body: string;
+  createdAt: string;
+  path: string;
+  line: number | null;
+  isReply: boolean;
+}
+
 export interface CiCheck {
   name: string;
   status: string;
@@ -25,6 +34,7 @@ export interface PrEntry {
   ciStatus: string;
   ciChecks: CiCheck[];
   comments: PrComment[];
+  reviewComments: PrReviewComment[];
 }
 
 export interface LinearIssueLabel {

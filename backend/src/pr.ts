@@ -36,6 +36,16 @@ interface GhComment {
   createdAt: string;
 }
 
+interface GhReviewComment {
+  body: string;
+  path: string;
+  line: number | null;
+  diff_hunk: string;
+  user: { login: string };
+  created_at: string;
+  in_reply_to_id?: number;
+}
+
 interface GhCheckEntry {
   conclusion: GhCheckConclusion | null;
   status: GhCheckStatus;
@@ -54,6 +64,15 @@ interface GhPrEntry {
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
+export interface PrReviewComment {
+  author: string;
+  body: string;
+  createdAt: string;
+  path: string;
+  line: number | null;
+  isReply: boolean;
+}
+
 export interface CiCheck {
   name: string;
   status: "pending" | "success" | "failed" | "skipped";
@@ -69,6 +88,7 @@ export interface PrEntry {
   ciStatus: "none" | "pending" | "success" | "failed";
   ciChecks: CiCheck[];
   comments: PrComment[];
+  reviewComments: PrReviewComment[];
 }
 
 type FetchPrsResult =
@@ -119,6 +139,22 @@ export function mapChecks(checks: GhCheckEntry[] | null): CiCheck[] {
   }));
 }
 
+/** Parse raw `gh api` review comments JSON into typed array. Keeps most recent 50. */
+export function parseReviewComments(json: string): PrReviewComment[] {
+  const raw = JSON.parse(json) as GhReviewComment[];
+  const sorted = raw.sort(
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+  );
+  return sorted.slice(0, PR_FETCH_LIMIT).map((c) => ({
+    author: c.user?.login ?? "unknown",
+    body: c.body ?? "",
+    createdAt: c.created_at ?? "",
+    path: c.path ?? "",
+    line: c.line ?? null,
+    isReply: c.in_reply_to_id !== undefined,
+  }));
+}
+
 /** Parse raw `gh pr list --json` output into a branch → PrEntry map. Throws on invalid JSON. */
 export function parsePrResponse(
   json: string,
@@ -141,6 +177,7 @@ export function parsePrResponse(
         body: c.body ?? "",
         createdAt: c.createdAt ?? "",
       })),
+      reviewComments: [],
     });
   }
   return prs;
@@ -201,6 +238,63 @@ export async function fetchAllPrs(
     return { ok: true, data: parsePrResponse(json, repoLabel) };
   } catch (err) {
     return { ok: false, error: `failed to parse gh output for ${label}: ${err}` };
+  }
+}
+
+/** Run async mapper over items with bounded concurrency. */
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+
+  async function worker(): Promise<void> {
+    while (next < items.length) {
+      const idx = next++;
+      results[idx] = await fn(items[idx]);
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker()));
+  return results;
+}
+
+/** Fetch inline review comments for a single PR via `gh api`. Returns [] on error. */
+async function fetchReviewComments(
+  prNumber: number,
+  repoSlug?: string,
+  cwd?: string,
+): Promise<PrReviewComment[]> {
+  const repoFlag = repoSlug
+    ? repoSlug
+    : "{owner}/{repo}";
+  const args = [
+    "gh", "api",
+    `repos/${repoFlag}/pulls/${prNumber}/comments`,
+    "--paginate",
+  ];
+
+  const proc = Bun.spawn(args, {
+    stdout: "pipe",
+    stderr: "pipe",
+    ...(cwd ? { cwd } : {}),
+  });
+
+  const timeout = Bun.sleep(GH_TIMEOUT_MS).then(() => {
+    proc.kill();
+    return "timeout" as const;
+  });
+
+  const raceResult = await Promise.race([proc.exited, timeout]);
+  if (raceResult === "timeout" || raceResult !== 0) return [];
+
+  try {
+    const json = await new Response(proc.stdout).text();
+    return parseReviewComments(json);
+  } catch {
+    return [];
   }
 }
 
@@ -276,6 +370,27 @@ export async function syncPrStatus(
       const existing = branchPrs.get(branch) ?? [];
       existing.push(entry);
       branchPrs.set(branch, existing);
+    }
+  }
+
+  // Fetch inline review comments for all open PRs (concurrency-limited).
+  const reviewTuples: { entry: PrEntry; repoSlug: string | undefined }[] = [];
+  for (const entries of branchPrs.values()) {
+    for (const entry of entries) {
+      if (entry.state === "open") {
+        const repoSlug = entry.repo
+          ? linkedRepos.find((lr) => lr.alias === entry.repo)?.repo
+          : undefined;
+        reviewTuples.push({ entry, repoSlug });
+      }
+    }
+  }
+  if (reviewTuples.length > 0) {
+    const reviewResults = await mapWithConcurrency(reviewTuples, 5, (t) =>
+      fetchReviewComments(t.entry.number, t.repoSlug, projectDir),
+    );
+    for (let i = 0; i < reviewTuples.length; i++) {
+      reviewTuples[i].entry.reviewComments = reviewResults[i];
     }
   }
 

@@ -496,16 +496,28 @@ export async function openWorktree(name: string): Promise<{ ok: true; output: st
   return { ok: true, output: result.stdout };
 }
 
-/** Check if a worktree directory has uncommitted changes. */
+/** Check if a worktree has uncommitted changes or unpushed commits. */
 export async function checkDirty(dir: string): Promise<boolean> {
-  const proc = Bun.spawn(["git", "status", "--porcelain"], {
-    cwd: dir,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const output = await new Response(proc.stdout).text();
-  await proc.exited;
-  return output.trim().length > 0;
+  const [status, ahead] = await Promise.all([
+    (async () => {
+      const proc = Bun.spawn(["git", "status", "--porcelain"], {
+        cwd: dir, stdout: "pipe", stderr: "pipe",
+      });
+      const output = await new Response(proc.stdout).text();
+      await proc.exited;
+      return output.trim().length > 0;
+    })(),
+    (async () => {
+      const proc = Bun.spawn(["git", "rev-list", "--count", "@{u}..HEAD"], {
+        cwd: dir, stdout: "pipe", stderr: "pipe",
+      });
+      const output = await new Response(proc.stdout).text();
+      const exitCode = await proc.exited;
+      if (exitCode !== 0) return false;
+      return (parseInt(output.trim(), 10) || 0) > 0;
+    })(),
+  ]);
+  return status || ahead;
 }
 
 export async function mergeWorktree(name: string): Promise<{ ok: true; output: string } | { ok: false; error: string }> {

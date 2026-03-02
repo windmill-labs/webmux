@@ -38,10 +38,11 @@
   const AUTO_DISMISS_MS = 4000;
   const MAX_HISTORY = 10;
 
-  let notifiedBranches = $derived(new Set(notifications.map((n) => n.branch)));
+  let notifiedBranches = $state<Set<string>>(new Set());
 
   function handleNotification(n: AppNotification): void {
     notifications = [...notifications, n];
+    notifiedBranches = new Set([...notifiedBranches, n.branch]);
     notificationHistory = [n, ...notificationHistory].slice(0, MAX_HISTORY);
     unreadCount++;
     // Auto-dismiss after timeout
@@ -313,6 +314,7 @@
         {notifiedBranches}
         onselect={(b) => {
           selectedBranch = b;
+          notifiedBranches = new Set([...notifiedBranches].filter((x) => x !== b));
           if (isMobile) sidebarOpen = false;
         }}
         onremove={(b) => (removeBranch = b)}
@@ -359,6 +361,7 @@
       onbellopen={handleBellOpen}
       onnotificationselect={(branch) => {
         selectedBranch = branch;
+        notifiedBranches = new Set([...notifiedBranches].filter((x) => x !== branch));
         if (isMobile) sidebarOpen = false;
       }}
     />
@@ -453,6 +456,7 @@
   ondismiss={handleDismissNotification}
   onselect={(branch) => {
     selectedBranch = branch;
+    notifiedBranches = new Set([...notifiedBranches].filter((x) => x !== branch));
     if (isMobile) sidebarOpen = false;
   }}
 />

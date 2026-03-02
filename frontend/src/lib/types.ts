@@ -16,6 +16,7 @@ export interface PrReviewComment {
   createdAt: string;
   path: string;
   line: number | null;
+  diffHunk: string;
   isReply: boolean;
 }
 
@@ -34,7 +35,7 @@ export interface PrEntry {
   ciStatus: string;
   ciChecks: CiCheck[];
   comments: PrComment[];
-  reviewComments: PrReviewComment[];
+  reviewComments?: PrReviewComment[];
 }
 
 export interface LinearIssueLabel {

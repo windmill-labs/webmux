@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
   import type { PrEntry, PrComment, PrReviewComment } from "./types";
   import { sendWorktreePrompt } from "./api";
@@ -38,8 +39,11 @@
   const selected = new SvelteSet<number>();
 
   $effect(() => {
-    selected.clear();
-    for (let i = 0; i < items.length; i++) selected.add(i);
+    const len = items.length;
+    untrack(() => {
+      selected.clear();
+      for (let i = 0; i < len; i++) selected.add(i);
+    });
   });
 
   let label = $derived(prLabel(pr));
@@ -66,7 +70,8 @@
     if (item.kind === "review") {
       const r = item.data;
       const loc = r.line ? `${r.path}:${r.line}` : r.path;
-      return `[${idx}] @${r.author} (${r.createdAt.slice(0, 10)}) on ${loc}:\n${r.body}`;
+      const hunk = r.diffHunk ? `\n\`\`\`diff\n${r.diffHunk}\n\`\`\`\n` : "\n";
+      return `[${idx}] @${r.author} (${r.createdAt.slice(0, 10)}) on ${loc}:${hunk}${r.body}`;
     }
     const c = item.data;
     return `[${idx}] @${c.author} (${c.createdAt.slice(0, 10)}):\n${c.body}`;

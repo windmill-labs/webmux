@@ -70,6 +70,7 @@ export interface PrReviewComment {
   createdAt: string;
   path: string;
   line: number | null;
+  diffHunk: string;
   isReply: boolean;
 }
 
@@ -151,6 +152,7 @@ export function parseReviewComments(json: string): PrReviewComment[] {
     createdAt: c.created_at ?? "",
     path: c.path ?? "",
     line: c.line ?? null,
+    diffHunk: c.diff_hunk ?? "",
     isReply: c.in_reply_to_id !== undefined,
   }));
 }
@@ -242,7 +244,7 @@ export async function fetchAllPrs(
 }
 
 /** Run async mapper over items with bounded concurrency. */
-async function mapWithConcurrency<T, R>(
+export async function mapWithConcurrency<T, R>(
   items: T[],
   limit: number,
   fn: (item: T) => Promise<R>,

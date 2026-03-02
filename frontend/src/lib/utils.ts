@@ -9,3 +9,7 @@ export function prLabel(pr: Pick<PrEntry, "repo" | "number">): string {
 export function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
+
+export function searchMatch(needle: string, haystack: string): boolean {
+  return haystack.toLowerCase().includes(needle.toLowerCase());
+}

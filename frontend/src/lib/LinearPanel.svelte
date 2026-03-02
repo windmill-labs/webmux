@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { LinearIssue } from "./types";
+  import { fuzzyMatch } from "./utils";
   import Btn from "./Btn.svelte";
 
   let {
@@ -13,6 +14,17 @@
   } = $props();
 
   let collapsed = $state(true);
+  let query = $state("");
+
+  let filtered = $derived(
+    query
+      ? issues.filter(
+          (i) =>
+            fuzzyMatch(query, i.title) ||
+            (i.description ? fuzzyMatch(query, i.description) : false),
+        )
+      : issues,
+  );
 </script>
 
 <div class="border-t border-edge">
@@ -21,13 +33,21 @@
     class="w-full flex items-center justify-between px-4 py-2 text-xs text-muted cursor-pointer bg-transparent border-none hover:bg-hover"
     onclick={() => (collapsed = !collapsed)}
   >
-    <span class="font-semibold">Linear ({issues.length})</span>
+    <span class="font-semibold">Linear ({filtered.length !== issues.length ? `${filtered.length}/` : ""}{issues.length})</span>
     <span class="text-[10px]">{collapsed ? "▸" : "▾"}</span>
   </button>
 
   {#if !collapsed}
+    <div class="px-2 pb-1">
+      <input
+        type="text"
+        placeholder="Search issues…"
+        class="w-full px-2 py-1 text-xs rounded border border-edge bg-surface text-primary placeholder:text-muted outline-none focus:border-accent"
+        bind:value={query}
+      />
+    </div>
     <ul class="list-none overflow-y-auto max-h-64 px-2 pb-2">
-      {#each issues as issue (issue.id)}
+      {#each filtered as issue (issue.id)}
         <li class="mb-1 p-2 rounded-md border border-transparent hover:bg-hover text-[12px]">
           <div class="flex items-center gap-1.5 mb-0.5">
             <span
@@ -53,7 +73,7 @@
             <span class="text-[10px] text-muted truncate">
               {issue.team.key}{#if issue.project} · {issue.project}{/if}
             </span>
-            <Btn small variant="accent-outline" onclick={() => onassign(issue)}>Assign</Btn>
+            <Btn small variant="accent-outline" onclick={() => onassign(issue)}>Implement</Btn>
           </div>
         </li>
       {/each}

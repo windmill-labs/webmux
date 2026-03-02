@@ -424,7 +424,7 @@
       ...(config.profiles.sandbox ? [config.profiles.sandbox] : []),
     ]}
     initialBranch={assignIssue?.branchName ?? ""}
-    initialPrompt={assignIssue?.title ?? ""}
+    initialPrompt={assignIssue ? `${assignIssue.title}${assignIssue.description ? '\n\n' + assignIssue.description : ''}` : ""}
     oncreate={handleCreate}
     oncancel={() => { showCreateDialog = false; assignIssue = null; }}
   />

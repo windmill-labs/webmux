@@ -61,6 +61,6 @@
 
   <div class="flex justify-end gap-2">
     <Btn onclick={onclose}>Close</Btn>
-    <Btn variant="accent-outline" onclick={() => onassign(issue)}>Assign</Btn>
+    <Btn variant="accent-outline" onclick={() => onassign(issue)}>Implement</Btn>
   </div>
 </BaseDialog>

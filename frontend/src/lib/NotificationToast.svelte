@@ -22,7 +22,7 @@
           class="flex-1 flex items-center gap-2 text-left bg-transparent border-none text-inherit cursor-pointer p-0"
           onclick={() => { ondismiss(n.id); onselect(n.branch); }}
         >
-          <NotificationItem notification={n} />
+          <NotificationItem notification={n} large />
         </button>
         <button
           type="button"

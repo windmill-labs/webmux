@@ -57,6 +57,7 @@
   }
 
   function handleInitialNotification(n: AppNotification): void {
+    if (notificationHistory.some((x) => x.id === n.id)) return;
     notificationHistory = [n, ...notificationHistory].slice(0, MAX_HISTORY);
   }
 

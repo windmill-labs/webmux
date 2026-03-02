@@ -331,7 +331,8 @@ export async function addWorktree(
         existing = (await file.json()) as Record<string, unknown>;
       }
     } catch { /* corrupted file — overwrite */ }
-    const merged = { ...existing, ...hooksConfig };
+    const existingHooks = (existing.hooks as Record<string, unknown>) ?? {};
+    const merged = { ...existing, hooks: { ...existingHooks, ...hooksConfig.hooks } };
     await Bun.write(settingsPath, JSON.stringify(merged, null, 2) + "\n");
   }
 

@@ -40,7 +40,7 @@ panes:
       - Pane 1: backend (bun run dev)\n
       - Pane 2: frontend (bun run dev)\n\n
       To check logs: tmux capture-pane -t .1 -p -S -50 (backend), tmux capture-pane -t .2 -p -S -50 (frontend).\n
-      The backend runs on the main worktree at port 5111.\n
+      The backend on the main worktree runs on the default port (5111).\n
       Ports are in .env.local: BACKEND_PORT (backend), FRONTEND_PORT (frontend).\n\n
       To create a worktree for a parallel subtask:\n
       workmux add -b -p PROMPT BRANCH\n
@@ -48,9 +48,9 @@ panes:
       Create one at a time — run the command, wait for completion, then create the next.\n\n
       IMPORTANT: Read docs/autonomous-mode.md before starting any work."
     focus: true
-  - command: 'ROOT="$(git rev-parse --show-toplevel)"; [ -f "$ROOT/.env.local" ] && source "$ROOT/.env.local"; cd "$ROOT/backend" && bun install && BACKEND_PORT=$BACKEND_PORT bun run dev'
+  - command: 'ROOT="$(git rev-parse --show-toplevel)"; [ -f "$ROOT/.env.local" ] && source "$ROOT/.env.local"; cd "$ROOT/backend" && bun install && bun run dev'
     split: horizontal
-  - command: 'ROOT="$(git rev-parse --show-toplevel)"; [ -f "$ROOT/.env.local" ] && source "$ROOT/.env.local"; cd "$ROOT/frontend" && bun install && BACKEND_PORT=$BACKEND_PORT PORT=$FRONTEND_PORT bun run dev'
+  - command: 'ROOT="$(git rev-parse --show-toplevel)"; [ -f "$ROOT/.env.local" ] && source "$ROOT/.env.local"; cd "$ROOT/frontend" && bun install && bun run dev'
     split: horizontal
 
 sandbox:

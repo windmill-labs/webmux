@@ -11,6 +11,7 @@ import {
   sendPrompt,
   readEnvLocal,
   parseWorktreePorcelain,
+  checkDirty,
 } from "./workmux";
 import {
   attach,
@@ -225,6 +226,7 @@ async function apiGetWorktrees(req: Request): Promise<Response> {
     );
     const wtDir = wtPaths.get(wt.branch);
     const env = wtDir ? await readEnvLocal(wtDir) : {};
+    const dirty = wtDir ? await checkDirty(wtDir) : false;
     const services = await Promise.all(
       config.services.map(async (svc) => {
         const port = env[svc.portEnv] ? parseInt(env[svc.portEnv], 10) : null;
@@ -237,6 +239,7 @@ async function apiGetWorktrees(req: Request): Promise<Response> {
     return {
       ...wt,
       dir: wtDir ?? null,
+      dirty,
       status: st?.status ?? "",
       elapsed: st?.elapsed ?? "",
       title: st?.title ?? "",

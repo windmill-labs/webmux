@@ -496,6 +496,18 @@ export async function openWorktree(name: string): Promise<{ ok: true; output: st
   return { ok: true, output: result.stdout };
 }
 
+/** Check if a worktree directory has uncommitted changes. */
+export async function checkDirty(dir: string): Promise<boolean> {
+  const proc = Bun.spawn(["git", "status", "--porcelain"], {
+    cwd: dir,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const output = await new Response(proc.stdout).text();
+  await proc.exited;
+  return output.trim().length > 0;
+}
+
 export async function mergeWorktree(name: string): Promise<{ ok: true; output: string } | { ok: false; error: string }> {
   log.debug(`[workmux:merge] running: workmux merge ${name}`);
   await removeContainer(name);

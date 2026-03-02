@@ -23,8 +23,6 @@
   let selectedBranch = $state<string | null>(null);
   let removeBranch = $state<string | null>(null);
   let mergeBranch = $state<string | null>(null);
-  let merging = $state(false);
-  let mergeError = $state("");
   let removingBranches = $state<Set<string>>(new Set());
   let showCreateDialog = $state(false);
   let showSettingsDialog = $state(false);
@@ -175,18 +173,19 @@
   async function handleMerge() {
     const branch = mergeBranch;
     if (!branch) return;
+    mergeBranch = null;
+    selectNeighborOf(branch);
 
-    merging = true;
-    mergeError = "";
+    removingBranches = new Set([...removingBranches, branch]);
     try {
       await api.mergeWorktree(branch);
-      mergeBranch = null;
-      selectNeighborOf(branch);
       await refresh();
     } catch (err) {
-      mergeError = errorMessage(err);
+      alert(`Failed to merge: ${errorMessage(err)}`);
     } finally {
-      merging = false;
+      removingBranches = new Set(
+        [...removingBranches].filter((b) => b !== branch),
+      );
     }
   }
 
@@ -410,13 +409,8 @@
     message={`Merge worktree "${mergeBranch}" into main? The worktree will be removed after merging.`}
     confirmLabel="Merge"
     variant="accent"
-    loading={merging}
-    error={mergeError}
     onconfirm={handleMerge}
-    oncancel={() => {
-      mergeBranch = null;
-      mergeError = "";
-    }}
+    oncancel={() => (mergeBranch = null)}
   />
 {/if}
 

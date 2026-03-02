@@ -37,7 +37,7 @@
   let notifications = $state<AppNotification[]>([]);
   let notificationHistory = $state<AppNotification[]>([]);
   let unreadCount = $state(0);
-  const AUTO_DISMISS_MS = 8000;
+  const AUTO_DISMISS_MS = 4000;
   const MAX_HISTORY = 10;
 
   let notifiedBranches = $derived(new Set(notifications.map((n) => n.branch)));

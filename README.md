@@ -114,7 +114,7 @@ linkedRepos: []
 ```yaml
 services:
   - name: BE
-    portEnv: DASHBOARD_PORT
+    portEnv: BACKEND_PORT
     portStart: 5111
     portStep: 10
   - name: FE
@@ -138,7 +138,7 @@ profiles:
         writable: true
     systemPrompt: >
       You are running inside a sandboxed container.
-      Backend port: ${DASHBOARD_PORT}. Frontend port: ${FRONTEND_PORT}.
+      Backend port: ${BACKEND_PORT}. Frontend port: ${FRONTEND_PORT}.
 
 linkedRepos:
   - repo: myorg/related-service
@@ -224,7 +224,7 @@ For sandbox profiles, wmdev manages Docker containers directly:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DASHBOARD_PORT` | `5111` | Backend API port (also configurable via `--port`) |
+| `BACKEND_PORT` | `5111` | Backend API port (also configurable via `--port`) |
 
 ## Keyboard shortcuts
 

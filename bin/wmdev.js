@@ -19,14 +19,14 @@ Usage:
   wmdev --help       Show this help message
 
 Environment:
-  DASHBOARD_PORT     Same as --port (flag takes precedence)
+  BACKEND_PORT     Same as --port (flag takes precedence)
 `);
 }
 
 // ── Parse args ───────────────────────────────────────────────────────────────
 
 const args = process.argv.slice(2);
-let port = parseInt(process.env.DASHBOARD_PORT || "5111");
+let port = parseInt(process.env.BACKEND_PORT || "5111");
 let debug = false;
 
 for (let i = 0; i < args.length; i++) {
@@ -75,7 +75,7 @@ await loadEnvFile(resolve(process.cwd(), ".env"));
 
 // ── Shared env for child processes ───────────────────────────────────────────
 
-const baseEnv = { ...process.env, DASHBOARD_PORT: String(port), WMDEV_PROJECT_DIR: process.cwd(), ...(debug ? { WMDEV_DEBUG: "1" } : {}) };
+const baseEnv = { ...process.env, BACKEND_PORT: String(port), WMDEV_PROJECT_DIR: process.cwd(), ...(debug ? { WMDEV_DEBUG: "1" } : {}) };
 
 // ── Prefixed output ──────────────────────────────────────────────────────────
 

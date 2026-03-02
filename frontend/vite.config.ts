@@ -2,7 +2,7 @@ import { defineConfig } from "vite";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
 import tailwindcss from "@tailwindcss/vite";
 
-const backendPort = process.env.DASHBOARD_PORT || "5111";
+const backendPort = process.env.BACKEND_PORT || "5111";
 const backendUrl = `http://localhost:${backendPort}`;
 const backendWs = `ws://localhost:${backendPort}`;
 const port = parseInt(process.env.PORT || "5112");

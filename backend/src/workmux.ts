@@ -315,7 +315,7 @@ export async function addWorktree(
     // Inject Claude hook settings so notifications fire in managed worktrees.
     // Bake the backend port into the command so hooks always reach the right backend,
     // even when multiple projects run separate backends on different ports.
-    const rpcPort = Bun.env.DASHBOARD_PORT || "5111";
+    const rpcPort = Bun.env.BACKEND_PORT || "5111";
     const hooksConfig = {
       hooks: {
         Stop: [{ hooks: [{ type: "command", command: `WORKMUX_RPC_PORT=${rpcPort} ~/.config/workmux/hooks/notify-stop.sh`, async: true }] }],

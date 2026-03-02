@@ -1,6 +1,6 @@
 services:
   - name: BE
-    portEnv: DASHBOARD_PORT
+    portEnv: BACKEND_PORT
     portStart: 5111
     portStep: 10
   - name: FE
@@ -24,13 +24,14 @@ profiles:
     systemPrompt: >
       You are running inside a sandboxed container with full permissions.
       IMPORTANT: Read docs/autonomous-mode.md before starting any work.
+      Source .env.local first to load port assignments: source .env.local
       This worktree is configured with the following ports:
 
-      - Backend: port ${DASHBOARD_PORT}.
-        Start with: cd backend && DASHBOARD_PORT=${DASHBOARD_PORT} bun run dev
+      - Backend: port ${BACKEND_PORT}.
+        Start with: source .env.local && cd backend && bun run dev
 
       - Frontend: port ${FRONTEND_PORT}.
-        Start with: cd frontend && DASHBOARD_PORT=${DASHBOARD_PORT} bun run dev
+        Start with: source .env.local && cd frontend && bun run dev
 
       --- Screenshots ---
       You can take screenshots of the frontend UI and upload them to R2

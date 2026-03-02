@@ -37,17 +37,20 @@ panes:
       "You are running inside a git worktree managed by workmux.\n
       Pane layout (current window):\n
       - Pane 0: this pane (claude agent)\n
-      - Pane 1: frontend (bun run dev)\n\n
-      To check logs: tmux capture-pane -t .1 -p -S -50 (frontend).\n
+      - Pane 1: backend (bun run dev)\n
+      - Pane 2: frontend (bun run dev)\n\n
+      To check logs: tmux capture-pane -t .1 -p -S -50 (backend), tmux capture-pane -t .2 -p -S -50 (frontend).\n
       The backend runs on the main worktree at port 5111.\n
-      Ports are in .env.local: FRONTEND_PORT (frontend).\n\n
+      Ports are in .env.local: BACKEND_PORT (backend), FRONTEND_PORT (frontend).\n\n
       To create a worktree for a parallel subtask:\n
       workmux add -b -p PROMPT BRANCH\n
       Supply an explicit BRANCH name (kebab-case, 1-3 words, describe the change).\n
       Create one at a time — run the command, wait for completion, then create the next.\n\n
       IMPORTANT: Read docs/autonomous-mode.md before starting any work."
     focus: true
-  - command: 'ROOT="$(git rev-parse --show-toplevel)"; [ -f "$ROOT/.env.local" ] && source "$ROOT/.env.local"; cd "$ROOT/frontend" && bun install && DASHBOARD_PORT=5111 PORT=$FRONTEND_PORT bun run dev'
+  - command: 'ROOT="$(git rev-parse --show-toplevel)"; [ -f "$ROOT/.env.local" ] && source "$ROOT/.env.local"; cd "$ROOT/backend" && bun install && BACKEND_PORT=$BACKEND_PORT bun run dev'
+    split: horizontal
+  - command: 'ROOT="$(git rev-parse --show-toplevel)"; [ -f "$ROOT/.env.local" ] && source "$ROOT/.env.local"; cd "$ROOT/frontend" && bun install && BACKEND_PORT=$BACKEND_PORT PORT=$FRONTEND_PORT bun run dev'
     split: horizontal
 
 sandbox:

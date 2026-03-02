@@ -29,7 +29,7 @@ import { handleWorkmuxRpc } from "./rpc";
 import { jsonResponse, errorResponse } from "./http";
 import { handleNotificationStream, handleDismissNotification, installHookScripts } from "./notifications";
 
-const PORT = parseInt(Bun.env.DASHBOARD_PORT || "5111", 10);
+const PORT = parseInt(Bun.env.BACKEND_PORT || "5111", 10);
 const STATIC_DIR = Bun.env.WMDEV_STATIC_DIR || "";
 const PROJECT_DIR = Bun.env.WMDEV_PROJECT_DIR || gitRoot(process.cwd());
 const config: WmdevConfig = loadConfig(PROJECT_DIR);

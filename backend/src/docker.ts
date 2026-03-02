@@ -272,7 +272,7 @@ export async function launchContainer(opts: LaunchContainerOpts): Promise<string
   const name = containerName(branch);
   const home = Bun.env.HOME ?? "/root";
   const rpcSecret = await loadRpcSecret();
-  const rpcPort = Bun.env.DASHBOARD_PORT ?? "5111";
+  const rpcPort = Bun.env.BACKEND_PORT ?? "5111";
 
   // Resolve which credential paths exist on the host before building args.
   // Only forward SSH_AUTH_SOCK if the socket is world-accessible so the

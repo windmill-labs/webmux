@@ -7,7 +7,14 @@ export async function readEnvLocal(wtDir: string): Promise<Record<string, string
     const env: Record<string, string> = {};
     for (const line of text.split("\n")) {
       const match = line.match(/^(\w+)=(.*)$/);
-      if (match) env[match[1]] = match[2];
+      if (match) {
+        let val = match[2];
+        // Strip surrounding single quotes (written by writeEnvLocal for complex values)
+        if (val.length >= 2 && val.startsWith("'") && val.endsWith("'")) {
+          val = val.slice(1, -1);
+        }
+        env[match[1]] = val;
+      }
     }
     return env;
   } catch {
@@ -27,12 +34,15 @@ export async function writeEnvLocal(wtDir: string, entries: Record<string, strin
   }
 
   for (const [key, value] of Object.entries(entries)) {
+    // Single-quote values that contain characters unsafe for bare shell assignment
+    const needsQuoting = /[{}"\s$`\\!#|;&()<>]/.test(value);
+    const safe = needsQuoting ? `'${value}'` : value;
     const pattern = new RegExp(`^${key}=`);
     const idx = lines.findIndex((l) => pattern.test(l));
     if (idx >= 0) {
-      lines[idx] = `${key}=${value}`;
+      lines[idx] = `${key}=${safe}`;
     } else {
-      lines.push(`${key}=${value}`);
+      lines.push(`${key}=${safe}`);
     }
   }
 

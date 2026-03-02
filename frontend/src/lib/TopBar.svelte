@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { WorktreeInfo, AppNotification, PrEntry } from "./types";
   import PrBadge from "./PrBadge.svelte";
+  import LinearBadge from "./LinearBadge.svelte";
   import CiBadge from "./CiBadge.svelte";
   import ReviewsBadge from "./ReviewsBadge.svelte";
   import Btn from "./Btn.svelte";
@@ -97,6 +98,9 @@
     >
     {#if worktree?.dirty}
       <span class="text-[10px] px-1.5 py-0.5 rounded border border-warning/40 text-warning">dirty</span>
+    {/if}
+    {#if worktree?.linearIssue}
+      <LinearBadge issue={worktree.linearIssue} />
     {/if}
     {#each worktree?.prs ?? [] as pr (pr.repo)}
       <PrBadge {pr} clickable />

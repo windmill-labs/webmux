@@ -10,7 +10,9 @@
   import CommentReviewDialog from "./lib/CommentReviewDialog.svelte";
   import PaneBar from "./lib/PaneBar.svelte";
   import NotificationToast from "./lib/NotificationToast.svelte";
-  import type { WorktreeInfo, AppConfig, AppNotification, PrEntry } from "./lib/types";
+  import LinearPanel from "./lib/LinearPanel.svelte";
+  import LinearDetailDialog from "./lib/LinearDetailDialog.svelte";
+  import type { WorktreeInfo, AppConfig, AppNotification, PrEntry, LinearIssue } from "./lib/types";
   import { SSH_STORAGE_KEY, errorMessage } from "./lib/utils";
   import * as api from "./lib/api";
 
@@ -30,6 +32,13 @@
   let commentReviewPr = $state<PrEntry | null>(null);
   let creating = $state(false);
   let sshHost = $state(localStorage.getItem(SSH_STORAGE_KEY) ?? "");
+
+  // Linear integration
+  let linearIssues = $state<LinearIssue[]>([]);
+  let assignIssue = $state<LinearIssue | null>(null);
+  let detailIssue = $state<LinearIssue | null>(null);
+  let linearLastFetch = 0;
+  const LINEAR_THROTTLE_MS = 30_000;
 
   // Notifications
   let notifications = $state<AppNotification[]>([]);
@@ -111,12 +120,27 @@
   });
   let showPaneBar = $derived(isMobile && canConnect && paneBarPanes.length > 0);
 
+  function refreshLinear(): void {
+    const now = Date.now();
+    if (now - linearLastFetch < LINEAR_THROTTLE_MS) return;
+    linearLastFetch = now;
+    api.fetchLinearIssues().then((data) => {
+      linearIssues = data;
+    }).catch((err: unknown) => console.warn("[linear]", err));
+  }
+
   async function refresh() {
     try {
       worktrees = await api.fetchWorktrees();
     } catch (err) {
       console.error("Failed to refresh:", err);
     }
+    refreshLinear();
+  }
+
+  function handleAssignIssue(issue: LinearIssue): void {
+    assignIssue = issue;
+    showCreateDialog = true;
   }
 
   async function handleCreate(
@@ -135,6 +159,7 @@
       );
       await api.openWorktree(result.branch);
       showCreateDialog = false;
+      assignIssue = null;
       await refresh();
       selectedBranch = result.branch;
       if (isMobile) sidebarOpen = false;
@@ -245,6 +270,7 @@
       })
       .catch(() => {});
     refresh();
+    refreshLinear();
     const interval = setInterval(refresh, 5000);
     window.addEventListener("keydown", handleKeydown);
     const unsubNotifications = api.subscribeNotifications(handleNotification, handleSseDismiss, handleInitialNotification);
@@ -319,6 +345,9 @@
         }}
         onremove={(b) => (removeBranch = b)}
       />
+      {#if linearIssues.length > 0}
+        <LinearPanel issues={linearIssues} onassign={handleAssignIssue} onselect={(issue) => (detailIssue = issue)} />
+      {/if}
       {#if !isMobile}
         <div
           class="shrink-0 border-t border-edge px-4 py-3 text-[11px] text-muted flex flex-col gap-1"
@@ -394,8 +423,10 @@
       config.profiles.default,
       ...(config.profiles.sandbox ? [config.profiles.sandbox] : []),
     ]}
+    initialBranch={assignIssue?.branchName ?? ""}
+    initialPrompt={assignIssue?.title ?? ""}
     oncreate={handleCreate}
-    oncancel={() => (showCreateDialog = false)}
+    oncancel={() => { showCreateDialog = false; assignIssue = null; }}
   />
 {/if}
 
@@ -448,6 +479,14 @@
       commentReviewPr = null;
       setTimeout(() => terminalRef?.sendInput("\r"), ENTER_DELAY_MS);
     }}
+  />
+{/if}
+
+{#if detailIssue}
+  <LinearDetailDialog
+    issue={detailIssue}
+    onassign={(issue) => { detailIssue = null; handleAssignIssue(issue); }}
+    onclose={() => (detailIssue = null)}
   />
 {/if}
 

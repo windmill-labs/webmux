@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { WorktreeInfo } from "./types";
   import PrBadge from "./PrBadge.svelte";
+  import LinearBadge from "./LinearBadge.svelte";
   import AgentStatusIcon from "./AgentStatusIcon.svelte";
 
   let {
@@ -47,6 +48,9 @@
           {#each wt.prs as pr (pr.repo)}
             <PrBadge {pr} />
           {/each}
+          {#if wt.linearIssue}
+            <LinearBadge issue={wt.linearIssue} />
+          {/if}
         </span>
         <span class="flex gap-2 text-[11px] text-muted items-center flex-wrap">
           {#if wt.agentName}

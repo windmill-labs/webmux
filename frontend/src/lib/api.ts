@@ -1,4 +1,4 @@
-import type { WorktreeInfo, AppConfig, AppNotification } from "./types";
+import type { WorktreeInfo, AppConfig, AppNotification, LinearIssue } from "./types";
 
 async function api<T = unknown>(path: string, opts?: RequestInit): Promise<T> {
   const res = await fetch(`/api/${path}`, {
@@ -61,6 +61,10 @@ export function openWorktree(name: string): Promise<unknown> {
 
 export function mergeWorktree(name: string): Promise<unknown> {
   return api(`worktrees/${encodeURIComponent(name)}/merge`, { method: "POST" });
+}
+
+export function fetchLinearIssues(): Promise<LinearIssue[]> {
+  return api<LinearIssue[]>("linear/issues");
 }
 
 export async function fetchCiLogs(runId: number): Promise<string> {

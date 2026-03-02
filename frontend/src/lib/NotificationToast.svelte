@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { AppNotification } from "./types";
+  import NotificationItem from "./NotificationItem.svelte";
 
   let {
     notifications,
@@ -21,19 +22,7 @@
           class="flex-1 flex items-center gap-2 text-left bg-transparent border-none text-inherit cursor-pointer p-0"
           onclick={() => { ondismiss(n.id); onselect(n.branch); }}
         >
-          <span class="shrink-0 text-base">
-            {#if n.type === "agent_stopped"}
-              <span class="text-success">&#10003;</span>
-            {:else}
-              <span class="text-accent">&#9741;</span>
-            {/if}
-          </span>
-          <span class="flex flex-col gap-0.5 min-w-0">
-            <span class="text-sm text-primary truncate">{n.message}</span>
-            {#if n.url}
-              <span class="text-xs text-accent truncate">{n.url}</span>
-            {/if}
-          </span>
+          <NotificationItem notification={n} />
         </button>
         <button
           type="button"

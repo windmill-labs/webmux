@@ -4,6 +4,7 @@
   import CiBadge from "./CiBadge.svelte";
   import ReviewsBadge from "./ReviewsBadge.svelte";
   import Btn from "./Btn.svelte";
+  import NotificationItem from "./NotificationItem.svelte";
 
   let {
     name,
@@ -197,17 +198,7 @@
                       bellOpen = false;
                     }}
                   >
-                    <span class="shrink-0 text-sm">
-                      {#if n.type === "agent_stopped"}
-                        <span class="text-success">&#10003;</span>
-                      {:else}
-                        <span class="text-accent">&#9741;</span>
-                      {/if}
-                    </span>
-                    <span class="flex flex-col gap-0.5 min-w-0">
-                      <span class="text-xs text-primary truncate">{n.message}</span>
-                      <span class="text-[10px] text-muted">{new Date(n.timestamp).toLocaleTimeString()}</span>
-                    </span>
+                    <NotificationItem notification={n} showTimestamp />
                   </button>
                 </li>
               {/each}

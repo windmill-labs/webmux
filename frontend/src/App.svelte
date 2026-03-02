@@ -56,6 +56,10 @@
     }
   }
 
+  function handleInitialNotification(n: AppNotification): void {
+    notificationHistory = [n, ...notificationHistory].slice(0, MAX_HISTORY);
+  }
+
   function handleDismissNotification(id: number): void {
     notifications = notifications.filter((n) => n.id !== id);
     api.dismissNotification(id).catch(() => {});
@@ -242,7 +246,7 @@
     refresh();
     const interval = setInterval(refresh, 5000);
     window.addEventListener("keydown", handleKeydown);
-    const unsubNotifications = api.subscribeNotifications(handleNotification, handleSseDismiss);
+    const unsubNotifications = api.subscribeNotifications(handleNotification, handleSseDismiss, handleInitialNotification);
     // Request notification permission (no-op if already granted/denied)
     if (Notification.permission === "default") {
       Notification.requestPermission().catch(() => {});

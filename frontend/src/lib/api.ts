@@ -78,17 +78,29 @@ export async function sendWorktreePrompt(branch: string, text: string, preamble?
 export function subscribeNotifications(
   onNotification: (n: AppNotification) => void,
   onDismiss: (id: number) => void,
+  onInitial?: (n: AppNotification) => void,
 ): () => void {
   const es = new EventSource("/api/notifications/stream");
 
+  es.addEventListener("initial", (e: MessageEvent) => {
+    try {
+      const n = JSON.parse(e.data as string) as AppNotification;
+      onInitial?.(n);
+    } catch { /* ignore malformed SSE data */ }
+  });
+
   es.addEventListener("notification", (e: MessageEvent) => {
-    const n = JSON.parse(e.data as string) as AppNotification;
-    onNotification(n);
+    try {
+      const n = JSON.parse(e.data as string) as AppNotification;
+      onNotification(n);
+    } catch { /* ignore malformed SSE data */ }
   });
 
   es.addEventListener("dismiss", (e: MessageEvent) => {
-    const { id } = JSON.parse(e.data as string) as { id: number };
-    onDismiss(id);
+    try {
+      const { id } = JSON.parse(e.data as string) as { id: number };
+      onDismiss(id);
+    } catch { /* ignore malformed SSE data */ }
   });
 
   return () => es.close();

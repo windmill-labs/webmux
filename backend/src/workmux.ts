@@ -312,15 +312,27 @@ export async function addWorktree(
     const portAssignments = opts?.services ? allocatePorts(existingEnvs, opts.services) : {};
     await writeEnvLocal(wtDir, { ...portAssignments, PROFILE: profile, AGENT: agent });
 
-    // Inject Claude hook settings so notifications fire in managed worktrees
+    // Inject Claude hook settings so notifications fire in managed worktrees.
+    // Bake the backend port into the command so hooks always reach the right backend,
+    // even when multiple projects run separate backends on different ports.
+    const rpcPort = Bun.env.DASHBOARD_PORT || "5111";
     const hooksConfig = {
       hooks: {
-        Stop: [{ hooks: [{ type: "command", command: "~/.config/workmux/hooks/notify-stop.sh", async: true }] }],
-        PostToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "~/.config/workmux/hooks/notify-pr.sh", async: true }] }],
+        Stop: [{ hooks: [{ type: "command", command: `WORKMUX_RPC_PORT=${rpcPort} ~/.config/workmux/hooks/notify-stop.sh`, async: true }] }],
+        PostToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: `WORKMUX_RPC_PORT=${rpcPort} ~/.config/workmux/hooks/notify-pr.sh`, async: true }] }],
       },
     };
     await mkdir(`${wtDir}/.claude`, { recursive: true });
-    await Bun.write(`${wtDir}/.claude/settings.local.json`, JSON.stringify(hooksConfig, null, 2) + "\n");
+    const settingsPath = `${wtDir}/.claude/settings.local.json`;
+    let existing: Record<string, unknown> = {};
+    try {
+      const file = Bun.file(settingsPath);
+      if (await file.exists()) {
+        existing = (await file.json()) as Record<string, unknown>;
+      }
+    } catch { /* corrupted file — overwrite */ }
+    const merged = { ...existing, ...hooksConfig };
+    await Bun.write(settingsPath, JSON.stringify(merged, null, 2) + "\n");
   }
 
   const env = wtDir ? await readEnvLocal(wtDir) : {};

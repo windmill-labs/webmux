@@ -60,6 +60,7 @@ export function addNotification(
     timestamp: Date.now(),
   };
   notifications.push(notification);
+  if (notifications.length > 50) notifications.shift();
   log.info(`[notify] ${type} branch=${branch}${url ? ` url=${url}` : ""}`);
   broadcast({ kind: "notification", data: notification });
   return notification;
@@ -85,9 +86,9 @@ export function handleNotificationStream(): Response {
     start(controller) {
       ctrl = controller;
       sseClients.add(controller);
-      // Send existing notifications as initial batch
+      // Send existing notifications as initial batch (distinct event so frontend skips toasts)
       for (const n of notifications) {
-        controller.enqueue(formatSse("notification", n));
+        controller.enqueue(formatSse("initial", n));
       }
     },
     cancel() {
@@ -145,10 +146,12 @@ CWD=$(echo "$INPUT" | jq -r '.cwd // empty')
 BRANCH=$(echo "$CWD" | grep -oP '__worktrees/\\K[^/]+' || true)
 [ -z "$BRANCH" ] && exit 0
 
+PAYLOAD=$(jq -n --arg branch "$BRANCH" '{"command":"notify","branch":$branch,"args":["agent_stopped"]}')
+
 curl -sf -X POST "http://127.0.0.1:\${PORT}/rpc/workmux" \\
   -H "Authorization: Bearer $TOKEN" \\
   -H "Content-Type: application/json" \\
-  -d "{\\"command\\":\\"notify\\",\\"branch\\":\\"$BRANCH\\",\\"args\\":[\\"agent_stopped\\"]}" \\
+  -d "$PAYLOAD" \\
   >/dev/null 2>&1 || true
 `;
 
@@ -181,16 +184,16 @@ BRANCH=$(echo "$CWD" | grep -oP '__worktrees/\\K[^/]+' || true)
 # Extract PR URL from tool response (gh pr create outputs the URL)
 PR_URL=$(echo "$INPUT" | jq -r '.tool_response // empty' | grep -oP 'https://github\\.com/[^\\s"]+/pull/\\d+' | head -1 || true)
 
-ARGS='["pr_opened"'
 if [ -n "$PR_URL" ]; then
-  ARGS="$ARGS,\\"$PR_URL\\""
+  PAYLOAD=$(jq -n --arg branch "$BRANCH" --arg url "$PR_URL" '{"command":"notify","branch":$branch,"args":["pr_opened",$url]}')
+else
+  PAYLOAD=$(jq -n --arg branch "$BRANCH" '{"command":"notify","branch":$branch,"args":["pr_opened"]}')
 fi
-ARGS="$ARGS]"
 
 curl -sf -X POST "http://127.0.0.1:\${PORT}/rpc/workmux" \\
   -H "Authorization: Bearer $TOKEN" \\
   -H "Content-Type: application/json" \\
-  -d "{\\"command\\":\\"notify\\",\\"branch\\":\\"$BRANCH\\",\\"args\\":$ARGS}" \\
+  -d "$PAYLOAD" \\
   >/dev/null 2>&1 || true
 `;
 

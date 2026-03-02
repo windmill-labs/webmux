@@ -6,11 +6,15 @@
   let {
     loading = false,
     profiles = [],
+    initialBranch = "",
+    initialPrompt = "",
     oncreate,
     oncancel,
   }: {
     loading?: boolean;
     profiles: ProfileConfig[];
+    initialBranch?: string;
+    initialPrompt?: string;
     oncreate: (name: string, profile: string, agent: string, prompt: string) => void;
     oncancel: () => void;
   } = $props();
@@ -26,8 +30,10 @@
   const savedAgent = localStorage.getItem(AGENT_STORAGE_KEY);
 
   let defaultProfile = $derived(savedProfile ?? profiles[0]?.name ?? "Full");
-  let name = $state("");
-  let prompt = $state("");
+  // svelte-ignore state_referenced_locally
+  let name = $state(initialBranch);
+  // svelte-ignore state_referenced_locally
+  let prompt = $state(initialPrompt);
   let agent = $state(savedAgent ?? "claude");
   let profile = $state(savedProfile ?? "Full");
   let saveDefault = $state(false);

@@ -29,6 +29,7 @@ import { startPrMonitor, type PrEntry } from "./pr";
 import { handleWorkmuxRpc } from "./rpc";
 import { jsonResponse, errorResponse } from "./http";
 import { handleNotificationStream, handleDismissNotification, installHookScripts } from "./notifications";
+import { fetchAssignedIssues, branchMatchesIssue, type LinkedLinearIssue } from "./linear";
 
 const PORT = parseInt(Bun.env.BACKEND_PORT || "5111", 10);
 const STATIC_DIR = Bun.env.WMDEV_STATIC_DIR || "";
@@ -214,12 +215,14 @@ async function apiGetWorktrees(req: Request): Promise<Response> {
     });
   }
 
-  const [worktrees, status, wtPaths, paneCounts] = await Promise.all([
+  const [worktrees, status, wtPaths, paneCounts, linearResult] = await Promise.all([
     listWorktrees(),
     getStatus(),
     getWorktreePaths(),
     getAllPaneCounts(),
+    fetchAssignedIssues(),
   ]);
+  const linearIssues = linearResult.ok ? linearResult.data : [];
   const merged = await Promise.all(worktrees.map(async (wt) => {
     const st = status.find(s =>
       s.worktree.includes(wt.branch) || s.worktree.startsWith(wt.branch)
@@ -236,6 +239,13 @@ async function apiGetWorktrees(req: Request): Promise<Response> {
         return { name: svc.name, port, running };
       })
     );
+    const matchedIssue = linearIssues.find((issue) =>
+      branchMatchesIssue(wt.branch, issue.branchName),
+    );
+    const linearIssue: LinkedLinearIssue | null = matchedIssue
+      ? { identifier: matchedIssue.identifier, url: matchedIssue.url, state: matchedIssue.state }
+      : null;
+
     return {
       ...wt,
       dir: wtDir ?? null,
@@ -248,6 +258,7 @@ async function apiGetWorktrees(req: Request): Promise<Response> {
       services,
       paneCount: wt.mux === "✓" ? (paneCounts.get(wt.branch) ?? 0) : 0,
       prs: env.PR_DATA ? (safeJsonParse<PrEntry[]>(env.PR_DATA) ?? []).map(pr => ({ ...pr, comments: pr.comments ?? [] })) : [],
+      linearIssue,
     };
   }));
 
@@ -337,6 +348,12 @@ async function apiWorktreeStatus(name: string): Promise<Response> {
   return jsonResponse(match);
 }
 
+async function apiGetLinearIssues(): Promise<Response> {
+  const result = await fetchAssignedIssues();
+  if (!result.ok) return errorResponse(result.error, 502);
+  return jsonResponse(result.data);
+}
+
 async function apiCiLogs(runId: string): Promise<Response> {
   if (!/^\d+$/.test(runId)) return errorResponse("Invalid run ID", 400);
   const proc = Bun.spawn(["gh", "run", "view", runId, "--log-failed"], {
@@ -417,6 +434,10 @@ Bun.serve({
         if (!isValidWorktreeName(name)) return errorResponse("Invalid worktree name", 400);
         return catching(`GET /api/worktrees/${name}/status`, () => apiWorktreeStatus(name));
       },
+    },
+
+    "/api/linear/issues": {
+      GET: () => catching("GET /api/linear/issues", () => apiGetLinearIssues()),
     },
 
     "/api/ci-logs/:runId": {

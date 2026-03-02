@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.4.0](https://github.com/windmill-labs/workmux-web/compare/v0.3.0...v0.4.0) (2026-03-02)
+
+
+### Features
+
+* add fuzzy search, description preview, and clickable tiles to Linear panel ([#57](https://github.com/windmill-labs/workmux-web/issues/57)) ([b03be8a](https://github.com/windmill-labs/workmux-web/commit/b03be8a48c8c9164fda87095c89b01f67f658122))
+* add name field to config for custom dashboard title ([#56](https://github.com/windmill-labs/workmux-web/issues/56)) ([0e7878c](https://github.com/windmill-labs/workmux-web/commit/0e7878c16db41f8d85e9a75386dde168e4758ef5))
+* fetch and display GitHub PR inline review comments ([#55](https://github.com/windmill-labs/workmux-web/issues/55)) ([da5a9b2](https://github.com/windmill-labs/workmux-web/commit/da5a9b2db3fcb62ab8eee105d5d091faa0522388))
+
+
+### Bug Fixes
+
+* defer .env.local sourcing in pane commands to avoid port race condition ([#54](https://github.com/windmill-labs/workmux-web/issues/54)) ([d4e077f](https://github.com/windmill-labs/workmux-web/commit/d4e077f755d404fa825da5092cb6645bd6848ff6))
+* single-quote PR_DATA in .env.local for shell safety ([#52](https://github.com/windmill-labs/workmux-web/issues/52)) ([70056d4](https://github.com/windmill-labs/workmux-web/commit/70056d4c24dfe34eab16067ad46c9a3a33ae9565))
+
 ## [0.3.0](https://github.com/windmill-labs/workmux-web/compare/v0.2.3...v0.3.0) (2026-03-02)
 
 

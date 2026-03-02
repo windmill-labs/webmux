@@ -25,6 +25,7 @@ export interface LinkedRepoConfig {
 }
 
 export interface WmdevConfig {
+  name?: string;
   services: ServiceConfig[];
   profiles: {
     default: ProfileConfig;
@@ -84,6 +85,7 @@ export function loadConfig(dir: string): WmdevConfig {
           }))
       : [];
     return {
+      ...(typeof parsed.name === "string" ? { name: parsed.name } : {}),
       services: Array.isArray(parsed.services) ? parsed.services as ServiceConfig[] : DEFAULT_CONFIG.services,
       profiles: {
         default: defaultProfile?.name ? defaultProfile : DEFAULT_CONFIG.profiles.default,

@@ -99,6 +99,7 @@ export interface AppNotification {
 }
 
 export interface AppConfig {
+  name?: string;
   services: ServiceConfig[];
   profiles: {
     default: ProfileConfig;

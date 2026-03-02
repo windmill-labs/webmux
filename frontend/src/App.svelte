@@ -110,6 +110,10 @@
     }
   });
 
+  $effect(() => {
+    document.title = config.name ? `${config.name} - Dashboard` : "Dev Dashboard";
+  });
+
   let paneBarPanes = $derived.by(() => {
     const count = selectedWorktree?.paneCount ?? 0;
     if (count < 2) return [];
@@ -315,7 +319,7 @@
         : 'w-[220px] min-w-[220px]'} bg-sidebar border-r border-edge flex flex-col overflow-hidden"
     >
       <div class="flex items-center justify-between p-4 border-b border-edge">
-        <h1 class="text-base font-semibold">Dashboard</h1>
+        <h1 class="text-base font-semibold">{config.name ?? "Dashboard"}</h1>
         <div class="flex items-center gap-2">
           <button
             class="h-8 px-2 gap-1.5 rounded-md border border-edge bg-surface text-accent text-xs flex items-center justify-center cursor-pointer hover:bg-hover disabled:opacity-50 disabled:cursor-not-allowed"

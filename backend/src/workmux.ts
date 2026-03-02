@@ -70,19 +70,26 @@ function workmuxEnv(): Record<string, string | undefined> {
   return { ...process.env, TMUX: `${tmpdir}/tmux-${uid}/default,0,0` };
 }
 
+/**
+ * Pure: recover the real branch name when workmux reports "(detached)" during
+ * rebase/cherry-pick.  Falls back to the worktree directory name from the path.
+ */
+export function resolveDetachedBranch(branch: string, path: string): string {
+  if (branch !== "(detached)" || !path) return branch;
+  return path.split("/").pop() || branch;
+}
+
 export async function listWorktrees(): Promise<Worktree[]> {
   const proc = await $`workmux list`.env(workmuxEnv()).nothrow().quiet();
   if (proc.exitCode !== 0) {
     ensureTmux();
     return [];
   }
-  return parseTable(proc.text(), (cols) => ({
-    branch: cols[0] ?? "",
-    agent: cols[1] ?? "",
-    mux: cols[2] ?? "",
-    unmerged: cols[3] ?? "",
-    path: cols[4] ?? "",
-  }), WORKTREE_HEADERS);
+  return parseTable(proc.text(), (cols) => {
+    const branch = resolveDetachedBranch(cols[0] ?? "", cols[4] ?? "");
+    const path = cols[4] ?? "";
+    return { branch, agent: cols[1] ?? "", mux: cols[2] ?? "", unmerged: cols[3] ?? "", path };
+  }, WORKTREE_HEADERS);
 }
 
 export async function getStatus(): Promise<WorktreeStatus[]> {

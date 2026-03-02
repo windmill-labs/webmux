@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { LinearIssue } from "./types";
-  import { fuzzyMatch } from "./utils";
+  import { searchMatch } from "./utils";
   import Btn from "./Btn.svelte";
 
   let {
@@ -20,8 +20,8 @@
     query
       ? issues.filter(
           (i) =>
-            fuzzyMatch(query, i.title) ||
-            (i.description ? fuzzyMatch(query, i.description) : false),
+            searchMatch(query, i.title) ||
+            (i.description ? searchMatch(query, i.description) : false),
         )
       : issues,
   );
@@ -48,25 +48,27 @@
     </div>
     <ul class="list-none overflow-y-auto max-h-64 px-2 pb-2">
       {#each filtered as issue (issue.id)}
-        <li>
-          <button
-            type="button"
-            class="w-full text-left mb-1 p-2 rounded-md border border-transparent hover:bg-hover text-[12px] cursor-pointer bg-transparent"
-            onclick={() => onselect(issue)}
-          >
+        <!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role -->
+        <li
+          class="mb-1 p-2 rounded-md border border-transparent hover:bg-hover text-[12px] cursor-pointer"
+          onclick={() => onselect(issue)}
+          onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onselect(issue); } }}
+          role="button"
+          tabindex="0"
+        >
           <div class="flex items-center gap-1.5 mb-0.5">
             <span
               class="shrink-0 w-2 h-2 rounded-full"
               style="background: {issue.state.color};"
               title={issue.state.name}
             ></span>
-            <!-- svelte-ignore a11y_click_events_have_key_events -->
             <a
               href={issue.url}
               target="_blank"
               rel="noopener noreferrer"
               class="font-mono text-[11px] text-accent no-underline hover:underline"
               onclick={(e: MouseEvent) => e.stopPropagation()}
+              onkeydown={(e: KeyboardEvent) => e.stopPropagation()}
             >{issue.identifier}</a>
             <span class="text-[10px] text-muted">{issue.priorityLabel}</span>
           </div>
@@ -78,11 +80,14 @@
             <span class="text-[10px] text-muted truncate">
               {issue.team.key}{#if issue.project} · {issue.project}{/if}
             </span>
-            <span onclick={(e: MouseEvent) => e.stopPropagation()} onkeydown={(e: KeyboardEvent) => e.stopPropagation()} role="none">
+            <span
+              onclick={(e: MouseEvent) => e.stopPropagation()}
+              onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') e.stopPropagation(); }}
+              role="none"
+            >
               <Btn small variant="accent-outline" onclick={() => onassign(issue)}>Implement</Btn>
             </span>
           </div>
-          </button>
         </li>
       {/each}
     </ul>

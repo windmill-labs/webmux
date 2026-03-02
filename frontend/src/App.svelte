@@ -38,7 +38,7 @@
   let assignIssue = $state<LinearIssue | null>(null);
   let detailIssue = $state<LinearIssue | null>(null);
   let linearLastFetch = 0;
-  const LINEAR_THROTTLE_MS = 30_000;
+  const LINEAR_THROTTLE_MS = 300_000;
 
   // Notifications
   let notifications = $state<AppNotification[]>([]);

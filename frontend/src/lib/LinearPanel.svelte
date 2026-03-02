@@ -12,7 +12,7 @@
     onselect: (issue: LinearIssue) => void;
   } = $props();
 
-  let collapsed = $state(false);
+  let collapsed = $state(true);
 </script>
 
 <div class="border-t border-edge">

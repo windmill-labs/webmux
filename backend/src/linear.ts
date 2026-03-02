@@ -166,7 +166,7 @@ export function branchMatchesIssue(
 // On fetch error, stale cache continues to be served until TTL expires.
 // This is intentional — availability over freshness for a read-only sidebar.
 
-const CACHE_TTL_MS = 60_000;
+const CACHE_TTL_MS = 300_000;
 let issueCache: { data: FetchIssuesResult; expiry: number } | null = null;
 
 export async function fetchAssignedIssues(): Promise<FetchIssuesResult> {

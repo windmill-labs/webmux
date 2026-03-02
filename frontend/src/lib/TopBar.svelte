@@ -95,6 +95,9 @@
     <span class="text-sm font-semibold truncate"
       >{name ?? "Select a worktree"}</span
     >
+    {#if worktree?.dirty}
+      <span class="text-[10px] px-1.5 py-0.5 rounded border border-warning/40 text-warning">dirty</span>
+    {/if}
     {#each worktree?.prs ?? [] as pr (pr.repo)}
       <PrBadge {pr} clickable />
       {#if pr.ciChecks && pr.ciChecks.length > 0}

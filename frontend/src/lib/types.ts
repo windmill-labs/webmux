@@ -33,6 +33,7 @@ export interface WorktreeInfo {
   mux: string;
   path: string;
   dir: string | null;
+  dirty: boolean;
   status: string;
   elapsed: string;
   title: string;

@@ -99,7 +99,7 @@
   const ENTER_DELAY_MS = 200;
 
   let openingBranch = $state<string | null>(null);
-  let visibleWorktrees = $derived(worktrees);
+  let visibleWorktrees = $derived(worktrees.filter((w) => w.branch !== "main"));
   let selectedWorktree = $derived(
     visibleWorktrees.find((w) => w.branch === selectedBranch),
   );

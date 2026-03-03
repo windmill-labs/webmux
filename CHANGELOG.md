@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.5.0](https://github.com/windmill-labs/workmux-web/compare/v0.4.0...v0.5.0) (2026-03-03)
+
+
+### Features
+
+* add startup environment variables config ([#59](https://github.com/windmill-labs/workmux-web/issues/59)) ([7ee49f4](https://github.com/windmill-labs/workmux-web/commit/7ee49f46310b5356b35e0e1df68ced88855d74bc))
+* show externally-created worktrees in UI ([#62](https://github.com/windmill-labs/workmux-web/issues/62)) ([5b3c8c2](https://github.com/windmill-labs/workmux-web/commit/5b3c8c2ad72bf7d48bd8b7861c3512e2317c9a51))
+* support Shift+Enter for newline in terminal via tmux send-keys ([#63](https://github.com/windmill-labs/workmux-web/issues/63)) ([cf87fbe](https://github.com/windmill-labs/workmux-web/commit/cf87fbe50455039bcc6505393e75e5723afd55d0))
+
+
+### Bug Fixes
+
+* clean up orphaned tmux windows on worktree list poll ([#60](https://github.com/windmill-labs/workmux-web/issues/60)) ([c399d02](https://github.com/windmill-labs/workmux-web/commit/c399d02c5c0881fe8ef3e72171f3077f96fee485))
+
 ## [0.4.0](https://github.com/windmill-labs/workmux-web/compare/v0.3.0...v0.4.0) (2026-03-02)
 
 

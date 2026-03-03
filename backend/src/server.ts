@@ -283,6 +283,18 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
   const agent = typeof body.agent === "string" ? body.agent : "claude";
   const isSandbox = config.profiles.sandbox !== undefined && profileName === config.profiles.sandbox.name;
   const profileConfig = isSandbox ? config.profiles.sandbox! : config.profiles.default;
+
+  // Parse envOverrides: must be a plain object with string keys and values
+  let envOverrides: Record<string, string> | undefined;
+  if (body.envOverrides && typeof body.envOverrides === "object" && !Array.isArray(body.envOverrides)) {
+    const raw = body.envOverrides as Record<string, unknown>;
+    const parsed: Record<string, string> = {};
+    for (const [k, v] of Object.entries(raw)) {
+      if (typeof k === "string" && typeof v === "string") parsed[k] = v;
+    }
+    if (Object.keys(parsed).length > 0) envOverrides = parsed;
+  }
+
   log.info(`[worktree:add] agent=${agent} profile=${profileName}${branch ? ` branch=${branch}` : ""}${prompt ? ` prompt="${prompt.slice(0, 80)}"` : ""}`);
   const result = await addWorktree(branch, {
     prompt,
@@ -294,6 +306,7 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
     sandboxConfig: isSandbox ? config.profiles.sandbox : undefined,
     services: config.services,
     mainRepoDir: PROJECT_DIR,
+    envOverrides,
   });
   if (!result.ok) return errorResponse(result.error, 422);
   log.debug(`[worktree:add] done branch=${result.branch}: ${result.output}`);

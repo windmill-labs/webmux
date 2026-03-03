@@ -33,6 +33,7 @@ export interface WmdevConfig {
   };
   autoName: boolean;
   linkedRepos: LinkedRepoConfig[];
+  startupEnvs: Record<string, string>;
 }
 
 const DEFAULT_CONFIG: WmdevConfig = {
@@ -40,6 +41,7 @@ const DEFAULT_CONFIG: WmdevConfig = {
   profiles: { default: { name: "default" } },
   autoName: false,
   linkedRepos: [],
+  startupEnvs: {},
 };
 
 /** Check if .workmux.yaml has auto_name configured. */
@@ -84,6 +86,15 @@ export function loadConfig(dir: string): WmdevConfig {
             alias: typeof r.alias === "string" ? r.alias : (r.repo as string).split("/").pop()!,
           }))
       : [];
+    // Parse startupEnvs: must be a plain object with string values
+    let startupEnvs: Record<string, string> = {};
+    if (parsed.startupEnvs && typeof parsed.startupEnvs === "object" && !Array.isArray(parsed.startupEnvs)) {
+      const raw = parsed.startupEnvs as Record<string, unknown>;
+      for (const [k, v] of Object.entries(raw)) {
+        if (typeof v === "string") startupEnvs[k] = v;
+      }
+    }
+
     return {
       ...(typeof parsed.name === "string" ? { name: parsed.name } : {}),
       services: Array.isArray(parsed.services) ? parsed.services as ServiceConfig[] : DEFAULT_CONFIG.services,
@@ -93,6 +104,7 @@ export function loadConfig(dir: string): WmdevConfig {
       },
       autoName,
       linkedRepos,
+      startupEnvs,
     };
   } catch {
     return DEFAULT_CONFIG;

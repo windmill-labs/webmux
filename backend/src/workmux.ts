@@ -233,6 +233,7 @@ export interface AddWorktreeOpts {
   sandboxConfig?: SandboxProfileConfig;
   services?: ServiceConfig[];
   mainRepoDir?: string;
+  envOverrides?: Record<string, string>;
 }
 
 export async function addWorktree(
@@ -317,7 +318,7 @@ export async function addWorktree(
     const allPaths = [...worktreeMap.values()];
     const existingEnvs = await readAllWorktreeEnvs(allPaths, wtDir);
     const portAssignments = opts?.services ? allocatePorts(existingEnvs, opts.services) : {};
-    await writeEnvLocal(wtDir, { ...portAssignments, PROFILE: profile, AGENT: agent });
+    await writeEnvLocal(wtDir, { ...portAssignments, ...opts?.envOverrides, PROFILE: profile, AGENT: agent });
 
     // Inject Claude hook settings so notifications fire in managed worktrees.
     // Bake the backend port into the command so hooks always reach the right backend,

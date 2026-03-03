@@ -152,6 +152,7 @@
     profile: string,
     agent: string,
     prompt: string,
+    envOverrides: Record<string, string>,
   ) {
     creating = true;
     try {
@@ -160,6 +161,7 @@
         profile,
         agent,
         prompt || undefined,
+        Object.keys(envOverrides).length > 0 ? envOverrides : undefined,
       );
       await api.openWorktree(result.branch);
       showCreateDialog = false;
@@ -429,6 +431,7 @@
     ]}
     initialBranch={assignIssue?.branchName ?? ""}
     initialPrompt={assignIssue ? `${assignIssue.title}${assignIssue.description ? '\n\n' + assignIssue.description : ''}` : ""}
+    startupEnvs={config.startupEnvs ?? {}}
     oncreate={handleCreate}
     oncancel={() => { showCreateDialog = false; assignIssue = null; }}
   />

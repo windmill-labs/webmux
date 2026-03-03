@@ -39,6 +39,7 @@ export function createWorktree(
   profile: string,
   agent: string,
   prompt?: string,
+  envOverrides?: Record<string, string>,
 ): Promise<{ branch: string }> {
   return api<{ branch: string }>("worktrees", {
     method: "POST",
@@ -47,6 +48,7 @@ export function createWorktree(
       profile,
       agent,
       ...(prompt ? { prompt } : {}),
+      ...(envOverrides && Object.keys(envOverrides).length > 0 ? { envOverrides } : {}),
     }),
   });
 }

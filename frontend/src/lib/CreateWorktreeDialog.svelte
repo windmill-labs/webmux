@@ -8,6 +8,7 @@
     profiles = [],
     initialBranch = "",
     initialPrompt = "",
+    startupEnvs = {},
     oncreate,
     oncancel,
   }: {
@@ -15,7 +16,8 @@
     profiles: ProfileConfig[];
     initialBranch?: string;
     initialPrompt?: string;
-    oncreate: (name: string, profile: string, agent: string, prompt: string) => void;
+    startupEnvs?: Record<string, string>;
+    oncreate: (name: string, profile: string, agent: string, prompt: string, envOverrides: Record<string, string>) => void;
     oncancel: () => void;
   } = $props();
 
@@ -37,6 +39,9 @@
   let agent = $state(savedAgent ?? "claude");
   let profile = $state(savedProfile ?? "Full");
   let saveDefault = $state(false);
+  // svelte-ignore state_referenced_locally
+  let envValues = $state<Record<string, string>>({ ...startupEnvs });
+  let envKeys = $derived(Object.keys(startupEnvs));
 
   function focus(node: HTMLElement) { node.focus(); }
 
@@ -58,7 +63,11 @@
         localStorage.removeItem(STORAGE_KEY);
         localStorage.removeItem(AGENT_STORAGE_KEY);
       }
-      oncreate(name.trim(), profile, agent, prompt.trim());
+      const filteredEnvs: Record<string, string> = {};
+      for (const [k, v] of Object.entries(envValues)) {
+        if (v) filteredEnvs[k] = v;
+      }
+      oncreate(name.trim(), profile, agent, prompt.trim(), filteredEnvs);
     }}
   >
     <h2 class="text-base mb-4">New Worktree</h2>
@@ -88,6 +97,17 @@
         bind:value={name}
       />
     </div>
+    {#each envKeys as key (key)}
+      <div class="mb-4">
+        <label class="block text-xs text-muted mb-1.5" for="wt-env-{key}">{key}</label>
+        <input
+          id="wt-env-{key}"
+          type="text"
+          class="w-full px-2.5 py-1.5 rounded-md border border-edge bg-surface text-primary text-[13px] placeholder:text-muted/50 outline-none focus:border-accent"
+          bind:value={envValues[key]}
+        />
+      </div>
+    {/each}
     <div class="flex gap-2 mb-4">
       {#each AGENTS as a}
         <label

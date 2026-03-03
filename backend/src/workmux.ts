@@ -534,18 +534,19 @@ export async function checkDirty(dir: string): Promise<boolean> {
  * sibling of the main repo).  Windows from other projects are left alone.
  * Fire-and-forget — errors are logged but never thrown.
  */
-export function cleanupStaleWindows(activeBranches: Set<string>, worktreeBaseDir: string): void {
+export async function cleanupStaleWindows(activeBranches: Set<string>, worktreeBaseDir: string): Promise<void> {
   try {
     // Get window names + their first pane's cwd in one call.
-    const proc = Bun.spawnSync(
+    const proc = Bun.spawn(
       ["tmux", "list-panes", "-a", "-F", "#{session_name}:#{window_name} #{pane_current_path}"],
       { stdout: "pipe", stderr: "pipe" },
     );
-    if (proc.exitCode !== 0) return;
-    const output = new TextDecoder().decode(proc.stdout).trim();
+    if (await proc.exited !== 0) return;
+    const output = (await new Response(proc.stdout).text()).trim();
     if (!output) return;
 
-    const killed = new Set<string>();
+    const toKill: Array<{ session: string; windowName: string }> = [];
+    const seen = new Set<string>();
     for (const line of output.split("\n")) {
       const spaceIdx = line.indexOf(" ");
       if (spaceIdx === -1) continue;
@@ -556,7 +557,7 @@ export function cleanupStaleWindows(activeBranches: Set<string>, worktreeBaseDir
       const session = target.slice(0, colonIdx);
       const windowName = target.slice(colonIdx + 1);
       if (!windowName.startsWith("wm-")) continue;
-      if (killed.has(windowName)) continue;
+      if (seen.has(windowName)) continue;
 
       const branch = windowName.slice(3);
       if (activeBranches.has(branch)) continue;
@@ -564,10 +565,17 @@ export function cleanupStaleWindows(activeBranches: Set<string>, worktreeBaseDir
       // Only kill if this pane belongs to our project's worktree directory.
       if (!panePath.startsWith(worktreeBaseDir)) continue;
 
-      log.info(`[cleanup] killing stale tmux window "${windowName}" (no matching worktree)`);
-      Bun.spawnSync(["tmux", "kill-window", "-t", `${session}:${windowName}`]);
-      killed.add(windowName);
+      toKill.push({ session, windowName });
+      seen.add(windowName);
     }
+
+    await Promise.all(toKill.map(async ({ session, windowName }) => {
+      log.info(`[cleanup] killing stale tmux window "${windowName}" (no matching worktree)`);
+      const kill = Bun.spawn(["tmux", "kill-window", "-t", `${session}:${windowName}`], {
+        stdout: "ignore", stderr: "ignore",
+      });
+      await kill.exited;
+    }));
   } catch (err) {
     log.warn(`[cleanup] cleanupStaleWindows failed: ${err instanceof Error ? err.message : String(err)}`);
   }

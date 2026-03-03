@@ -98,15 +98,18 @@
   // may not be fully flushed yet — this small delay lets it settle.
   const ENTER_DELAY_MS = 200;
 
-  let visibleWorktrees = $derived(worktrees.filter((w) => w.mux === "✓"));
+  let openingBranches = $state<Set<string>>(new Set());
+  let visibleWorktrees = $derived(worktrees);
   let selectedWorktree = $derived(
     visibleWorktrees.find((w) => w.branch === selectedBranch),
   );
-  let canConnect = $derived(!!selectedBranch);
+  let canConnect = $derived(!!selectedBranch && selectedWorktree?.mux === "✓");
 
   $effect(() => {
     if (!selectedBranch && visibleWorktrees.length > 0) {
-      selectedBranch = visibleWorktrees[0].branch;
+      // Prefer an open worktree, fall back to the first one
+      const open = visibleWorktrees.find((w) => w.mux === "✓");
+      selectedBranch = (open ?? visibleWorktrees[0]).branch;
     }
   });
 
@@ -343,11 +346,25 @@
         worktrees={visibleWorktrees}
         selected={selectedBranch}
         removing={removingBranches}
+        initializing={openingBranches}
         {notifiedBranches}
-        onselect={(b) => {
+        onselect={async (b) => {
           selectedBranch = b;
           notifiedBranches = new Set([...notifiedBranches].filter((x) => x !== b));
           if (isMobile) sidebarOpen = false;
+          // Open closed worktrees on click
+          const wt = worktrees.find((w) => w.branch === b);
+          if (wt && wt.mux !== "✓") {
+            openingBranches = new Set([...openingBranches, b]);
+            try {
+              await api.openWorktree(b);
+              await refresh();
+            } catch (err) {
+              alert(`Failed to open worktree: ${errorMessage(err)}`);
+            } finally {
+              openingBranches = new Set([...openingBranches].filter((x) => x !== b));
+            }
+          }
         }}
         onremove={(b) => (removeBranch = b)}
       />

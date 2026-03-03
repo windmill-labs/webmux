@@ -13,6 +13,7 @@ import {
   parseWorktreePorcelain,
   checkDirty,
   cleanupStaleWindows,
+  initWorktreeEnv,
 } from "./workmux";
 import {
   attach,
@@ -237,7 +238,11 @@ async function apiGetWorktrees(req: Request): Promise<Response> {
   activeBranches.add("main");
   cleanupStaleWindows(activeBranches, `${PROJECT_DIR}__worktrees/`);
 
-  const merged = await Promise.all(worktrees.map(async (wt) => {
+  // Filter out the main working tree — it has no entry in wtPaths
+  // (getWorktreePaths skips the first porcelain entry).
+  const nonMainWorktrees = worktrees.filter(wt => wtPaths.has(wt.branch));
+
+  const merged = await Promise.all(nonMainWorktrees.map(async (wt) => {
     const st = status.find(s =>
       s.worktree.includes(wt.branch) || s.worktree.startsWith(wt.branch)
     );
@@ -339,8 +344,26 @@ async function apiDeleteWorktree(name: string): Promise<Response> {
 
 async function apiOpenWorktree(name: string): Promise<Response> {
   log.info(`[worktree:open] name=${name}`);
+
+  // Lazily initialize env/hooks for externally-created worktrees
+  const wtPaths = await getWorktreePaths();
+  const wtDir = wtPaths.get(name);
+  if (wtDir) {
+    const env = await readEnvLocal(wtDir);
+    if (!env.PROFILE) {
+      log.info(`[worktree:open] initializing env for ${name}`);
+      await initWorktreeEnv(name, {
+        profile: config.profiles.default.name,
+        agent: "claude",
+        services: config.services,
+      });
+      wtCache = null;
+    }
+  }
+
   const result = await openWorktree(name);
   if (!result.ok) return errorResponse(result.error, 422);
+  wtCache = null;
   return jsonResponse({ message: result.output });
 }
 

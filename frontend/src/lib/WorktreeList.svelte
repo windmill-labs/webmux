@@ -16,7 +16,7 @@
     worktrees: WorktreeInfo[];
     selected: string | null;
     removing: Set<string>;
-    initializing: string | null;
+    initializing: Set<string>;
     notifiedBranches: Set<string>;
     onselect: (branch: string) => void;
     onremove: (branch: string) => void;
@@ -28,7 +28,7 @@
     {@const isActive = wt.branch === selected}
     {@const isRemoving = removing.has(wt.branch)}
     {@const isClosed = wt.mux !== "✓"}
-    {@const isInitializing = initializing === wt.branch}
+    {@const isInitializing = initializing.has(wt.branch)}
     <li
       class="mb-0.5 group relative {isRemoving || isInitializing
         ? 'opacity-40 pointer-events-none'

@@ -252,7 +252,7 @@ export async function initWorktreeEnv(
   const allPaths = [...worktreeMap.values()];
   const existingEnvs = await readAllWorktreeEnvs(allPaths, wtDir);
   const portAssignments = opts?.services ? allocatePorts(existingEnvs, opts.services) : {};
-  const defaults: Record<string, string> = { ...portAssignments, ...opts?.envOverrides, PROFILE: profile, AGENT: agent };
+  const defaults: Record<string, string> = { ...portAssignments, PROFILE: profile, AGENT: agent, ...opts?.envOverrides };
   // Only write keys that don't already exist
   const toWrite: Record<string, string> = {};
   for (const [key, value] of Object.entries(defaults)) {

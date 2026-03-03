@@ -232,7 +232,11 @@ async function apiGetWorktrees(req: Request): Promise<Response> {
   activeBranches.add("main");
   cleanupStaleWindows(activeBranches, `${PROJECT_DIR}__worktrees/`);
 
-  const merged = await Promise.all(worktrees.map(async (wt) => {
+  // Filter out the main working tree — it has no entry in wtPaths
+  // (getWorktreePaths skips the first porcelain entry).
+  const nonMainWorktrees = worktrees.filter(wt => wtPaths.has(wt.branch));
+
+  const merged = await Promise.all(nonMainWorktrees.map(async (wt) => {
     const st = status.find(s =>
       s.worktree.includes(wt.branch) || s.worktree.startsWith(wt.branch)
     );

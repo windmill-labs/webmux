@@ -263,6 +263,15 @@ export function write(worktreeName: string, data: string): void {
   }
 }
 
+/** Send raw hex bytes to the active tmux pane via `tmux send-keys -H`,
+ *  bypassing tmux's input parser (needed for CSI u sequences). */
+export async function sendKeys(worktreeName: string, hexBytes: string[]): Promise<void> {
+  const session = sessions.get(worktreeName);
+  if (!session) return;
+  const windowTarget = `${session.groupedSessionName}:wm-${worktreeName}`;
+  await asyncTmux(["tmux", "send-keys", "-t", windowTarget, "-H", ...hexBytes]);
+}
+
 export async function resize(worktreeName: string, cols: number, rows: number): Promise<void> {
   const session = sessions.get(worktreeName);
   if (!session) return;

@@ -19,6 +19,7 @@ import {
   write,
   resize,
   selectPane,
+  sendKeys,
   getScrollback,
   setCallbacks,
   clearCallbacks,
@@ -49,6 +50,7 @@ interface WsData {
 
 type WsInboundMessage =
   | { type: "input"; data: string }
+  | { type: "sendKeys"; hexBytes: string[] }
   | { type: "selectPane"; pane: number }
   | { type: "resize"; cols: number; rows: number; initialPane?: number };
 
@@ -67,6 +69,10 @@ function parseWsMessage(raw: string | Buffer): WsInboundMessage | null {
     switch (m.type) {
       case "input":
         return typeof m.data === "string" ? { type: "input", data: m.data } : null;
+      case "sendKeys":
+        return Array.isArray(m.hexBytes) && m.hexBytes.every((b: unknown) => typeof b === "string")
+          ? { type: "sendKeys", hexBytes: m.hexBytes as string[] }
+          : null;
       case "selectPane":
         return typeof m.pane === "number" ? { type: "selectPane", pane: m.pane } : null;
       case "resize":
@@ -503,6 +509,9 @@ Bun.serve({
       switch (msg.type) {
         case "input":
           write(worktree, msg.data);
+          break;
+        case "sendKeys":
+          await sendKeys(worktree, msg.hexBytes);
           break;
         case "selectPane":
           if (ws.data.attached) {

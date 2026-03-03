@@ -91,7 +91,21 @@
     // Let app-level shortcuts (Cmd+Arrow, Cmd+K, Cmd+M, Cmd+D) bubble up
     // instead of being consumed by xterm.  Return false → xterm ignores the event.
     term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
+      // Shift+Enter: send CSI u escape sequence so apps like Claude Code
+      // can distinguish it from plain Enter (xterm.js sends \r for both).
+      // Block all event types (keydown, keypress, keyup) to prevent xterm
+      // from also emitting \r on the keypress phase.
+      if (e.key === "Enter" && e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        if (e.type === "keydown" && ws.readyState === WebSocket.OPEN) {
+          // CSI u for Shift+Enter: \x1b[13;2u = hex 1b 5b 31 33 3b 32 75
+          // Use sendKeys (tmux send-keys -H) to bypass tmux's input parser
+          ws.send(JSON.stringify({ type: "sendKeys", hexBytes: ["1b", "5b", "31", "33", "3b", "32", "75"] }));
+        }
+        return false;
+      }
+
       if (e.type !== "keydown") return true;
+
       const mod = e.metaKey || e.ctrlKey;
       if (mod && (e.key === "c" || e.key === "C")) {
         if (term.hasSelection()) {

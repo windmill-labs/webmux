@@ -247,10 +247,20 @@ export async function initWorktreeEnv(
   const wtDir = worktreeMap.get(branch) ?? null;
   if (!wtDir) return;
 
+  // Read existing env so we don't overwrite pre-existing values
+  const existingEnv = await readEnvLocal(wtDir);
   const allPaths = [...worktreeMap.values()];
   const existingEnvs = await readAllWorktreeEnvs(allPaths, wtDir);
   const portAssignments = opts?.services ? allocatePorts(existingEnvs, opts.services) : {};
-  await writeEnvLocal(wtDir, { ...portAssignments, ...opts?.envOverrides, PROFILE: profile, AGENT: agent });
+  const defaults: Record<string, string> = { ...portAssignments, ...opts?.envOverrides, PROFILE: profile, AGENT: agent };
+  // Only write keys that don't already exist
+  const toWrite: Record<string, string> = {};
+  for (const [key, value] of Object.entries(defaults)) {
+    if (!existingEnv[key]) toWrite[key] = value;
+  }
+  if (Object.keys(toWrite).length > 0) {
+    await writeEnvLocal(wtDir, toWrite);
+  }
 
   const rpcPort = Bun.env.BACKEND_PORT || "5111";
   const hooksConfig = {

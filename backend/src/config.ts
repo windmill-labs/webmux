@@ -91,7 +91,7 @@ export function loadConfig(dir: string): WmdevConfig {
     if (parsed.startupEnvs && typeof parsed.startupEnvs === "object" && !Array.isArray(parsed.startupEnvs)) {
       const raw = parsed.startupEnvs as Record<string, unknown>;
       for (const [k, v] of Object.entries(raw)) {
-        if (typeof v === "string") startupEnvs[k] = v;
+        startupEnvs[k] = typeof v === "string" ? v : String(v);
       }
     }
 

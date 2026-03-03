@@ -290,7 +290,7 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
     const raw = body.envOverrides as Record<string, unknown>;
     const parsed: Record<string, string> = {};
     for (const [k, v] of Object.entries(raw)) {
-      if (typeof k === "string" && typeof v === "string") parsed[k] = v;
+      if (typeof v === "string") parsed[k] = v;
     }
     if (Object.keys(parsed).length > 0) envOverrides = parsed;
   }

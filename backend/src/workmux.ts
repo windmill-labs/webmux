@@ -528,6 +528,60 @@ export async function checkDirty(dir: string): Promise<boolean> {
   return status || ahead;
 }
 
+/**
+ * Kill tmux windows named `wm-*` that belong to this project but have no
+ * corresponding git worktree.  Ownership is determined by checking whether the
+ * window's first pane path starts with `worktreeBaseDir` (the `__worktrees/`
+ * sibling of the main repo).  Windows from other projects are left alone.
+ * Fire-and-forget — errors are logged but never thrown.
+ */
+export async function cleanupStaleWindows(activeBranches: Set<string>, worktreeBaseDir: string): Promise<void> {
+  try {
+    // Get window names + their first pane's cwd in one call.
+    const proc = Bun.spawn(
+      ["tmux", "list-panes", "-a", "-F", "#{session_name}:#{window_name} #{pane_current_path}"],
+      { stdout: "pipe", stderr: "pipe" },
+    );
+    if (await proc.exited !== 0) return;
+    const output = (await new Response(proc.stdout).text()).trim();
+    if (!output) return;
+
+    const toKill: Array<{ session: string; windowName: string }> = [];
+    const seen = new Set<string>();
+    for (const line of output.split("\n")) {
+      const spaceIdx = line.indexOf(" ");
+      if (spaceIdx === -1) continue;
+      const target = line.slice(0, spaceIdx);       // "session:wm-branch"
+      const panePath = line.slice(spaceIdx + 1);     // "/path/to/worktree/..."
+      const colonIdx = target.indexOf(":");
+      if (colonIdx === -1) continue;
+      const session = target.slice(0, colonIdx);
+      const windowName = target.slice(colonIdx + 1);
+      if (!windowName.startsWith("wm-")) continue;
+      if (seen.has(windowName)) continue;
+
+      const branch = windowName.slice(3);
+      if (activeBranches.has(branch)) continue;
+
+      // Only kill if this pane belongs to our project's worktree directory.
+      if (!panePath.startsWith(worktreeBaseDir)) continue;
+
+      toKill.push({ session, windowName });
+      seen.add(windowName);
+    }
+
+    await Promise.all(toKill.map(async ({ session, windowName }) => {
+      log.info(`[cleanup] killing stale tmux window "${windowName}" (no matching worktree)`);
+      const kill = Bun.spawn(["tmux", "kill-window", "-t", `${session}:${windowName}`], {
+        stdout: "ignore", stderr: "ignore",
+      });
+      await kill.exited;
+    }));
+  } catch (err) {
+    log.warn(`[cleanup] cleanupStaleWindows failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 export async function mergeWorktree(name: string): Promise<{ ok: true; output: string } | { ok: false; error: string }> {
   log.debug(`[workmux:merge] running: workmux merge ${name}`);
   await removeContainer(name);

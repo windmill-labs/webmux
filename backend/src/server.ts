@@ -12,6 +12,7 @@ import {
   readEnvLocal,
   parseWorktreePorcelain,
   checkDirty,
+  cleanupStaleWindows,
 } from "./workmux";
 import {
   attach,
@@ -223,6 +224,13 @@ async function apiGetWorktrees(req: Request): Promise<Response> {
     fetchAssignedIssues(),
   ]);
   const linearIssues = linearResult.ok ? linearResult.data : [];
+
+  // Fire-and-forget: kill tmux windows that belong to this project but have
+  // no matching worktree.  Scoped via pane path so other projects are safe.
+  const activeBranches = new Set(worktrees.map(wt => wt.branch));
+  activeBranches.add("main");
+  cleanupStaleWindows(activeBranches, `${PROJECT_DIR}__worktrees/`);
+
   const merged = await Promise.all(worktrees.map(async (wt) => {
     const st = status.find(s =>
       s.worktree.includes(wt.branch) || s.worktree.startsWith(wt.branch)

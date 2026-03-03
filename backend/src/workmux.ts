@@ -527,6 +527,41 @@ export async function checkDirty(dir: string): Promise<boolean> {
   return status || ahead;
 }
 
+/**
+ * Kill tmux windows named `wm-*` that have no corresponding git worktree.
+ * Compares a set of active worktree branch names against tmux window names.
+ * Fire-and-forget — errors are logged but never thrown.
+ */
+export function cleanupStaleWindows(activeBranches: Set<string>): void {
+  try {
+    const proc = Bun.spawnSync(
+      ["tmux", "list-windows", "-a", "-F", "#{session_name}:#{window_name}"],
+      { stdout: "pipe", stderr: "pipe" },
+    );
+    if (proc.exitCode !== 0) return;
+    const output = new TextDecoder().decode(proc.stdout).trim();
+    if (!output) return;
+
+    const killed = new Set<string>();
+    for (const line of output.split("\n")) {
+      const colonIdx = line.indexOf(":");
+      if (colonIdx === -1) continue;
+      const session = line.slice(0, colonIdx);
+      const windowName = line.slice(colonIdx + 1);
+      if (!windowName.startsWith("wm-")) continue;
+      const branch = windowName.slice(3); // strip "wm-" prefix
+      if (activeBranches.has(branch)) continue;
+      if (killed.has(windowName)) continue;
+
+      log.info(`[cleanup] killing stale tmux window "${windowName}" (no matching worktree)`);
+      Bun.spawnSync(["tmux", "kill-window", "-t", `${session}:${windowName}`]);
+      killed.add(windowName);
+    }
+  } catch (err) {
+    log.warn(`[cleanup] cleanupStaleWindows failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 export async function mergeWorktree(name: string): Promise<{ ok: true; output: string } | { ok: false; error: string }> {
   log.debug(`[workmux:merge] running: workmux merge ${name}`);
   await removeContainer(name);

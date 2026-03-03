@@ -528,14 +528,17 @@ export async function checkDirty(dir: string): Promise<boolean> {
 }
 
 /**
- * Kill tmux windows named `wm-*` that have no corresponding git worktree.
- * Compares a set of active worktree branch names against tmux window names.
+ * Kill tmux windows named `wm-*` that belong to this project but have no
+ * corresponding git worktree.  Ownership is determined by checking whether the
+ * window's first pane path starts with `worktreeBaseDir` (the `__worktrees/`
+ * sibling of the main repo).  Windows from other projects are left alone.
  * Fire-and-forget — errors are logged but never thrown.
  */
-export function cleanupStaleWindows(activeBranches: Set<string>): void {
+export function cleanupStaleWindows(activeBranches: Set<string>, worktreeBaseDir: string): void {
   try {
+    // Get window names + their first pane's cwd in one call.
     const proc = Bun.spawnSync(
-      ["tmux", "list-windows", "-a", "-F", "#{session_name}:#{window_name}"],
+      ["tmux", "list-panes", "-a", "-F", "#{session_name}:#{window_name} #{pane_current_path}"],
       { stdout: "pipe", stderr: "pipe" },
     );
     if (proc.exitCode !== 0) return;
@@ -544,14 +547,22 @@ export function cleanupStaleWindows(activeBranches: Set<string>): void {
 
     const killed = new Set<string>();
     for (const line of output.split("\n")) {
-      const colonIdx = line.indexOf(":");
+      const spaceIdx = line.indexOf(" ");
+      if (spaceIdx === -1) continue;
+      const target = line.slice(0, spaceIdx);       // "session:wm-branch"
+      const panePath = line.slice(spaceIdx + 1);     // "/path/to/worktree/..."
+      const colonIdx = target.indexOf(":");
       if (colonIdx === -1) continue;
-      const session = line.slice(0, colonIdx);
-      const windowName = line.slice(colonIdx + 1);
+      const session = target.slice(0, colonIdx);
+      const windowName = target.slice(colonIdx + 1);
       if (!windowName.startsWith("wm-")) continue;
-      const branch = windowName.slice(3); // strip "wm-" prefix
-      if (activeBranches.has(branch)) continue;
       if (killed.has(windowName)) continue;
+
+      const branch = windowName.slice(3);
+      if (activeBranches.has(branch)) continue;
+
+      // Only kill if this pane belongs to our project's worktree directory.
+      if (!panePath.startsWith(worktreeBaseDir)) continue;
 
       log.info(`[cleanup] killing stale tmux window "${windowName}" (no matching worktree)`);
       Bun.spawnSync(["tmux", "kill-window", "-t", `${session}:${windowName}`]);

@@ -225,11 +225,11 @@ async function apiGetWorktrees(req: Request): Promise<Response> {
   ]);
   const linearIssues = linearResult.ok ? linearResult.data : [];
 
-  // Fire-and-forget: kill tmux windows that have no matching worktree.
-  // "main" is included because workmux list excludes it but it's a valid window target.
+  // Fire-and-forget: kill tmux windows that belong to this project but have
+  // no matching worktree.  Scoped via pane path so other projects are safe.
   const activeBranches = new Set(worktrees.map(wt => wt.branch));
   activeBranches.add("main");
-  cleanupStaleWindows(activeBranches);
+  cleanupStaleWindows(activeBranches, `${PROJECT_DIR}__worktrees/`);
 
   const merged = await Promise.all(worktrees.map(async (wt) => {
     const st = status.find(s =>

@@ -13,6 +13,7 @@ import {
   parseWorktreePorcelain,
   checkDirty,
   cleanupStaleWindows,
+  initWorktreeEnv,
 } from "./workmux";
 import {
   attach,
@@ -333,8 +334,26 @@ async function apiDeleteWorktree(name: string): Promise<Response> {
 
 async function apiOpenWorktree(name: string): Promise<Response> {
   log.info(`[worktree:open] name=${name}`);
+
+  // Lazily initialize env/hooks for externally-created worktrees
+  const wtPaths = await getWorktreePaths();
+  const wtDir = wtPaths.get(name);
+  if (wtDir) {
+    const env = await readEnvLocal(wtDir);
+    if (!env.PROFILE) {
+      log.info(`[worktree:open] initializing env for ${name}`);
+      await initWorktreeEnv(name, {
+        profile: config.profiles.default.name,
+        agent: "claude",
+        services: config.services,
+      });
+      wtCache = null;
+    }
+  }
+
   const result = await openWorktree(name);
   if (!result.ok) return errorResponse(result.error, 422);
+  wtCache = null;
   return jsonResponse({ message: result.output });
 }
 

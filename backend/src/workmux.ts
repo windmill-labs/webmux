@@ -223,6 +223,56 @@ function parseBranchFromOutput(output: string): string | null {
   return match?.[1] ?? null;
 }
 
+export interface InitWorktreeEnvOpts {
+  profile?: string;
+  agent?: string;
+  services?: ServiceConfig[];
+  envOverrides?: Record<string, string>;
+}
+
+/**
+ * Initialize a worktree's .env.local (ports, profile, agent) and Claude hook
+ * settings.  Extracted so it can be called both from addWorktree() and when
+ * opening an externally-created worktree that lacks metadata.
+ */
+export async function initWorktreeEnv(
+  branch: string,
+  opts?: InitWorktreeEnvOpts,
+): Promise<void> {
+  const profile = opts?.profile ?? "default";
+  const agent = opts?.agent ?? "claude";
+
+  const porcelainResult = Bun.spawnSync(["git", "worktree", "list", "--porcelain"], { stdout: "pipe", stderr: "pipe" });
+  const worktreeMap = parseWorktreePorcelain(new TextDecoder().decode(porcelainResult.stdout));
+  const wtDir = worktreeMap.get(branch) ?? null;
+  if (!wtDir) return;
+
+  const allPaths = [...worktreeMap.values()];
+  const existingEnvs = await readAllWorktreeEnvs(allPaths, wtDir);
+  const portAssignments = opts?.services ? allocatePorts(existingEnvs, opts.services) : {};
+  await writeEnvLocal(wtDir, { ...portAssignments, ...opts?.envOverrides, PROFILE: profile, AGENT: agent });
+
+  const rpcPort = Bun.env.BACKEND_PORT || "5111";
+  const hooksConfig = {
+    hooks: {
+      Stop: [{ hooks: [{ type: "command", command: `WORKMUX_RPC_PORT=${rpcPort} ~/.config/workmux/hooks/notify-stop.sh`, async: true }] }],
+      PostToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: `WORKMUX_RPC_PORT=${rpcPort} ~/.config/workmux/hooks/notify-pr.sh`, async: true }] }],
+    },
+  };
+  await mkdir(`${wtDir}/.claude`, { recursive: true });
+  const settingsPath = `${wtDir}/.claude/settings.local.json`;
+  let existing: Record<string, unknown> = {};
+  try {
+    const file = Bun.file(settingsPath);
+    if (await file.exists()) {
+      existing = (await file.json()) as Record<string, unknown>;
+    }
+  } catch { /* corrupted file — overwrite */ }
+  const existingHooks = (existing.hooks as Record<string, unknown>) ?? {};
+  const merged = { ...existing, hooks: { ...existingHooks, ...hooksConfig.hooks } };
+  await Bun.write(settingsPath, JSON.stringify(merged, null, 2) + "\n");
+}
+
 export interface AddWorktreeOpts {
   prompt?: string;
   profile?: string;
@@ -308,42 +358,13 @@ export async function addWorktree(
 
   const windowTarget = `wm-${branch}`;
 
-  // Parse worktree list once — used for both dir lookup and port allocation
+  // Initialize .env.local (ports, profile, agent) and Claude hooks
+  await initWorktreeEnv(branch, { profile, agent, services: opts?.services, envOverrides: opts?.envOverrides });
+
+  // Re-read worktree dir + env after init
   const porcelainResult = Bun.spawnSync(["git", "worktree", "list", "--porcelain"], { stdout: "pipe", stderr: "pipe" });
   const worktreeMap = parseWorktreePorcelain(new TextDecoder().decode(porcelainResult.stdout));
   const wtDir = worktreeMap.get(branch) ?? null;
-
-  // Allocate ports + write PROFILE/AGENT to .env.local
-  if (wtDir) {
-    const allPaths = [...worktreeMap.values()];
-    const existingEnvs = await readAllWorktreeEnvs(allPaths, wtDir);
-    const portAssignments = opts?.services ? allocatePorts(existingEnvs, opts.services) : {};
-    await writeEnvLocal(wtDir, { ...portAssignments, ...opts?.envOverrides, PROFILE: profile, AGENT: agent });
-
-    // Inject Claude hook settings so notifications fire in managed worktrees.
-    // Bake the backend port into the command so hooks always reach the right backend,
-    // even when multiple projects run separate backends on different ports.
-    const rpcPort = Bun.env.BACKEND_PORT || "5111";
-    const hooksConfig = {
-      hooks: {
-        Stop: [{ hooks: [{ type: "command", command: `WORKMUX_RPC_PORT=${rpcPort} ~/.config/workmux/hooks/notify-stop.sh`, async: true }] }],
-        PostToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: `WORKMUX_RPC_PORT=${rpcPort} ~/.config/workmux/hooks/notify-pr.sh`, async: true }] }],
-      },
-    };
-    await mkdir(`${wtDir}/.claude`, { recursive: true });
-    const settingsPath = `${wtDir}/.claude/settings.local.json`;
-    let existing: Record<string, unknown> = {};
-    try {
-      const file = Bun.file(settingsPath);
-      if (await file.exists()) {
-        existing = (await file.json()) as Record<string, unknown>;
-      }
-    } catch { /* corrupted file — overwrite */ }
-    const existingHooks = (existing.hooks as Record<string, unknown>) ?? {};
-    const merged = { ...existing, hooks: { ...existingHooks, ...hooksConfig.hooks } };
-    await Bun.write(settingsPath, JSON.stringify(merged, null, 2) + "\n");
-  }
-
   const env = wtDir ? await readEnvLocal(wtDir) : {};
   log.debug(`[workmux:add] branch=${branch} dir=${wtDir ?? "(not found)"} env=${JSON.stringify(env)}`);
 

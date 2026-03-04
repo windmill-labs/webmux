@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.6.0](https://github.com/windmill-labs/webmux/compare/v0.5.0...v0.6.0) (2026-03-04)
+
+
+### Features
+
+* add `wmdev init` onboarding command ([#65](https://github.com/windmill-labs/webmux/issues/65)) ([6e8b128](https://github.com/windmill-labs/webmux/commit/6e8b128785d716bf38cd1a3ea0d45f9837941ec3))
+* add `wmdev service` command for running as a system daemon ([#67](https://github.com/windmill-labs/webmux/issues/67)) ([39ba997](https://github.com/windmill-labs/webmux/commit/39ba99704482ea5bfb8567a632b741df3e6bb623))
+* extract StartupEnvFields component ([#66](https://github.com/windmill-labs/webmux/issues/66)) ([6a2206d](https://github.com/windmill-labs/webmux/commit/6a2206d53183bcf5f307bb3d919aa6484caef55f))
+* rate-limit mitigation for GitHub API calls ([#69](https://github.com/windmill-labs/webmux/issues/69)) ([efb4b4a](https://github.com/windmill-labs/webmux/commit/efb4b4a46154842e6ef5e13320f08710d2f76707))
+* render checkbox for boolean startupEnvs, omit unchecked from env ([e274b3b](https://github.com/windmill-labs/webmux/commit/e274b3bc472e60748bd0d389aa08b2230e8918ac))
+
+
+### Bug Fixes
+
+* escape single quotes in .env.local values for bash sourcing ([#68](https://github.com/windmill-labs/webmux/issues/68)) ([e7022d7](https://github.com/windmill-labs/webmux/commit/e7022d7842ca11e68478679b6412615cd93465df))
+
 ## [0.5.0](https://github.com/windmill-labs/workmux-web/compare/v0.4.0...v0.5.0) (2026-03-03)
 
 

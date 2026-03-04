@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.7.0](https://github.com/windmill-labs/webmux/compare/v0.6.2...v0.7.0) (2026-03-04)
+
+
+### Features
+
+* generate .workmux.yaml with env-aware pane setup in init ([3cc608d](https://github.com/windmill-labs/webmux/commit/3cc608db4c4d19fbfc8e4307d35da0b602643094))
+* uncomment services and add npm install in init templates ([2943df2](https://github.com/windmill-labs/webmux/commit/2943df27f3f360cdc339e3ea8753048e51c4c7da))
+
+
+### Bug Fixes
+
+* comment out services section in wmdev template ([3967301](https://github.com/windmill-labs/webmux/commit/3967301fd4b6c2fe8b8b069b7e1b19991a86fdcb))
+
 ## [0.6.2](https://github.com/windmill-labs/webmux/compare/v0.6.1...v0.6.2) (2026-03-04)
 
 

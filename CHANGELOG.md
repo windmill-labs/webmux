@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.2](https://github.com/windmill-labs/webmux/compare/v0.6.1...v0.6.2) (2026-03-04)
+
+
+### Performance
+
+* reduce GitHub API usage by scoping PR polls to active worktrees ([5634a8e](https://github.com/windmill-labs/webmux/commit/5634a8e268f9aeaaba09f39667723bdc13254735))
+
 ## [0.6.1](https://github.com/windmill-labs/webmux/compare/v0.6.0...v0.6.1) (2026-03-04)
 
 

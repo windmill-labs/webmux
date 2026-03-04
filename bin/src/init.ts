@@ -42,15 +42,14 @@ function wmdevTemplate(name: string): string {
   return `# Project display name in the dashboard
 name: ${name}
 
-# --- Service health monitoring (uncomment to enable) ---
 # Each service defines a port env var that wmdev injects into .env.local
 # when creating a worktree. Ports are auto-assigned: base + (slot × step).
 # Use \`source .env.local\` in your .workmux.yaml pane commands to pick them up.
-# services:
-#   - name: app
-#     portEnv: PORT
-#     portStart: 3000       # Port for the main branch (slot 0)
-#     portStep: 10          # Increment per worktree (3010, 3020, ...)
+services:
+  - name: app
+    portEnv: PORT
+    portStart: 3000       # Port for the main branch (slot 0)
+    portStep: 10          # Increment per worktree (3010, 3020, ...)
 
 # Agent profiles determine how AI agents run in worktrees
 profiles:
@@ -99,6 +98,7 @@ panes:
 
   # Dev server — waits for .env.local (written by wmdev) then starts
   - command: >-
+      npm install &&
       until [ -f .env.local ]; do sleep 0.2; done;
       source .env.local;
       PORT=$PORT npm run dev

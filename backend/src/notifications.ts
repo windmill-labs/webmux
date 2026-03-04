@@ -43,7 +43,7 @@ function broadcast(event: SseEvent): void {
 // --- Dashboard activity tracking (used to pause PR monitor) ---
 
 const ACTIVITY_TIMEOUT_MS = 15_000;
-let lastActivityAt = 0;
+let lastActivityAt = Date.now();
 
 /** Call on every frontend poll to mark dashboard as active. */
 export function touchActivity(): void {

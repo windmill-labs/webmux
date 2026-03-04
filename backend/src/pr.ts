@@ -311,7 +311,12 @@ async function fetchReviewComments(
   const raw = await new Response(proc.stdout).text();
 
   // gh api --include prefixes the body with HTTP headers separated by a blank line
-  const blankLineIdx = raw.indexOf("\r\n\r\n");
+  let blankLineIdx = raw.indexOf("\r\n\r\n");
+  let separatorLen = 4;
+  if (blankLineIdx === -1) {
+    blankLineIdx = raw.indexOf("\n\n");
+    separatorLen = 2;
+  }
   if (blankLineIdx === -1) {
     // No headers found — may be an error or empty response
     if (raceResult !== 0) return cached?.comments ?? [];
@@ -323,7 +328,7 @@ async function fetchReviewComments(
   }
 
   const headerBlock = raw.slice(0, blankLineIdx);
-  const body = raw.slice(blankLineIdx + 4);
+  const body = raw.slice(blankLineIdx + separatorLen);
 
   // Check for 304 Not Modified
   if (headerBlock.includes("304 Not Modified")) {
@@ -486,20 +491,42 @@ export async function syncPrStatus(
     staleRefreshes.push(refreshStalePrData(wtDir));
   }
   await Promise.all(staleRefreshes);
+
+  // Evict cache entries for PRs that are no longer open.
+  const currentPrUrls = new Set<string>();
+  const currentApiPaths = new Set<string>();
+  for (const entries of branchPrs.values()) {
+    for (const entry of entries) {
+      currentPrUrls.add(entry.url);
+      const repoSlug = entry.repo
+        ? linkedRepos.find((lr) => lr.alias === entry.repo)?.repo ?? "{owner}/{repo}"
+        : "{owner}/{repo}";
+      currentApiPaths.add(`repos/${repoSlug}/pulls/${entry.number}/comments?per_page=100`);
+    }
+  }
+  for (const url of prUpdatedAtCache.keys()) {
+    if (!currentPrUrls.has(url)) prUpdatedAtCache.delete(url);
+  }
+  for (const url of prCommentsCache.keys()) {
+    if (!currentPrUrls.has(url)) prCommentsCache.delete(url);
+  }
+  for (const key of etagCache.keys()) {
+    if (!currentApiPaths.has(key)) etagCache.delete(key);
+  }
 }
 
 /** Start periodic PR status sync. Returns a cleanup function that stops the monitor.
- *  When `hasClients` is provided, polling is skipped if no clients are connected. */
+ *  When `isActive` is provided, polling is skipped if no clients are connected. */
 export function startPrMonitor(
   getWorktreePaths: () => Promise<Map<string, string>>,
   linkedRepos: LinkedRepoConfig[],
   projectDir?: string,
   intervalMs: number = 20_000,
-  hasClients?: () => boolean,
+  isActive?: () => boolean,
 ): () => void {
   const run = (): void => {
-    if (hasClients && !hasClients()) {
-      log.debug("[pr] skipping PR sync: no clients");
+    if (isActive && !isActive()) {
+      log.debug("[pr] skipping PR sync: no active clients");
       return;
     }
     syncPrStatus(getWorktreePaths, linkedRepos, projectDir).catch(

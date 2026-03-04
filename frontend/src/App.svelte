@@ -289,7 +289,6 @@
     }
 
     // Pause polling when tab is hidden to reduce server load.
-    // SSE stays open (cheap idle connection) so hasSseClients() remains accurate.
     function onVisibilityChange(): void {
       if (document.hidden) {
         clearInterval(interval);

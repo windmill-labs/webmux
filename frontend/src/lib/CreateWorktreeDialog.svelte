@@ -18,7 +18,13 @@
     initialBranch?: string;
     initialPrompt?: string;
     startupEnvs?: Record<string, string | boolean>;
-    oncreate: (name: string, profile: string, agent: string, prompt: string, envOverrides: Record<string, string>) => void;
+    oncreate: (
+      name: string,
+      profile: string,
+      agent: string,
+      prompt: string,
+      envOverrides: Record<string, string>,
+    ) => void;
     oncancel: () => void;
   } = $props();
 
@@ -43,10 +49,12 @@
   // svelte-ignore state_referenced_locally
   let envValues = $state<Record<string, string | boolean>>({ ...startupEnvs });
 
-  function focus(node: HTMLElement) { node.focus(); }
+  function focus(node: HTMLElement) {
+    node.focus();
+  }
 
   $effect(() => {
-    if (!profiles.some(p => p.name === profile)) {
+    if (!profiles.some((p) => p.name === profile)) {
       profile = defaultProfile;
     }
   });
@@ -86,7 +94,12 @@
         class="w-full px-2.5 py-1.5 rounded-md border border-edge bg-surface text-primary text-[13px] placeholder:text-muted/50 outline-none focus:border-accent resize-y"
         placeholder="Describe the task for the agent..."
         bind:value={prompt}
-        onkeydown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); e.currentTarget.form?.requestSubmit(); } }}
+        onkeydown={(e) => {
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            e.currentTarget.form?.requestSubmit();
+          }
+        }}
       ></textarea>
     </div>
     <div class="mb-4">
@@ -161,7 +174,8 @@
         variant="cta"
         class="flex items-center gap-1.5"
         disabled={loading}
-      >{#if loading}<span class="spinner"></span>{/if} Create</Btn>
+        >{#if loading}<span class="spinner"></span>{/if} Create</Btn
+      >
     </div>
   </form>
 </BaseDialog>

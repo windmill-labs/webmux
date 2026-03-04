@@ -16,7 +16,7 @@
     profiles: ProfileConfig[];
     initialBranch?: string;
     initialPrompt?: string;
-    startupEnvs?: Record<string, string>;
+    startupEnvs?: Record<string, string | boolean>;
     oncreate: (name: string, profile: string, agent: string, prompt: string, envOverrides: Record<string, string>) => void;
     oncancel: () => void;
   } = $props();
@@ -40,7 +40,7 @@
   let profile = $state(savedProfile ?? "Full");
   let saveDefault = $state(false);
   // svelte-ignore state_referenced_locally
-  let envValues = $state<Record<string, string>>({ ...startupEnvs });
+  let envValues = $state<Record<string, string | boolean>>({ ...startupEnvs });
   let envKeys = $derived(Object.keys(startupEnvs));
 
   function focus(node: HTMLElement) { node.focus(); }
@@ -65,7 +65,11 @@
       }
       const filteredEnvs: Record<string, string> = {};
       for (const [k, v] of Object.entries(envValues)) {
-        if (v) filteredEnvs[k] = v;
+        if (typeof v === "boolean") {
+          if (v) filteredEnvs[k] = "true";
+        } else if (v) {
+          filteredEnvs[k] = v;
+        }
       }
       oncreate(name.trim(), profile, agent, prompt.trim(), filteredEnvs);
     }}
@@ -98,15 +102,28 @@
       />
     </div>
     {#each envKeys as key (key)}
-      <div class="mb-4">
-        <label class="block text-xs text-muted mb-1.5" for="wt-env-{key}">{key}</label>
-        <input
-          id="wt-env-{key}"
-          type="text"
-          class="w-full px-2.5 py-1.5 rounded-md border border-edge bg-surface text-primary text-[13px] placeholder:text-muted/50 outline-none focus:border-accent"
-          bind:value={envValues[key]}
-        />
-      </div>
+      {#if typeof startupEnvs[key] === "boolean"}
+        <label class="flex items-center gap-2 mb-4 text-[13px] text-primary cursor-pointer">
+          <input
+            id="wt-env-{key}"
+            type="checkbox"
+            checked={envValues[key] === true}
+            onchange={(e) => { envValues[key] = e.currentTarget.checked; }}
+            class="accent-[var(--accent)]"
+          />
+          {key}
+        </label>
+      {:else}
+        <div class="mb-4">
+          <label class="block text-xs text-muted mb-1.5" for="wt-env-{key}">{key}</label>
+          <input
+            id="wt-env-{key}"
+            type="text"
+            class="w-full px-2.5 py-1.5 rounded-md border border-edge bg-surface text-primary text-[13px] placeholder:text-muted/50 outline-none focus:border-accent"
+            bind:value={envValues[key]}
+          />
+        </div>
+      {/if}
     {/each}
     <div class="flex gap-2 mb-4">
       {#each AGENTS as a}

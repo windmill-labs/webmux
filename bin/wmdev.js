@@ -30,7 +30,7 @@ const args = process.argv.slice(2);
 
 if (args[0] === "init") {
   await import("./init.ts");
-  process.exit();
+  process.exit(0);
 }
 
 let port = parseInt(process.env.BACKEND_PORT || "5111");

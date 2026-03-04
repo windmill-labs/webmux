@@ -13,7 +13,7 @@ function which(tool: string): boolean {
   return run("which", [tool]).success;
 }
 
-// ── Step 1 — Git repo check ─────────────────────────────────────────────────
+// ── Git repo check ──────────────────────────────────────────────────────────
 
 function getGitRoot(): string | null {
   const result = run("git", ["rev-parse", "--show-toplevel"]);
@@ -21,7 +21,7 @@ function getGitRoot(): string | null {
   return result.stdout.toString().trim();
 }
 
-// ── Step 2 — Dependency checks ──────────────────────────────────────────────
+// ── Dependency checks ───────────────────────────────────────────────────────
 
 interface Dep {
   tool: string;
@@ -54,7 +54,7 @@ function checkDeps(): Dep[] {
   return missing;
 }
 
-// ── Step 5 — .wmdev.yaml template ───────────────────────────────────────────
+// ── .wmdev.yaml template ────────────────────────────────────────────────────
 
 function detectProjectName(gitRoot: string): string {
   const pkgPath = join(gitRoot, "package.json");
@@ -62,7 +62,7 @@ function detectProjectName(gitRoot: string): string {
     try {
       const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
       if (pkg.name) return pkg.name;
-    } catch {}
+    } catch {} // malformed package.json, fall back to dir name
   }
   return basename(gitRoot);
 }

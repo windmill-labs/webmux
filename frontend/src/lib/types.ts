@@ -111,5 +111,5 @@ export interface AppConfig {
     sandbox?: ProfileConfig;
   };
   autoName: boolean;
-  startupEnvs?: Record<string, string>;
+  startupEnvs?: Record<string, string | boolean>;
 }

@@ -33,7 +33,7 @@ export interface WmdevConfig {
   };
   autoName: boolean;
   linkedRepos: LinkedRepoConfig[];
-  startupEnvs: Record<string, string>;
+  startupEnvs: Record<string, string | boolean>;
 }
 
 const DEFAULT_CONFIG: WmdevConfig = {
@@ -86,12 +86,16 @@ export function loadConfig(dir: string): WmdevConfig {
             alias: typeof r.alias === "string" ? r.alias : (r.repo as string).split("/").pop()!,
           }))
       : [];
-    // Parse startupEnvs: must be a plain object with string values
-    let startupEnvs: Record<string, string> = {};
+    // Parse startupEnvs: preserve booleans, coerce rest to string
+    let startupEnvs: Record<string, string | boolean> = {};
     if (parsed.startupEnvs && typeof parsed.startupEnvs === "object" && !Array.isArray(parsed.startupEnvs)) {
       const raw = parsed.startupEnvs as Record<string, unknown>;
       for (const [k, v] of Object.entries(raw)) {
-        startupEnvs[k] = typeof v === "string" ? v : String(v);
+        if (typeof v === "boolean") {
+          startupEnvs[k] = v;
+        } else {
+          startupEnvs[k] = typeof v === "string" ? v : String(v);
+        }
       }
     }
 

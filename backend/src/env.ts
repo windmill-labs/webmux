@@ -11,7 +11,7 @@ export async function readEnvLocal(wtDir: string): Promise<Record<string, string
         let val = match[2];
         // Strip surrounding single quotes (written by writeEnvLocal for complex values)
         if (val.length >= 2 && val.startsWith("'") && val.endsWith("'")) {
-          val = val.slice(1, -1);
+          val = val.slice(1, -1).replaceAll("'\\''", "'");
         }
         env[match[1]] = val;
       }
@@ -35,8 +35,11 @@ export async function writeEnvLocal(wtDir: string, entries: Record<string, strin
 
   for (const [key, value] of Object.entries(entries)) {
     // Single-quote values that contain characters unsafe for bare shell assignment
-    const needsQuoting = /[{}"\s$`\\!#|;&()<>]/.test(value);
-    const safe = needsQuoting ? `'${value}'` : value;
+    const needsQuoting = /[{}"\s$`\\!#|;&()<>']/.test(value);
+    // In bash, single quotes cannot contain single quotes, so we use the
+    // '\'' idiom: end the current single-quoted string, insert an escaped
+    // single quote, and start a new single-quoted string.
+    const safe = needsQuoting ? `'${value.replaceAll("'", "'\\''")}'` : value;
     const pattern = new RegExp(`^${key}=`);
     const idx = lines.findIndex((l) => pattern.test(l));
     if (idx >= 0) {

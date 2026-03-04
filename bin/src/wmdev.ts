@@ -3,6 +3,7 @@
 import { resolve, dirname, join } from "node:path";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import type { Subprocess } from "bun";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -14,6 +15,7 @@ wmdev — Dev dashboard for managing Git worktrees
 
 Usage:
   wmdev              Start the dashboard
+  wmdev init         Interactive project setup
   wmdev --port N     Set port (default: 5111)
   wmdev --debug      Show debug-level logs
   wmdev --help       Show this help message
@@ -26,6 +28,12 @@ Environment:
 // ── Parse args ───────────────────────────────────────────────────────────────
 
 const args = process.argv.slice(2);
+
+if (args[0] === "init") {
+  await import("./init.ts");
+  process.exit(0);
+}
+
 let port = parseInt(process.env.BACKEND_PORT || "5111");
 let debug = false;
 
@@ -54,7 +62,7 @@ for (let i = 0; i < args.length; i++) {
 
 // ── Load env files from CWD (.env.local overrides .env) ─────────────────────
 
-async function loadEnvFile(path) {
+async function loadEnvFile(path: string) {
   if (!existsSync(path)) return;
   const lines = (await Bun.file(path).text()).split("\n");
   for (const line of lines) {
@@ -79,7 +87,7 @@ const baseEnv = { ...process.env, BACKEND_PORT: String(port), WMDEV_PROJECT_DIR:
 
 // ── Prefixed output ──────────────────────────────────────────────────────────
 
-function pipeWithPrefix(stream, prefix) {
+function pipeWithPrefix(stream: ReadableStream<Uint8Array>, prefix: string) {
   const reader = stream.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
@@ -90,7 +98,7 @@ function pipeWithPrefix(stream, prefix) {
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split("\n");
-      buffer = lines.pop();
+      buffer = lines.pop()!;
       for (const line of lines) {
         console.log(`${prefix} ${line}`);
       }
@@ -103,7 +111,7 @@ function pipeWithPrefix(stream, prefix) {
 
 // ── Process management ───────────────────────────────────────────────────────
 
-const children = [];
+const children: Subprocess[] = [];
 let exiting = false;
 
 function cleanup() {

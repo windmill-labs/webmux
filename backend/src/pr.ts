@@ -402,6 +402,7 @@ export async function syncPrStatus(
   linkedRepos: LinkedRepoConfig[],
   projectDir?: string,
 ): Promise<void> {
+  log.debug(`[pr] starting sync (${1 + linkedRepos.length} repo(s))`);
   // Fetch current repo + all linked repos in parallel.
   const allRepoResults = await Promise.all([
     fetchAllPrs(undefined, undefined, projectDir),
@@ -444,6 +445,7 @@ export async function syncPrStatus(
     }
   }
   if (reviewTuples.length > 0) {
+    log.debug(`[pr] fetching review comments for ${reviewTuples.length} PR(s)`);
     const reviewResults = await mapWithConcurrency(reviewTuples, 5, (t) =>
       fetchReviewComments(t.entry.number, t.repoSlug, projectDir),
     );

@@ -40,9 +40,19 @@ function broadcast(event: SseEvent): void {
   }
 }
 
-/** Returns true if at least one SSE client is connected (dashboard is open). */
-export function hasSseClients(): boolean {
-  return sseClients.size > 0;
+// --- Dashboard activity tracking (used to pause PR monitor) ---
+
+const ACTIVITY_TIMEOUT_MS = 15_000;
+let lastActivityAt = 0;
+
+/** Call on every frontend poll to mark dashboard as active. */
+export function touchActivity(): void {
+  lastActivityAt = Date.now();
+}
+
+/** Returns true if a dashboard client has polled recently. */
+export function hasDashboardActivity(): boolean {
+  return Date.now() - lastActivityAt < ACTIVITY_TIMEOUT_MS;
 }
 
 // --- Public API ---

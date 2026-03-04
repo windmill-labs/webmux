@@ -288,14 +288,13 @@
       Notification.requestPermission().catch(() => {});
     }
 
-    // Pause polling + SSE when tab is hidden to reduce GitHub API usage.
+    // Pause polling when tab is hidden to reduce server load.
+    // SSE stays open (cheap idle connection) so hasSseClients() remains accurate.
     function onVisibilityChange(): void {
       if (document.hidden) {
         clearInterval(interval);
-        unsubNotifications();
       } else {
         refresh();
-        unsubNotifications = api.subscribeNotifications(handleNotification, handleSseDismiss, handleInitialNotification);
         interval = setInterval(refresh, 5000);
       }
     }

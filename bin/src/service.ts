@@ -64,6 +64,7 @@ Restart=on-failure
 RestartSec=5
 Environment=BACKEND_PORT=${config.port}
 Environment=WMDEV_PROJECT_DIR=${config.projectDir}
+Environment=PATH=${process.env.PATH}
 
 [Install]
 WantedBy=default.target
@@ -103,6 +104,8 @@ function generateLaunchdPlist(config: ServiceConfig): string {
     <string>${config.port}</string>
     <key>WMDEV_PROJECT_DIR</key>
     <string>${config.projectDir}</string>
+    <key>PATH</key>
+    <string>${process.env.PATH}</string>
   </dict>
 </dict>
 </plist>

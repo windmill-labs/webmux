@@ -49,5 +49,8 @@
     "typescript": "^5.0.0",
     "vite": "^6.0.0"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "@clack/prompts": "^1.1.0"
+  }
 }

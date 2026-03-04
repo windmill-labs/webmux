@@ -14,6 +14,7 @@ wmdev — Dev dashboard for managing Git worktrees
 
 Usage:
   wmdev              Start the dashboard
+  wmdev init         Interactive project setup
   wmdev --port N     Set port (default: 5111)
   wmdev --debug      Show debug-level logs
   wmdev --help       Show this help message
@@ -26,6 +27,12 @@ Environment:
 // ── Parse args ───────────────────────────────────────────────────────────────
 
 const args = process.argv.slice(2);
+
+if (args[0] === "init") {
+  await import("./init.js");
+  process.exit();
+}
+
 let port = parseInt(process.env.BACKEND_PORT || "5111");
 let debug = false;
 

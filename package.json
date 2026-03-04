@@ -26,17 +26,18 @@
   "scripts": {
     "dev": "bash dev.sh",
     "start": "bun bin/wmdev.js",
-    "build": "cd frontend && bun run build && cd .. && bun build backend/src/server.ts --target=bun --outfile=backend/dist/server.js",
+    "build": "cd frontend && bun run build && cd .. && bun build backend/src/server.ts --target=bun --outfile=backend/dist/server.js && bun build bin/src/wmdev.ts --target=bun --outfile=bin/wmdev.js",
     "prepublishOnly": "bun run build",
     "test": "bun run --cwd backend test && bun run --cwd frontend test",
     "test:coverage": "bun run --cwd backend test --coverage && bun run --cwd frontend test:coverage"
   },
   "files": [
-    "bin/",
+    "bin/wmdev.js",
     "backend/dist/",
     "frontend/dist/"
   ],
   "devDependencies": {
+    "@clack/prompts": "^1.1.0",
     "@sveltejs/vite-plugin-svelte": "^5.0.0",
     "@tailwindcss/vite": "^4.2.0",
     "@types/bun": "latest",
@@ -49,8 +50,5 @@
     "typescript": "^5.0.0",
     "vite": "^6.0.0"
   },
-  "license": "MIT",
-  "dependencies": {
-    "@clack/prompts": "^1.1.0"
-  }
+  "license": "MIT"
 }

@@ -42,13 +42,14 @@ function wmdevTemplate(name: string): string {
   return `# Project display name in the dashboard
 name: ${name}
 
-# Service health monitoring — tracks port status for each worktree
+# --- Service health monitoring (uncomment to enable) ---
+# Tracks port status for each worktree.
 # Each worktree gets its own port range: base + (slot × step)
-services:
-  - name: app
-    portEnv: PORT
-    portStart: 3000       # Port for the main branch (slot 0)
-    portStep: 10          # Increment per worktree (3010, 3020, ...)
+# services:
+#   - name: app
+#     portEnv: PORT
+#     portStart: 3000       # Port for the main branch (slot 0)
+#     portStep: 10          # Increment per worktree (3010, 3020, ...)
 
 # Agent profiles determine how AI agents run in worktrees
 profiles:

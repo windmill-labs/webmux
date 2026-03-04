@@ -74,7 +74,7 @@ profiles:
 #     alias: other
 
 # --- Startup environment variables ---
-# Env vars automatically set for every new worktree.
+# These will appear as configurable fields in the UI when creating a worktree.
 # startupEnvs:
 #   NODE_ENV: development
 `;
@@ -96,21 +96,13 @@ p.log.success(`Git root: ${gitRoot}`);
 // Step 2 — Dependency checks
 p.log.step("Checking dependencies...");
 
-let missing = checkDeps();
+const missing = checkDeps();
 
-while (missing.length > 0) {
+if (missing.length > 0) {
   const lines = missing.map((d) => `  ${d.tool}: ${d.hint}`).join("\n");
-  p.note(lines, "Install these required dependencies");
-
-  const cont = await p.confirm({ message: "Press Enter once you've installed them..." });
-  if (p.isCancel(cont)) {
-    p.outro("Aborted.");
-    process.exit(1);
-  }
-
-  // Re-check all deps
-  p.log.step("Re-checking dependencies...");
-  missing = checkDeps();
+  p.note(lines, "Install these required dependencies, then re-run wmdev init");
+  p.outro("Setup incomplete.");
+  process.exit(1);
 }
 
 // Step 3 — gh auth check

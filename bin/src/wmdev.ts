@@ -67,6 +67,13 @@ for (let i = 0; i < args.length; i++) {
   }
 }
 
+// ── Check for .wmdev.yaml ────────────────────────────────────────────────────
+
+if (!existsSync(resolve(process.cwd(), ".wmdev.yaml"))) {
+  console.error("No .wmdev.yaml found in this directory.\nRun `wmdev init` to set up your project.");
+  process.exit(1);
+}
+
 // ── Load env files from CWD (.env.local overrides .env) ─────────────────────
 
 async function loadEnvFile(path: string) {

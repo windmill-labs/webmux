@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1](https://github.com/windmill-labs/webmux/compare/v0.6.0...v0.6.1) (2026-03-04)
+
+
+### Bug Fixes
+
+* check for systemctl/launchctl before managing services ([61c9819](https://github.com/windmill-labs/webmux/commit/61c9819315202030b21d87f5e273dbdcbd2e39fd))
+
 ## [0.6.0](https://github.com/windmill-labs/webmux/compare/v0.5.0...v0.6.0) (2026-03-04)
 
 

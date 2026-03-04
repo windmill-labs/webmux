@@ -2,6 +2,7 @@
   import type { ProfileConfig } from "./types";
   import BaseDialog from "./BaseDialog.svelte";
   import Btn from "./Btn.svelte";
+  import StartupEnvFields from "./StartupEnvFields.svelte";
 
   let {
     loading = false,
@@ -41,7 +42,6 @@
   let saveDefault = $state(false);
   // svelte-ignore state_referenced_locally
   let envValues = $state<Record<string, string | boolean>>({ ...startupEnvs });
-  let envKeys = $derived(Object.keys(startupEnvs));
 
   function focus(node: HTMLElement) { node.focus(); }
 
@@ -101,30 +101,7 @@
         bind:value={name}
       />
     </div>
-    {#each envKeys as key (key)}
-      {#if typeof startupEnvs[key] === "boolean"}
-        <label class="flex items-center gap-2 mb-4 text-[13px] text-primary cursor-pointer">
-          <input
-            id="wt-env-{key}"
-            type="checkbox"
-            checked={envValues[key] === true}
-            onchange={(e) => { envValues[key] = e.currentTarget.checked; }}
-            class="accent-[var(--accent)]"
-          />
-          {key}
-        </label>
-      {:else}
-        <div class="mb-4">
-          <label class="block text-xs text-muted mb-1.5" for="wt-env-{key}">{key}</label>
-          <input
-            id="wt-env-{key}"
-            type="text"
-            class="w-full px-2.5 py-1.5 rounded-md border border-edge bg-surface text-primary text-[13px] placeholder:text-muted/50 outline-none focus:border-accent"
-            bind:value={envValues[key]}
-          />
-        </div>
-      {/if}
-    {/each}
+    <StartupEnvFields {startupEnvs} bind:envValues />
     <div class="flex gap-2 mb-4">
       {#each AGENTS as a}
         <label

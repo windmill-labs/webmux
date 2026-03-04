@@ -1,22 +1,21 @@
 #!/usr/bin/env bun
 
 import * as p from "@clack/prompts";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
-
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function run(cmd, args, opts) {
+function run(cmd: string, args: string[], opts?: { cwd?: string }) {
   return Bun.spawnSync([cmd, ...args], { stdout: "pipe", stderr: "pipe", ...opts });
 }
 
-function which(tool) {
+function which(tool: string): boolean {
   return run("which", [tool]).success;
 }
 
 // ── Step 1 — Git repo check ─────────────────────────────────────────────────
 
-function getGitRoot() {
+function getGitRoot(): string | null {
   const result = run("git", ["rev-parse", "--show-toplevel"]);
   if (!result.success) return null;
   return result.stdout.toString().trim();
@@ -24,7 +23,13 @@ function getGitRoot() {
 
 // ── Step 2 — Dependency checks ──────────────────────────────────────────────
 
-const deps = [
+interface Dep {
+  tool: string;
+  required: boolean;
+  hint: string;
+}
+
+const deps: Dep[] = [
   { tool: "git", required: true, hint: "https://git-scm.com/downloads" },
   { tool: "bun", required: true, hint: "https://bun.sh" },
   { tool: "tmux", required: true, hint: "brew install tmux / sudo apt install tmux" },
@@ -33,8 +38,8 @@ const deps = [
   { tool: "docker", required: false, hint: "https://docs.docker.com/get-started/get-docker/" },
 ];
 
-function checkDeps() {
-  const missing = [];
+function checkDeps(): Dep[] {
+  const missing: Dep[] = [];
   for (const dep of deps) {
     const found = which(dep.tool);
     if (found) {
@@ -51,18 +56,18 @@ function checkDeps() {
 
 // ── Step 5 — .wmdev.yaml template ───────────────────────────────────────────
 
-function detectProjectName(gitRoot) {
+function detectProjectName(gitRoot: string): string {
   const pkgPath = join(gitRoot, "package.json");
   if (existsSync(pkgPath)) {
     try {
-      const pkg = JSON.parse(require("node:fs").readFileSync(pkgPath, "utf-8"));
+      const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
       if (pkg.name) return pkg.name;
     } catch {}
   }
   return basename(gitRoot);
 }
 
-function wmdevTemplate(name) {
+function wmdevTemplate(name: string): string {
   return `# Project display name in the dashboard
 name: ${name}
 

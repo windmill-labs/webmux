@@ -106,8 +106,15 @@ export async function getStatus(): Promise<WorktreeStatus[]> {
   }), STATUS_HEADERS);
 }
 
-async function tryExec(args: string[]): Promise<{ ok: true; stdout: string } | { ok: false; error: string }> {
-  const proc = Bun.spawn(args, { stdout: "pipe", stderr: "pipe" });
+async function tryExec(
+  args: string[],
+  env?: Record<string, string>,
+): Promise<{ ok: true; stdout: string } | { ok: false; error: string }> {
+  const proc = Bun.spawn(args, {
+    stdout: "pipe",
+    stderr: "pipe",
+    ...(env ? { env: { ...Bun.env, ...env } } : {}),
+  });
   const stdout = await new Response(proc.stdout).text();
   const stderr = await new Response(proc.stderr).text();
   const exitCode = await proc.exited;
@@ -353,7 +360,7 @@ export async function addWorktree(
   }
 
   log.debug(`[workmux:add] running: ${args.join(" ")}`);
-  const execResult = await tryExec(args);
+  const execResult = await tryExec(args, opts?.envOverrides);
   if (!execResult.ok) return { ok: false, error: execResult.error };
   const result = execResult.stdout;
 

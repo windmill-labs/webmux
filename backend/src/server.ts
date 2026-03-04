@@ -31,7 +31,7 @@ import { loadConfig, gitRoot, type WmdevConfig } from "./config";
 import { startPrMonitor, type PrEntry } from "./pr";
 import { handleWorkmuxRpc } from "./rpc";
 import { jsonResponse, errorResponse } from "./http";
-import { handleNotificationStream, handleDismissNotification, installHookScripts } from "./notifications";
+import { handleNotificationStream, handleDismissNotification, installHookScripts, hasDashboardActivity, touchActivity } from "./notifications";
 import { fetchAssignedIssues, branchMatchesIssue, type LinkedLinearIssue } from "./linear";
 
 const PORT = parseInt(Bun.env.BACKEND_PORT || "5111", 10);
@@ -211,6 +211,7 @@ function makeCallbacks(ws: { send: (data: string) => void; readyState: number })
 // --- API handler functions (thin I/O layer, testable by injecting deps) ---
 
 async function apiGetWorktrees(req: Request): Promise<Response> {
+  touchActivity();
   const now = Date.now();
 
   // Serve from cache if still fresh
@@ -610,7 +611,7 @@ if (tmuxCheck.exitCode !== 0) {
 }
 
 cleanupStaleSessions();
-startPrMonitor(getWorktreePaths, config.linkedRepos, PROJECT_DIR);
+startPrMonitor(getWorktreePaths, config.linkedRepos, PROJECT_DIR, undefined, hasDashboardActivity);
 installHookScripts().catch((err: unknown) => {
   log.error(`[notify] failed to install hook scripts: ${err instanceof Error ? err.message : String(err)}`);
 });

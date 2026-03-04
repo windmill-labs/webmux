@@ -280,18 +280,29 @@
       .catch(() => {});
     refresh();
     refreshLinear();
-    const interval = setInterval(refresh, 5000);
+    let interval = setInterval(refresh, 5000);
     window.addEventListener("keydown", handleKeydown);
-    const unsubNotifications = api.subscribeNotifications(handleNotification, handleSseDismiss, handleInitialNotification);
+    let unsubNotifications = api.subscribeNotifications(handleNotification, handleSseDismiss, handleInitialNotification);
     // Request notification permission (no-op if already granted/denied)
     if (Notification.permission === "default") {
       Notification.requestPermission().catch(() => {});
     }
 
+    // Pause polling when tab is hidden to reduce server load.
+    function onVisibilityChange(): void {
+      if (document.hidden) {
+        clearInterval(interval);
+      } else {
+        refresh();
+        interval = setInterval(refresh, 5000);
+      }
+    }
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
     const mq = window.matchMedia("(max-width: 768px)");
     isMobile = mq.matches;
     if (isMobile) sidebarOpen = true;
-    function onMqChange(e: MediaQueryListEvent) {
+    function onMqChange(e: MediaQueryListEvent): void {
       isMobile = e.matches;
     }
     mq.addEventListener("change", onMqChange);
@@ -299,6 +310,7 @@
     return () => {
       clearInterval(interval);
       window.removeEventListener("keydown", handleKeydown);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       mq.removeEventListener("change", onMqChange);
       unsubNotifications();
     };

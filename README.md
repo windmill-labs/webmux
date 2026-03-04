@@ -6,27 +6,25 @@ https://github.com/user-attachments/assets/fa13366d-e758-4221-94bf-13a5738bf7e7
 
 ## Features
 
-### Embedded Terminals
-
-<!-- gif -->
-
-View and interact with your agents directly in the browser. Each worktree gets its own terminal session, streamed live via WebSocket. You can watch agents work, send prompts, and switch between worktrees instantly — no need to juggle tmux windows manually.
-
-### PR & CI Status
-
-<!-- gif -->
-
-See pull request status, CI check results, and failed log output right next to each worktree. No more switching to GitHub to check if your agent's PR passed CI.
-
 ### Create & Manage Worktrees
 
-<!-- gif -->
+![createanddelete-1 5x](https://github.com/user-attachments/assets/7f084d27-448c-47e4-aadf-8ab25154c096)
 
 Spin up new worktrees with one click. Pick a profile, type a prompt, and wmdev creates the worktree, starts the agent, and begins streaming output. Merge or remove worktrees when you're done.
 
+### Embedded Terminals
+
+View and interact with your agents directly in the browser. Each worktree gets its own terminal session, streamed live via WebSocket. You can watch agents work, send prompts, and switch between worktrees instantly — no need to juggle tmux windows manually.
+
+### PR, CI & Comments
+
+![commentsandci-1 5x](https://github.com/user-attachments/assets/395f8471-f9ff-412a-87e2-1347bfadb387)
+
+See pull request status, CI check results, and review comments right next to each worktree. No more switching to GitHub to check if your agent's PR passed CI.
+
 ### Service Health Monitoring
 
-<!-- gif -->
+![monitor-1 5x](https://github.com/user-attachments/assets/b2cf535a-0242-4c15-bdb9-344dfde5f75e)
 
 Track dev server ports across worktrees. wmdev polls configured services and shows live health badges so you know which worktrees have their servers running.
 
@@ -54,6 +52,17 @@ wmdev init                     # creates .workmux.yaml and .wmdev.yaml
 # 4. Start the dashboard
 wmdev                          # opens on http://localhost:5111
 ```
+
+## Prerequisites
+
+| Tool | Purpose |
+|------|---------|
+| [**bun**](https://bun.sh) | Runtime |
+| [**workmux**](https://github.com/raine/workmux) | Worktree + tmux orchestration |
+| **tmux** | Terminal multiplexer |
+| **git** | Worktree management |
+| **gh** | PR and CI status (optional) |
+| **docker** | Sandbox profile only (optional) |
 
 ## Configuration
 
@@ -136,20 +145,3 @@ linkedRepos:
 | `Cmd+K` | Create new worktree |
 | `Cmd+M` | Merge selected worktree |
 | `Cmd+D` | Remove selected worktree |
-
-## Prerequisites
-
-| Tool | Purpose |
-|------|---------|
-| [**bun**](https://bun.sh) | Runtime |
-| [**workmux**](https://github.com/raine/workmux) | Worktree + tmux orchestration |
-| **tmux** | Terminal multiplexer |
-| **git** | Worktree management |
-| **gh** | PR and CI status (optional) |
-| **docker** | Sandbox profile only (optional) |
-
-## Development
-
-```bash
-./dev.sh          # backend + frontend with hot reload, UI on :5112
-```

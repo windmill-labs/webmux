@@ -1,25 +1,9 @@
 #!/usr/bin/env bun
 
 import * as p from "@clack/prompts";
-import { existsSync, readFileSync } from "node:fs";
-import { basename, join } from "node:path";
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-function run(cmd: string, args: string[], opts?: { cwd?: string }) {
-  return Bun.spawnSync([cmd, ...args], { stdout: "pipe", stderr: "pipe", ...opts });
-}
-
-function which(tool: string): boolean {
-  return run("which", [tool]).success;
-}
-
-// ── Git repo check ──────────────────────────────────────────────────────────
-
-function getGitRoot(): string | null {
-  const result = run("git", ["rev-parse", "--show-toplevel"]);
-  if (!result.success) return null;
-  return result.stdout.toString().trim();
-}
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { run, which, getGitRoot, detectProjectName } from "./shared.ts";
 
 // ── Dependency checks ───────────────────────────────────────────────────────
 
@@ -52,19 +36,6 @@ function checkDeps(): Dep[] {
     }
   }
   return missing;
-}
-
-// ── .wmdev.yaml template ────────────────────────────────────────────────────
-
-function detectProjectName(gitRoot: string): string {
-  const pkgPath = join(gitRoot, "package.json");
-  if (existsSync(pkgPath)) {
-    try {
-      const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
-      if (pkg.name) return pkg.name;
-    } catch {} // malformed package.json, fall back to dir name
-  }
-  return basename(gitRoot);
 }
 
 function wmdevTemplate(name: string): string {

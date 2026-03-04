@@ -16,6 +16,7 @@ wmdev — Dev dashboard for managing Git worktrees
 Usage:
   wmdev              Start the dashboard
   wmdev init         Interactive project setup
+  wmdev service      Manage wmdev as a system service
   wmdev --port N     Set port (default: 5111)
   wmdev --debug      Show debug-level logs
   wmdev --help       Show this help message
@@ -31,6 +32,12 @@ const args = process.argv.slice(2);
 
 if (args[0] === "init") {
   await import("./init.ts");
+  process.exit(0);
+}
+
+if (args[0] === "service") {
+  const { default: service } = await import("./service.ts");
+  await service(args.slice(1));
   process.exit(0);
 }
 

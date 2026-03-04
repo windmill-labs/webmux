@@ -132,6 +132,28 @@ describe("writeEnvLocal / readEnvLocal round-trip", () => {
     expect(stdout.trim()).toBe(json);
   });
 
+  it("escapes single quotes in values so bash can source them", async () => {
+    const json = JSON.stringify([{ body: "centdix's task (done)" }]);
+    await writeEnvLocal(dir, { PR_DATA: json });
+
+    // Verify round-trip through readEnvLocal
+    const env = await readEnvLocal(dir);
+    expect(env.PR_DATA).toBe(json);
+
+    // Verify bash can source the file without error
+    const proc = Bun.spawn(["bash", "-c", `source "${dir}/.env.local" && echo "$PR_DATA"`], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const stdout = await new Response(proc.stdout).text();
+    const stderr = await new Response(proc.stderr).text();
+    await proc.exited;
+
+    expect(proc.exitCode).toBe(0);
+    expect(stderr).toBe("");
+    expect(stdout.trim()).toBe(json);
+  });
+
   it("upserts existing keys preserving quoting", async () => {
     await writeEnvLocal(dir, { PORT: "3000", PR_DATA: '{"old":true}' });
     await writeEnvLocal(dir, { PR_DATA: '{"new":true}' });

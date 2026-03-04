@@ -31,7 +31,7 @@ import { loadConfig, gitRoot, type WmdevConfig } from "./config";
 import { startPrMonitor, type PrEntry } from "./pr";
 import { handleWorkmuxRpc } from "./rpc";
 import { jsonResponse, errorResponse } from "./http";
-import { handleNotificationStream, handleDismissNotification, installHookScripts } from "./notifications";
+import { handleNotificationStream, handleDismissNotification, installHookScripts, hasSseClients } from "./notifications";
 import { fetchAssignedIssues, branchMatchesIssue, type LinkedLinearIssue } from "./linear";
 
 const PORT = parseInt(Bun.env.BACKEND_PORT || "5111", 10);
@@ -610,7 +610,7 @@ if (tmuxCheck.exitCode !== 0) {
 }
 
 cleanupStaleSessions();
-startPrMonitor(getWorktreePaths, config.linkedRepos, PROJECT_DIR);
+startPrMonitor(getWorktreePaths, config.linkedRepos, PROJECT_DIR, undefined, hasSseClients);
 installHookScripts().catch((err: unknown) => {
   log.error(`[notify] failed to install hook scripts: ${err instanceof Error ? err.message : String(err)}`);
 });

@@ -62,6 +62,7 @@ interface GhPrEntry {
   number: number;
   headRefName: string;
   state: string;
+  updatedAt: string;
   statusCheckRollup: GhCheckEntry[] | null;
   url: string;
   comments: GhComment[];
@@ -81,6 +82,7 @@ export interface PrEntry {
   number: number;
   state: "open" | "closed" | "merged";
   url: string;
+  updatedAt: string;
   ciStatus: "none" | "pending" | "success" | "failed";
   ciChecks: CiCheck[];
   comments: PrComment[];
@@ -89,6 +91,17 @@ export interface PrEntry {
 type FetchPrsResult =
   | { ok: true; data: Map<string, PrEntry> }
   | { ok: false; error: string };
+
+// ── Caches for rate-limit mitigation ─────────────────────────────────────────
+
+/** Last-seen updatedAt per PR URL — used to skip unchanged PRs' review comments. */
+const prUpdatedAtCache = new Map<string, string>();
+
+/** Cached review comments per PR URL — reused when updatedAt hasn't changed. */
+const prCommentsCache = new Map<string, PrComment[]>();
+
+/** ETag cache for gh api review comment responses. Keyed by API path. */
+const etagCache = new Map<string, { etag: string; comments: PrComment[] }>();
 
 // ── Pure helper functions (exported for unit testing) ─────────────────────────
 
@@ -167,6 +180,7 @@ export function parsePrResponse(
       number: entry.number,
       state: entry.state.toLowerCase() as PrEntry["state"],
       url: entry.url,
+      updatedAt: entry.updatedAt ?? "",
       ciStatus: summarizeChecks(entry.statusCheckRollup),
       ciChecks: mapChecks(entry.statusCheckRollup),
       comments: (entry.comments ?? []).map((c) => ({
@@ -200,7 +214,7 @@ export async function fetchAllPrs(
     "--state",
     "open",
     "--json",
-    "number,headRefName,state,statusCheckRollup,url,comments",
+    "number,headRefName,state,updatedAt,statusCheckRollup,url,comments",
     "--limit",
     String(PR_FETCH_LIMIT),
   ];
@@ -258,7 +272,8 @@ export async function mapWithConcurrency<T, R>(
   return results;
 }
 
-/** Fetch inline review comments for a single PR via `gh api`. Returns [] on error. */
+/** Fetch inline review comments for a single PR via `gh api` with ETag caching.
+ *  Conditional requests (304) don't count against GitHub's rate limit. */
 async function fetchReviewComments(
   prNumber: number,
   repoSlug?: string,
@@ -267,11 +282,17 @@ async function fetchReviewComments(
   const repoFlag = repoSlug
     ? repoSlug
     : "{owner}/{repo}";
+  const apiPath = `repos/${repoFlag}/pulls/${prNumber}/comments?per_page=100`;
   const args = [
     "gh", "api",
-    `repos/${repoFlag}/pulls/${prNumber}/comments`,
-    "--paginate",
+    apiPath,
+    "--include",
   ];
+
+  const cached = etagCache.get(apiPath);
+  if (cached) {
+    args.push("--header", `If-None-Match: ${cached.etag}`);
+  }
 
   const proc = Bun.spawn(args, {
     stdout: "pipe",
@@ -285,13 +306,44 @@ async function fetchReviewComments(
   });
 
   const raceResult = await Promise.race([proc.exited, timeout]);
-  if (raceResult === "timeout" || raceResult !== 0) return [];
+  if (raceResult === "timeout") return cached?.comments ?? [];
+
+  const raw = await new Response(proc.stdout).text();
+
+  // gh api --include prefixes the body with HTTP headers separated by a blank line
+  const blankLineIdx = raw.indexOf("\r\n\r\n");
+  if (blankLineIdx === -1) {
+    // No headers found — may be an error or empty response
+    if (raceResult !== 0) return cached?.comments ?? [];
+    try {
+      return parseReviewComments(raw);
+    } catch {
+      return cached?.comments ?? [];
+    }
+  }
+
+  const headerBlock = raw.slice(0, blankLineIdx);
+  const body = raw.slice(blankLineIdx + 4);
+
+  // Check for 304 Not Modified
+  if (headerBlock.includes("304 Not Modified")) {
+    log.debug(`[pr] etag cache hit for PR #${prNumber}`);
+    return cached?.comments ?? [];
+  }
+
+  if (raceResult !== 0) return cached?.comments ?? [];
+
+  // Parse ETag from response headers
+  const etagMatch = headerBlock.match(/^etag:\s*(.+)$/mi);
 
   try {
-    const json = await new Response(proc.stdout).text();
-    return parseReviewComments(json);
+    const comments = parseReviewComments(body);
+    if (etagMatch) {
+      etagCache.set(apiPath, { etag: etagMatch[1].trim(), comments });
+    }
+    return comments;
   } catch {
-    return [];
+    return cached?.comments ?? [];
   }
 }
 
@@ -370,12 +422,20 @@ export async function syncPrStatus(
     }
   }
 
-  // Fetch inline review comments for all open PRs (concurrency-limited)
-  // and merge into comments array, sorted by date.
+  // Fetch inline review comments for open PRs whose updatedAt has changed.
+  // PRs that haven't been updated reuse cached comments (saves API calls).
   const reviewTuples: { entry: PrEntry; repoSlug: string | undefined }[] = [];
   for (const entries of branchPrs.values()) {
     for (const entry of entries) {
-      if (entry.state === "open") {
+      if (entry.state !== "open") continue;
+      const cachedUpdatedAt = prUpdatedAtCache.get(entry.url);
+      if (cachedUpdatedAt === entry.updatedAt && prCommentsCache.has(entry.url)) {
+        log.debug(`[pr] skipping comments for PR #${entry.number} (unchanged)`);
+        const cached = prCommentsCache.get(entry.url)!;
+        entry.comments = [...entry.comments, ...cached].sort(
+          (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+        );
+      } else {
         const repoSlug = entry.repo
           ? linkedRepos.find((lr) => lr.alias === entry.repo)?.repo
           : undefined;
@@ -389,7 +449,10 @@ export async function syncPrStatus(
     );
     for (let i = 0; i < reviewTuples.length; i++) {
       const entry = reviewTuples[i].entry;
-      entry.comments = [...entry.comments, ...reviewResults[i]].sort(
+      const reviewComments = reviewResults[i];
+      prUpdatedAtCache.set(entry.url, entry.updatedAt);
+      prCommentsCache.set(entry.url, reviewComments);
+      entry.comments = [...entry.comments, ...reviewComments].sort(
         (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
       );
     }
@@ -423,14 +486,20 @@ export async function syncPrStatus(
   await Promise.all(staleRefreshes);
 }
 
-/** Start periodic PR status sync. Returns a cleanup function that stops the monitor. */
+/** Start periodic PR status sync. Returns a cleanup function that stops the monitor.
+ *  When `hasClients` is provided, polling is skipped if no clients are connected. */
 export function startPrMonitor(
   getWorktreePaths: () => Promise<Map<string, string>>,
   linkedRepos: LinkedRepoConfig[],
   projectDir?: string,
   intervalMs: number = 20_000,
+  hasClients?: () => boolean,
 ): () => void {
   const run = (): void => {
+    if (hasClients && !hasClients()) {
+      log.debug("[pr] skipping PR sync: no clients");
+      return;
+    }
     syncPrStatus(getWorktreePaths, linkedRepos, projectDir).catch(
       (err: unknown) => {
         log.error(`[pr] sync error: ${err}`);

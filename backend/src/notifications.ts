@@ -40,6 +40,11 @@ function broadcast(event: SseEvent): void {
   }
 }
 
+/** Returns true if at least one SSE client is connected (dashboard is open). */
+export function hasSseClients(): boolean {
+  return sseClients.size > 0;
+}
+
 // --- Public API ---
 
 export function addNotification(

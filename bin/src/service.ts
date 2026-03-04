@@ -1,12 +1,14 @@
 import * as p from "@clack/prompts";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { run, getGitRoot, detectProjectName } from "./shared.ts";
+import type { RunResult } from "./shared.ts";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
 type Platform = "linux" | "darwin";
+type Command = [bin: string, args: string[]];
 
 interface ServiceConfig {
   platform: Platform;
@@ -33,6 +35,20 @@ function resolveWmdevPath(): string | null {
 
 function sanitizeName(name: string): string {
   return name.replace(/[^a-zA-Z0-9_-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
+}
+
+function formatCommand([bin, args]: Command): string {
+  return [bin, ...args].join(" ");
+}
+
+function runCommand(cmd: Command): RunResult {
+  return run(cmd[0], cmd[1]);
+}
+
+function printRunResult(result: RunResult): void {
+  console.log(result.stdout.toString());
+  const err = result.stderr.toString().trim();
+  if (err) console.error(err);
 }
 
 // ── Service file paths ──────────────────────────────────────────────────────
@@ -119,27 +135,27 @@ function generateServiceFile(config: ServiceConfig): string {
 
 // ── Install/uninstall commands ──────────────────────────────────────────────
 
-function installCommands(config: ServiceConfig): string[] {
+function installCommands(config: ServiceConfig): Command[] {
   if (config.platform === "linux") {
     return [
-      "systemctl --user daemon-reload",
-      `systemctl --user enable --now ${config.serviceName}`,
+      ["systemctl", ["--user", "daemon-reload"]],
+      ["systemctl", ["--user", "enable", "--now", config.serviceName]],
     ];
   }
   return [
-    `launchctl load -w ${launchdPlistPath(config.serviceName)}`,
+    ["launchctl", ["load", "-w", launchdPlistPath(config.serviceName)]],
   ];
 }
 
-function uninstallCommands(config: ServiceConfig): string[] {
+function uninstallCommands(config: ServiceConfig): Command[] {
   if (config.platform === "linux") {
     return [
-      `systemctl --user stop ${config.serviceName}`,
-      `systemctl --user disable ${config.serviceName}`,
+      ["systemctl", ["--user", "stop", config.serviceName]],
+      ["systemctl", ["--user", "disable", config.serviceName]],
     ];
   }
   return [
-    `launchctl unload -w ${launchdPlistPath(config.serviceName)}`,
+    ["launchctl", ["unload", "-w", launchdPlistPath(config.serviceName)]],
   ];
 }
 
@@ -160,10 +176,8 @@ async function install(config: ServiceConfig): Promise<void> {
       p.log.info("Aborted.");
       return;
     }
-    // Stop existing service before reinstalling
     for (const cmd of uninstallCommands(config)) {
-      const [bin, ...args] = cmd.split(" ");
-      run(bin, args);
+      runCommand(cmd);
     }
   }
 
@@ -177,7 +191,7 @@ async function install(config: ServiceConfig): Promise<void> {
       "Contents:",
       content,
       "Commands to run:",
-      ...commands.map((c) => `  $ ${c}`),
+      ...commands.map((c) => `  $ ${formatCommand(c)}`),
     ].join("\n"),
     "Install service",
   );
@@ -188,23 +202,18 @@ async function install(config: ServiceConfig): Promise<void> {
     return;
   }
 
-  // Ensure parent directory exists
-  const dir = filePath.substring(0, filePath.lastIndexOf("/"));
-  await Bun.spawn(["mkdir", "-p", dir]).exited;
+  mkdirSync(filePath.substring(0, filePath.lastIndexOf("/")), { recursive: true });
 
-  // Write the service file
   await Bun.write(filePath, content);
   p.log.success(`Wrote ${filePath}`);
 
-  // Run install commands
   for (const cmd of commands) {
-    const [bin, ...args] = cmd.split(" ");
-    const result = run(bin, args);
+    const result = runCommand(cmd);
     if (!result.success) {
-      p.log.error(`Command failed: ${cmd}\n${result.stderr.toString()}`);
+      p.log.error(`Command failed: ${formatCommand(cmd)}\n${result.stderr.toString()}`);
       return;
     }
-    p.log.success(`$ ${cmd}`);
+    p.log.success(`$ ${formatCommand(cmd)}`);
   }
 
   p.log.success("Service installed and started!");
@@ -235,7 +244,7 @@ async function uninstall(config: ServiceConfig): Promise<void> {
       `File to remove: ${filePath}`,
       "",
       "Commands to run:",
-      ...commands.map((c) => `  $ ${c}`),
+      ...commands.map((c) => `  $ ${formatCommand(c)}`),
     ].join("\n"),
     "Uninstall service",
   );
@@ -247,17 +256,14 @@ async function uninstall(config: ServiceConfig): Promise<void> {
   }
 
   for (const cmd of commands) {
-    const [bin, ...args] = cmd.split(" ");
-    const result = run(bin, args);
+    const result = runCommand(cmd);
     if (!result.success) {
-      p.log.warning(`Command failed: ${cmd}\n${result.stderr.toString()}`);
+      p.log.warning(`Command failed: ${formatCommand(cmd)}\n${result.stderr.toString()}`);
     } else {
-      p.log.success(`$ ${cmd}`);
+      p.log.success(`$ ${formatCommand(cmd)}`);
     }
   }
 
-  // Remove the file
-  const { unlinkSync } = await import("node:fs");
   unlinkSync(filePath);
   p.log.success(`Removed ${filePath}`);
 
@@ -271,17 +277,9 @@ function status(config: ServiceConfig): void {
   }
 
   if (config.platform === "linux") {
-    const result = run("systemctl", ["--user", "status", config.serviceName]);
-    console.log(result.stdout.toString());
-    if (result.stderr.toString().trim()) {
-      console.error(result.stderr.toString());
-    }
+    printRunResult(run("systemctl", ["--user", "status", config.serviceName]));
   } else {
-    const result = run("launchctl", ["list", `com.wmdev.${config.serviceName}`]);
-    console.log(result.stdout.toString());
-    if (result.stderr.toString().trim()) {
-      console.error(result.stderr.toString());
-    }
+    printRunResult(run("launchctl", ["list", `com.wmdev.${config.serviceName}`]));
   }
 }
 
@@ -291,27 +289,25 @@ function logs(config: ServiceConfig): void {
     return;
   }
 
+  let proc: ReturnType<typeof Bun.spawn>;
   if (config.platform === "linux") {
-    // Exec into journalctl so user gets live output
-    const proc = Bun.spawn(
+    proc = Bun.spawn(
       ["journalctl", "--user", "-u", config.serviceName, "-f", "--no-pager"],
       { stdout: "inherit", stderr: "inherit" },
     );
-    process.on("SIGINT", () => proc.kill());
-    proc.exited.then(() => process.exit(0));
   } else {
     const logPath = join(homedir(), "Library", "Logs", `wmdev-${config.serviceName}.log`);
     if (!existsSync(logPath)) {
       p.log.error(`Log file not found: ${logPath}`);
       return;
     }
-    const proc = Bun.spawn(["tail", "-f", logPath], {
+    proc = Bun.spawn(["tail", "-f", logPath], {
       stdout: "inherit",
       stderr: "inherit",
     });
-    process.on("SIGINT", () => proc.kill());
-    proc.exited.then(() => process.exit(0));
   }
+  process.on("SIGINT", () => proc.kill());
+  proc.exited.then((code) => process.exit(code));
 }
 
 // ── Main ────────────────────────────────────────────────────────────────────
@@ -342,7 +338,6 @@ export default async function service(args: string[]): Promise<void> {
     return;
   }
 
-  // Resolve config
   const platform = getPlatform();
   if (!platform) {
     p.log.error(`Unsupported platform: ${process.platform}. Only linux and macOS are supported.`);
@@ -361,11 +356,15 @@ export default async function service(args: string[]): Promise<void> {
     return;
   }
 
-  // Parse --port from remaining args, default from env or 5111
   let port = parseInt(process.env.BACKEND_PORT || "5111");
   for (let i = 1; i < args.length; i++) {
     if (args[i] === "--port" && args[i + 1]) {
-      port = parseInt(args[++i]);
+      const parsed = parseInt(args[++i]);
+      if (Number.isNaN(parsed)) {
+        p.log.error("--port requires a numeric value");
+        return;
+      }
+      port = parsed;
     }
   }
 

@@ -2,7 +2,7 @@
 
 A web dashboard for managing parallel AI coding agents. Built on top of [workmux](https://github.com/raine/workmux), which handles git worktrees and tmux orchestration — wmdev adds a browser UI with embedded terminals, live status tracking, and CI integration.
 
-https://github.com/user-attachments/assets/fa13366d-e758-4221-94bf-13a5738bf7e7
+https://github.com/user-attachments/assets/48c9564f-42a5-404f-97e2-c5ee0138f15d
 
 ## Features
 

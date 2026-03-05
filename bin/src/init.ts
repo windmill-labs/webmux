@@ -38,11 +38,11 @@ function checkDeps(): Dep[] {
   return missing;
 }
 
-function wmdevTemplate(name: string): string {
+function webmuxTemplate(name: string): string {
   return `# Project display name in the dashboard
 name: ${name}
 
-# Each service defines a port env var that wmdev injects into .env.local
+# Each service defines a port env var that webmux injects into .env.local
 # when creating a worktree. Ports are auto-assigned: base + (slot × step).
 # Use \`source .env.local\` in your .workmux.yaml pane commands to pick them up.
 services:
@@ -96,7 +96,7 @@ panes:
       To restart dev server: tmux send-keys -t .1 C-c 'source .env.local && PORT=\\$PORT npm run dev' Enter"
     focus: true
 
-  # Dev server — waits for .env.local (written by wmdev) then starts
+  # Dev server — waits for .env.local (written by webmux) then starts
   - command: >-
       npm install &&
       until [ -f .env.local ]; do sleep 0.2; done;
@@ -108,7 +108,7 @@ panes:
 
 // ── Main ─────────────────────────────────────────────────────────────────────
 
-p.intro("wmdev init");
+p.intro("webmux init");
 
 // Step 1 — Git repo
 const gitRoot = getGitRoot();
@@ -126,7 +126,7 @@ const missing = checkDeps();
 
 if (missing.length > 0) {
   const lines = missing.map((d) => `  ${d.tool}: ${d.hint}`).join("\n");
-  p.note(lines, "Install these required dependencies, then re-run wmdev init");
+  p.note(lines, "Install these required dependencies, then re-run webmux init");
   p.outro("Setup incomplete.");
   process.exit(1);
 }
@@ -152,20 +152,20 @@ if (existsSync(workmuxYaml)) {
   p.log.success(".workmux.yaml created");
 }
 
-// Step 5 — .wmdev.yaml
-const wmdevYaml = join(gitRoot, ".wmdev.yaml");
-if (existsSync(wmdevYaml)) {
-  p.log.info(".wmdev.yaml already exists, skipping");
+// Step 5 — .webmux.yaml
+const webmuxYaml = join(gitRoot, ".webmux.yaml");
+if (existsSync(webmuxYaml)) {
+  p.log.info(".webmux.yaml already exists, skipping");
 } else {
   const name = detectProjectName(gitRoot);
-  await Bun.write(wmdevYaml, wmdevTemplate(name));
-  p.log.success(".wmdev.yaml created");
+  await Bun.write(webmuxYaml, webmuxTemplate(name));
+  p.log.success(".webmux.yaml created");
 }
 
 // Step 6 — Summary
 p.outro("You're all set! Next steps:");
 console.log();
 console.log("  1. Edit .workmux.yaml to configure pane layout for your project");
-console.log("  2. Edit .wmdev.yaml to set up service ports and profiles");
-console.log("  3. Run: wmdev");
+console.log("  2. Edit .webmux.yaml to set up service ports and profiles");
+console.log("  3. Run: webmux");
 console.log();

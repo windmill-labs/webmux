@@ -14,7 +14,7 @@ interface ServiceConfig {
   platform: Platform;
   projectName: string;
   serviceName: string;
-  wmdevPath: string;
+  webmuxPath: string;
   projectDir: string;
   port: number;
 }
@@ -27,8 +27,8 @@ function getPlatform(): Platform | null {
   return null;
 }
 
-function resolveWmdevPath(): string | null {
-  const result = run("which", ["wmdev"]);
+function resolveWebmuxPath(): string | null {
+  const result = run("which", ["webmux"]);
   if (!result.success) return null;
   return result.stdout.toString().trim();
 }
@@ -58,7 +58,7 @@ function systemdUnitPath(serviceName: string): string {
 }
 
 function launchdPlistPath(serviceName: string): string {
-  return join(homedir(), "Library", "LaunchAgents", `com.wmdev.${serviceName}.plist`);
+  return join(homedir(), "Library", "LaunchAgents", `com.webmux.${serviceName}.plist`);
 }
 
 function serviceFilePath(config: ServiceConfig): string {
@@ -70,16 +70,16 @@ function serviceFilePath(config: ServiceConfig): string {
 
 function generateSystemdUnit(config: ServiceConfig): string {
   return `[Unit]
-Description=wmdev dashboard — ${config.projectName}
+Description=webmux dashboard — ${config.projectName}
 
 [Service]
 Type=simple
-ExecStart=${config.wmdevPath} --port ${config.port}
+ExecStart=${config.webmuxPath} --port ${config.port}
 WorkingDirectory=${config.projectDir}
 Restart=on-failure
 RestartSec=5
 Environment=BACKEND_PORT=${config.port}
-Environment=WMDEV_PROJECT_DIR=${config.projectDir}
+Environment=WEBMUX_PROJECT_DIR=${config.projectDir}
 Environment=PATH=${process.env.PATH}
 
 [Install]
@@ -88,16 +88,16 @@ WantedBy=default.target
 }
 
 function generateLaunchdPlist(config: ServiceConfig): string {
-  const logPath = join(homedir(), "Library", "Logs", `wmdev-${config.serviceName}.log`);
+  const logPath = join(homedir(), "Library", "Logs", `webmux-${config.serviceName}.log`);
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.wmdev.${config.serviceName}</string>
+  <string>com.webmux.${config.serviceName}</string>
   <key>ProgramArguments</key>
   <array>
-    <string>${config.wmdevPath}</string>
+    <string>${config.webmuxPath}</string>
     <string>--port</string>
     <string>${config.port}</string>
   </array>
@@ -118,7 +118,7 @@ function generateLaunchdPlist(config: ServiceConfig): string {
   <dict>
     <key>BACKEND_PORT</key>
     <string>${config.port}</string>
-    <key>WMDEV_PROJECT_DIR</key>
+    <key>WEBMUX_PROJECT_DIR</key>
     <string>${config.projectDir}</string>
     <key>PATH</key>
     <string>${process.env.PATH}</string>
@@ -225,8 +225,8 @@ async function install(config: ServiceConfig): Promise<void> {
     );
   }
 
-  p.log.info(`Check status: wmdev service status`);
-  p.log.info(`View logs:    wmdev service logs`);
+  p.log.info(`Check status: webmux service status`);
+  p.log.info(`View logs:    webmux service logs`);
 }
 
 async function uninstall(config: ServiceConfig): Promise<void> {
@@ -279,7 +279,7 @@ function status(config: ServiceConfig): void {
   if (config.platform === "linux") {
     printRunResult(run("systemctl", ["--user", "status", config.serviceName]));
   } else {
-    printRunResult(run("launchctl", ["list", `com.wmdev.${config.serviceName}`]));
+    printRunResult(run("launchctl", ["list", `com.webmux.${config.serviceName}`]));
   }
 }
 
@@ -296,7 +296,7 @@ function logs(config: ServiceConfig): void {
       { stdout: "inherit", stderr: "inherit" },
     );
   } else {
-    const logPath = join(homedir(), "Library", "Logs", `wmdev-${config.serviceName}.log`);
+    const logPath = join(homedir(), "Library", "Logs", `webmux-${config.serviceName}.log`);
     if (!existsSync(logPath)) {
       p.log.error(`Log file not found: ${logPath}`);
       return;
@@ -314,13 +314,13 @@ function logs(config: ServiceConfig): void {
 
 function usage(): void {
   console.log(`
-wmdev service — Manage wmdev as a system service
+webmux service — Manage webmux as a system service
 
 Usage:
-  wmdev service install     Install, enable, and start the service
-  wmdev service uninstall   Stop, disable, and remove the service
-  wmdev service status      Show service status
-  wmdev service logs        Tail service logs
+  webmux service install     Install, enable, and start the service
+  webmux service uninstall   Stop, disable, and remove the service
+  webmux service status      Show service status
+  webmux service logs        Tail service logs
 `);
 }
 
@@ -357,9 +357,9 @@ export default async function service(args: string[]): Promise<void> {
     return;
   }
 
-  const wmdevPath = resolveWmdevPath();
-  if (!wmdevPath) {
-    p.log.error("Could not find wmdev in PATH.");
+  const webmuxPath = resolveWebmuxPath();
+  if (!webmuxPath) {
+    p.log.error("Could not find webmux in PATH.");
     return;
   }
 
@@ -376,13 +376,13 @@ export default async function service(args: string[]): Promise<void> {
   }
 
   const projectName = detectProjectName(gitRoot);
-  const serviceName = `wmdev-${sanitizeName(projectName)}`;
+  const serviceName = `webmux-${sanitizeName(projectName)}`;
 
   const config: ServiceConfig = {
     platform,
     projectName,
     serviceName,
-    wmdevPath,
+    webmuxPath,
     projectDir: gitRoot,
     port,
   };

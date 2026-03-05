@@ -1,5 +1,5 @@
 {
-  "name": "wmdev",
+  "name": "webmux",
   "version": "0.7.0",
   "description": "Web dashboard for workmux — browser UI with embedded terminals, PR monitoring, and CI integration",
   "type": "module",
@@ -17,7 +17,7 @@
     "ai-agent"
   ],
   "bin": {
-    "wmdev": "bin/wmdev.js"
+    "webmux": "bin/webmux.js"
   },
   "workspaces": [
     "backend",
@@ -25,14 +25,14 @@
   ],
   "scripts": {
     "dev": "bash dev.sh",
-    "start": "bun bin/wmdev.js",
-    "build": "cd frontend && bun run build && cd .. && bun build backend/src/server.ts --target=bun --outfile=backend/dist/server.js && bun build bin/src/wmdev.ts --target=bun --outfile=bin/wmdev.js",
+    "start": "bun bin/webmux.js",
+    "build": "cd frontend && bun run build && cd .. && bun build backend/src/server.ts --target=bun --outfile=backend/dist/server.js && bun build bin/src/webmux.ts --target=bun --outfile=bin/webmux.js",
     "prepublishOnly": "bun run build",
     "test": "bun run --cwd backend test && bun run --cwd frontend test",
     "test:coverage": "bun run --cwd backend test --coverage && bun run --cwd frontend test:coverage"
   },
   "files": [
-    "bin/wmdev.js",
+    "bin/webmux.js",
     "backend/dist/",
     "frontend/dist/"
   ],

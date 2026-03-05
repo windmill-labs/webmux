@@ -1,6 +1,6 @@
-# wmdev
+# webmux
 
-A web dashboard for managing parallel AI coding agents. Built on top of [workmux](https://github.com/raine/workmux), which handles git worktrees and tmux orchestration — wmdev adds a browser UI with embedded terminals, live status tracking, and CI integration.
+A web dashboard for managing parallel AI coding agents. Built on top of [workmux](https://github.com/raine/workmux), which handles git worktrees and tmux orchestration — webmux adds a browser UI with embedded terminals, live status tracking, and CI integration.
 
 https://github.com/user-attachments/assets/48c9564f-42a5-404f-97e2-c5ee0138f15d
 
@@ -10,7 +10,7 @@ https://github.com/user-attachments/assets/48c9564f-42a5-404f-97e2-c5ee0138f15d
 
 ![createanddelete-1 5x](https://github.com/user-attachments/assets/7f084d27-448c-47e4-aadf-8ab25154c096)
 
-Spin up new worktrees with one click. Pick a profile, type a prompt, and wmdev creates the worktree, starts the agent, and begins streaming output. Merge or remove worktrees when you're done.
+Spin up new worktrees with one click. Pick a profile, type a prompt, and webmux creates the worktree, starts the agent, and begins streaming output. Merge or remove worktrees when you're done.
 
 ### Embedded Terminals
 
@@ -26,13 +26,13 @@ See pull request status, CI check results, and review comments right next to eac
 
 ![monitor-1 5x](https://github.com/user-attachments/assets/b2cf535a-0242-4c15-bdb9-344dfde5f75e)
 
-Track dev server ports across worktrees. wmdev polls configured services and shows live health badges so you know which worktrees have their servers running.
+Track dev server ports across worktrees. webmux polls configured services and shows live health badges so you know which worktrees have their servers running.
 
 ### Docker Sandbox Mode
 
 <!-- gif -->
 
-Run agents in isolated Docker containers for untrusted or experimental work. wmdev manages the container lifecycle, port forwarding, and volume mounts automatically.
+Run agents in isolated Docker containers for untrusted or experimental work. webmux manages the container lifecycle, port forwarding, and volume mounts automatically.
 
 ## Quick Start
 
@@ -42,15 +42,15 @@ cargo install workmux          # or: brew install raine/workmux/workmux
 sudo apt install tmux           # or: brew install tmux
 curl -fsSL https://bun.sh/install | bash
 
-# 2. Install wmdev
-bun install -g wmdev
+# 2. Install webmux
+bun install -g webmux
 
 # 3. Set up your project
 cd /path/to/your/project
-wmdev init                     # creates .workmux.yaml and .wmdev.yaml
+webmux init                     # creates .workmux.yaml and .webmux.yaml
 
 # 4. Start the dashboard
-wmdev                          # opens on http://localhost:5111
+webmux                          # opens on http://localhost:5111
 ```
 
 ## Prerequisites
@@ -66,13 +66,13 @@ wmdev                          # opens on http://localhost:5111
 
 ## Configuration
 
-wmdev uses two config files in the project root:
+webmux uses two config files in the project root:
 
 - **`.workmux.yaml`** — Controls worktree directory, pane layout, agent selection, and lifecycle hooks. See the [workmux docs](https://github.com/raine/workmux).
-- **`.wmdev.yaml`** — Dashboard-specific config: service health checks, profiles, linked repos, and Docker sandbox settings.
+- **`.webmux.yaml`** — Dashboard-specific config: service health checks, profiles, linked repos, and Docker sandbox settings.
 
 <details>
-<summary><strong>.wmdev.yaml example</strong></summary>
+<summary><strong>.webmux.yaml example</strong></summary>
 
 ```yaml
 name: My Project
@@ -113,7 +113,7 @@ linkedRepos:
 </details>
 
 <details>
-<summary><strong>.wmdev.yaml full schema</strong></summary>
+<summary><strong>.webmux.yaml full schema</strong></summary>
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|

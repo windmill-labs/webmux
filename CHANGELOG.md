@@ -11,7 +11,7 @@
 
 ### Bug Fixes
 
-* comment out services section in wmdev template ([3967301](https://github.com/windmill-labs/webmux/commit/3967301fd4b6c2fe8b8b069b7e1b19991a86fdcb))
+* comment out services section in webmux template ([3967301](https://github.com/windmill-labs/webmux/commit/3967301fd4b6c2fe8b8b069b7e1b19991a86fdcb))
 
 ## [0.6.2](https://github.com/windmill-labs/webmux/compare/v0.6.1...v0.6.2) (2026-03-04)
 
@@ -32,8 +32,8 @@
 
 ### Features
 
-* add `wmdev init` onboarding command ([#65](https://github.com/windmill-labs/webmux/issues/65)) ([6e8b128](https://github.com/windmill-labs/webmux/commit/6e8b128785d716bf38cd1a3ea0d45f9837941ec3))
-* add `wmdev service` command for running as a system daemon ([#67](https://github.com/windmill-labs/webmux/issues/67)) ([39ba997](https://github.com/windmill-labs/webmux/commit/39ba99704482ea5bfb8567a632b741df3e6bb623))
+* add `webmux init` onboarding command ([#65](https://github.com/windmill-labs/webmux/issues/65)) ([6e8b128](https://github.com/windmill-labs/webmux/commit/6e8b128785d716bf38cd1a3ea0d45f9837941ec3))
+* add `webmux service` command for running as a system daemon ([#67](https://github.com/windmill-labs/webmux/issues/67)) ([39ba997](https://github.com/windmill-labs/webmux/commit/39ba99704482ea5bfb8567a632b741df3e6bb623))
 * extract StartupEnvFields component ([#66](https://github.com/windmill-labs/webmux/issues/66)) ([6a2206d](https://github.com/windmill-labs/webmux/commit/6a2206d53183bcf5f307bb3d919aa6484caef55f))
 * rate-limit mitigation for GitHub API calls ([#69](https://github.com/windmill-labs/webmux/issues/69)) ([efb4b4a](https://github.com/windmill-labs/webmux/commit/efb4b4a46154842e6ef5e13320f08710d2f76707))
 * render checkbox for boolean startupEnvs, omit unchecked from env ([e274b3b](https://github.com/windmill-labs/webmux/commit/e274b3bc472e60748bd0d389aa08b2230e8918ac))
@@ -122,8 +122,8 @@
 
 ### Features
 
-* add debug log levels with --debug flag for wmdev ([331ed1a](https://github.com/windmill-labs/workmux-web/commit/331ed1a0445869c2d187a872f61a532c52315227))
-* move port allocation into wmdev backend ([#34](https://github.com/windmill-labs/workmux-web/issues/34)) ([ade42fd](https://github.com/windmill-labs/workmux-web/commit/ade42fddecb27b350c548cc2c3146014ccf4b340))
+* add debug log levels with --debug flag for webmux ([331ed1a](https://github.com/windmill-labs/workmux-web/commit/331ed1a0445869c2d187a872f61a532c52315227))
+* move port allocation into webmux backend ([#34](https://github.com/windmill-labs/workmux-web/issues/34)) ([ade42fd](https://github.com/windmill-labs/workmux-web/commit/ade42fddecb27b350c548cc2c3146014ccf4b340))
 
 
 ### Bug Fixes

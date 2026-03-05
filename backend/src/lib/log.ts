@@ -1,4 +1,4 @@
-const DEBUG = Bun.env.WMDEV_DEBUG === "1";
+const DEBUG = Bun.env.WEBMUX_DEBUG === "1";
 
 function ts(): string {
   return new Date().toISOString().slice(11, 23);

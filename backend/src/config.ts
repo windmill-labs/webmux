@@ -24,7 +24,7 @@ export interface LinkedRepoConfig {
   alias: string;
 }
 
-export interface WmdevConfig {
+export interface WebmuxConfig {
   name?: string;
   services: ServiceConfig[];
   profiles: {
@@ -36,7 +36,7 @@ export interface WmdevConfig {
   startupEnvs: Record<string, string | boolean>;
 }
 
-const DEFAULT_CONFIG: WmdevConfig = {
+const DEFAULT_CONFIG: WebmuxConfig = {
   services: [],
   profiles: { default: { name: "default" } },
   autoName: false,
@@ -65,11 +65,11 @@ export function gitRoot(dir: string): string {
   return new TextDecoder().decode(result.stdout).trim() || dir;
 }
 
-/** Load .wmdev.yaml from the git root, merging with defaults. */
-export function loadConfig(dir: string): WmdevConfig {
+/** Load .webmux.yaml from the git root, merging with defaults. */
+export function loadConfig(dir: string): WebmuxConfig {
   try {
     const root = gitRoot(dir);
-    const filePath = join(root, ".wmdev.yaml");
+    const filePath = join(root, ".webmux.yaml");
     const result = Bun.spawnSync(["cat", filePath], { stdout: "pipe" });
     const text = new TextDecoder().decode(result.stdout).trim();
     if (!text) return DEFAULT_CONFIG;

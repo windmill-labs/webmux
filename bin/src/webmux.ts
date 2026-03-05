@@ -11,15 +11,15 @@ const PKG_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 function usage() {
   console.log(`
-wmdev — Dev dashboard for managing Git worktrees
+webmux — Dev dashboard for managing Git worktrees
 
 Usage:
-  wmdev              Start the dashboard
-  wmdev init         Interactive project setup
-  wmdev service      Manage wmdev as a system service
-  wmdev --port N     Set port (default: 5111)
-  wmdev --debug      Show debug-level logs
-  wmdev --help       Show this help message
+  webmux              Start the dashboard
+  webmux init         Interactive project setup
+  webmux service      Manage webmux as a system service
+  webmux --port N     Set port (default: 5111)
+  webmux --debug      Show debug-level logs
+  webmux --help       Show this help message
 
 Environment:
   BACKEND_PORT     Same as --port (flag takes precedence)
@@ -62,15 +62,15 @@ for (let i = 0; i < args.length; i++) {
       process.exit(0);
       break;
     default:
-      console.error(`Unknown option: ${args[i]}\nRun wmdev --help for usage.`);
+      console.error(`Unknown option: ${args[i]}\nRun webmux --help for usage.`);
       process.exit(1);
   }
 }
 
-// ── Check for .wmdev.yaml ────────────────────────────────────────────────────
+// ── Check for .webmux.yaml ───────────────────────────────────────────────────
 
-if (!existsSync(resolve(process.cwd(), ".wmdev.yaml"))) {
-  console.error("No .wmdev.yaml found in this directory.\nRun `wmdev init` to set up your project.");
+if (!existsSync(resolve(process.cwd(), ".webmux.yaml"))) {
+  console.error("No .webmux.yaml found in this directory.\nRun `webmux init` to set up your project.");
   process.exit(1);
 }
 
@@ -97,7 +97,7 @@ await loadEnvFile(resolve(process.cwd(), ".env"));
 
 // ── Shared env for child processes ───────────────────────────────────────────
 
-const baseEnv = { ...process.env, BACKEND_PORT: String(port), WMDEV_PROJECT_DIR: process.cwd(), ...(debug ? { WMDEV_DEBUG: "1" } : {}) };
+const baseEnv = { ...process.env, BACKEND_PORT: String(port), WEBMUX_PROJECT_DIR: process.cwd(), ...(debug ? { WEBMUX_DEBUG: "1" } : {}) };
 
 // ── Prefixed output ──────────────────────────────────────────────────────────
 
@@ -158,10 +158,10 @@ if (!existsSync(staticDir)) {
   process.exit(1);
 }
 
-console.log(`Starting wmdev on port ${port}...`);
+console.log(`Starting webmux on port ${port}...`);
 
 const be = Bun.spawn(["bun", backendEntry], {
-  env: { ...baseEnv, WMDEV_STATIC_DIR: staticDir },
+  env: { ...baseEnv, WEBMUX_STATIC_DIR: staticDir },
   stdout: "pipe",
   stderr: "pipe",
 });

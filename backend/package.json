@@ -1,5 +1,5 @@
 {
-  "name": "wmdev-backend",
+  "name": "webmux-backend",
   "private": true,
   "type": "module",
   "scripts": {

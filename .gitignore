@@ -6,7 +6,7 @@ frontend/node_modules/
 frontend/bun.lock
 backend/dist/
 frontend/dist/
-bin/wmdev.js
+bin/webmux.js
 frontend/.vite/
 public/
 .env

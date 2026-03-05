@@ -27,7 +27,7 @@ import {
   clearCallbacks,
   cleanupStaleSessions,
 } from "./terminal";
-import { loadConfig, gitRoot, type WmdevConfig } from "./config";
+import { loadConfig, gitRoot, type WebmuxConfig } from "./config";
 import { startPrMonitor, type PrEntry } from "./pr";
 import { handleWorkmuxRpc } from "./rpc";
 import { jsonResponse, errorResponse } from "./http";
@@ -35,9 +35,9 @@ import { handleNotificationStream, handleDismissNotification, installHookScripts
 import { fetchAssignedIssues, branchMatchesIssue, type LinkedLinearIssue } from "./linear";
 
 const PORT = parseInt(Bun.env.BACKEND_PORT || "5111", 10);
-const STATIC_DIR = Bun.env.WMDEV_STATIC_DIR || "";
-const PROJECT_DIR = Bun.env.WMDEV_PROJECT_DIR || gitRoot(process.cwd());
-const config: WmdevConfig = loadConfig(PROJECT_DIR);
+const STATIC_DIR = Bun.env.WEBMUX_STATIC_DIR || "";
+const PROJECT_DIR = Bun.env.WEBMUX_PROJECT_DIR || gitRoot(process.cwd());
+const config: WebmuxConfig = loadConfig(PROJECT_DIR);
 
 // --- Worktree list cache (short TTL to deduplicate rapid polls) ---
 const WORKTREE_CACHE_TTL_MS = 2000;

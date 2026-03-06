@@ -161,7 +161,11 @@ export async function attach(
 
   const cmd = buildAttachCmd({ gName, worktreeName, tmuxSession, cols, rows, initialPane });
 
-  const proc = Bun.spawn(["script", "-q", "-c", cmd, "/dev/null"], {
+  const scriptArgs = process.platform === "darwin"
+    ? ["script", "-q", "/dev/null", "bash", "-c", cmd]
+    : ["script", "-q", "-c", cmd, "/dev/null"];
+
+  const proc = Bun.spawn(scriptArgs, {
     stdin: "pipe",
     stdout: "pipe",
     stderr: "pipe",

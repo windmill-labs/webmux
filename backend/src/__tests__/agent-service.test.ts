@@ -1,6 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import {
   buildAgentPaneCommand,
+  buildDockerAgentPaneCommand,
+  buildDockerManagedCommand,
+  buildDockerShellCommand,
   buildManagedCommand,
   buildManagedShellCommand,
 } from "../services/agent-service";
@@ -8,21 +11,62 @@ import {
 describe("agent-service command builders", () => {
   it("builds a managed shell command that sources runtime.env", () => {
     const command = buildManagedShellCommand("/tmp/gitdir/webmux/runtime.env", "/bin/zsh");
-    expect(command).toContain(". '/tmp/gitdir/webmux/runtime.env'");
-    expect(command).toContain("exec '/bin/zsh' -i");
+    expect(command).toContain("bash -lc");
+    expect(command).toContain("/tmp/gitdir/webmux/runtime.env");
+    expect(command).toContain("/bin/zsh");
   });
 
-  it("wraps arbitrary commands with runtime.env loading", () => {
+  it("wraps arbitrary host commands with runtime.env loading", () => {
     const command = buildManagedCommand("/tmp/gitdir/webmux/runtime.env", "npm run dev");
-    expect(command).toContain(". '/tmp/gitdir/webmux/runtime.env'");
+    expect(command).toContain("/tmp/gitdir/webmux/runtime.env");
     expect(command).toContain("exec npm run dev");
   });
 
-  it("builds agent commands for claude and codex", () => {
-    const claude = buildAgentPaneCommand("claude", "/tmp/gitdir/webmux/runtime.env");
-    const codex = buildAgentPaneCommand("codex", "/tmp/gitdir/webmux/runtime.env", "fix the tests");
+  it("wraps agent commands with runtime events and runtime.env loading", () => {
+    const claude = buildAgentPaneCommand({
+      agent: "claude",
+      runtimeEnvPath: "/tmp/gitdir/webmux/runtime.env",
+      agentCtlPath: "/tmp/gitdir/webmux/webmux-agentctl",
+      runtime: "host",
+      prompt: "fix the tests",
+    });
 
-    expect(claude).toContain("exec claude");
-    expect(codex).toContain("exec codex --yolo 'fix the tests'");
+    expect(claude).toContain("/tmp/gitdir/webmux/runtime.env");
+    expect(claude).toContain("title-changed --title");
+    expect(claude).toContain("agent-started");
+    expect(claude).toContain("claude");
+    expect(claude).toContain("fix the tests");
+    expect(claude).toContain("runtime-error --message");
+  });
+
+  it("builds docker commands that exec inside the container", () => {
+    const shell = buildDockerShellCommand(
+      "wm-feature-container",
+      "/repos/feature",
+      "/repos/main/.git/worktrees/feature/webmux/runtime.env",
+      "/bin/zsh",
+    );
+    const command = buildDockerManagedCommand(
+      "wm-feature-container",
+      "/repos/feature",
+      "/repos/main/.git/worktrees/feature/webmux/runtime.env",
+      "npm run dev",
+    );
+    const agent = buildDockerAgentPaneCommand({
+      agent: "codex",
+      containerName: "wm-feature-container",
+      worktreePath: "/repos/feature",
+      runtimeEnvPath: "/repos/main/.git/worktrees/feature/webmux/runtime.env",
+      agentCtlPath: "/repos/main/.git/worktrees/feature/webmux/webmux-agentctl",
+      runtime: "docker",
+      prompt: "ship the fix",
+    });
+
+    expect(shell).toContain("docker exec -it -w '/repos/feature' 'wm-feature-container' bash -lc");
+    expect(shell).toContain("/bin/zsh");
+    expect(command).toContain("exec npm run dev");
+    expect(agent).toContain("codex --yolo");
+    expect(agent).toContain("ship the fix");
+    expect(agent).toContain("agent-stopped");
   });
 });

@@ -2,14 +2,6 @@ import { join, resolve } from "node:path";
 import { networkInterfaces } from "node:os";
 import { log } from "./lib/log";
 import {
-  listWorktrees,
-  getStatus,
-  readEnvLocal,
-  parseWorktreePorcelain,
-  checkDirty,
-  cleanupStaleWindows,
-} from "./workmux";
-import {
   attach,
   detach,
   write,
@@ -29,6 +21,7 @@ import {
 import {
   BunTmuxGateway,
 } from "./adapters/tmux";
+import { BunDockerGateway } from "./docker";
 import {
   getDefaultProfileName,
   gitRoot,
@@ -37,17 +30,17 @@ import {
   type ProjectConfig,
   type ProfileConfig,
 } from "./config";
-import { startPrMonitor, type PrEntry } from "./pr";
+import { startPrMonitor } from "./pr";
 import { jsonResponse, errorResponse } from "./http";
-import { installHookScripts, hasDashboardActivity, touchActivity } from "./notifications";
-import { fetchAssignedIssues, branchMatchesIssue, type LinkedLinearIssue } from "./linear";
+import { hasRecentDashboardActivity, touchDashboardActivity } from "./services/dashboard-activity";
+import { fetchAssignedIssues } from "./linear";
 import { NotificationService as RuntimeNotificationService } from "./services/notification-service";
 import { LifecycleError, LifecycleService } from "./services/lifecycle-service";
 import { ProjectRuntime } from "./services/project-runtime";
 import { ReconciliationService } from "./services/reconciliation-service";
 import { buildProjectSnapshot } from "./services/snapshot-service";
 import { parseRuntimeEvent } from "./domain/events";
-import { loadRpcSecret } from "./rpc-secret";
+import { loadControlToken } from "./control-token";
 
 const PORT = parseInt(Bun.env.BACKEND_PORT || "5111", 10);
 const STATIC_DIR = Bun.env.WEBMUX_STATIC_DIR || "";
@@ -55,6 +48,7 @@ const PROJECT_DIR = Bun.env.WEBMUX_PROJECT_DIR || gitRoot(process.cwd());
 const config: ProjectConfig = loadConfig(PROJECT_DIR);
 const git = new BunGitGateway();
 const tmux = new BunTmuxGateway();
+const docker = new BunDockerGateway();
 const projectRuntime = new ProjectRuntime();
 const runtimeNotifications = new RuntimeNotificationService();
 const reconciliationService = new ReconciliationService({
@@ -66,10 +60,11 @@ const reconciliationService = new ReconciliationService({
 const lifecycleService = new LifecycleService({
   projectRoot: PROJECT_DIR,
   controlBaseUrl: `http://127.0.0.1:${PORT}`,
-  getControlToken: loadRpcSecret,
+  getControlToken: loadControlToken,
   config,
   git,
   tmux,
+  docker,
   reconciliation: reconciliationService,
 });
 
@@ -120,10 +115,6 @@ function getFrontendConfig(): {
     startupEnvs: config.startupEnvs,
   };
 }
-
-// --- Worktree list cache (short TTL to deduplicate rapid polls) ---
-const WORKTREE_CACHE_TTL_MS = 2000;
-let wtCache: { json: string; etag: string; expiry: number } | null = null;
 
 // --- WebSocket protocol types ---
 
@@ -211,14 +202,6 @@ function catching(label: string, fn: () => Promise<Response>): Promise<Response>
   });
 }
 
-function safeJsonParse<T>(str: string): T | null {
-  try {
-    return JSON.parse(str) as T;
-  } catch {
-    return null;
-  }
-}
-
 async function resolveTerminalWorktree(branch: string): Promise<{
   worktreeId: string;
   attachTarget: TerminalAttachTarget;
@@ -253,69 +236,19 @@ function getAttachedWorktreeId(ws: { data: WsData; readyState: number; send: (da
 async function hasValidControlToken(req: Request): Promise<boolean> {
   const authHeader = req.headers.get("Authorization");
   const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
-  return token === await loadRpcSecret();
+  return token === await loadControlToken();
 }
 
 // --- Process helpers ---
 
-/** Map branch name → worktree directory using git worktree list.
- *  Skips the main working tree (always the first entry). */
 async function getWorktreePaths(): Promise<Map<string, string>> {
-  const proc = Bun.spawn(["git", "worktree", "list", "--porcelain"], { stdout: "pipe" });
-  await proc.exited;
-  const output = await new Response(proc.stdout).text();
-  const all = parseWorktreePorcelain(output);
   const paths = new Map<string, string>();
-  let isFirst = true;
-  for (const [branch, path] of all) {
-    // Skip the main working tree (first entry in porcelain output)
-    if (isFirst) { isFirst = false; continue; }
-    paths.set(branch, path);
-    // Also map by directory basename (workmux uses basename as branch key)
-    const basename = path.split("/").pop() ?? "";
-    if (basename !== branch) paths.set(basename, path);
+  const projectRoot = resolve(PROJECT_DIR);
+  for (const entry of git.listWorktrees(projectRoot)) {
+    if (entry.bare || resolve(entry.path) === projectRoot || !entry.branch) continue;
+    paths.set(entry.branch, entry.path);
   }
   return paths;
-}
-
-/** Get pane counts for all wm-* windows in a single tmux call. */
-async function getAllPaneCounts(): Promise<Map<string, number>> {
-  const proc = Bun.spawn(
-    ["tmux", "list-windows", "-a", "-F", "#{window_name} #{window_panes}"],
-    { stdout: "pipe", stderr: "pipe" }
-  );
-  if (await proc.exited !== 0) return new Map();
-  const out = await new Response(proc.stdout).text();
-  const counts = new Map<string, number>();
-  for (const line of out.trim().split("\n")) {
-    const spaceIdx = line.lastIndexOf(" ");
-    if (spaceIdx === -1) continue;
-    const name = line.slice(0, spaceIdx);
-    if (!name.startsWith("wm-")) continue;
-    const branch = name.slice(3);
-    // Keep the highest count (multiple sessions may share the window)
-    const count = parseInt(line.slice(spaceIdx + 1), 10) || 0;
-    if (!counts.has(branch) || count > counts.get(branch)!) {
-      counts.set(branch, count);
-    }
-  }
-  return counts;
-}
-
-/** Check if a port is accepting TCP connections. Faster than HTTP for localhost. */
-function isPortListening(port: number): Promise<boolean> {
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => resolve(false), 300);
-    Bun.connect({
-      hostname: "127.0.0.1",
-      port,
-      socket: {
-        open(socket) { clearTimeout(timer); socket.end(); resolve(true); },
-        error() { clearTimeout(timer); resolve(false); },
-        data() {},
-      },
-    }).catch(() => { clearTimeout(timer); resolve(false); });
-  });
 }
 
 function makeCallbacks(ws: { send: (data: string) => void; readyState: number }): {
@@ -334,89 +267,8 @@ function makeCallbacks(ws: { send: (data: string) => void; readyState: number })
 
 // --- API handler functions (thin I/O layer, testable by injecting deps) ---
 
-async function apiGetWorktrees(req: Request): Promise<Response> {
-  touchActivity();
-  const now = Date.now();
-
-  // Serve from cache if still fresh
-  if (wtCache && now < wtCache.expiry) {
-    if (req.headers.get("if-none-match") === wtCache.etag) {
-      return new Response(null, { status: 304 });
-    }
-    return new Response(wtCache.json, {
-      headers: { "Content-Type": "application/json", "ETag": wtCache.etag },
-    });
-  }
-
-  const [worktrees, status, wtPaths, paneCounts, linearResult] = await Promise.all([
-    listWorktrees(),
-    getStatus(),
-    getWorktreePaths(),
-    getAllPaneCounts(),
-    fetchAssignedIssues(),
-  ]);
-  const linearIssues = linearResult.ok ? linearResult.data : [];
-
-  // Fire-and-forget: kill tmux windows that belong to this project but have
-  // no matching worktree.  Scoped via pane path so other projects are safe.
-  const activeBranches = new Set(worktrees.map(wt => wt.branch));
-  activeBranches.add("main");
-  cleanupStaleWindows(activeBranches, `${PROJECT_DIR}__worktrees/`);
-
-  // Filter out the main working tree — it has no entry in wtPaths
-  // (getWorktreePaths skips the first porcelain entry).
-  const nonMainWorktrees = worktrees.filter(wt => wtPaths.has(wt.branch));
-
-  const merged = await Promise.all(nonMainWorktrees.map(async (wt) => {
-    const st = status.find(s =>
-      s.worktree.includes(wt.branch) || s.worktree.startsWith(wt.branch)
-    );
-    const wtDir = wtPaths.get(wt.branch);
-    const env = wtDir ? await readEnvLocal(wtDir) : {};
-    const dirty = wtDir ? await checkDirty(wtDir) : false;
-    const services = await Promise.all(
-      config.services.map(async (svc) => {
-        const port = env[svc.portEnv] ? parseInt(env[svc.portEnv], 10) : null;
-        const running = port !== null && port >= 1 && port <= 65535
-          ? await isPortListening(port)
-          : false;
-        return { name: svc.name, port, running };
-      })
-    );
-    const matchedIssue = linearIssues.find((issue) =>
-      branchMatchesIssue(wt.branch, issue.branchName),
-    );
-    const linearIssue: LinkedLinearIssue | null = matchedIssue
-      ? { identifier: matchedIssue.identifier, url: matchedIssue.url, state: matchedIssue.state }
-      : null;
-
-    return {
-      ...wt,
-      dir: wtDir ?? null,
-      dirty,
-      status: st?.status ?? "",
-      elapsed: st?.elapsed ?? "",
-      title: st?.title ?? "",
-      profile: env.PROFILE || null,
-      agentName: env.AGENT || null,
-      services,
-      paneCount: wt.mux === "✓" ? (paneCounts.get(wt.branch) ?? 0) : 0,
-      prs: env.PR_DATA ? (safeJsonParse<PrEntry[]>(env.PR_DATA) ?? []).map(pr => ({ ...pr, comments: pr.comments ?? [] })) : [],
-      linearIssue,
-    };
-  }));
-
-  const json = JSON.stringify(merged);
-  const etag = `"${Bun.hash(json).toString(36)}"`;
-  wtCache = { json, etag, expiry: now + WORKTREE_CACHE_TTL_MS };
-
-  return new Response(json, {
-    headers: { "Content-Type": "application/json", "ETag": etag },
-  });
-}
-
 async function apiGetProject(): Promise<Response> {
-  touchActivity();
+  touchDashboardActivity();
   await reconciliationService.reconcile(PROJECT_DIR);
   return jsonResponse(buildProjectSnapshot({
     projectName: config.name,
@@ -493,7 +345,6 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
     envOverrides,
   });
   log.debug(`[worktree:add] done branch=${result.branch} worktreeId=${result.worktreeId}`);
-  wtCache = null;
   return jsonResponse({ branch: result.branch }, 201);
 }
 
@@ -501,7 +352,6 @@ async function apiDeleteWorktree(name: string): Promise<Response> {
   log.info(`[worktree:rm] name=${name}`);
   await lifecycleService.removeWorktree(name);
   log.debug(`[worktree:rm] done name=${name}`);
-  wtCache = null;
   return jsonResponse({ ok: true });
 }
 
@@ -509,7 +359,6 @@ async function apiOpenWorktree(name: string): Promise<Response> {
   log.info(`[worktree:open] name=${name}`);
   const result = await lifecycleService.openWorktree(name);
   log.debug(`[worktree:open] done name=${name} worktreeId=${result.worktreeId}`);
-  wtCache = null;
   return jsonResponse({ ok: true });
 }
 
@@ -539,15 +388,7 @@ async function apiMergeWorktree(name: string): Promise<Response> {
   log.info(`[worktree:merge] name=${name}`);
   await lifecycleService.mergeWorktree(name);
   log.debug(`[worktree:merge] done name=${name}`);
-  wtCache = null;
   return jsonResponse({ ok: true });
-}
-
-async function apiWorktreeStatus(name: string): Promise<Response> {
-  const statuses = await getStatus();
-  const match = statuses.find(s => s.worktree.includes(name));
-  if (!match) return errorResponse("Worktree status not found", 404);
-  return jsonResponse(match);
 }
 
 async function apiGetLinearIssues(): Promise<Response> {
@@ -598,7 +439,6 @@ Bun.serve({
     },
 
     "/api/worktrees": {
-      GET: (req) => catching("GET /api/worktrees", () => apiGetWorktrees(req)),
       POST: (req) => catching("POST /api/worktrees", () => apiCreateWorktree(req)),
     },
 
@@ -631,14 +471,6 @@ Bun.serve({
         const name = decodeURIComponent(req.params.name);
         if (!isValidWorktreeName(name)) return errorResponse("Invalid worktree name", 400);
         return catching(`POST /api/worktrees/${name}/merge`, () => apiMergeWorktree(name));
-      },
-    },
-
-    "/api/worktrees/:name/status": {
-      GET: (req) => {
-        const name = decodeURIComponent(req.params.name);
-        if (!isValidWorktreeName(name)) return errorResponse("Invalid worktree name", 400);
-        return catching(`GET /api/worktrees/${name}/status`, () => apiWorktreeStatus(name));
       },
     },
 
@@ -791,10 +623,7 @@ if (tmuxCheck.exitCode !== 0) {
 }
 
 cleanupStaleSessions();
-startPrMonitor(getWorktreePaths, config.integrations.github.linkedRepos, PROJECT_DIR, undefined, hasDashboardActivity);
-installHookScripts().catch((err: unknown) => {
-  log.error(`[notify] failed to install hook scripts: ${err instanceof Error ? err.message : String(err)}`);
-});
+startPrMonitor(getWorktreePaths, config.integrations.github.linkedRepos, PROJECT_DIR, undefined, hasRecentDashboardActivity);
 
 log.info(`Dev Dashboard API running at http://localhost:${PORT}`);
 const nets = networkInterfaces();

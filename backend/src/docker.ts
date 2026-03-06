@@ -1,14 +1,12 @@
 /**
  * Docker container lifecycle for sandbox worktrees.
  *
- * Replaces workmux's `-S` sandbox flag with direct `docker run -p` management.
- * Containers run as root with published ports (no socat needed).
+ * Runs sandbox containers directly instead of delegating runtime control to workmux.
  */
 
 import { stat } from "node:fs/promises";
 import { type DockerProfileConfig, type ServiceConfig } from "./config";
 import { log } from "./lib/log";
-import { loadRpcSecret } from "./rpc-secret";
 
 const DOCKER_RUN_TIMEOUT_MS = 60_000;
 
@@ -55,39 +53,22 @@ export interface LaunchContainerOpts {
   mainRepoDir: string;
   sandboxConfig: DockerProfileConfig;
   services: ServiceConfig[];
-  env: Record<string, string>;
+  runtimeEnv: Record<string, string>;
 }
 
-function buildWorkmuxStub(): string {
-  return `#!/usr/bin/env python3
-import sys, json, os, urllib.request
+export interface DockerGateway {
+  launchContainer(opts: LaunchContainerOpts): Promise<string>;
+  removeContainer(branch: string): Promise<void>;
+}
 
-cmd = sys.argv[1] if len(sys.argv) > 1 else ""
-args = sys.argv[2:]
-host = os.environ.get("WORKMUX_RPC_HOST", "host.docker.internal")
-port = os.environ.get("WORKMUX_RPC_PORT", "5111")
-token = os.environ.get("WORKMUX_RPC_TOKEN", "")
-branch = os.environ.get("WORKMUX_BRANCH", "")
+export class BunDockerGateway implements DockerGateway {
+  launchContainer(opts: LaunchContainerOpts): Promise<string> {
+    return launchContainer(opts);
+  }
 
-payload = {"command": cmd, "args": args, "branch": branch}
-data = json.dumps(payload).encode()
-req = urllib.request.Request(
-    f"http://{host}:{port}/rpc/workmux",
-    data=data,
-    headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"}
-)
-try:
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        result = json.loads(resp.read())
-        if result.get("ok"):
-            print(result.get("output", ""))
-        else:
-            print(result.get("error", "RPC failed"), file=sys.stderr)
-            sys.exit(1)
-except Exception as e:
-    print(f"workmux rpc error: {e}", file=sys.stderr)
-    sys.exit(1)
-`;
+  removeContainer(branch: string): Promise<void> {
+    return removeContainer(branch);
+  }
 }
 
 /**
@@ -107,13 +88,11 @@ export function buildDockerRunArgs(
   existingPaths: Set<string>,
   home: string,
   name: string,
-  rpcSecret: string,
-  rpcPort: string,
   sshAuthSock: string | undefined,
   hostUid: number,
   hostGid: number,
 ): string[] {
-  const { wtDir, mainRepoDir, sandboxConfig, services, env } = opts;
+  const { wtDir, mainRepoDir, sandboxConfig, services, runtimeEnv } = opts;
 
   const args: string[] = [
     "docker", "run", "-d",
@@ -129,7 +108,7 @@ export function buildDockerRunArgs(
   // on external interfaces. Skip invalid or duplicate port values.
   const seenPorts = new Set<string>();
   for (const svc of services) {
-    const port = env[svc.portEnv];
+    const port = runtimeEnv[svc.portEnv];
     if (!port) continue;
     if (!isValidPort(port)) {
       log.warn(`[docker] skipping invalid port for ${svc.portEnv}: ${JSON.stringify(port)}`);
@@ -172,10 +151,10 @@ export function buildDockerRunArgs(
     }
   }
 
-  // Pass through .env.local vars; skip reserved keys and invalid key names.
-  for (const [key, val] of Object.entries(env)) {
+  // Pass through generated runtime env; skip reserved keys and invalid key names.
+  for (const [key, val] of Object.entries(runtimeEnv)) {
     if (!isValidEnvKey(key)) {
-      log.warn(`[docker] skipping invalid .env.local key: ${JSON.stringify(key)}`);
+      log.warn(`[docker] skipping invalid runtime env key: ${JSON.stringify(key)}`);
       continue;
     }
     if (reservedKeys.has(key)) continue;
@@ -239,12 +218,6 @@ export function buildDockerRunArgs(
     }
   }
 
-  // RPC env vars so workmux stub inside the container can reach the host.
-  args.push("-e", `WORKMUX_RPC_HOST=host.docker.internal`);
-  args.push("-e", `WORKMUX_RPC_PORT=${rpcPort}`);
-  args.push("-e", `WORKMUX_RPC_TOKEN=${rpcSecret}`);
-  args.push("-e", `WORKMUX_BRANCH=${opts.branch}`);
-
   // Image + command.
   args.push(sandboxConfig.image, "sleep", "infinity");
 
@@ -271,8 +244,6 @@ export async function launchContainer(opts: LaunchContainerOpts): Promise<string
 
   const name = containerName(branch);
   const home = Bun.env.HOME ?? "/root";
-  const rpcSecret = await loadRpcSecret();
-  const rpcPort = Bun.env.BACKEND_PORT ?? "5111";
 
   // Resolve which credential paths exist on the host before building args.
   // Only forward SSH_AUTH_SOCK if the socket is world-accessible so the
@@ -301,7 +272,7 @@ export async function launchContainer(opts: LaunchContainerOpts): Promise<string
     if (await pathExists(p)) existingPaths.add(p);
   }));
 
-  const args = buildDockerRunArgs(opts, existingPaths, home, name, rpcSecret, rpcPort, sshAuthSock, process.getuid!(), process.getgid!());
+  const args = buildDockerRunArgs(opts, existingPaths, home, name, sshAuthSock, process.getuid!(), process.getgid!());
 
   log.info(`[docker] launching container: ${name}`);
   const proc = Bun.spawn(args, { stdout: "pipe", stderr: "pipe" });
@@ -331,26 +302,6 @@ export async function launchContainer(opts: LaunchContainerOpts): Promise<string
   }
 
   log.info(`[docker] container ${name} ready (id=${containerId.trim().slice(0, 12)})`);
-
-  // Inject workmux stub so agents inside the container can call host-side workmux.
-  const stub = buildWorkmuxStub();
-  const injectProc = Bun.spawn(
-    ["docker", "exec", "-u", "root", "-i", name, "sh", "-c",
-     "cat > /usr/local/bin/workmux && chmod +x /usr/local/bin/workmux"],
-    { stdin: "pipe", stdout: "pipe", stderr: "pipe" },
-  );
-  const { stdin } = injectProc;
-  if (stdin) {
-    stdin.write(stub);
-    stdin.end();
-  }
-  const injectExit = await injectProc.exited;
-  if (injectExit !== 0) {
-    const injectStderr = await new Response(injectProc.stderr).text();
-    log.warn(`[docker] workmux stub injection failed for ${name}: ${injectStderr}`);
-  } else {
-    log.debug(`[docker] workmux stub injected into ${name}`);
-  }
 
   return name;
 }

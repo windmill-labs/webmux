@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
+import { ensureAgentRuntimeArtifacts, type AgentRuntimeArtifacts } from "../adapters/agent-runtime";
 import type { GitGateway, GitWorktreeEntry } from "../adapters/git";
 import {
   buildControlEnvMap,
@@ -11,10 +12,19 @@ import {
   writeRuntimeEnv,
 } from "../adapters/fs";
 import { buildProjectSessionName, buildWorktreeWindowName, type TmuxGateway } from "../adapters/tmux";
+import { type DockerGateway } from "../docker";
+import { expandTemplate, isDockerProfile, type DockerProfileConfig } from "../config";
 import type { AgentKind, ProfileConfig, ProjectConfig, RuntimeKind } from "../domain/config";
 import type { WorktreeMeta } from "../domain/model";
 import { allocateServicePorts, isValidBranchName, isValidEnvKey } from "../domain/policies";
-import { buildAgentPaneCommand, buildManagedCommand, buildManagedShellCommand } from "./agent-service";
+import {
+  buildAgentPaneCommand,
+  buildDockerAgentPaneCommand,
+  buildDockerManagedCommand,
+  buildDockerShellCommand,
+  buildManagedCommand,
+  buildManagedShellCommand,
+} from "./agent-service";
 import type { ReconciliationService } from "./reconciliation-service";
 import { ensureSessionLayout, planSessionLayout } from "./session-service";
 import {
@@ -50,6 +60,7 @@ export interface LifecycleServiceDependencies {
   config: ProjectConfig;
   git: GitGateway;
   tmux: TmuxGateway;
+  docker: DockerGateway;
   reconciliation: ReconciliationService;
 }
 
@@ -77,18 +88,18 @@ export class LifecycleService {
     branch: string;
     worktreeId: string;
   }> {
+    const branch = this.resolveBranch(input.branch);
+    this.ensureBranchAvailable(branch);
+
+    const { profileName, profile } = this.resolveProfile(input.profile);
+    const agent = this.resolveAgent(input.agent);
+    const worktreePath = this.resolveWorktreePath(branch);
+    let initialized: InitializeManagedWorktreeResult | null = null;
+
     try {
-      const branch = this.resolveBranch(input.branch);
-      this.ensureBranchAvailable(branch);
-
-      const { profileName, profile } = this.resolveProfile(input.profile);
-      this.assertSupportedRuntime(profile.runtime, `create ${branch}`);
-      const agent = this.resolveAgent(input.agent);
-      const worktreePath = this.resolveWorktreePath(branch);
-
       await mkdir(dirname(worktreePath), { recursive: true });
 
-      const initialized = await createManagedWorktree(
+      initialized = await createManagedWorktree(
         {
           repoRoot: this.deps.projectRoot,
           worktreePath,
@@ -102,21 +113,26 @@ export class LifecycleService {
           runtimeEnvExtras: { WEBMUX_WORKTREE_PATH: worktreePath },
           controlUrl: this.controlUrl(),
           controlToken: await this.deps.getControlToken(),
-          sessionLayoutPlanBuilder: (created) =>
-            this.buildSessionLayout({
-              branch,
-              profile,
-              agent,
-              prompt: input.prompt,
-              runtimeEnvPath: created.paths.runtimeEnvPath,
-              worktreePath,
-            }),
         },
         {
           git: this.deps.git,
-          tmux: this.deps.tmux,
         },
       );
+
+      const artifacts = await ensureAgentRuntimeArtifacts({
+        gitDir: initialized.paths.gitDir,
+        worktreePath,
+      });
+
+      await this.materializeRuntimeSession({
+        branch,
+        profile,
+        agent,
+        initialized,
+        artifacts,
+        worktreePath,
+        prompt: input.prompt,
+      });
 
       await this.deps.reconciliation.reconcile(this.deps.projectRoot);
 
@@ -125,6 +141,12 @@ export class LifecycleService {
         worktreeId: initialized.meta.worktreeId,
       };
     } catch (error) {
+      if (initialized) {
+        const cleanupError = await this.cleanupFailedCreate(branch, worktreePath, profile.runtime);
+        if (cleanupError) {
+          throw this.wrapOperationError(new Error(`${toErrorMessage(error)}; ${cleanupError}`));
+        }
+      }
       throw this.wrapOperationError(error);
     }
   }
@@ -139,16 +161,19 @@ export class LifecycleService {
         ? await this.refreshManagedArtifacts(resolved)
         : await this.initializeUnmanagedWorktree(resolved);
       const { profile } = this.resolveProfile(initialized.meta.profile);
-      this.assertSupportedRuntime(profile.runtime, `open ${branch}`);
+      const artifacts = await ensureAgentRuntimeArtifacts({
+        gitDir: initialized.paths.gitDir,
+        worktreePath: resolved.entry.path,
+      });
 
-      const plan = this.buildSessionLayout({
+      await this.materializeRuntimeSession({
         branch,
         profile,
         agent: initialized.meta.agent,
-        runtimeEnvPath: initialized.paths.runtimeEnvPath,
+        initialized,
+        artifacts,
         worktreePath: resolved.entry.path,
       });
-      ensureSessionLayout(this.deps.tmux, plan);
 
       await this.deps.reconciliation.reconcile(this.deps.projectRoot);
 
@@ -164,8 +189,11 @@ export class LifecycleService {
   async removeWorktree(branch: string): Promise<void> {
     try {
       const resolved = await this.resolveExistingWorktree(branch);
-      this.assertSupportedExistingRuntime(resolved, `remove ${branch}`);
       this.ensureClean(resolved.entry);
+
+      if (resolved.meta?.runtime === "docker") {
+        await this.deps.docker.removeContainer(branch);
+      }
 
       this.deps.tmux.killWindow(
         buildProjectSessionName(this.deps.projectRoot),
@@ -192,7 +220,6 @@ export class LifecycleService {
   async mergeWorktree(branch: string): Promise<void> {
     try {
       const resolved = await this.resolveExistingWorktree(branch);
-      this.assertSupportedExistingRuntime(resolved, `merge ${branch}`);
       this.ensureClean(resolved.entry);
 
       mergeManagedWorktree(
@@ -255,12 +282,6 @@ export class LifecycleService {
     return agent;
   }
 
-  private assertSupportedRuntime(runtime: RuntimeKind, action: string): void {
-    if (runtime !== "host") {
-      throw new LifecycleError(`Docker runtime is not implemented for ${action}`, 422);
-    }
-  }
-
   private async buildStartupEnvValues(
     envOverrides: Record<string, string> | undefined,
   ): Promise<Record<string, string>> {
@@ -316,20 +337,10 @@ export class LifecycleService {
     return { entry, gitDir, meta };
   }
 
-  private assertSupportedExistingRuntime(
-    resolved: ResolvedLifecycleWorktree,
-    action: string,
-  ): void {
-    if (resolved.meta) {
-      this.assertSupportedRuntime(resolved.meta.runtime, action);
-    }
-  }
-
   private async initializeUnmanagedWorktree(
     resolved: ResolvedLifecycleWorktree,
   ): Promise<InitializeManagedWorktreeResult> {
     const { profileName, profile } = this.resolveProfile(undefined);
-    this.assertSupportedRuntime(profile.runtime, `open ${resolved.entry.branch ?? resolved.entry.path}`);
 
     return initializeManagedWorktree({
       gitDir: resolved.gitDir,
@@ -373,14 +384,64 @@ export class LifecycleService {
     };
   }
 
+  private async materializeRuntimeSession(input: {
+    branch: string;
+    profile: ProfileConfig;
+    agent: AgentKind;
+    initialized: InitializeManagedWorktreeResult;
+    artifacts: AgentRuntimeArtifacts;
+    worktreePath: string;
+    prompt?: string;
+  }): Promise<void> {
+    if (input.profile.runtime === "docker") {
+      const dockerProfile = this.requireDockerProfile(input.profile);
+      const containerName = await this.deps.docker.launchContainer({
+        branch: input.branch,
+        wtDir: input.worktreePath,
+        mainRepoDir: this.deps.projectRoot,
+        sandboxConfig: dockerProfile,
+        services: this.deps.config.services,
+        runtimeEnv: input.initialized.runtimeEnv,
+      });
+      ensureSessionLayout(this.deps.tmux, this.buildSessionLayout({
+        branch: input.branch,
+        profile: input.profile,
+        agent: input.agent,
+        initialized: input.initialized,
+        artifacts: input.artifacts,
+        worktreePath: input.worktreePath,
+        prompt: input.prompt,
+        containerName,
+      }));
+      return;
+    }
+
+    ensureSessionLayout(this.deps.tmux, this.buildSessionLayout({
+      branch: input.branch,
+      profile: input.profile,
+      agent: input.agent,
+      initialized: input.initialized,
+      artifacts: input.artifacts,
+      worktreePath: input.worktreePath,
+      prompt: input.prompt,
+    }));
+  }
+
   private buildSessionLayout(input: {
     branch: string;
     profile: ProfileConfig;
     agent: AgentKind;
-    runtimeEnvPath: string;
+    initialized: InitializeManagedWorktreeResult;
+    artifacts: AgentRuntimeArtifacts;
     worktreePath: string;
     prompt?: string;
+    containerName?: string;
   }) {
+    const systemPrompt = input.profile.systemPrompt
+      ? expandTemplate(input.profile.systemPrompt, input.initialized.runtimeEnv)
+      : undefined;
+    const containerName = input.containerName;
+
     return planSessionLayout(
       this.deps.projectRoot,
       input.branch,
@@ -388,13 +449,95 @@ export class LifecycleService {
       {
         repoRoot: this.deps.projectRoot,
         worktreePath: input.worktreePath,
-        paneCommands: {
-          agent: buildAgentPaneCommand(input.agent, input.runtimeEnvPath, input.prompt),
-          shell: buildManagedShellCommand(input.runtimeEnvPath),
-          wrapCommand: (command) => buildManagedCommand(input.runtimeEnvPath, command),
-        },
+        paneCommands: containerName
+          ? {
+              agent: buildDockerAgentPaneCommand({
+                agent: input.agent,
+                containerName,
+                worktreePath: input.worktreePath,
+                runtimeEnvPath: input.initialized.paths.runtimeEnvPath,
+                agentCtlPath: input.artifacts.agentCtlPath,
+                runtime: input.profile.runtime,
+                systemPrompt,
+                prompt: input.prompt,
+              }),
+              shell: buildDockerShellCommand(
+                containerName,
+                input.worktreePath,
+                input.initialized.paths.runtimeEnvPath,
+              ),
+              wrapCommand: (command) =>
+                buildDockerManagedCommand(
+                  containerName,
+                  input.worktreePath,
+                  input.initialized.paths.runtimeEnvPath,
+                  command,
+                ),
+            }
+          : {
+              agent: buildAgentPaneCommand({
+                agent: input.agent,
+                runtimeEnvPath: input.initialized.paths.runtimeEnvPath,
+                agentCtlPath: input.artifacts.agentCtlPath,
+                runtime: input.profile.runtime,
+                systemPrompt,
+                prompt: input.prompt,
+              }),
+              shell: buildManagedShellCommand(input.initialized.paths.runtimeEnvPath),
+              wrapCommand: (command) => buildManagedCommand(input.initialized.paths.runtimeEnvPath, command),
+            },
       },
     );
+  }
+
+  private requireDockerProfile(profile: ProfileConfig): DockerProfileConfig {
+    if (!isDockerProfile(profile)) {
+      throw new LifecycleError("Docker profile is missing an image", 422);
+    }
+    return profile;
+  }
+
+  private async cleanupFailedCreate(
+    branch: string,
+    worktreePath: string,
+    runtime: RuntimeKind,
+  ): Promise<string | null> {
+    const cleanupErrors: string[] = [];
+
+    if (runtime === "docker") {
+      try {
+        await this.deps.docker.removeContainer(branch);
+      } catch (error) {
+        cleanupErrors.push(`container cleanup failed: ${toErrorMessage(error)}`);
+      }
+    }
+
+    try {
+      this.deps.tmux.killWindow(
+        buildProjectSessionName(this.deps.projectRoot),
+        buildWorktreeWindowName(branch),
+      );
+    } catch (error) {
+      cleanupErrors.push(`tmux cleanup failed: ${toErrorMessage(error)}`);
+    }
+
+    try {
+      removeManagedWorktree(
+        {
+          repoRoot: this.deps.projectRoot,
+          worktreePath,
+          branch,
+          force: true,
+          deleteBranch: true,
+          deleteBranchForce: true,
+        },
+        this.deps.git,
+      );
+    } catch (error) {
+      cleanupErrors.push(`worktree cleanup failed: ${toErrorMessage(error)}`);
+    }
+
+    return cleanupErrors.length > 0 ? cleanupErrors.join("; ") : null;
   }
 
   private ensureClean(entry: GitWorktreeEntry): void {

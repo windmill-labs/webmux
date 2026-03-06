@@ -14,7 +14,8 @@ That means:
 - no `vnext` route family
 - no requirement for legacy code to keep working during the cutover
 
-The legacy backend still powers some product behavior today, but the new architecture already owns the config foundations, runtime identity model, reconciliation, terminal transport, the main lifecycle routes for host worktrees, and the frontend worktree read path.
+The remaining legacy surface is now mostly read-only enrichment data.
+The new architecture owns the config foundations, runtime identity model, reconciliation, terminal transport, runtime event delivery, lifecycle routes for host and Docker worktrees, and the frontend worktree read path.
 
 ## What Is Done
 
@@ -50,12 +51,14 @@ The legacy backend still powers some product behavior today, but the new archite
 - that route runs reconciliation and returns a snapshot from the new runtime model
 - this is the first live backend path that reads from the new architecture end to end
 
-### 6. Runtime events and notifications are partially cut over
+### 6. Runtime events and notifications are cut over end to end
 
 - `POST /api/runtime/events` now exists
 - runtime events are validated, reconciled against the current repo state, and applied to `ProjectRuntime`
 - runtime notifications are now recorded through `RuntimeNotificationService`
 - `/api/notifications/stream` and dismiss now run through the new runtime-backed notification service
+- per-worktree `webmux-agentctl` artifacts now own agent event delivery
+- Claude hook settings now point at per-worktree runtime artifacts instead of global `workmux` hook scripts
 
 ### 7. Terminal transport and prompt delivery are cut over
 
@@ -64,19 +67,20 @@ The legacy backend still powers some product behavior today, but the new archite
 - prompt send now resolves runtime state first and writes directly through the new terminal transport
 - the backend no longer exposes `/rpc/workmux`
 
-### 8. Lifecycle routes are cut over for host worktrees
+### 8. Lifecycle routes are cut over for host and Docker worktrees
 
 - `POST /api/worktrees` now creates managed worktrees through `LifecycleService`
 - `POST /api/worktrees/:branch/open` now initializes unmanaged worktrees and rebuilds tmux layout through the new services
 - `DELETE /api/worktrees/:branch` and `POST /api/worktrees/:branch/merge` now use native Git/tmux orchestration instead of `workmux`
 - lifecycle validation and HTTP error mapping now come from typed lifecycle errors instead of ad hoc route handling
-- Docker runtime worktrees are still explicitly unsupported in the native lifecycle path
+- Docker runtime worktrees now launch through the native lifecycle path and no longer rely on injected `workmux` shims
+- create failure cleanup now removes partially created tmux/container/worktree resources from the native orchestrator
 
 ### 9. Frontend worktree reads are snapshot-backed
 
 - the frontend worktree list now reads from `GET /api/project`
 - the client maps snapshot worktrees onto the UI state instead of polling `GET /api/worktrees`
-- `GET /api/worktrees` still exists, but it is no longer the primary frontend read path
+- `GET /api/worktrees` and `/api/worktrees/:name/status` have been deleted
 
 ### 10. Verification is still green
 
@@ -84,7 +88,14 @@ The legacy backend still powers some product behavior today, but the new archite
 - `cd backend && bun run check` passes
 - `cd frontend && bun run check` passes
 - `cd frontend && bun run build` passes
-- current backend test count is 97 passing tests
+- current backend test count is 99 passing tests
+
+### 11. Legacy backend runtime modules are deleted
+
+- `backend/src/workmux.ts` is gone
+- `backend/src/notifications.ts` is gone
+- `backend/src/rpc-secret.ts` is gone
+- the server no longer installs global `workmux` hook scripts or exposes legacy worktree read/status routes
 
 ## What Is Wired Live Right Now
 
@@ -96,35 +107,34 @@ These pieces are already using the new architecture:
 - `GET /api/project`
 - `POST /api/runtime/events`
 - runtime-backed notification stream and dismiss
+- agent event delivery through per-worktree `webmux-agentctl`
 - terminal websocket attach/send behavior
 - prompt send flow
-- create/open/remove/merge lifecycle routes for host worktrees
+- create/open/remove/merge lifecycle routes for host and Docker worktrees
 - frontend worktree list state driven by `GET /api/project`
 
 These pieces still run through legacy code:
 
-- `GET /api/worktrees`
-- Docker and hook event delivery still using legacy hook/container control code
-- some frontend reads and enrichments still use legacy split endpoints
+- PR enrichment still writes through the older `.env.local`-backed path
+- some frontend enrichments still use split endpoints instead of a single snapshot-backed model
 
 ## What Is Not Done Yet
 
-The remaining work is the actual cutover of runtime I/O and lifecycle ownership:
+The remaining work is mostly enrichment collapse and cleanup around the already-cut-over runtime:
 
-1. Finish Docker runtime support in the native lifecycle path.
-2. Cut Docker and hook-driven agent event flow over to `webmux-agentctl`.
-3. Delete `GET /api/worktrees` and the remaining legacy backend modules once the remaining enrichments move over.
-4. Collapse the remaining split frontend reads where they are still only compensating for legacy backend data.
+1. Move PR/Linear/CI enrichment off the remaining split and `.env.local`-oriented paths.
+2. Collapse the remaining frontend reads so the dashboard consumes one coherent snapshot-backed model.
+3. Remove stale docs and artifacts that still describe the deleted `workmux` runtime path.
 
 ## Recommended Next Steps
 
 Do these next, in order:
 
-1. Replace Docker and hook-driven event delivery with `webmux-agentctl`.
-2. Finish Docker runtime support in the native lifecycle path.
-3. Delete `GET /api/worktrees` and the remaining legacy backend modules.
+1. Collapse PR and other enrichment data into the runtime-backed snapshot path.
+2. Delete or rewrite any docs still describing `workmux` RPC, global hook scripts, or `GET /api/worktrees`.
+3. Remove the remaining `.env.local` dependency from enrichment code.
 
-At that point, the backend will have crossed the main boundary from "new read model exists" to "new runtime owns live behavior."
+At that point, the backend will be mostly in post-cutover cleanup rather than architecture replacement.
 
 ## Fresh Chat Handoff
 
@@ -135,4 +145,4 @@ If this work continues in a new chat, start from:
 3. `backend/src/services/reconciliation-service.ts`
 4. `backend/src/services/project-runtime.ts`
 
-The next implementation slice should replace Docker/hook runtime control with `webmux-agentctl`, add Docker support to the native lifecycle path, and then delete the remaining legacy backend modules.
+The next implementation slice should focus on collapsing enrichment data into the runtime-backed snapshot and cleaning up the remaining `.env.local`-based read path.

@@ -3,8 +3,6 @@ import { buildDockerRunArgs, type LaunchContainerOpts } from "../docker";
 import type { DockerProfileConfig } from "../config";
 
 const HOME = "/home/testuser";
-const RPC_SECRET = "test-rpc-secret";
-const RPC_PORT = "5111";
 const UID = 1000;
 const GID = 1000;
 
@@ -26,7 +24,7 @@ function makeOpts(overrides: Partial<LaunchContainerOpts> = {}): LaunchContainer
     mainRepoDir: "/repos/main",
     sandboxConfig: makeDockerProfile(),
     services: [],
-    env: {},
+    runtimeEnv: {},
     ...overrides,
   };
 }
@@ -37,7 +35,7 @@ function build(
   existingPaths = new Set<string>(),
   sshAuthSock?: string,
 ): string[] {
-  return buildDockerRunArgs(opts, existingPaths, HOME, "wm-test-123", RPC_SECRET, RPC_PORT, sshAuthSock, UID, GID);
+  return buildDockerRunArgs(opts, existingPaths, HOME, "wm-test-123", sshAuthSock, UID, GID);
 }
 
 /** Pull all -v flag values out of an args array. */
@@ -209,7 +207,7 @@ describe("buildDockerRunArgs — ports", () => {
   it("binds valid ports to loopback only", () => {
     const args = build(makeOpts({
       services: [{ name: "web", portEnv: "PORT" }],
-      env: { PORT: "3000" },
+      runtimeEnv: { PORT: "3000" },
     }));
     expect(ports(args)).toContain("127.0.0.1:3000:3000");
   });
@@ -217,7 +215,7 @@ describe("buildDockerRunArgs — ports", () => {
   it("skips ports with non-numeric values", () => {
     const args = build(makeOpts({
       services: [{ name: "web", portEnv: "PORT" }],
-      env: { PORT: "auto" },
+      runtimeEnv: { PORT: "auto" },
     }));
     expect(ports(args)).toHaveLength(0);
   });
@@ -228,7 +226,7 @@ describe("buildDockerRunArgs — ports", () => {
         { name: "web", portEnv: "PORT" },
         { name: "api", portEnv: "API_PORT" },
       ],
-      env: { PORT: "3000", API_PORT: "3000" },
+      runtimeEnv: { PORT: "3000", API_PORT: "3000" },
     }));
     expect(ports(args).filter(p => p.startsWith("127.0.0.1:3000"))).toHaveLength(1);
   });
@@ -239,18 +237,23 @@ describe("buildDockerRunArgs — ports", () => {
 // ---------------------------------------------------------------------------
 
 describe("buildDockerRunArgs — reserved env vars", () => {
-  it("HOME from .env.local does not override the hardcoded HOME=/root", () => {
-    const args = build(makeOpts({ env: { HOME: "/attacker" } }));
+  it("HOME from runtime env does not override the hardcoded HOME=/root", () => {
+    const args = build(makeOpts({ runtimeEnv: { HOME: "/attacker" } }));
     const flags = envFlags(args);
     expect(flags).toContain("HOME=/root");
     expect(flags).not.toContain("HOME=/attacker");
   });
 
-  it("IS_SANDBOX from .env.local is silently dropped", () => {
-    const args = build(makeOpts({ env: { IS_SANDBOX: "0" } }));
+  it("IS_SANDBOX from runtime env is silently dropped", () => {
+    const args = build(makeOpts({ runtimeEnv: { IS_SANDBOX: "0" } }));
     const flags = envFlags(args);
     expect(flags).toContain("IS_SANDBOX=1");
     expect(flags.filter(f => f.startsWith("IS_SANDBOX="))).toHaveLength(1);
+  });
+
+  it("does not inject legacy workmux rpc env vars", () => {
+    const flags = envFlags(build(makeOpts()));
+    expect(flags.some((flag) => flag.startsWith("WORKMUX_RPC_"))).toBe(false);
   });
 });
 

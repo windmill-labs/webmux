@@ -6,6 +6,7 @@ import type { ProjectConfig } from "../config";
 import { BunGitGateway } from "../adapters/git";
 import { buildProjectSessionName, buildWorktreeWindowName, type TmuxGateway, type TmuxWindowSummary } from "../adapters/tmux";
 import { getWorktreeStoragePaths, readWorktreeMeta } from "../adapters/fs";
+import type { DockerGateway, LaunchContainerOpts } from "../docker";
 import { ProjectRuntime } from "../services/project-runtime";
 import { ReconciliationService } from "../services/reconciliation-service";
 import { LifecycleService } from "../services/lifecycle-service";
@@ -75,6 +76,24 @@ class FakeTmuxGateway implements TmuxGateway {
   }
 }
 
+class FakeDockerGateway implements DockerGateway {
+  readonly launched: LaunchContainerOpts[] = [];
+  readonly removed: string[] = [];
+
+  async launchContainer(opts: LaunchContainerOpts): Promise<string> {
+    this.launched.push({
+      ...opts,
+      runtimeEnv: { ...opts.runtimeEnv },
+      services: opts.services.map((service) => ({ ...service })),
+    });
+    return `wm-${opts.branch}-container`;
+  }
+
+  async removeContainer(branch: string): Promise<void> {
+    this.removed.push(branch);
+  }
+}
+
 const TEST_CONFIG: ProjectConfig = {
   name: "Project",
   workspace: {
@@ -117,7 +136,12 @@ const TEST_CONFIG: ProjectConfig = {
   },
 };
 
-function makeLifecycleService(repoRoot: string, tmux: FakeTmuxGateway, runtime: ProjectRuntime): LifecycleService {
+function makeLifecycleService(
+  repoRoot: string,
+  tmux: FakeTmuxGateway,
+  runtime: ProjectRuntime,
+  docker: DockerGateway = new FakeDockerGateway(),
+): LifecycleService {
   const git = new BunGitGateway();
   const reconciliation = new ReconciliationService({
     config: TEST_CONFIG,
@@ -133,6 +157,7 @@ function makeLifecycleService(repoRoot: string, tmux: FakeTmuxGateway, runtime: 
     config: TEST_CONFIG,
     git,
     tmux,
+    docker,
     reconciliation,
   });
 }
@@ -228,6 +253,36 @@ describe("LifecycleService", () => {
     expect(runtime.getWorktreeByBranch("feature-open")?.worktreeId).toBe(opened.worktreeId);
   });
 
+  it("creates a managed docker worktree through the container runtime path", async () => {
+    const repoRoot = await initRepo();
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const docker = new FakeDockerGateway();
+    const lifecycle = makeLifecycleService(repoRoot, tmux, runtime, docker);
+
+    const created = await lifecycle.createWorktree({
+      branch: "feature-sandbox",
+      profile: "sandbox",
+    });
+
+    expect(created.branch).toBe("feature-sandbox");
+    expect(docker.launched).toHaveLength(1);
+    expect(docker.launched[0]?.branch).toBe("feature-sandbox");
+    expect(docker.launched[0]?.runtimeEnv.WEBMUX_RUNTIME).toBe("docker");
+
+    expect(tmux.listWindows()).toEqual([
+      {
+        sessionName: buildProjectSessionName(repoRoot),
+        windowName: buildWorktreeWindowName("feature-sandbox"),
+        paneCount: 1,
+      },
+    ]);
+
+    const state = runtime.getWorktreeByBranch("feature-sandbox");
+    expect(state?.agent.runtime).toBe("docker");
+    expect(state?.session.exists).toBe(true);
+  });
+
   it("rejects removing a dirty worktree", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
@@ -245,6 +300,24 @@ describe("LifecycleService", () => {
 
     expect(new BunGitGateway().listWorktrees(repoRoot).some((entry) => entry.path === worktreePath)).toBe(true);
     expect(run(["git", "branch", "--list", "feature-dirty"], repoRoot)).toContain("feature-dirty");
+  });
+
+  it("removes the sandbox container before deleting a docker worktree", async () => {
+    const repoRoot = await initRepo();
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const docker = new FakeDockerGateway();
+    const lifecycle = makeLifecycleService(repoRoot, tmux, runtime, docker);
+
+    await lifecycle.createWorktree({
+      branch: "feature-remove-docker",
+      profile: "sandbox",
+    });
+
+    await lifecycle.removeWorktree("feature-remove-docker");
+
+    expect(docker.removed).toContain("feature-remove-docker");
+    expect(new BunGitGateway().listWorktrees(repoRoot).some((entry) => entry.branch === "feature-remove-docker")).toBe(false);
   });
 
   it("merges a clean worktree into main and removes it on success", async () => {

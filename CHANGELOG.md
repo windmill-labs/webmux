@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.2](https://github.com/windmill-labs/webmux/compare/v0.7.1...v0.7.2) (2026-03-06)
+
+
+### Bug Fixes
+
+* use python pty.spawn instead of script on macOS ([26aeeeb](https://github.com/windmill-labs/webmux/commit/26aeeeb3106a9c8e074be7ffefa6cd9606dadcff))
+
 ## [0.7.1](https://github.com/windmill-labs/webmux/compare/v0.7.0...v0.7.1) (2026-03-06)
 
 

@@ -18,7 +18,8 @@
 
   let config = $state<AppConfig>({
     services: [],
-    profiles: { default: { name: "default" } },
+    profiles: [],
+    defaultProfileName: "",
     autoName: false,
   });
   let worktrees = $state<WorktreeInfo[]>([]);
@@ -477,10 +478,8 @@
 {#if showCreateDialog}
   <CreateWorktreeDialog
     loading={creating}
-    profiles={[
-      config.profiles.default,
-      ...(config.profiles.sandbox ? [config.profiles.sandbox] : []),
-    ]}
+    profiles={config.profiles}
+    defaultProfileName={config.defaultProfileName}
     initialBranch={assignIssue?.branchName ?? ""}
     initialPrompt={assignIssue ? `${assignIssue.title}${assignIssue.description ? '\n\n' + assignIssue.description : ''}` : ""}
     startupEnvs={config.startupEnvs ?? {}}

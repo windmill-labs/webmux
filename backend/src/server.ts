@@ -18,7 +18,7 @@ import {
 import {
   BunGitGateway,
 } from "./adapters/git";
-import { loadConfig, getDefaultProfileName, gitRoot, isDockerProfile, type ProjectConfig, type ProfileConfig } from "./adapters/config";
+import { loadConfig, getDefaultProfileName, gitRoot, type ProjectConfig } from "./adapters/config";
 import { loadControlToken } from "./adapters/control-token";
 import { BunDockerGateway } from "./adapters/docker";
 import { BunPortProbe } from "./adapters/port-probe";
@@ -64,49 +64,29 @@ const lifecycleService = new LifecycleService({
   reconciliation: reconciliationService,
 });
 
-function getProfileConfig(name: string): ProfileConfig | undefined {
-  return config.profiles[name];
-}
-
-function getPrimaryDockerProfileName(): string | null {
-  for (const [name, profile] of Object.entries(config.profiles)) {
-    if (isDockerProfile(profile)) return name;
-  }
-  return null;
-}
-
 function getFrontendConfig(): {
   name: string;
   services: ProjectConfig["services"];
-  profiles: {
-    default: { name: string; systemPrompt?: string };
-    sandbox?: { name: string; systemPrompt?: string };
-  };
+  profiles: Array<{ name: string; systemPrompt?: string }>;
+  defaultProfileName: string;
   autoName: boolean;
   startupEnvs: ProjectConfig["startupEnvs"];
 } {
   const defaultProfileName = getDefaultProfileName(config);
-  const defaultProfile = getProfileConfig(defaultProfileName) ?? config.profiles.default;
-  const dockerProfileName = getPrimaryDockerProfileName();
-  const dockerProfile = dockerProfileName ? getProfileConfig(dockerProfileName) : undefined;
+  const orderedProfileEntries = Object.entries(config.profiles).sort(([left], [right]) => {
+    if (left === defaultProfileName) return -1;
+    if (right === defaultProfileName) return 1;
+    return 0;
+  });
 
   return {
     name: config.name,
     services: config.services,
-    profiles: {
-      default: {
-        name: defaultProfileName,
-        ...(defaultProfile?.systemPrompt ? { systemPrompt: defaultProfile.systemPrompt } : {}),
-      },
-      ...(dockerProfileName && dockerProfile
-        ? {
-            sandbox: {
-              name: dockerProfileName,
-              ...(dockerProfile.systemPrompt ? { systemPrompt: dockerProfile.systemPrompt } : {}),
-            },
-          }
-        : {}),
-    },
+    profiles: orderedProfileEntries.map(([name, profile]) => ({
+      name,
+      ...(profile.systemPrompt ? { systemPrompt: profile.systemPrompt } : {}),
+    })),
+    defaultProfileName,
     autoName: false,
     startupEnvs: config.startupEnvs,
   };

@@ -7,6 +7,7 @@
   let {
     loading = false,
     profiles = [],
+    defaultProfileName = "",
     initialBranch = "",
     initialPrompt = "",
     startupEnvs = {},
@@ -15,6 +16,7 @@
   }: {
     loading?: boolean;
     profiles: ProfileConfig[];
+    defaultProfileName?: string;
     initialBranch?: string;
     initialPrompt?: string;
     startupEnvs?: Record<string, string | boolean>;
@@ -38,13 +40,13 @@
   const savedProfile = localStorage.getItem(STORAGE_KEY);
   const savedAgent = localStorage.getItem(AGENT_STORAGE_KEY);
 
-  let defaultProfile = $derived(savedProfile ?? profiles[0]?.name ?? "Full");
+  let fallbackProfile = $derived(defaultProfileName || profiles[0]?.name || "default");
   // svelte-ignore state_referenced_locally
   let name = $state(initialBranch);
   // svelte-ignore state_referenced_locally
   let prompt = $state(initialPrompt);
   let agent = $state(savedAgent ?? "claude");
-  let profile = $state(savedProfile ?? "Full");
+  let profile = $state(savedProfile ?? "");
   let saveDefault = $state(false);
   // svelte-ignore state_referenced_locally
   let envValues = $state<Record<string, string | boolean>>({ ...startupEnvs });
@@ -55,7 +57,7 @@
 
   $effect(() => {
     if (!profiles.some((p) => p.name === profile)) {
-      profile = defaultProfile;
+      profile = fallbackProfile;
     }
   });
 </script>

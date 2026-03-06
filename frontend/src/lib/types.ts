@@ -131,10 +131,8 @@ export interface ProjectSnapshot {
 export interface AppConfig {
   name?: string;
   services: ServiceConfig[];
-  profiles: {
-    default: ProfileConfig;
-    sandbox?: ProfileConfig;
-  };
+  profiles: ProfileConfig[];
+  defaultProfileName: string;
   autoName: boolean;
   startupEnvs?: Record<string, string | boolean>;
 }

@@ -132,7 +132,7 @@ function parseProfile(raw: unknown, fallbackRuntime: "host" | "docker"): Profile
 }
 
 function parseProfiles(raw: unknown): Record<string, ProfileConfig> {
-  if (!isRecord(raw)) return { default: DEFAULT_CONFIG.profiles.default };
+  if (!isRecord(raw)) return { default: { ...DEFAULT_CONFIG.profiles.default, panes: clonePanes(DEFAULT_CONFIG.profiles.default.panes) } };
 
   const profiles = Object.entries(raw).reduce<Record<string, ProfileConfig>>((acc, [name, value]) => {
     const fallbackRuntime = name === "sandbox" ? "docker" : "host";
@@ -140,8 +140,8 @@ function parseProfiles(raw: unknown): Record<string, ProfileConfig> {
     return acc;
   }, {});
 
-  if (!profiles.default) {
-    profiles.default = { ...DEFAULT_CONFIG.profiles.default, panes: clonePanes(DEFAULT_CONFIG.profiles.default.panes) };
+  if (Object.keys(profiles).length === 0) {
+    return { default: { ...DEFAULT_CONFIG.profiles.default, panes: clonePanes(DEFAULT_CONFIG.profiles.default.panes) } };
   }
 
   return profiles;

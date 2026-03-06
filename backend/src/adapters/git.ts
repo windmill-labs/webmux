@@ -27,10 +27,17 @@ export interface MergeGitBranchOptions {
   targetBranch: string;
 }
 
+export interface GitWorktreeStatus {
+  dirty: boolean;
+  aheadCount: number;
+  currentCommit: string | null;
+}
+
 export interface GitGateway {
   resolveWorktreeRoot(cwd: string): string;
   resolveWorktreeGitDir(cwd: string): string;
   listWorktrees(cwd: string): GitWorktreeEntry[];
+  readWorktreeStatus(cwd: string): GitWorktreeStatus;
   createWorktree(opts: CreateGitWorktreeOptions): void;
   removeWorktree(opts: RemoveGitWorktreeOptions): void;
   deleteBranch(repoRoot: string, branch: string, force?: boolean): void;
@@ -51,6 +58,26 @@ function runGit(args: string[], cwd: string): string {
   }
 
   return new TextDecoder().decode(result.stdout).trim();
+}
+
+function tryRunGit(args: string[], cwd: string): { ok: true; stdout: string } | { ok: false; stderr: string } {
+  const result = Bun.spawnSync(["git", ...args], {
+    cwd,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+
+  if (result.exitCode !== 0) {
+    return {
+      ok: false,
+      stderr: new TextDecoder().decode(result.stderr).trim(),
+    };
+  }
+
+  return {
+    ok: true,
+    stdout: new TextDecoder().decode(result.stdout).trim(),
+  };
 }
 
 export function resolveWorktreeRoot(cwd: string): string {
@@ -122,6 +149,18 @@ export function listGitWorktrees(cwd: string): GitWorktreeEntry[] {
   return parseGitWorktreePorcelain(output);
 }
 
+export function readGitWorktreeStatus(cwd: string): GitWorktreeStatus {
+  const dirtyOutput = runGit(["status", "--porcelain"], cwd);
+  const commit = tryRunGit(["rev-parse", "HEAD"], cwd);
+  const ahead = tryRunGit(["rev-list", "--count", "@{upstream}..HEAD"], cwd);
+
+  return {
+    dirty: dirtyOutput.length > 0,
+    aheadCount: ahead.ok ? parseInt(ahead.stdout, 10) || 0 : 0,
+    currentCommit: commit.ok && commit.stdout.length > 0 ? commit.stdout : null,
+  };
+}
+
 export class BunGitGateway implements GitGateway {
   resolveWorktreeRoot(cwd: string): string {
     return resolveWorktreeRoot(cwd);
@@ -133,6 +172,10 @@ export class BunGitGateway implements GitGateway {
 
   listWorktrees(cwd: string): GitWorktreeEntry[] {
     return listGitWorktrees(cwd);
+  }
+
+  readWorktreeStatus(cwd: string): GitWorktreeStatus {
+    return readGitWorktreeStatus(cwd);
   }
 
   createWorktree(opts: CreateGitWorktreeOptions): void {

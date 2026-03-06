@@ -2,7 +2,13 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { BunGitGateway, parseGitWorktreePorcelain, resolveWorktreeGitDir, resolveWorktreeRoot } from "../adapters/git";
+import {
+  BunGitGateway,
+  parseGitWorktreePorcelain,
+  readGitWorktreeStatus,
+  resolveWorktreeGitDir,
+  resolveWorktreeRoot,
+} from "../adapters/git";
 
 function normalizePath(path: string): string {
   return path.replaceAll("\\", "/");
@@ -149,5 +155,31 @@ describe("BunGitGateway", () => {
     });
     const text = new TextDecoder().decode(log.stdout);
     expect(text).toContain("Merge branch 'feature-b'");
+  });
+
+  it("reads dirty state, ahead count, and current commit", async () => {
+    repoRoot = await mkdtemp(join(tmpdir(), "webmux-statusgw-"));
+    run(["git", "init", "-b", "main"], repoRoot);
+    run(["git", "config", "user.name", "Test User"], repoRoot);
+    run(["git", "config", "user.email", "test@example.com"], repoRoot);
+    await Bun.write(join(repoRoot, "README.md"), "# repo\n");
+    run(["git", "add", "README.md"], repoRoot);
+    run(["git", "commit", "-m", "init"], repoRoot);
+    run(["git", "checkout", "-b", "feature-status"], repoRoot);
+    run(["git", "branch", "--set-upstream-to=main", "feature-status"], repoRoot);
+    await Bun.write(join(repoRoot, "README.md"), "# repo\nfeature status\n");
+    run(["git", "add", "README.md"], repoRoot);
+    run(["git", "commit", "-m", "feature work"], repoRoot);
+
+    const cleanStatus = readGitWorktreeStatus(repoRoot);
+    expect(cleanStatus.dirty).toBe(false);
+    expect(cleanStatus.aheadCount).toBe(1);
+    expect(cleanStatus.currentCommit).not.toBeNull();
+
+    await Bun.write(join(repoRoot, "README.md"), "# repo\nfeature status\ndirty\n");
+    const dirtyStatus = new BunGitGateway().readWorktreeStatus(repoRoot);
+    expect(dirtyStatus.dirty).toBe(true);
+    expect(dirtyStatus.aheadCount).toBe(1);
+    expect(dirtyStatus.currentCommit).toBe(cleanStatus.currentCommit);
   });
 });

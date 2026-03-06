@@ -28,6 +28,12 @@ import {
   cleanupStaleSessions,
 } from "./terminal";
 import {
+  BunGitGateway,
+} from "./adapters/git";
+import {
+  BunTmuxGateway,
+} from "./adapters/tmux";
+import {
   getDefaultAgent,
   getDefaultProfileName,
   gitRoot,
@@ -41,11 +47,23 @@ import { handleWorkmuxRpc } from "./rpc";
 import { jsonResponse, errorResponse } from "./http";
 import { handleNotificationStream, handleDismissNotification, installHookScripts, hasDashboardActivity, touchActivity } from "./notifications";
 import { fetchAssignedIssues, branchMatchesIssue, type LinkedLinearIssue } from "./linear";
+import { NotificationService as RuntimeNotificationService } from "./services/notification-service";
+import { ProjectRuntime } from "./services/project-runtime";
+import { ReconciliationService } from "./services/reconciliation-service";
+import { buildProjectSnapshot } from "./services/snapshot-service";
 
 const PORT = parseInt(Bun.env.BACKEND_PORT || "5111", 10);
 const STATIC_DIR = Bun.env.WEBMUX_STATIC_DIR || "";
 const PROJECT_DIR = Bun.env.WEBMUX_PROJECT_DIR || gitRoot(process.cwd());
 const config: ProjectConfig = loadConfig(PROJECT_DIR);
+const projectRuntime = new ProjectRuntime();
+const runtimeNotifications = new RuntimeNotificationService();
+const reconciliationService = new ReconciliationService({
+  config,
+  git: new BunGitGateway(),
+  tmux: new BunTmuxGateway(),
+  runtime: projectRuntime,
+});
 
 function getProfileConfig(name: string): ProfileConfig | undefined {
   return config.profiles[name];
@@ -347,6 +365,17 @@ async function apiGetWorktrees(req: Request): Promise<Response> {
   });
 }
 
+async function apiGetProject(): Promise<Response> {
+  touchActivity();
+  await reconciliationService.reconcile(PROJECT_DIR);
+  return jsonResponse(buildProjectSnapshot({
+    projectName: config.name,
+    mainBranch: config.workspace.mainBranch,
+    runtime: projectRuntime,
+    notifications: runtimeNotifications.list(),
+  }));
+}
+
 async function apiCreateWorktree(req: Request): Promise<Response> {
   const raw: unknown = await req.json();
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
@@ -498,6 +527,10 @@ Bun.serve({
 
     "/api/config": {
       GET: () => jsonResponse(getFrontendConfig()),
+    },
+
+    "/api/project": {
+      GET: () => catching("GET /api/project", () => apiGetProject()),
     },
 
     "/api/worktrees": {

@@ -33,6 +33,14 @@ class FakeGitGateway implements GitGateway {
     return [];
   }
 
+  readWorktreeStatus() {
+    return {
+      dirty: false,
+      aheadCount: 0,
+      currentCommit: null,
+    };
+  }
+
   createWorktree(opts: { repoRoot: string; worktreePath: string; branch: string; baseBranch?: string }): void {
     this.calls.push(`createWorktree:${opts.repoRoot}:${opts.worktreePath}:${opts.branch}:${opts.baseBranch ?? ""}`);
   }

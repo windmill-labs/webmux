@@ -161,8 +161,11 @@ export async function attach(
 
   const cmd = buildAttachCmd({ gName, worktreeName, tmuxSession, cols, rows, initialPane });
 
+  // macOS `script` fails with "tcgetattr: Operation not supported on socket"
+  // when stdin is a socket pair (Bun.spawn uses socketpair, not pipe).
+  // Python's pty.spawn handles non-TTY stdin gracefully.
   const scriptArgs = process.platform === "darwin"
-    ? ["script", "-q", "/dev/null", "bash", "-c", cmd]
+    ? ["python3", "-c", "import pty,sys;pty.spawn(sys.argv[1:])", "bash", "-c", cmd]
     : ["script", "-q", "-c", cmd, "/dev/null"];
 
   const proc = Bun.spawn(scriptArgs, {

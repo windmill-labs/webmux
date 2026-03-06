@@ -44,11 +44,12 @@ Completed:
 - snapshot-backed `GET /api/project`
 - `POST /api/runtime/events`
 - runtime-backed notification stream and dismiss
-- runtime notification recording bridged from legacy `/rpc/workmux notify`
+- terminal websocket cutover onto deterministic runtime-owned tmux targets
+- prompt send cutover onto the new terminal transport
+- removal of the live `/rpc/workmux` route
 
 Still remaining:
 
-- terminal websocket cutover
 - lifecycle route cutover
 - frontend move to `GET /api/project`
 - Docker and hook event delivery through `webmux-agentctl`

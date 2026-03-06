@@ -56,9 +56,15 @@ The legacy backend still powers most product behavior today, but the new archite
 - runtime events are validated, reconciled against the current repo state, and applied to `ProjectRuntime`
 - runtime notifications are now recorded through `RuntimeNotificationService`
 - `/api/notifications/stream` and dismiss now run through the new runtime-backed notification service
-- legacy `/rpc/workmux notify` calls are bridged into the new notification service so existing hooks still surface notifications during the cutover
 
-### 7. Backend coverage is still green
+### 7. Terminal transport and prompt delivery are cut over
+
+- terminal websocket attach now resolves the deterministic runtime-owned tmux session/window target
+- websocket terminal sessions are keyed internally by `worktreeId`, not branch name
+- prompt send now resolves runtime state first and writes directly through the new terminal transport
+- the backend no longer exposes `/rpc/workmux`
+
+### 8. Backend coverage is still green
 
 - `cd backend && bun test` passes
 - `cd backend && bun run check` passes
@@ -74,36 +80,33 @@ These pieces are already using the new architecture:
 - `GET /api/project`
 - `POST /api/runtime/events`
 - runtime-backed notification stream and dismiss
-- runtime notification recording from both direct runtime events and bridged legacy notify calls
+- terminal websocket attach/send behavior
+- prompt send flow
 
 These pieces still run through legacy code:
 
 - `GET /api/worktrees`
 - create/open/remove/merge lifecycle routes
-- prompt send flow
-- terminal websocket attach/send behavior
-- Docker and hook event delivery still using the legacy `/rpc/workmux notify` transport
+- Docker and hook event delivery still using legacy hook/container control code
 - most frontend reads
 
 ## What Is Not Done Yet
 
 The remaining work is the actual cutover of runtime I/O and lifecycle ownership:
 
-1. Cut terminal attach/send over to the new session ownership model.
-2. Wire create/open/remove/merge/prompt through the new lifecycle services.
-3. Finish the remaining validation and rollback behavior in the lifecycle service.
-4. Move the frontend read path to `GET /api/project`.
-5. Cut Docker and hook-driven agent event flow over to `webmux-agentctl`.
-6. Delete legacy backend modules once the new slice is live end to end.
+1. Wire create/open/remove/merge through the new lifecycle services.
+2. Finish the remaining validation and rollback behavior in the lifecycle service.
+3. Move the frontend read path to `GET /api/project`.
+4. Cut Docker and hook-driven agent event flow over to `webmux-agentctl`.
+5. Delete legacy backend modules once the new slice is live end to end.
 
 ## Recommended Next Steps
 
 Do these next, in order:
 
-1. Replace terminal websocket attach/send with the new session ownership model.
-2. Cut over create/open/remove/merge/prompt routes to the new lifecycle services.
-3. Move the frontend read path to `GET /api/project`.
-4. Replace Docker and hook-driven event delivery with `webmux-agentctl`.
+1. Cut over create/open/remove/merge routes to the new lifecycle services.
+2. Move the frontend read path to `GET /api/project`.
+3. Replace Docker and hook-driven event delivery with `webmux-agentctl`.
 
 At that point, the backend will have crossed the main boundary from "new read model exists" to "new runtime owns live behavior."
 
@@ -116,7 +119,7 @@ If this work continues in a new chat, start from:
 3. `backend/src/services/reconciliation-service.ts`
 4. `backend/src/services/project-runtime.ts`
 
-The next implementation slice should begin with terminal websocket cutover and then move directly into lifecycle route replacement.
+The next implementation slice should replace create/open/remove/merge in `backend/src/server.ts` with the lifecycle services and then continue deleting the remaining legacy backend modules.
 
 ## Local Workspace Note
 

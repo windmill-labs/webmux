@@ -54,7 +54,9 @@ function findWindow(
   branch: string,
 ): TmuxWindowSummary | null {
   const windowName = buildWorktreeWindowName(branch);
-  return windows.find((window) => window.sessionName === sessionName && window.windowName === windowName) ?? null;
+  return windows.find((window) =>
+    window.sessionName === sessionName && window.windowName === windowName
+  ) ?? null;
 }
 
 function resolveBranch(entry: GitWorktreeEntry, metaBranch: string | null): string {

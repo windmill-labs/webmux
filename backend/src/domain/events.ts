@@ -1,6 +1,7 @@
 export type RuntimeEventType =
   | "agent_started"
   | "agent_stopped"
+  | "agent_status_changed"
   | "title_changed"
   | "pr_opened"
   | "runtime_error";
@@ -17,6 +18,11 @@ export interface AgentStartedEvent extends RuntimeEventBase {
 
 export interface AgentStoppedEvent extends RuntimeEventBase {
   type: "agent_stopped";
+}
+
+export interface AgentStatusChangedEvent extends RuntimeEventBase {
+  type: "agent_status_changed";
+  lifecycle: "starting" | "running" | "idle" | "stopped";
 }
 
 export interface TitleChangedEvent extends RuntimeEventBase {
@@ -37,6 +43,7 @@ export interface RuntimeErrorEvent extends RuntimeEventBase {
 export type RuntimeEvent =
   | AgentStartedEvent
   | AgentStoppedEvent
+  | AgentStatusChangedEvent
   | TitleChangedEvent
   | PrOpenedEvent
   | RuntimeErrorEvent;
@@ -47,7 +54,7 @@ function hasBaseFields(raw: Record<string, unknown>): raw is Record<string, stri
     && typeof raw.branch === "string"
     && raw.branch.length > 0
     && typeof raw.type === "string"
-    && ["agent_started", "agent_stopped", "title_changed", "pr_opened", "runtime_error"].includes(raw.type);
+    && ["agent_started", "agent_stopped", "agent_status_changed", "title_changed", "pr_opened", "runtime_error"].includes(raw.type);
 }
 
 export function parseRuntimeEvent(raw: unknown): RuntimeEvent | null {
@@ -73,6 +80,18 @@ export function parseRuntimeEvent(raw: unknown): RuntimeEvent | null {
         branch: event.branch,
         type: event.type,
       };
+    case "agent_status_changed":
+      return event.lifecycle === "starting"
+          || event.lifecycle === "running"
+          || event.lifecycle === "idle"
+          || event.lifecycle === "stopped"
+        ? {
+            worktreeId: event.worktreeId,
+            branch: event.branch,
+            type: event.type,
+            lifecycle: event.lifecycle,
+          }
+        : null;
     case "title_changed":
       return typeof event.title === "string"
         ? {

@@ -38,12 +38,20 @@ describe("ProjectRuntime", () => {
       { worktreeId: "wt_search", branch: "feature/search", type: "title_changed", title: "Implement search panel" },
       () => new Date("2026-03-06T10:01:00.000Z"),
     );
+    runtime.applyEvent(
+      { worktreeId: "wt_search", branch: "feature/search", type: "agent_status_changed", lifecycle: "idle" },
+      () => new Date("2026-03-06T10:02:00.000Z"),
+    );
+    runtime.applyEvent(
+      { worktreeId: "wt_search", branch: "feature/search", type: "agent_status_changed", lifecycle: "running" },
+      () => new Date("2026-03-06T10:03:00.000Z"),
+    );
 
     const state = runtime.getWorktree("wt_search");
     expect(state?.agent.lifecycle).toBe("running");
     expect(state?.agent.title).toBe("Implement search panel");
     expect(state?.agent.lastStartedAt).toBe("2026-03-06T10:00:00.000Z");
-    expect(state?.agent.lastEventAt).toBe("2026-03-06T10:01:00.000Z");
+    expect(state?.agent.lastEventAt).toBe("2026-03-06T10:03:00.000Z");
   });
 
   it("tracks runtime errors and service/session updates", () => {

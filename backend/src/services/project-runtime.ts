@@ -1,4 +1,4 @@
-import type { RuntimeEvent, RuntimeErrorEvent, TitleChangedEvent } from "../domain/events";
+import type { AgentStatusChangedEvent, RuntimeEvent, RuntimeErrorEvent, TitleChangedEvent } from "../domain/events";
 import type {
   AgentKind,
   RuntimeKind,
@@ -149,6 +149,9 @@ export class ProjectRuntime {
         state.agent.lifecycle = "stopped";
         state.agent.lastEventAt = timestamp;
         break;
+      case "agent_status_changed":
+        this.applyStatusChanged(state, event, timestamp);
+        break;
       case "title_changed":
         this.applyTitleChanged(state, event, timestamp);
         break;
@@ -170,6 +173,19 @@ export class ProjectRuntime {
   ): void {
     state.agent.title = event.title;
     state.agent.lastEventAt = timestamp;
+  }
+
+  private applyStatusChanged(
+    state: ManagedWorktreeRuntimeState,
+    event: AgentStatusChangedEvent,
+    timestamp: string,
+  ): void {
+    state.agent.lifecycle = event.lifecycle;
+    state.agent.lastEventAt = timestamp;
+    if (state.agent.lastStartedAt === null && event.lifecycle === "running") {
+      state.agent.lastStartedAt = timestamp;
+    }
+    state.agent.lastError = null;
   }
 
   private applyRuntimeError(

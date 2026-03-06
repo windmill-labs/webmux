@@ -18,6 +18,7 @@ import { buildProjectSessionName, buildWorktreeWindowName, type TmuxGateway } fr
 import type { AgentKind, ProfileConfig, ProjectConfig, RuntimeKind } from "../domain/config";
 import type { WorktreeMeta } from "../domain/model";
 import { allocateServicePorts, isValidBranchName, isValidEnvKey } from "../domain/policies";
+import type { AutoNameGenerator } from "./auto-name-service";
 import {
   buildAgentPaneCommand,
   buildDockerAgentPaneCommand,
@@ -62,6 +63,7 @@ export interface LifecycleServiceDependencies {
   docker: DockerGateway;
   reconciliation: ReconciliationService;
   hooks: LifecycleHookRunner;
+  autoName: AutoNameGenerator;
 }
 
 export interface CreateLifecycleWorktreeInput {
@@ -88,7 +90,7 @@ export class LifecycleService {
     branch: string;
     worktreeId: string;
   }> {
-    const branch = this.resolveBranch(input.branch);
+    const branch = await this.resolveBranch(input.branch, input.prompt);
     this.ensureBranchAvailable(branch);
 
     const { profileName, profile } = this.resolveProfile(input.profile);
@@ -227,12 +229,22 @@ export class LifecycleService {
     }
   }
 
-  private resolveBranch(rawBranch: string | undefined): string {
-    const branch = rawBranch?.trim() || generateBranchName();
+  private async resolveBranch(rawBranch: string | undefined, prompt: string | undefined): Promise<string> {
+    const explicitBranch = rawBranch?.trim();
+    const branch = explicitBranch
+      || await this.generateAutoName(prompt)
+      || generateBranchName();
     if (!isValidBranchName(branch)) {
       throw new LifecycleError(`Invalid branch name: ${branch}`, 400);
     }
     return branch;
+  }
+
+  private async generateAutoName(prompt: string | undefined): Promise<string | null> {
+    if (!this.deps.config.autoName || !prompt?.trim()) {
+      return null;
+    }
+    return await this.deps.autoName.generateBranchName(this.deps.config.autoName, prompt);
   }
 
   private ensureBranchAvailable(branch: string): void {

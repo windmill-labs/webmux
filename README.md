@@ -127,6 +127,12 @@ linkedRepos:
 startupEnvs:
   NODE_ENV: development
 
+auto_name:
+  model: claude-3-5-haiku-latest
+  system_prompt: >
+    Generate a concise git branch name from the task description.
+    Return only the branch name in lowercase kebab-case.
+
 lifecycleHooks:
   postCreate: scripts/post-create.sh
   preRemove: scripts/pre-remove.sh
@@ -163,12 +169,16 @@ lifecycleHooks:
 | `integrations.github.linkedRepos[].repo` | string | yes | GitHub repo slug (e.g. `org/repo`) |
 | `integrations.github.linkedRepos[].alias` | string | no | Short label for the UI |
 | `startupEnvs.<KEY>` | string or boolean | no | Extra env vars materialized into worktree runtime env |
+| `auto_name.model` | string | no | Model used to generate the branch name when the branch field is left empty; supports Anthropic (`claude-*`), Gemini (`gemini-*`), and OpenAI (`gpt-*`, `chatgpt-*`, `o*`) models |
+| `auto_name.system_prompt` | string | no | System prompt sent to the auto-name model |
 | `lifecycleHooks.postCreate` | string | no | Shell command run after a managed worktree is created and its session is materialized |
 | `lifecycleHooks.preRemove` | string | no | Shell command run before a managed worktree is removed |
 
 </details>
 
 Lifecycle hooks run with the worktree as `cwd` and receive the same computed runtime env as the managed panes, including `startupEnvs`, allocated service ports, and `WEBMUX_*` metadata.
+
+When `auto_name` is enabled, `webmux` calls the provider API directly with structured output and uses `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, or `OPENAI_API_KEY` based on the configured model.
 
 ## Keyboard Shortcuts
 

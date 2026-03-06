@@ -9,7 +9,9 @@ import type { PortProbe } from "../adapters/port-probe";
 import { buildProjectSessionName, buildWorktreeWindowName, type TmuxGateway, type TmuxWindowSummary } from "../adapters/tmux";
 import { getWorktreeStoragePaths, readWorktreeMeta } from "../adapters/fs";
 import type { DockerGateway, LaunchContainerOpts } from "../adapters/docker";
+import type { AutoNameConfig } from "../domain/config";
 import { ProjectRuntime } from "../services/project-runtime";
+import type { AutoNameGenerator } from "../services/auto-name-service";
 import { ReconciliationService } from "../services/reconciliation-service";
 import { LifecycleService } from "../services/lifecycle-service";
 
@@ -115,6 +117,20 @@ class FakeHookRunner implements LifecycleHookRunner {
   }
 }
 
+class FakeAutoNameService implements AutoNameGenerator {
+  readonly calls: Array<{ config: AutoNameConfig; task: string }> = [];
+
+  constructor(private readonly branch = "generated-branch") {}
+
+  async generateBranchName(config: AutoNameConfig, task: string): Promise<string> {
+    this.calls.push({
+      config: { ...config },
+      task,
+    });
+    return this.branch;
+  }
+}
+
 class AheadTrackingGitGateway extends BunGitGateway {
   constructor(private readonly branches: Set<string>) {
     super();
@@ -179,6 +195,7 @@ const TEST_CONFIG: ProjectConfig = {
     postCreate: "scripts/post-create.sh",
     preRemove: "scripts/pre-remove.sh",
   },
+  autoName: null,
 };
 
 const NO_DEFAULT_PROFILE_CONFIG: ProjectConfig = {
@@ -210,6 +227,7 @@ function makeLifecycleService(
   hooks: LifecycleHookRunner = new FakeHookRunner(),
   config: ProjectConfig = TEST_CONFIG,
   git: GitGateway = new BunGitGateway(),
+  autoName: AutoNameGenerator = new FakeAutoNameService(),
 ): LifecycleService {
   const reconciliation = new ReconciliationService({
     config,
@@ -229,6 +247,7 @@ function makeLifecycleService(
     docker,
     reconciliation,
     hooks,
+    autoName,
   });
 }
 
@@ -368,6 +387,44 @@ describe("LifecycleService", () => {
     const state = runtime.getWorktreeByBranch("feature-sandbox");
     expect(state?.agent.runtime).toBe("docker");
     expect(state?.session.exists).toBe(true);
+  });
+
+  it("uses auto_name to generate the branch when the prompt is present and no branch was provided", async () => {
+    const repoRoot = await initRepo();
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const autoName = new FakeAutoNameService("fix-login-flow");
+    const lifecycle = makeLifecycleService(
+      repoRoot,
+      tmux,
+      runtime,
+      new FakeDockerGateway(),
+      new FakeHookRunner(),
+      {
+        ...TEST_CONFIG,
+        autoName: {
+          model: "claude-3-5-haiku-latest",
+          systemPrompt: "Generate a branch name",
+        },
+      },
+      new BunGitGateway(),
+      autoName,
+    );
+
+    const created = await lifecycle.createWorktree({
+      prompt: "Fix the login flow for OAuth redirects",
+    });
+
+    expect(created.branch).toBe("fix-login-flow");
+    expect(autoName.calls).toEqual([
+      {
+        config: {
+          model: "claude-3-5-haiku-latest",
+          systemPrompt: "Generate a branch name",
+        },
+        task: "Fix the login flow for OAuth redirects",
+      },
+    ]);
   });
 
   it("rejects removing a dirty worktree", async () => {

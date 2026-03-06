@@ -66,6 +66,11 @@ export interface LifecycleHooksConfig {
   preRemove?: string;
 }
 
+export interface AutoNameConfig {
+  model: string;
+  systemPrompt?: string;
+}
+
 export interface ProjectConfig {
   name: string;
   workspace: WorkspaceConfig;
@@ -74,4 +79,5 @@ export interface ProjectConfig {
   startupEnvs: Record<string, string | boolean>;
   integrations: IntegrationConfig;
   lifecycleHooks: LifecycleHooksConfig;
+  autoName: AutoNameConfig | null;
 }

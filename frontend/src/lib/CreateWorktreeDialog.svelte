@@ -8,6 +8,7 @@
     loading = false,
     profiles = [],
     defaultProfileName = "",
+    autoNameEnabled = false,
     initialBranch = "",
     initialPrompt = "",
     startupEnvs = {},
@@ -17,6 +18,7 @@
     loading?: boolean;
     profiles: ProfileConfig[];
     defaultProfileName?: string;
+    autoNameEnabled?: boolean;
     initialBranch?: string;
     initialPrompt?: string;
     startupEnvs?: Record<string, string | boolean>;
@@ -112,7 +114,7 @@
         id="wt-name"
         type="text"
         class="w-full px-2.5 py-1.5 rounded-md border border-edge bg-surface text-primary text-[13px] placeholder:text-muted/50 outline-none focus:border-accent"
-        placeholder="auto-generated if empty"
+        placeholder={autoNameEnabled ? "generated from prompt if empty" : "auto-generated if empty"}
         bind:value={name}
       />
     </div>

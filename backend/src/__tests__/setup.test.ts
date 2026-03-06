@@ -69,6 +69,9 @@ describe("loadConfig", () => {
         "lifecycleHooks:",
         "  postCreate: scripts/post-create.sh",
         "  preRemove: scripts/pre-remove.sh",
+        "auto_name:",
+        "  model: claude-3-5-haiku-latest",
+        "  system_prompt: Generate a branch name",
         "integrations:",
         "  github:",
         "    linkedRepos:",
@@ -97,6 +100,10 @@ describe("loadConfig", () => {
     expect(config.lifecycleHooks).toEqual({
       postCreate: "scripts/post-create.sh",
       preRemove: "scripts/pre-remove.sh",
+    });
+    expect(config.autoName).toEqual({
+      model: "claude-3-5-haiku-latest",
+      systemPrompt: "Generate a branch name",
     });
     expect(config.integrations.github.linkedRepos).toEqual([{ repo: "acme/linked", alias: "linked" }]);
     expect(config.integrations.linear.enabled).toBe(false);

@@ -136,6 +136,7 @@ const TEST_CONFIG: ProjectConfig = {
     linear: { enabled: true },
   },
   lifecycleHooks: {},
+  autoName: null,
 };
 
 describe("ReconciliationService", () => {

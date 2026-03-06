@@ -480,6 +480,7 @@
     loading={creating}
     profiles={config.profiles}
     defaultProfileName={config.defaultProfileName}
+    autoNameEnabled={config.autoName}
     initialBranch={assignIssue?.branchName ?? ""}
     initialPrompt={assignIssue ? `${assignIssue.title}${assignIssue.description ? '\n\n' + assignIssue.description : ''}` : ""}
     startupEnvs={config.startupEnvs ?? {}}

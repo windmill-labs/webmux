@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import type {
   AgentKind,
+  AutoNameConfig,
   LifecycleHooksConfig,
   LinkedRepoConfig,
   MountSpec,
@@ -42,6 +43,7 @@ const DEFAULT_CONFIG: ProjectConfig = {
     linear: { enabled: true },
   },
   lifecycleHooks: {},
+  autoName: null,
 };
 
 function clonePanes(panes: PaneTemplate[]): PaneTemplate[] {
@@ -191,6 +193,18 @@ function parseLifecycleHooks(raw: unknown): LifecycleHooksConfig {
   return hooks;
 }
 
+function parseAutoName(raw: unknown): AutoNameConfig | null {
+  if (!isRecord(raw)) return null;
+  if (typeof raw.model !== "string" || !raw.model.trim()) return null;
+
+  return {
+    model: raw.model.trim(),
+    ...(typeof raw.system_prompt === "string" && raw.system_prompt.trim()
+      ? { systemPrompt: raw.system_prompt.trim() }
+      : {}),
+  };
+}
+
 function parseLinkedRepos(raw: unknown): LinkedRepoConfig[] {
   if (!Array.isArray(raw)) return [];
 
@@ -266,6 +280,7 @@ export function loadConfig(dir: string): ProjectConfig {
         },
       },
       lifecycleHooks: parseLifecycleHooks(parsed.lifecycleHooks),
+      autoName: parseAutoName(parsed.auto_name),
     };
   } catch {
     return DEFAULT_CONFIG;

@@ -28,6 +28,7 @@ import {
 } from "./adapters/tmux";
 import { jsonResponse, errorResponse } from "./lib/http";
 import { hasRecentDashboardActivity, touchDashboardActivity } from "./services/dashboard-activity";
+import { AutoNameService } from "./services/auto-name-service";
 import { branchMatchesIssue, fetchAssignedIssues } from "./services/linear-service";
 import { NotificationService as RuntimeNotificationService } from "./services/notification-service";
 import { LifecycleError, LifecycleService } from "./services/lifecycle-service";
@@ -46,6 +47,7 @@ const portProbe = new BunPortProbe();
 const tmux = new BunTmuxGateway();
 const docker = new BunDockerGateway();
 const hooks = new BunLifecycleHookRunner();
+const autoName = new AutoNameService();
 const projectRuntime = new ProjectRuntime();
 const runtimeNotifications = new RuntimeNotificationService();
 const reconciliationService = new ReconciliationService({
@@ -65,6 +67,7 @@ const lifecycleService = new LifecycleService({
   docker,
   reconciliation: reconciliationService,
   hooks,
+  autoName,
 });
 
 function getFrontendConfig(): {
@@ -90,7 +93,7 @@ function getFrontendConfig(): {
       ...(profile.systemPrompt ? { systemPrompt: profile.systemPrompt } : {}),
     })),
     defaultProfileName,
-    autoName: false,
+    autoName: config.autoName !== null,
     startupEnvs: config.startupEnvs,
   };
 }

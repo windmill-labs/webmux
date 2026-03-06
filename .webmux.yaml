@@ -5,6 +5,9 @@ workspace:
   worktreeRoot: ../workmux-web__worktrees
   defaultAgent: claude
 
+auto_name:
+  model: gemini-2.5-flash-lite
+
 services:
   - name: BE
     portEnv: BACKEND_PORT
@@ -16,7 +19,15 @@ services:
     portStep: 10
 
 profiles:
-  default:
+  slim:
+    runtime: host
+    envPassthrough: []
+    panes:
+      - id: agent
+        kind: agent
+        focus: true
+    yolo: true
+  full:
     runtime: host
     envPassthrough: []
     panes:
@@ -31,7 +42,12 @@ profiles:
         kind: command
         split: bottom
         command: cd frontend && bun install && bun run dev
-
+    systemPrompt: >
+      You are working inside a project managed by webmux.
+      Backend port: ${BACKEND_PORT}. Frontend port: ${PORT}.
+      Start the backend with: source "$(git rev-parse --git-dir)/webmux/runtime.env" && cd backend && bun run dev
+      Start the frontend with: source "$(git rev-parse --git-dir)/webmux/runtime.env" && cd frontend && bun run dev
+    yolo: true
   sandbox:
     runtime: docker
     image: workmux-sandbox

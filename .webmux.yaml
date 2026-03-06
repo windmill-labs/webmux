@@ -2,7 +2,7 @@ name: Webmux
 
 workspace:
   mainBranch: main
-  worktreeRoot: __worktrees
+  worktreeRoot: ../workmux-web__worktrees
   defaultAgent: claude
 
 services:
@@ -11,7 +11,7 @@ services:
     portStart: 5111
     portStep: 10
   - name: FE
-    portEnv: FRONTEND_PORT
+    portEnv: PORT
     portStart: 5112
     portStep: 10
 
@@ -25,12 +25,12 @@ profiles:
         focus: true
       - id: backend
         kind: command
-        split: bottom
-        command: cd backend && bun run dev
+        split: right
+        command: cd backend && bun install && bun run dev
       - id: frontend
         kind: command
         split: bottom
-        command: cd frontend && bun run dev
+        command: cd frontend && bun install && bun run dev
 
   sandbox:
     runtime: docker

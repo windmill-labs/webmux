@@ -43,6 +43,7 @@ function buildNotification(event: RuntimeEvent, id: number, timestamp: number): 
 
 export class NotificationService {
   private readonly notifications: RuntimeNotification[] = [];
+  private readonly sseClients = new Set<ReadableStreamDefaultController<Uint8Array>>();
   private nextId = 1;
 
   constructor(private readonly maxItems = 50) {}
@@ -55,6 +56,7 @@ export class NotificationService {
     const index = this.notifications.findIndex((notification) => notification.id === id);
     if (index === -1) return false;
     this.notifications.splice(index, 1);
+    this.broadcast("dismiss", { id });
     return true;
   }
 
@@ -67,6 +69,46 @@ export class NotificationService {
     while (this.notifications.length > this.maxItems) {
       this.notifications.shift();
     }
+    this.broadcast("notification", notification);
     return notification;
+  }
+
+  stream(): Response {
+    let controllerRef: ReadableStreamDefaultController<Uint8Array> | null = null;
+    const stream = new ReadableStream<Uint8Array>({
+      start: (controller) => {
+        controllerRef = controller;
+        this.sseClients.add(controller);
+        for (const notification of this.notifications) {
+          controller.enqueue(this.formatSse("initial", notification));
+        }
+      },
+      cancel: () => {
+        if (controllerRef) this.sseClients.delete(controllerRef);
+      },
+    });
+
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+      },
+    });
+  }
+
+  private formatSse(event: string, data: unknown): Uint8Array {
+    return new TextEncoder().encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  }
+
+  private broadcast(event: "notification" | "dismiss", data: RuntimeNotification | { id: number }): void {
+    const encoded = this.formatSse(event, data);
+    for (const controller of this.sseClients) {
+      try {
+        controller.enqueue(encoded);
+      } catch {
+        this.sseClients.delete(controller);
+      }
+    }
   }
 }

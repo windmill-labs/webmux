@@ -1,6 +1,7 @@
 import { loadRpcSecret } from "./rpc-secret";
 import { jsonResponse } from "./http";
 import { addNotification } from "./notifications";
+import type { NotificationService as RuntimeNotificationService } from "./services/notification-service";
 
 interface RpcRequest {
   command: string;
@@ -9,6 +10,10 @@ interface RpcRequest {
 }
 
 type RpcResponse = { ok: true; output: string } | { ok: false; error: string }
+
+interface WorkmuxRpcDependencies {
+  notifications?: RuntimeNotificationService;
+}
 
 /** Build env with TMUX set so workmux can resolve agent states outside tmux. */
 function tmuxEnv(): Record<string, string | undefined> {
@@ -42,7 +47,10 @@ async function resolvePaneId(branch: string): Promise<string | null> {
   return null;
 }
 
-export async function handleWorkmuxRpc(req: Request): Promise<Response> {
+export async function handleWorkmuxRpc(
+  req: Request,
+  deps: WorkmuxRpcDependencies = {},
+): Promise<Response> {
   const secret = await loadRpcSecret();
   const authHeader = req.headers.get("Authorization");
   const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
@@ -66,7 +74,15 @@ export async function handleWorkmuxRpc(req: Request): Promise<Response> {
   if (command === "notify" && branch) {
     const [type, url] = args;
     if (type === "agent_stopped" || type === "pr_opened") {
-      addNotification(branch, type, url);
+      if (deps.notifications) {
+        deps.notifications.recordEvent(
+          type === "pr_opened"
+            ? { worktreeId: `legacy:${branch}`, branch, type, ...(url ? { url } : {}) }
+            : { worktreeId: `legacy:${branch}`, branch, type },
+        );
+      } else {
+        addNotification(branch, type, url);
+      }
       return jsonResponse({ ok: true, output: "ok" } satisfies RpcResponse);
     }
     return jsonResponse({ ok: false, error: `Unknown notification type: ${type}` } satisfies RpcResponse, 400);

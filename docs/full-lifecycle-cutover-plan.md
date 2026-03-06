@@ -42,11 +42,12 @@ Completed:
 - internal runtime identity keyed by `worktreeId`
 - reconciliation of Git, metadata, and tmux-backed runtime state
 - snapshot-backed `GET /api/project`
+- `POST /api/runtime/events`
+- runtime-backed notification stream and dismiss
+- runtime notification recording bridged from legacy `/rpc/workmux notify`
 
 Still remaining:
 
-- `POST /api/runtime/events`
-- notification cutover
 - terminal websocket cutover
 - lifecycle route cutover
 - frontend move to `GET /api/project`
@@ -315,13 +316,11 @@ After the app is running on the new stack:
 
 Do these next, in order:
 
-1. Add `POST /api/runtime/events`.
-2. Apply runtime events to `ProjectRuntime` and `RuntimeNotificationService`.
-3. Replace notification flow with the new runtime-backed service.
-4. Replace terminal attach/send with the new session ownership model.
-5. Wire create/open/remove/merge/prompt through the new lifecycle service.
-6. Move the frontend read path to `GET /api/project`.
-7. Delete the old notification and terminal plumbing once the new slice is live.
+1. Replace terminal attach/send with the new session ownership model.
+2. Wire create/open/remove/merge/prompt through the new lifecycle service.
+3. Move the frontend read path to `GET /api/project`.
+4. Replace Docker and hook event delivery with `webmux-agentctl`.
+5. Delete the old terminal and notification plumbing once the new slice is live.
 
 ## Non-Negotiable Rules For The Rest Of The Refactor
 

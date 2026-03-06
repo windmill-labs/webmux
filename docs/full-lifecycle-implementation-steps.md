@@ -12,7 +12,9 @@ Current checkpoint:
 - runtime identity is already keyed by `worktreeId`
 - reconciliation is implemented
 - `GET /api/project` is live on the new snapshot path
-- the next active slice is runtime events, notifications, terminal transport, and lifecycle route cutover
+- `POST /api/runtime/events` is live
+- notification stream and dismiss are now runtime-backed
+- the next active slice is terminal transport and lifecycle route cutover
 
 It assumes:
 

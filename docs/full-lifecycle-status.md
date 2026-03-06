@@ -50,11 +50,19 @@ The legacy backend still powers most product behavior today, but the new archite
 - that route runs reconciliation and returns a snapshot from the new runtime model
 - this is the first live backend path that reads from the new architecture end to end
 
-### 6. Backend coverage is still green
+### 6. Runtime events and notifications are partially cut over
+
+- `POST /api/runtime/events` now exists
+- runtime events are validated, reconciled against the current repo state, and applied to `ProjectRuntime`
+- runtime notifications are now recorded through `RuntimeNotificationService`
+- `/api/notifications/stream` and dismiss now run through the new runtime-backed notification service
+- legacy `/rpc/workmux notify` calls are bridged into the new notification service so existing hooks still surface notifications during the cutover
+
+### 7. Backend coverage is still green
 
 - `cd backend && bun test` passes
 - `cd backend && bun run check` passes
-- current backend test count is 93 passing tests
+- current backend test count is 100 passing tests
 
 ## What Is Wired Live Right Now
 
@@ -64,6 +72,9 @@ These pieces are already using the new architecture:
 - runtime identity keyed by `worktreeId`
 - reconciliation
 - `GET /api/project`
+- `POST /api/runtime/events`
+- runtime-backed notification stream and dismiss
+- runtime notification recording from both direct runtime events and bridged legacy notify calls
 
 These pieces still run through legacy code:
 
@@ -71,33 +82,28 @@ These pieces still run through legacy code:
 - create/open/remove/merge lifecycle routes
 - prompt send flow
 - terminal websocket attach/send behavior
-- runtime event ingestion
-- notification streaming
+- Docker and hook event delivery still using the legacy `/rpc/workmux notify` transport
 - most frontend reads
 
 ## What Is Not Done Yet
 
 The remaining work is the actual cutover of runtime I/O and lifecycle ownership:
 
-1. Add `POST /api/runtime/events`.
-2. Feed runtime events into `ProjectRuntime` and `RuntimeNotificationService`.
-3. Replace legacy notification flow with the new runtime-backed notification path.
-4. Cut terminal attach/send over to the new session ownership model.
-5. Wire create/open/remove/merge/prompt through the new lifecycle services.
-6. Add missing validation and rollback behavior in the lifecycle service.
-7. Move the frontend read path to `GET /api/project`.
-8. Cut Docker and hook-driven agent event flow over to `webmux-agentctl`.
-9. Delete legacy backend modules once the new slice is live end to end.
+1. Cut terminal attach/send over to the new session ownership model.
+2. Wire create/open/remove/merge/prompt through the new lifecycle services.
+3. Finish the remaining validation and rollback behavior in the lifecycle service.
+4. Move the frontend read path to `GET /api/project`.
+5. Cut Docker and hook-driven agent event flow over to `webmux-agentctl`.
+6. Delete legacy backend modules once the new slice is live end to end.
 
 ## Recommended Next Steps
 
 Do these next, in order:
 
-1. Add `POST /api/runtime/events`.
-2. Apply runtime events to `ProjectRuntime` and `RuntimeNotificationService`.
-3. Replace legacy notification streaming with the new notification service.
-4. Replace terminal websocket attach/send with the new session ownership model.
-5. Cut over create/open/remove/merge/prompt routes to the new lifecycle services.
+1. Replace terminal websocket attach/send with the new session ownership model.
+2. Cut over create/open/remove/merge/prompt routes to the new lifecycle services.
+3. Move the frontend read path to `GET /api/project`.
+4. Replace Docker and hook-driven event delivery with `webmux-agentctl`.
 
 At that point, the backend will have crossed the main boundary from "new read model exists" to "new runtime owns live behavior."
 
@@ -110,7 +116,7 @@ If this work continues in a new chat, start from:
 3. `backend/src/services/reconciliation-service.ts`
 4. `backend/src/services/project-runtime.ts`
 
-The next implementation slice should begin with runtime event ingestion and then move directly into notifications and terminal cutover.
+The next implementation slice should begin with terminal websocket cutover and then move directly into lifecycle route replacement.
 
 ## Local Workspace Note
 

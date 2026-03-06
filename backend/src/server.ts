@@ -45,12 +45,14 @@ import {
 import { startPrMonitor, type PrEntry } from "./pr";
 import { handleWorkmuxRpc } from "./rpc";
 import { jsonResponse, errorResponse } from "./http";
-import { handleNotificationStream, handleDismissNotification, installHookScripts, hasDashboardActivity, touchActivity } from "./notifications";
+import { installHookScripts, hasDashboardActivity, touchActivity } from "./notifications";
 import { fetchAssignedIssues, branchMatchesIssue, type LinkedLinearIssue } from "./linear";
 import { NotificationService as RuntimeNotificationService } from "./services/notification-service";
 import { ProjectRuntime } from "./services/project-runtime";
 import { ReconciliationService } from "./services/reconciliation-service";
 import { buildProjectSnapshot } from "./services/snapshot-service";
+import { parseRuntimeEvent } from "./domain/events";
+import { loadRpcSecret } from "./rpc-secret";
 
 const PORT = parseInt(Bun.env.BACKEND_PORT || "5111", 10);
 const STATIC_DIR = Bun.env.WEBMUX_STATIC_DIR || "";
@@ -204,6 +206,12 @@ function safeJsonParse<T>(str: string): T | null {
   } catch {
     return null;
   }
+}
+
+async function hasValidControlToken(req: Request): Promise<boolean> {
+  const authHeader = req.headers.get("Authorization");
+  const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  return token === await loadRpcSecret();
 }
 
 // --- Process helpers ---
@@ -376,6 +384,39 @@ async function apiGetProject(): Promise<Response> {
   }));
 }
 
+async function apiRuntimeEvent(req: Request): Promise<Response> {
+  if (!await hasValidControlToken(req)) {
+    return new Response("Unauthorized", { status: 401 });
+  }
+
+  let raw: unknown;
+  try {
+    raw = await req.json();
+  } catch {
+    return errorResponse("Invalid JSON", 400);
+  }
+  const event = parseRuntimeEvent(raw);
+  if (!event) return errorResponse("Invalid runtime event body", 400);
+
+  await reconciliationService.reconcile(PROJECT_DIR);
+
+  try {
+    projectRuntime.applyEvent(event);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes("Unknown worktree id")) {
+      return errorResponse(message, 404);
+    }
+    throw error;
+  }
+
+  const notification = runtimeNotifications.recordEvent(event);
+  return jsonResponse({
+    ok: true,
+    ...(notification ? { notification } : {}),
+  });
+}
+
 async function apiCreateWorktree(req: Request): Promise<Response> {
   const raw: unknown = await req.json();
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
@@ -522,7 +563,7 @@ Bun.serve({
     },
 
     "/rpc/workmux": {
-      POST: (req) => handleWorkmuxRpc(req),
+      POST: (req) => handleWorkmuxRpc(req, { notifications: runtimeNotifications }),
     },
 
     "/api/config": {
@@ -531,6 +572,10 @@ Bun.serve({
 
     "/api/project": {
       GET: () => catching("GET /api/project", () => apiGetProject()),
+    },
+
+    "/api/runtime/events": {
+      POST: (req) => catching("POST /api/runtime/events", () => apiRuntimeEvent(req)),
     },
 
     "/api/worktrees": {
@@ -587,14 +632,15 @@ Bun.serve({
     },
 
     "/api/notifications/stream": {
-      GET: () => handleNotificationStream(),
+      GET: () => runtimeNotifications.stream(),
     },
 
     "/api/notifications/:id/dismiss": {
       POST: (req) => {
         const id = parseInt(req.params.id, 10);
         if (isNaN(id)) return errorResponse("Invalid notification ID", 400);
-        return handleDismissNotification(id);
+        if (!runtimeNotifications.dismiss(id)) return errorResponse("Not found", 404);
+        return jsonResponse({ ok: true });
       },
     },
   },

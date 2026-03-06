@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.1](https://github.com/windmill-labs/webmux/compare/v0.7.0...v0.7.1) (2026-03-06)
+
+
+### Bug Fixes
+
+* use correct `script` command syntax on macOS ([4f3d5ef](https://github.com/windmill-labs/webmux/commit/4f3d5efd59e06810203bcbb7023cc06ecd2413b5))
+
 ## [0.7.0](https://github.com/windmill-labs/webmux/compare/v0.6.2...v0.7.0) (2026-03-04)
 
 

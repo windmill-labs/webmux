@@ -30,6 +30,29 @@ The current refactor already has useful foundations:
 
 These pieces are worth keeping. The main problem is the planned execution strategy, not the existence of the new modules.
 
+## Progress Checkpoint
+
+The first cutover slices are already complete.
+
+Completed:
+
+- final `.webmux.yaml` loading through `ProjectConfig`
+- removal of `.workmux.yaml` from the new config path
+- removal of `.env.local` compatibility from the new lifecycle path
+- internal runtime identity keyed by `worktreeId`
+- reconciliation of Git, metadata, and tmux-backed runtime state
+- snapshot-backed `GET /api/project`
+
+Still remaining:
+
+- `POST /api/runtime/events`
+- notification cutover
+- terminal websocket cutover
+- lifecycle route cutover
+- frontend move to `GET /api/project`
+- Docker and hook event delivery through `webmux-agentctl`
+- deletion of legacy backend code
+
 ## What Must Change In The Current Refactor
 
 ### 1. Stop planning migration scaffolding
@@ -185,6 +208,8 @@ Delete once the new slice is running end to end:
 
 ## Phase 1: Lock The Final Shape
 
+Status: complete
+
 Do first:
 
 1. rewrite config loading to final `ProjectConfig`
@@ -197,6 +222,8 @@ Done when:
 - the new architecture no longer depends on legacy config or compatibility artifacts
 
 ## Phase 2: Add Reconciliation As The New Source Of Runtime Truth
+
+Status: complete
 
 Implement `backend/src/services/reconciliation-service.ts`.
 
@@ -217,6 +244,8 @@ Rule:
 - events improve latency only
 
 ## Phase 3: Cut Over Runtime I/O In Place
+
+Status: in progress
 
 Build the new composition root and replace the current handlers.
 
@@ -286,13 +315,13 @@ After the app is running on the new stack:
 
 Do these next, in order:
 
-1. Rewrite `backend/src/config.ts` to return the final `ProjectConfig` and delete `.workmux.yaml` support.
-2. Refactor `backend/src/domain/events.ts`, `backend/src/services/project-runtime.ts`, and related code to key internal state by `worktreeId`.
-3. Remove `.env.local` compatibility from `backend/src/adapters/fs.ts`, `backend/src/services/worktree-service.ts`, and any new-path consumers.
-4. Implement `backend/src/services/reconciliation-service.ts`.
-5. Build a new composition root and replace the current read path with a snapshot-backed `GET /api/project`.
-6. Replace terminal attach/send and runtime event ingestion with the new services.
-7. Wire create/open/remove/merge through the new lifecycle service and delete the old implementations.
+1. Add `POST /api/runtime/events`.
+2. Apply runtime events to `ProjectRuntime` and `RuntimeNotificationService`.
+3. Replace notification flow with the new runtime-backed service.
+4. Replace terminal attach/send with the new session ownership model.
+5. Wire create/open/remove/merge/prompt through the new lifecycle service.
+6. Move the frontend read path to `GET /api/project`.
+7. Delete the old notification and terminal plumbing once the new slice is live.
 
 ## Non-Negotiable Rules For The Rest Of The Refactor
 

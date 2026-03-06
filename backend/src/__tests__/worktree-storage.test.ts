@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { GitGateway } from "../adapters/git";
+import { BunGitGateway, type GitGateway } from "../adapters/git";
 import type { TmuxGateway } from "../adapters/tmux";
 import {
   buildRuntimeEnvMap,
@@ -12,6 +12,16 @@ import {
 } from "../adapters/fs";
 import type { WorktreeMeta } from "../domain/model";
 import { createManagedWorktree, initializeManagedWorktree } from "../services/worktree-service";
+
+function run(args: string[], cwd: string): string {
+  const result = Bun.spawnSync(args, { cwd, stdout: "pipe", stderr: "pipe" });
+  if (result.exitCode !== 0) {
+    const stderr = new TextDecoder().decode(result.stderr).trim();
+    throw new Error(`${args.join(" ")} failed: ${stderr || `exit ${result.exitCode}`}`);
+  }
+
+  return new TextDecoder().decode(result.stdout).trim();
+}
 
 class FakeGitGateway implements GitGateway {
   constructor(
@@ -63,6 +73,8 @@ class FakeGitGateway implements GitGateway {
 }
 
 class FakeTmuxGateway implements TmuxGateway {
+  createWindowError: Error | null = null;
+
   constructor(private readonly calls: string[]) {}
 
   ensureServer(): void {
@@ -84,6 +96,7 @@ class FakeTmuxGateway implements TmuxGateway {
 
   createWindow(opts: { sessionName: string; windowName: string; cwd: string; command?: string }): void {
     this.calls.push(`createWindow:${opts.sessionName}:${opts.windowName}:${opts.cwd}:${opts.command ?? ""}`);
+    if (this.createWindowError) throw this.createWindowError;
   }
 
   splitWindow(opts: {
@@ -163,10 +176,15 @@ describe("worktree env maps", () => {
 });
 
 describe("initializeManagedWorktree", () => {
+  let repoRoot = "";
   let gitDir = "";
   let worktreePath = "";
 
   afterEach(async () => {
+    if (repoRoot) {
+      await rm(repoRoot, { recursive: true, force: true });
+      repoRoot = "";
+    }
     if (gitDir) {
       await rm(gitDir, { recursive: true, force: true });
       gitDir = "";
@@ -264,5 +282,89 @@ describe("initializeManagedWorktree", () => {
 
     const meta = await readWorktreeMeta(gitDir);
     expect(meta?.branch).toBe("feature/search-panel");
+  });
+
+  it("rolls back the git worktree and branch when initialization fails after creation", async () => {
+    repoRoot = await mkdtemp(join(tmpdir(), "webmux-create-rollback-"));
+    run(["git", "init", "-b", "main"], repoRoot);
+    run(["git", "config", "user.name", "Test User"], repoRoot);
+    run(["git", "config", "user.email", "test@example.com"], repoRoot);
+    await Bun.write(join(repoRoot, "README.md"), "# repo\n");
+    run(["git", "add", "README.md"], repoRoot);
+    run(["git", "commit", "-m", "init"], repoRoot);
+    await mkdir(join(repoRoot, "__worktrees"), { recursive: true });
+
+    worktreePath = join(repoRoot, "__worktrees", "feature-rollback");
+
+    await expect(
+      createManagedWorktree(
+        {
+          repoRoot,
+          worktreePath,
+          branch: "feature-rollback",
+          baseBranch: "main",
+          profile: "default",
+          agent: "claude",
+          runtime: "host",
+          controlUrl: "http://127.0.0.1:5111",
+        },
+        { git: new BunGitGateway() },
+      ),
+    ).rejects.toThrow("controlUrl and controlToken must be provided together");
+
+    expect(new BunGitGateway().listWorktrees(repoRoot).some((entry) => entry.path === worktreePath)).toBe(false);
+    expect(run(["git", "branch", "--list", "feature-rollback"], repoRoot)).toBe("");
+  });
+
+  it("rolls back the git worktree and branch when tmux layout creation fails", async () => {
+    repoRoot = await mkdtemp(join(tmpdir(), "webmux-create-tmux-rollback-"));
+    run(["git", "init", "-b", "main"], repoRoot);
+    run(["git", "config", "user.name", "Test User"], repoRoot);
+    run(["git", "config", "user.email", "test@example.com"], repoRoot);
+    await Bun.write(join(repoRoot, "README.md"), "# repo\n");
+    run(["git", "add", "README.md"], repoRoot);
+    run(["git", "commit", "-m", "init"], repoRoot);
+    await mkdir(join(repoRoot, "__worktrees"), { recursive: true });
+
+    worktreePath = join(repoRoot, "__worktrees", "feature-tmux-rollback");
+
+    const calls: string[] = [];
+    const tmux = new FakeTmuxGateway(calls);
+    tmux.createWindowError = new Error("tmux exploded");
+
+    await expect(
+      createManagedWorktree(
+        {
+          repoRoot,
+          worktreePath,
+          branch: "feature-tmux-rollback",
+          baseBranch: "main",
+          profile: "default",
+          agent: "claude",
+          runtime: "host",
+          worktreeId: "wt_tmux_rollback",
+          sessionLayoutPlan: {
+            sessionName: "wm-project-12345678",
+            windowName: "wm-feature-tmux-rollback",
+            focusPaneIndex: 0,
+            panes: [
+              {
+                id: "agent",
+                index: 0,
+                kind: "agent",
+                cwd: worktreePath,
+                command: "agent-cmd",
+                focus: true,
+              },
+            ],
+          },
+        },
+        { git: new BunGitGateway(), tmux },
+      ),
+    ).rejects.toThrow("tmux exploded");
+
+    expect(calls).toContain("killWindow:wm-project-12345678:wm-feature-tmux-rollback");
+    expect(new BunGitGateway().listWorktrees(repoRoot).some((entry) => entry.path === worktreePath)).toBe(false);
+    expect(run(["git", "branch", "--list", "feature-tmux-rollback"], repoRoot)).toBe("");
   });
 });

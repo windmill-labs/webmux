@@ -22,6 +22,16 @@ function run(args: string[], cwd: string): void {
   }
 }
 
+function read(args: string[], cwd: string): string {
+  const result = Bun.spawnSync(args, { cwd, stdout: "pipe", stderr: "pipe" });
+  if (result.exitCode !== 0) {
+    const stderr = new TextDecoder().decode(result.stderr).trim();
+    throw new Error(`${args.join(" ")} failed: ${stderr || `exit ${result.exitCode}`}`);
+  }
+
+  return new TextDecoder().decode(result.stdout).trim();
+}
+
 describe("parseGitWorktreePorcelain", () => {
   it("parses branch and detached entries", () => {
     const output = [
@@ -155,6 +165,72 @@ describe("BunGitGateway", () => {
     });
     const text = new TextDecoder().decode(log.stdout);
     expect(text).toContain("Merge branch 'feature-b'");
+  });
+
+  it("restores the original branch after a successful merge into another target branch", async () => {
+    repoRoot = await mkdtemp(join(tmpdir(), "webmux-merge-restore-"));
+    run(["git", "init", "-b", "main"], repoRoot);
+    run(["git", "config", "user.name", "Test User"], repoRoot);
+    run(["git", "config", "user.email", "test@example.com"], repoRoot);
+    await Bun.write(join(repoRoot, "README.md"), "# repo\n");
+    run(["git", "add", "README.md"], repoRoot);
+    run(["git", "commit", "-m", "init"], repoRoot);
+
+    run(["git", "checkout", "-b", "feature-restore"], repoRoot);
+    await Bun.write(join(repoRoot, "README.md"), "# repo\nfeature change\n");
+    run(["git", "add", "README.md"], repoRoot);
+    run(["git", "commit", "-m", "feature"], repoRoot);
+    run(["git", "checkout", "-b", "dev", "main"], repoRoot);
+
+    const gateway = new BunGitGateway();
+    gateway.mergeBranch({
+      repoRoot,
+      sourceBranch: "feature-restore",
+      targetBranch: "main",
+    });
+
+    expect(gateway.currentBranch(repoRoot)).toBe("dev");
+    expect(read(["git", "log", "--oneline", "--max-count", "1", "main"], repoRoot).includes("Merge branch 'feature-restore'")).toBe(true);
+  });
+
+  it("aborts the merge and restores the original branch when merge conflicts", async () => {
+    repoRoot = await mkdtemp(join(tmpdir(), "webmux-merge-conflict-"));
+    run(["git", "init", "-b", "main"], repoRoot);
+    run(["git", "config", "user.name", "Test User"], repoRoot);
+    run(["git", "config", "user.email", "test@example.com"], repoRoot);
+    await Bun.write(join(repoRoot, "README.md"), "base\n");
+    run(["git", "add", "README.md"], repoRoot);
+    run(["git", "commit", "-m", "init"], repoRoot);
+
+    run(["git", "checkout", "-b", "feature-conflict"], repoRoot);
+    await Bun.write(join(repoRoot, "README.md"), "feature branch change\n");
+    run(["git", "add", "README.md"], repoRoot);
+    run(["git", "commit", "-m", "feature change"], repoRoot);
+
+    run(["git", "checkout", "main"], repoRoot);
+    await Bun.write(join(repoRoot, "README.md"), "main branch change\n");
+    run(["git", "add", "README.md"], repoRoot);
+    run(["git", "commit", "-m", "main change"], repoRoot);
+
+    run(["git", "checkout", "-b", "dev"], repoRoot);
+
+    const gateway = new BunGitGateway();
+    expect(() => {
+      gateway.mergeBranch({
+        repoRoot,
+        sourceBranch: "feature-conflict",
+        targetBranch: "main",
+      });
+    }).toThrow();
+
+    expect(gateway.currentBranch(repoRoot)).toBe("dev");
+    const mergeHead = Bun.spawnSync(["git", "rev-parse", "-q", "--verify", "MERGE_HEAD"], {
+      cwd: repoRoot,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    expect(mergeHead.exitCode).not.toBe(0);
+    expect(read(["git", "show", "main:README.md"], repoRoot)).toBe("main branch change");
   });
 
   it("reads dirty state, ahead count, and current commit", async () => {

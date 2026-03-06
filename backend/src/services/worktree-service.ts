@@ -78,6 +78,56 @@ export interface MergeManagedWorktreeOptions {
   targetBranch: string;
 }
 
+function toErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function joinErrorMessages(messages: string[]): string {
+  return messages.filter((message) => message.length > 0).join("; ");
+}
+
+function cleanupSessionLayout(
+  tmux: TmuxGateway | undefined,
+  plan: SessionLayoutPlan | undefined,
+): string | null {
+  if (!tmux || !plan) return null;
+
+  try {
+    tmux.killWindow(plan.sessionName, plan.windowName);
+    return null;
+  } catch (error) {
+    return `tmux cleanup failed: ${toErrorMessage(error)}`;
+  }
+}
+
+function rollbackManagedWorktreeCreation(
+  opts: CreateManagedWorktreeOptions,
+  git: GitGateway,
+  deps: CreateManagedWorktreeDependencies,
+): string | null {
+  const cleanupErrors: string[] = [];
+  const sessionCleanupError = cleanupSessionLayout(deps.tmux, opts.sessionLayoutPlan);
+  if (sessionCleanupError) cleanupErrors.push(sessionCleanupError);
+
+  try {
+    git.removeWorktree({
+      repoRoot: opts.repoRoot,
+      worktreePath: opts.worktreePath,
+      force: true,
+    });
+  } catch (error) {
+    cleanupErrors.push(`worktree rollback failed: ${toErrorMessage(error)}`);
+  }
+
+  try {
+    git.deleteBranch(opts.repoRoot, opts.branch, true);
+  } catch (error) {
+    cleanupErrors.push(`branch rollback failed: ${toErrorMessage(error)}`);
+  }
+
+  return cleanupErrors.length > 0 ? joinErrorMessages(cleanupErrors) : null;
+}
+
 export async function initializeManagedWorktree(
   opts: InitializeManagedWorktreeOptions,
 ): Promise<InitializeManagedWorktreeResult> {
@@ -128,34 +178,46 @@ export async function createManagedWorktree(
   deps: CreateManagedWorktreeDependencies = {},
 ): Promise<InitializeManagedWorktreeResult> {
   const git = deps.git ?? new BunGitGateway();
-  git.createWorktree({
-    repoRoot: opts.repoRoot,
-    worktreePath: opts.worktreePath,
-    branch: opts.branch,
-    baseBranch: opts.baseBranch,
-  });
+  let worktreeCreated = false;
 
-  const gitDir = git.resolveWorktreeGitDir(opts.worktreePath);
-  const initialized = await initializeManagedWorktree({
-    gitDir,
-    branch: opts.branch,
-    profile: opts.profile,
-    agent: opts.agent,
-    runtime: opts.runtime,
-    startupEnvValues: opts.startupEnvValues,
-    allocatedPorts: opts.allocatedPorts,
-    runtimeEnvExtras: opts.runtimeEnvExtras,
-    controlUrl: opts.controlUrl,
-    controlToken: opts.controlToken,
-    now: opts.now,
-    worktreeId: opts.worktreeId,
-  });
+  try {
+    git.createWorktree({
+      repoRoot: opts.repoRoot,
+      worktreePath: opts.worktreePath,
+      branch: opts.branch,
+      baseBranch: opts.baseBranch,
+    });
+    worktreeCreated = true;
 
-  if (deps.tmux && opts.sessionLayoutPlan) {
-    ensureSessionLayout(deps.tmux, opts.sessionLayoutPlan);
+    const gitDir = git.resolveWorktreeGitDir(opts.worktreePath);
+    const initialized = await initializeManagedWorktree({
+      gitDir,
+      branch: opts.branch,
+      profile: opts.profile,
+      agent: opts.agent,
+      runtime: opts.runtime,
+      startupEnvValues: opts.startupEnvValues,
+      allocatedPorts: opts.allocatedPorts,
+      runtimeEnvExtras: opts.runtimeEnvExtras,
+      controlUrl: opts.controlUrl,
+      controlToken: opts.controlToken,
+      now: opts.now,
+      worktreeId: opts.worktreeId,
+    });
+
+    if (deps.tmux && opts.sessionLayoutPlan) {
+      ensureSessionLayout(deps.tmux, opts.sessionLayoutPlan);
+    }
+
+    return initialized;
+  } catch (error) {
+    if (!worktreeCreated) throw error;
+
+    const rollbackError = rollbackManagedWorktreeCreation(opts, git, deps);
+    if (!rollbackError) throw error;
+
+    throw new Error(`${toErrorMessage(error)}; ${rollbackError}`);
   }
-
-  return initialized;
 }
 
 export function removeManagedWorktree(

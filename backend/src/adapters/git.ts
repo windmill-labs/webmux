@@ -80,6 +80,25 @@ function tryRunGit(args: string[], cwd: string): { ok: true; stdout: string } | 
   };
 }
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function currentCheckoutRef(cwd: string): { ref: string; branch: string | null } {
+  const symbolicRef = tryRunGit(["symbolic-ref", "--quiet", "--short", "HEAD"], cwd);
+  if (symbolicRef.ok && symbolicRef.stdout.length > 0) {
+    return {
+      ref: symbolicRef.stdout,
+      branch: symbolicRef.stdout,
+    };
+  }
+
+  return {
+    ref: runGit(["rev-parse", "--verify", "HEAD"], cwd),
+    branch: null,
+  };
+}
+
 export function resolveWorktreeRoot(cwd: string): string {
   const output = runGit(["rev-parse", "--show-toplevel"], cwd);
   return resolve(cwd, output);
@@ -196,11 +215,40 @@ export class BunGitGateway implements GitGateway {
   }
 
   mergeBranch(opts: MergeGitBranchOptions): void {
-    const current = this.currentBranch(opts.repoRoot);
-    if (current !== opts.targetBranch) {
+    const current = currentCheckoutRef(opts.repoRoot);
+    const shouldRestore = current.branch !== opts.targetBranch;
+    if (shouldRestore) {
       runGit(["checkout", opts.targetBranch], opts.repoRoot);
     }
-    runGit(["merge", "--no-ff", "--no-edit", opts.sourceBranch], opts.repoRoot);
+
+    let mergeError: string | null = null;
+    const cleanupErrors: string[] = [];
+
+    try {
+      runGit(["merge", "--no-ff", "--no-edit", opts.sourceBranch], opts.repoRoot);
+    } catch (error) {
+      mergeError = errorMessage(error);
+
+      const abort = tryRunGit(["merge", "--abort"], opts.repoRoot);
+      if (!abort.ok && abort.stderr.length > 0 && !abort.stderr.includes("MERGE_HEAD missing")) {
+        cleanupErrors.push(`merge abort failed: ${abort.stderr}`);
+      }
+    }
+
+    if (shouldRestore) {
+      const restore = tryRunGit(["checkout", current.ref], opts.repoRoot);
+      if (!restore.ok) {
+        cleanupErrors.push(`restore checkout failed: ${restore.stderr}`);
+      }
+    }
+
+    if (mergeError) {
+      const suffix = cleanupErrors.length > 0 ? `; ${cleanupErrors.join("; ")}` : "";
+      throw new Error(`${mergeError}${suffix}`);
+    }
+    if (cleanupErrors.length > 0) {
+      throw new Error(cleanupErrors.join("; "));
+    }
   }
 
   currentBranch(repoRoot: string): string {

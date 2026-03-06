@@ -5,6 +5,15 @@ This is the concrete implementation order for moving `webmux` to full lifecycle 
 For the current hard-cutover direction, follow `docs/full-lifecycle-cutover-plan.md`.
 This document still describes a parallel-build sequencing and includes compatibility-oriented steps that should not drive the current cutover plan.
 
+Current checkpoint:
+
+- config loading is already cut over to the final `.webmux.yaml` and `ProjectConfig`
+- the new path no longer emits `.env.local`
+- runtime identity is already keyed by `worktreeId`
+- reconciliation is implemented
+- `GET /api/project` is live on the new snapshot path
+- the next active slice is runtime events, notifications, terminal transport, and lifecycle route cutover
+
 It assumes:
 
 - greenfield architecture

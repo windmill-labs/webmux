@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ProjectConfig } from "../config";
 import type { GitGateway, GitWorktreeEntry, GitWorktreeStatus } from "../adapters/git";
+import type { PortProbe } from "../adapters/port-probe";
 import type { TmuxGateway, TmuxWindowSummary } from "../adapters/tmux";
 import { buildProjectSessionName, buildWorktreeWindowName } from "../adapters/tmux";
 import { writeWorktreeMeta } from "../adapters/fs";
@@ -100,6 +101,14 @@ class FakeTmuxGateway implements TmuxGateway {
   }
 }
 
+class FakePortProbe implements PortProbe {
+  constructor(private readonly listening = new Set<number>()) {}
+
+  async isListening(port: number): Promise<boolean> {
+    return this.listening.has(port);
+  }
+}
+
 const TEST_CONFIG: ProjectConfig = {
   name: "Project",
   workspace: {
@@ -181,6 +190,7 @@ describe("ReconciliationService", () => {
       config: TEST_CONFIG,
       git,
       tmux,
+      portProbe: new FakePortProbe(new Set([3010])),
       runtime,
     });
 
@@ -199,7 +209,7 @@ describe("ReconciliationService", () => {
       {
         name: "frontend",
         port: 3010,
-        running: false,
+        running: true,
         url: "http://127.0.0.1:3010",
       },
     ]);
@@ -225,6 +235,7 @@ describe("ReconciliationService", () => {
       config: TEST_CONFIG,
       git,
       tmux,
+      portProbe: new FakePortProbe(),
       runtime,
     });
 

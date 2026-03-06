@@ -2,6 +2,7 @@ import { basename, resolve } from "node:path";
 import type { ProjectConfig } from "../config";
 import { expandTemplate } from "../config";
 import type { GitGateway, GitWorktreeEntry } from "../adapters/git";
+import type { PortProbe } from "../adapters/port-probe";
 import { buildProjectSessionName, buildWorktreeWindowName, type TmuxGateway, type TmuxWindowSummary } from "../adapters/tmux";
 import { buildRuntimeEnvMap, readWorktreeMeta } from "../adapters/fs";
 import type { ServiceRuntimeState } from "../domain/model";
@@ -11,8 +12,12 @@ function makeUnmanagedWorktreeId(path: string): string {
   return `unmanaged:${resolve(path)}`;
 }
 
-function buildServiceStates(
-  config: ProjectConfig,
+function isValidPort(port: number | null): port is number {
+  return port !== null && Number.isInteger(port) && port >= 1 && port <= 65535;
+}
+
+async function buildServiceStates(
+  deps: Pick<ReconciliationServiceDependencies, "config" | "portProbe">,
   input: {
     allocatedPorts: Record<string, number>;
     startupEnvValues: Record<string, string>;
@@ -22,7 +27,7 @@ function buildServiceStates(
     agent: "claude" | "codex";
     runtime: "host" | "docker";
   },
-): ServiceRuntimeState[] {
+): Promise<ServiceRuntimeState[]> {
   const runtimeEnv = buildRuntimeEnvMap({
     schemaVersion: 1,
     worktreeId: input.worktreeId,
@@ -35,17 +40,20 @@ function buildServiceStates(
     allocatedPorts: input.allocatedPorts,
   });
 
-  return config.services.map((service) => {
+  return Promise.all(deps.config.services.map(async (service) => {
     const port = input.allocatedPorts[service.portEnv] ?? null;
+    const running = isValidPort(port)
+      ? await deps.portProbe.isListening(port)
+      : false;
     return {
       name: service.name,
       port,
-      running: false,
+      running,
       url: port !== null && service.urlTemplate
         ? expandTemplate(service.urlTemplate, runtimeEnv)
         : null,
     };
-  });
+  }));
 }
 
 function findWindow(
@@ -68,6 +76,7 @@ export interface ReconciliationServiceDependencies {
   config: ProjectConfig;
   git: GitGateway;
   tmux: TmuxGateway;
+  portProbe: PortProbe;
   runtime: ProjectRuntime;
 }
 
@@ -127,7 +136,7 @@ export class ReconciliationService {
       if (meta) {
         this.deps.runtime.setServices(
           worktreeId,
-          buildServiceStates(this.deps.config, {
+          await buildServiceStates(this.deps, {
             allocatedPorts: meta.allocatedPorts,
             startupEnvValues: meta.startupEnvValues,
             worktreeId: meta.worktreeId,

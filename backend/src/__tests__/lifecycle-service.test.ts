@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ProjectConfig } from "../config";
 import { BunGitGateway } from "../adapters/git";
+import type { PortProbe } from "../adapters/port-probe";
 import { buildProjectSessionName, buildWorktreeWindowName, type TmuxGateway, type TmuxWindowSummary } from "../adapters/tmux";
 import { getWorktreeStoragePaths, readWorktreeMeta } from "../adapters/fs";
 import type { DockerGateway, LaunchContainerOpts } from "../docker";
@@ -96,6 +97,12 @@ class FakeDockerGateway implements DockerGateway {
   }
 }
 
+class FakePortProbe implements PortProbe {
+  async isListening(): Promise<boolean> {
+    return false;
+  }
+}
+
 const TEST_CONFIG: ProjectConfig = {
   name: "Project",
   workspace: {
@@ -149,6 +156,7 @@ function makeLifecycleService(
     config: TEST_CONFIG,
     git,
     tmux,
+    portProbe: new FakePortProbe(),
     runtime,
   });
 

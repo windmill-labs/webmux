@@ -18,6 +18,7 @@ import {
 import {
   BunGitGateway,
 } from "./adapters/git";
+import { BunPortProbe } from "./adapters/port-probe";
 import {
   BunTmuxGateway,
 } from "./adapters/tmux";
@@ -47,6 +48,7 @@ const STATIC_DIR = Bun.env.WEBMUX_STATIC_DIR || "";
 const PROJECT_DIR = Bun.env.WEBMUX_PROJECT_DIR || gitRoot(process.cwd());
 const config: ProjectConfig = loadConfig(PROJECT_DIR);
 const git = new BunGitGateway();
+const portProbe = new BunPortProbe();
 const tmux = new BunTmuxGateway();
 const docker = new BunDockerGateway();
 const projectRuntime = new ProjectRuntime();
@@ -55,6 +57,7 @@ const reconciliationService = new ReconciliationService({
   config,
   git,
   tmux,
+  portProbe,
   runtime: projectRuntime,
 });
 const lifecycleService = new LifecycleService({

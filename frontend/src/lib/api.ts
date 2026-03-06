@@ -3,6 +3,7 @@ import type {
   AppConfig,
   AppNotification,
   LinearIssue,
+  PrEntry,
   ProjectSnapshot,
   ProjectWorktreeSnapshot,
 } from "./types";
@@ -37,6 +38,14 @@ function mapAgentStatus(status: string): string {
   }
 }
 
+function clonePrEntry(pr: PrEntry): PrEntry {
+  return {
+    ...pr,
+    ciChecks: pr.ciChecks.map((check) => ({ ...check })),
+    comments: pr.comments.map((comment) => ({ ...comment })),
+  };
+}
+
 function mapWorktree(snapshot: ProjectWorktreeSnapshot): WorktreeInfo {
   return {
     branch: snapshot.branch,
@@ -52,7 +61,7 @@ function mapWorktree(snapshot: ProjectWorktreeSnapshot): WorktreeInfo {
     agentName: snapshot.agentName,
     services: snapshot.services.map((service) => ({ ...service })),
     paneCount: snapshot.paneCount,
-    prs: [],
+    prs: snapshot.prs.map((pr) => clonePrEntry(pr)),
     linearIssue: null,
   };
 }

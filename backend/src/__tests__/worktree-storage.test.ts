@@ -7,8 +7,10 @@ import type { TmuxGateway } from "../adapters/tmux";
 import {
   buildRuntimeEnvMap,
   getWorktreeStoragePaths,
+  readWorktreePrs,
   readWorktreeMeta,
   renderEnvFile,
+  writeWorktreePrs,
 } from "../adapters/fs";
 import type { WorktreeMeta } from "../domain/model";
 import { createManagedWorktree, initializeManagedWorktree } from "../services/worktree-service";
@@ -234,6 +236,51 @@ describe("initializeManagedWorktree", () => {
 
     expect(controlEnvText).toContain("WEBMUX_CONTROL_TOKEN=secret-token");
     expect(controlEnvText).toContain("WEBMUX_CONTROL_URL=http://127.0.0.1:5111");
+    expect(paths.prsPath).toBe(`${paths.webmuxDir}/prs.json`);
+  });
+
+  it("round-trips PR storage through the worktree webmux dir", async () => {
+    gitDir = await mkdtemp(join(tmpdir(), "webmux-prs-gitdir-"));
+
+    await writeWorktreePrs(gitDir, [
+      {
+        repo: "org/repo",
+        number: 77,
+        state: "open",
+        url: "https://github.com/org/repo/pull/77",
+        updatedAt: "2026-03-06T00:00:00.000Z",
+        ciStatus: "pending",
+        ciChecks: [
+          {
+            name: "build",
+            status: "pending",
+            url: "https://github.com/org/repo/actions/runs/123",
+            runId: 123,
+          },
+        ],
+        comments: [],
+      },
+    ]);
+
+    expect(await readWorktreePrs(gitDir)).toEqual([
+      {
+        repo: "org/repo",
+        number: 77,
+        state: "open",
+        url: "https://github.com/org/repo/pull/77",
+        updatedAt: "2026-03-06T00:00:00.000Z",
+        ciStatus: "pending",
+        ciChecks: [
+          {
+            name: "build",
+            status: "pending",
+            url: "https://github.com/org/repo/actions/runs/123",
+            runId: 123,
+          },
+        ],
+        comments: [],
+      },
+    ]);
   });
 
   it("can create a managed worktree and realize a tmux layout through gateways", async () => {

@@ -18,17 +18,18 @@ export interface PrComment {
 
 export interface CiCheck {
   name: string;
-  status: string;
+  status: "pending" | "success" | "failed" | "skipped";
   url: string;
-  runId: number;
+  runId: number | null;
 }
 
 export interface PrEntry {
   repo: string;
   number: number;
-  state: string;
+  state: "open" | "closed" | "merged";
   url: string;
-  ciStatus: string;
+  updatedAt: string;
+  ciStatus: "none" | "pending" | "success" | "failed";
   ciChecks: CiCheck[];
   comments: PrComment[];
 }
@@ -117,6 +118,7 @@ export interface ProjectWorktreeSnapshot {
   elapsed: string;
   title: string;
   services: ServiceStatus[];
+  prs: PrEntry[];
 }
 
 export interface ProjectSnapshot {

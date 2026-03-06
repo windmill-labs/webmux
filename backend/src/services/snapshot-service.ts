@@ -1,4 +1,4 @@
-import type { ProjectSnapshot, WorktreeSnapshot } from "../domain/model";
+import type { PrEntry, ProjectSnapshot, WorktreeSnapshot } from "../domain/model";
 import type { RuntimeNotification } from "./notification-service";
 import { ProjectRuntime } from "./project-runtime";
 
@@ -20,6 +20,14 @@ function formatElapsedSince(startedAt: string | null, now: () => Date): string {
   return `${diffDays}d`;
 }
 
+function clonePrEntry(pr: PrEntry): PrEntry {
+  return {
+    ...pr,
+    ciChecks: pr.ciChecks.map((check) => ({ ...check })),
+    comments: pr.comments.map((comment) => ({ ...comment })),
+  };
+}
+
 function mapWorktreeSnapshot(
   state: ReturnType<ProjectRuntime["listWorktrees"]>[number],
   now: () => Date,
@@ -37,6 +45,7 @@ function mapWorktreeSnapshot(
     elapsed: formatElapsedSince(state.agent.lastStartedAt, now),
     title: state.agent.title,
     services: state.services.map((service) => ({ ...service })),
+    prs: state.prs.map((pr) => clonePrEntry(pr)),
   };
 }
 

@@ -7,7 +7,7 @@ import type { GitGateway, GitWorktreeEntry, GitWorktreeStatus } from "../adapter
 import type { PortProbe } from "../adapters/port-probe";
 import type { TmuxGateway, TmuxWindowSummary } from "../adapters/tmux";
 import { buildProjectSessionName, buildWorktreeWindowName } from "../adapters/tmux";
-import { writeWorktreeMeta } from "../adapters/fs";
+import { writeWorktreeMeta, writeWorktreePrs } from "../adapters/fs";
 import { ProjectRuntime } from "../services/project-runtime";
 import { ReconciliationService } from "../services/reconciliation-service";
 
@@ -161,6 +161,18 @@ describe("ReconciliationService", () => {
       startupEnvValues: {},
       allocatedPorts: { FRONTEND_PORT: 3010 },
     });
+    await writeWorktreePrs(managedGitDir, [
+      {
+        repo: "org/repo",
+        number: 77,
+        state: "open",
+        url: "https://github.com/org/repo/pull/77",
+        updatedAt: "2026-03-06T00:05:00.000Z",
+        ciStatus: "success",
+        ciChecks: [],
+        comments: [],
+      },
+    ]);
 
     const runtime = new ProjectRuntime();
     runtime.upsertWorktree({
@@ -211,6 +223,18 @@ describe("ReconciliationService", () => {
         port: 3010,
         running: true,
         url: "http://127.0.0.1:3010",
+      },
+    ]);
+    expect(state?.prs).toEqual([
+      {
+        repo: "org/repo",
+        number: 77,
+        state: "open",
+        url: "https://github.com/org/repo/pull/77",
+        updatedAt: "2026-03-06T00:05:00.000Z",
+        ciStatus: "success",
+        ciChecks: [],
+        comments: [],
       },
     ]);
     expect(runtime.getWorktree("wt_stale")).toBeNull();

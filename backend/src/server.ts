@@ -244,14 +244,14 @@ async function hasValidControlToken(req: Request): Promise<boolean> {
 
 // --- Process helpers ---
 
-async function getWorktreePaths(): Promise<Map<string, string>> {
-  const paths = new Map<string, string>();
+async function getWorktreeGitDirs(): Promise<Map<string, string>> {
+  const gitDirs = new Map<string, string>();
   const projectRoot = resolve(PROJECT_DIR);
   for (const entry of git.listWorktrees(projectRoot)) {
     if (entry.bare || resolve(entry.path) === projectRoot || !entry.branch) continue;
-    paths.set(entry.branch, entry.path);
+    gitDirs.set(entry.branch, git.resolveWorktreeGitDir(entry.path));
   }
-  return paths;
+  return gitDirs;
 }
 
 function makeCallbacks(ws: { send: (data: string) => void; readyState: number }): {
@@ -626,7 +626,7 @@ if (tmuxCheck.exitCode !== 0) {
 }
 
 cleanupStaleSessions();
-startPrMonitor(getWorktreePaths, config.integrations.github.linkedRepos, PROJECT_DIR, undefined, hasRecentDashboardActivity);
+startPrMonitor(getWorktreeGitDirs, config.integrations.github.linkedRepos, PROJECT_DIR, undefined, hasRecentDashboardActivity);
 
 log.info(`Dev Dashboard API running at http://localhost:${PORT}`);
 const nets = networkInterfaces();

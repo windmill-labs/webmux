@@ -19,6 +19,7 @@ describe("ProjectRuntime", () => {
     expect(state.agentName).toBe("claude");
     expect(state.session.windowName).toBe("wm-feature/search");
     expect(state.agent.lifecycle).toBe("closed");
+    expect(state.prs).toEqual([]);
   });
 
   it("applies runtime events to an existing worktree", () => {
@@ -71,6 +72,18 @@ describe("ProjectRuntime", () => {
     runtime.setServices("wt_search", [
       { name: "frontend", port: 3010, running: true, url: "http://127.0.0.1:3010" },
     ]);
+    runtime.setPrs("wt_search", [
+      {
+        repo: "org/repo",
+        number: 77,
+        state: "open",
+        url: "https://github.com/org/repo/pull/77",
+        updatedAt: "2026-03-06T10:01:30.000Z",
+        ciStatus: "success",
+        ciChecks: [],
+        comments: [],
+      },
+    ]);
     runtime.applyEvent(
       { worktreeId: "wt_search", branch: "feature/search", type: "runtime_error", message: "agent crashed" },
       () => new Date("2026-03-06T10:02:00.000Z"),
@@ -80,6 +93,7 @@ describe("ProjectRuntime", () => {
     expect(state?.session.exists).toBe(true);
     expect(state?.session.paneCount).toBe(2);
     expect(state?.services[0]?.running).toBe(true);
+    expect(state?.prs[0]?.number).toBe(77);
     expect(state?.agent.lifecycle).toBe("error");
     expect(state?.agent.lastError).toBe("agent crashed");
   });

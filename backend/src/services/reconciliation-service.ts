@@ -4,7 +4,7 @@ import { expandTemplate } from "../config";
 import type { GitGateway, GitWorktreeEntry } from "../adapters/git";
 import type { PortProbe } from "../adapters/port-probe";
 import { buildProjectSessionName, buildWorktreeWindowName, type TmuxGateway, type TmuxWindowSummary } from "../adapters/tmux";
-import { buildRuntimeEnvMap, readWorktreeMeta } from "../adapters/fs";
+import { buildRuntimeEnvMap, readWorktreeMeta, readWorktreePrs } from "../adapters/fs";
 import type { ServiceRuntimeState } from "../domain/model";
 import { ProjectRuntime } from "./project-runtime";
 
@@ -149,6 +149,8 @@ export class ReconciliationService {
       } else {
         this.deps.runtime.setServices(worktreeId, []);
       }
+
+      this.deps.runtime.setPrs(worktreeId, await readWorktreePrs(gitDir));
     }
 
     for (const state of this.deps.runtime.listWorktrees()) {

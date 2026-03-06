@@ -20,6 +20,7 @@ export interface WorktreeStoragePaths {
   metaPath: string;
   runtimeEnvPath: string;
   controlEnvPath: string;
+  prsPath: string;
 }
 
 export interface ControlEnvMap extends Record<string, string> {
@@ -62,6 +63,35 @@ export interface ServiceRuntimeState {
   url: string | null;
 }
 
+export interface PrComment {
+  type: "comment" | "inline";
+  author: string;
+  body: string;
+  createdAt: string;
+  path?: string;
+  line?: number | null;
+  diffHunk?: string;
+  isReply?: boolean;
+}
+
+export interface CiCheck {
+  name: string;
+  status: "pending" | "success" | "failed" | "skipped";
+  url: string;
+  runId: number | null;
+}
+
+export interface PrEntry {
+  repo: string;
+  number: number;
+  state: "open" | "closed" | "merged";
+  url: string;
+  updatedAt: string;
+  ciStatus: "none" | "pending" | "success" | "failed";
+  ciChecks: CiCheck[];
+  comments: PrComment[];
+}
+
 export interface ManagedWorktreeRuntimeState {
   worktreeId: string;
   branch: string;
@@ -72,6 +102,7 @@ export interface ManagedWorktreeRuntimeState {
   session: SessionRuntimeState;
   agent: AgentRuntimeState;
   services: ServiceRuntimeState[];
+  prs: PrEntry[];
 }
 
 export interface NotificationView {
@@ -96,6 +127,7 @@ export interface WorktreeSnapshot {
   elapsed: string;
   title: string;
   services: ServiceRuntimeState[];
+  prs: PrEntry[];
 }
 
 export interface ProjectSnapshot {

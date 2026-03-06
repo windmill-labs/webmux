@@ -1,6 +1,13 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import type { ControlEnvMap, WorktreeMeta, WorktreeStoragePaths } from "../domain/model";
+import type {
+  CiCheck,
+  ControlEnvMap,
+  PrComment,
+  PrEntry,
+  WorktreeMeta,
+  WorktreeStoragePaths,
+} from "../domain/model";
 
 const SAFE_ENV_VALUE_RE = /^[A-Za-z0-9_./:@%+=,-]+$/;
 
@@ -22,6 +29,7 @@ export function getWorktreeStoragePaths(gitDir: string): WorktreeStoragePaths {
     metaPath: join(webmuxDir, "meta.json"),
     runtimeEnvPath: join(webmuxDir, "runtime.env"),
     controlEnvPath: join(webmuxDir, "control.env"),
+    prsPath: join(webmuxDir, "prs.json"),
   };
 }
 
@@ -90,4 +98,65 @@ export async function writeRuntimeEnv(gitDir: string, env: Record<string, string
 export async function writeControlEnv(gitDir: string, env: ControlEnvMap): Promise<void> {
   const { controlEnvPath } = await ensureWorktreeStorageDirs(gitDir);
   await Bun.write(controlEnvPath, renderEnvFile(env));
+}
+
+function isRecord(raw: unknown): raw is Record<string, unknown> {
+  return typeof raw === "object" && raw !== null && !Array.isArray(raw);
+}
+
+function isPrComment(raw: unknown): raw is PrComment {
+  if (!isRecord(raw)) return false;
+  return (raw.type === "comment" || raw.type === "inline")
+    && typeof raw.author === "string"
+    && typeof raw.body === "string"
+    && typeof raw.createdAt === "string"
+    && (raw.path === undefined || typeof raw.path === "string")
+    && (raw.line === undefined || raw.line === null || typeof raw.line === "number")
+    && (raw.diffHunk === undefined || typeof raw.diffHunk === "string")
+    && (raw.isReply === undefined || typeof raw.isReply === "boolean");
+}
+
+function isCiCheck(raw: unknown): raw is CiCheck {
+  if (!isRecord(raw)) return false;
+  return typeof raw.name === "string"
+    && (raw.status === "pending"
+      || raw.status === "success"
+      || raw.status === "failed"
+      || raw.status === "skipped")
+    && typeof raw.url === "string"
+    && (raw.runId === null || typeof raw.runId === "number");
+}
+
+function isPrEntry(raw: unknown): raw is PrEntry {
+  if (!isRecord(raw)) return false;
+  return typeof raw.repo === "string"
+    && typeof raw.number === "number"
+    && (raw.state === "open" || raw.state === "closed" || raw.state === "merged")
+    && typeof raw.url === "string"
+    && typeof raw.updatedAt === "string"
+    && (raw.ciStatus === "none"
+      || raw.ciStatus === "pending"
+      || raw.ciStatus === "success"
+      || raw.ciStatus === "failed")
+    && Array.isArray(raw.ciChecks)
+    && raw.ciChecks.every((check) => isCiCheck(check))
+    && Array.isArray(raw.comments)
+    && raw.comments.every((comment) => isPrComment(comment));
+}
+
+export async function readWorktreePrs(gitDir: string): Promise<PrEntry[]> {
+  const { prsPath } = getWorktreeStoragePaths(gitDir);
+  try {
+    const raw: unknown = await Bun.file(prsPath).json();
+    return Array.isArray(raw) && raw.every((entry) => isPrEntry(entry))
+      ? raw
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function writeWorktreePrs(gitDir: string, prs: PrEntry[]): Promise<void> {
+  const { prsPath } = await ensureWorktreeStorageDirs(gitDir);
+  await Bun.write(prsPath, JSON.stringify(prs, null, 2) + "\n");
 }

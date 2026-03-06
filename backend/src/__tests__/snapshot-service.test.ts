@@ -26,6 +26,32 @@ describe("buildProjectSnapshot", () => {
     runtime.setServices("wt_search", [
       { name: "frontend", port: 3010, running: true, url: "http://127.0.0.1:3010" },
     ]);
+    runtime.setPrs("wt_search", [
+      {
+        repo: "org/repo",
+        number: 77,
+        state: "open",
+        url: "https://github.com/org/repo/pull/77",
+        updatedAt: "2026-03-06T10:02:00.000Z",
+        ciStatus: "pending",
+        ciChecks: [
+          {
+            name: "build",
+            status: "pending",
+            url: "https://github.com/org/repo/actions/runs/123",
+            runId: 123,
+          },
+        ],
+        comments: [
+          {
+            type: "comment",
+            author: "reviewer",
+            body: "Needs changes",
+            createdAt: "2026-03-06T10:03:00.000Z",
+          },
+        ],
+      },
+    ]);
     runtime.applyEvent(
       { worktreeId: "wt_search", branch: "feature/search", type: "agent_started" },
       () => new Date("2026-03-06T10:00:00.000Z"),
@@ -69,6 +95,32 @@ describe("buildProjectSnapshot", () => {
         services: [
           { name: "frontend", port: 3010, running: true, url: "http://127.0.0.1:3010" },
         ],
+        prs: [
+          {
+            repo: "org/repo",
+            number: 77,
+            state: "open",
+            url: "https://github.com/org/repo/pull/77",
+            updatedAt: "2026-03-06T10:02:00.000Z",
+            ciStatus: "pending",
+            ciChecks: [
+              {
+                name: "build",
+                status: "pending",
+                url: "https://github.com/org/repo/actions/runs/123",
+                runId: 123,
+              },
+            ],
+            comments: [
+              {
+                type: "comment",
+                author: "reviewer",
+                body: "Needs changes",
+                createdAt: "2026-03-06T10:03:00.000Z",
+              },
+            ],
+          },
+        ],
       },
     ]);
     expect(snapshot.notifications).toHaveLength(1);
@@ -93,5 +145,6 @@ describe("buildProjectSnapshot", () => {
 
     expect(snapshot.worktrees[0]?.elapsed).toBe("");
     expect(snapshot.worktrees[0]?.status).toBe("closed");
+    expect(snapshot.worktrees[0]?.prs).toEqual([]);
   });
 });

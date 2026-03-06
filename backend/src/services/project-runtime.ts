@@ -5,6 +5,7 @@ import type {
 } from "../domain/config";
 import type {
   ManagedWorktreeRuntimeState,
+  PrEntry,
   ServiceRuntimeState,
 } from "../domain/model";
 import { buildWorktreeWindowName } from "../adapters/tmux";
@@ -49,6 +50,15 @@ function makeDefaultState(input: {
       lastError: null,
     },
     services: [],
+    prs: [],
+  };
+}
+
+function clonePrEntry(pr: PrEntry): PrEntry {
+  return {
+    ...pr,
+    ciChecks: pr.ciChecks.map((check) => ({ ...check })),
+    comments: pr.comments.map((comment) => ({ ...comment })),
   };
 }
 
@@ -128,6 +138,12 @@ export class ProjectRuntime {
   setServices(worktreeId: string, services: ServiceRuntimeState[]): ManagedWorktreeRuntimeState {
     const state = this.requireWorktree(worktreeId);
     state.services = services.map((service) => ({ ...service }));
+    return state;
+  }
+
+  setPrs(worktreeId: string, prs: PrEntry[]): ManagedWorktreeRuntimeState {
+    const state = this.requireWorktree(worktreeId);
+    state.prs = prs.map((pr) => clonePrEntry(pr));
     return state;
   }
 

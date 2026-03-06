@@ -14,7 +14,7 @@ That means:
 - no `vnext` route family
 - no requirement for legacy code to keep working during the cutover
 
-The legacy backend still powers most product behavior today, but the new architecture already owns the config foundations, runtime identity model, reconciliation, and one live snapshot-backed read path.
+The legacy backend still powers some product behavior today, but the new architecture already owns the config foundations, runtime identity model, reconciliation, terminal transport, the main lifecycle routes for host worktrees, and the frontend worktree read path.
 
 ## What Is Done
 
@@ -64,11 +64,27 @@ The legacy backend still powers most product behavior today, but the new archite
 - prompt send now resolves runtime state first and writes directly through the new terminal transport
 - the backend no longer exposes `/rpc/workmux`
 
-### 8. Backend coverage is still green
+### 8. Lifecycle routes are cut over for host worktrees
+
+- `POST /api/worktrees` now creates managed worktrees through `LifecycleService`
+- `POST /api/worktrees/:branch/open` now initializes unmanaged worktrees and rebuilds tmux layout through the new services
+- `DELETE /api/worktrees/:branch` and `POST /api/worktrees/:branch/merge` now use native Git/tmux orchestration instead of `workmux`
+- lifecycle validation and HTTP error mapping now come from typed lifecycle errors instead of ad hoc route handling
+- Docker runtime worktrees are still explicitly unsupported in the native lifecycle path
+
+### 9. Frontend worktree reads are snapshot-backed
+
+- the frontend worktree list now reads from `GET /api/project`
+- the client maps snapshot worktrees onto the UI state instead of polling `GET /api/worktrees`
+- `GET /api/worktrees` still exists, but it is no longer the primary frontend read path
+
+### 10. Verification is still green
 
 - `cd backend && bun test` passes
 - `cd backend && bun run check` passes
-- current backend test count is 100 passing tests
+- `cd frontend && bun run check` passes
+- `cd frontend && bun run build` passes
+- current backend test count is 97 passing tests
 
 ## What Is Wired Live Right Now
 
@@ -82,31 +98,31 @@ These pieces are already using the new architecture:
 - runtime-backed notification stream and dismiss
 - terminal websocket attach/send behavior
 - prompt send flow
+- create/open/remove/merge lifecycle routes for host worktrees
+- frontend worktree list state driven by `GET /api/project`
 
 These pieces still run through legacy code:
 
 - `GET /api/worktrees`
-- create/open/remove/merge lifecycle routes
 - Docker and hook event delivery still using legacy hook/container control code
-- most frontend reads
+- some frontend reads and enrichments still use legacy split endpoints
 
 ## What Is Not Done Yet
 
 The remaining work is the actual cutover of runtime I/O and lifecycle ownership:
 
-1. Wire create/open/remove/merge through the new lifecycle services.
-2. Finish the remaining validation and rollback behavior in the lifecycle service.
-3. Move the frontend read path to `GET /api/project`.
-4. Cut Docker and hook-driven agent event flow over to `webmux-agentctl`.
-5. Delete legacy backend modules once the new slice is live end to end.
+1. Finish Docker runtime support in the native lifecycle path.
+2. Cut Docker and hook-driven agent event flow over to `webmux-agentctl`.
+3. Delete `GET /api/worktrees` and the remaining legacy backend modules once the remaining enrichments move over.
+4. Collapse the remaining split frontend reads where they are still only compensating for legacy backend data.
 
 ## Recommended Next Steps
 
 Do these next, in order:
 
-1. Cut over create/open/remove/merge routes to the new lifecycle services.
-2. Move the frontend read path to `GET /api/project`.
-3. Replace Docker and hook-driven event delivery with `webmux-agentctl`.
+1. Replace Docker and hook-driven event delivery with `webmux-agentctl`.
+2. Finish Docker runtime support in the native lifecycle path.
+3. Delete `GET /api/worktrees` and the remaining legacy backend modules.
 
 At that point, the backend will have crossed the main boundary from "new read model exists" to "new runtime owns live behavior."
 
@@ -119,12 +135,4 @@ If this work continues in a new chat, start from:
 3. `backend/src/services/reconciliation-service.ts`
 4. `backend/src/services/project-runtime.ts`
 
-The next implementation slice should replace create/open/remove/merge in `backend/src/server.ts` with the lifecycle services and then continue deleting the remaining legacy backend modules.
-
-## Local Workspace Note
-
-There is an unrelated untracked file in the workspace:
-
-- `Dockerfile.test-init`
-
-It is not part of this refactor status and should be left alone unless explicitly requested.
+The next implementation slice should replace Docker/hook runtime control with `webmux-agentctl`, add Docker support to the native lifecycle path, and then delete the remaining legacy backend modules.

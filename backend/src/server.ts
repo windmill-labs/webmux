@@ -4,15 +4,10 @@ import { log } from "./lib/log";
 import {
   listWorktrees,
   getStatus,
-  addWorktree,
-  removeWorktree,
-  openWorktree,
-  mergeWorktree,
   readEnvLocal,
   parseWorktreePorcelain,
   checkDirty,
   cleanupStaleWindows,
-  initWorktreeEnv,
 } from "./workmux";
 import {
   attach,
@@ -35,7 +30,6 @@ import {
   BunTmuxGateway,
 } from "./adapters/tmux";
 import {
-  getDefaultAgent,
   getDefaultProfileName,
   gitRoot,
   isDockerProfile,
@@ -48,6 +42,7 @@ import { jsonResponse, errorResponse } from "./http";
 import { installHookScripts, hasDashboardActivity, touchActivity } from "./notifications";
 import { fetchAssignedIssues, branchMatchesIssue, type LinkedLinearIssue } from "./linear";
 import { NotificationService as RuntimeNotificationService } from "./services/notification-service";
+import { LifecycleError, LifecycleService } from "./services/lifecycle-service";
 import { ProjectRuntime } from "./services/project-runtime";
 import { ReconciliationService } from "./services/reconciliation-service";
 import { buildProjectSnapshot } from "./services/snapshot-service";
@@ -58,13 +53,24 @@ const PORT = parseInt(Bun.env.BACKEND_PORT || "5111", 10);
 const STATIC_DIR = Bun.env.WEBMUX_STATIC_DIR || "";
 const PROJECT_DIR = Bun.env.WEBMUX_PROJECT_DIR || gitRoot(process.cwd());
 const config: ProjectConfig = loadConfig(PROJECT_DIR);
+const git = new BunGitGateway();
+const tmux = new BunTmuxGateway();
 const projectRuntime = new ProjectRuntime();
 const runtimeNotifications = new RuntimeNotificationService();
 const reconciliationService = new ReconciliationService({
   config,
-  git: new BunGitGateway(),
-  tmux: new BunTmuxGateway(),
+  git,
+  tmux,
   runtime: projectRuntime,
+});
+const lifecycleService = new LifecycleService({
+  projectRoot: PROJECT_DIR,
+  controlBaseUrl: `http://127.0.0.1:${PORT}`,
+  getControlToken: loadRpcSecret,
+  config,
+  git,
+  tmux,
+  reconciliation: reconciliationService,
 });
 
 function getProfileConfig(name: string): ProfileConfig | undefined {
@@ -195,6 +201,10 @@ function isValidWorktreeName(name: string): boolean {
 /** Wrap an async API handler to catch and log unhandled errors. */
 function catching(label: string, fn: () => Promise<Response>): Promise<Response> {
   return fn().catch((err: unknown) => {
+    if (err instanceof LifecycleError) {
+      return errorResponse(err.message, err.status);
+    }
+
     const msg = err instanceof Error ? err.message : String(err);
     log.error(`[api:error] ${label}: ${msg}`);
     return errorResponse(msg);
@@ -455,15 +465,6 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
     return errorResponse("Invalid request body", 400);
   }
   const body = raw as Record<string, unknown>;
-  const branch = typeof body.branch === "string" ? body.branch : undefined;
-  const prompt = typeof body.prompt === "string" ? body.prompt : undefined;
-  const defaultProfileName = getDefaultProfileName(config);
-  const profileName = typeof body.profile === "string" && getProfileConfig(body.profile)
-    ? body.profile
-    : defaultProfileName;
-  const agent = typeof body.agent === "string" ? body.agent : getDefaultAgent(config);
-  const profileConfig = getProfileConfig(profileName) ?? config.profiles[defaultProfileName]!;
-  const isSandbox = isDockerProfile(profileConfig);
 
   // Parse envOverrides: must be a plain object with string keys and values
   let envOverrides: Record<string, string> | undefined;
@@ -476,56 +477,40 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
     if (Object.keys(parsed).length > 0) envOverrides = parsed;
   }
 
-  log.info(`[worktree:add] agent=${agent} profile=${profileName}${branch ? ` branch=${branch}` : ""}${prompt ? ` prompt="${prompt.slice(0, 80)}"` : ""}`);
-  const result = await addWorktree(branch, {
+  const branch = typeof body.branch === "string" ? body.branch : undefined;
+  const prompt = typeof body.prompt === "string" ? body.prompt : undefined;
+  const profile = typeof body.profile === "string" ? body.profile : undefined;
+  const agent = body.agent === "claude" || body.agent === "codex" ? body.agent : undefined;
+
+  log.info(
+    `[worktree:add]${branch ? ` branch=${branch}` : ""}${profile ? ` profile=${profile}` : ""}${agent ? ` agent=${agent}` : ""}${prompt ? ` prompt="${prompt.slice(0, 80)}"` : ""}`,
+  );
+  const result = await lifecycleService.createWorktree({
+    branch,
     prompt,
-    profile: profileName,
+    profile,
     agent,
-    profileConfig,
-    isSandbox,
-    sandboxConfig: isSandbox ? profileConfig : undefined,
-    services: config.services,
-    mainRepoDir: PROJECT_DIR,
     envOverrides,
   });
-  if (!result.ok) return errorResponse(result.error, 422);
-  log.debug(`[worktree:add] done branch=${result.branch}: ${result.output}`);
+  log.debug(`[worktree:add] done branch=${result.branch} worktreeId=${result.worktreeId}`);
   wtCache = null;
   return jsonResponse({ branch: result.branch }, 201);
 }
 
 async function apiDeleteWorktree(name: string): Promise<Response> {
   log.info(`[worktree:rm] name=${name}`);
-  const result = await removeWorktree(name);
-  if (!result.ok) return errorResponse(result.error, 422);
-  log.debug(`[worktree:rm] done name=${name}: ${result.output}`);
+  await lifecycleService.removeWorktree(name);
+  log.debug(`[worktree:rm] done name=${name}`);
   wtCache = null;
-  return jsonResponse({ message: result.output });
+  return jsonResponse({ ok: true });
 }
 
 async function apiOpenWorktree(name: string): Promise<Response> {
   log.info(`[worktree:open] name=${name}`);
-
-  // Lazily initialize env/hooks for externally-created worktrees
-  const wtPaths = await getWorktreePaths();
-  const wtDir = wtPaths.get(name);
-  if (wtDir) {
-    const env = await readEnvLocal(wtDir);
-    if (!env.PROFILE) {
-      log.info(`[worktree:open] initializing env for ${name}`);
-      await initWorktreeEnv(name, {
-        profile: getDefaultProfileName(config),
-        agent: getDefaultAgent(config),
-        services: config.services,
-      });
-      wtCache = null;
-    }
-  }
-
-  const result = await openWorktree(name);
-  if (!result.ok) return errorResponse(result.error, 422);
+  const result = await lifecycleService.openWorktree(name);
+  log.debug(`[worktree:open] done name=${name} worktreeId=${result.worktreeId}`);
   wtCache = null;
-  return jsonResponse({ message: result.output });
+  return jsonResponse({ ok: true });
 }
 
 async function apiSendPrompt(name: string, req: Request): Promise<Response> {
@@ -552,11 +537,10 @@ async function apiSendPrompt(name: string, req: Request): Promise<Response> {
 
 async function apiMergeWorktree(name: string): Promise<Response> {
   log.info(`[worktree:merge] name=${name}`);
-  const result = await mergeWorktree(name);
-  if (!result.ok) return errorResponse(result.error, 422);
-  log.debug(`[worktree:merge] done name=${name}: ${result.output}`);
+  await lifecycleService.mergeWorktree(name);
+  log.debug(`[worktree:merge] done name=${name}`);
   wtCache = null;
-  return jsonResponse({ message: result.output });
+  return jsonResponse({ ok: true });
 }
 
 async function apiWorktreeStatus(name: string): Promise<Response> {

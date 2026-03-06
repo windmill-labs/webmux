@@ -56,6 +56,7 @@ export interface CreateManagedWorktreeOptions {
   now?: () => Date;
   worktreeId?: string;
   sessionLayoutPlan?: SessionLayoutPlan;
+  sessionLayoutPlanBuilder?: (initialized: InitializeManagedWorktreeResult) => SessionLayoutPlan;
 }
 
 export interface CreateManagedWorktreeDependencies {
@@ -101,12 +102,13 @@ function cleanupSessionLayout(
 }
 
 function rollbackManagedWorktreeCreation(
-  opts: CreateManagedWorktreeOptions,
+  opts: Pick<CreateManagedWorktreeOptions, "repoRoot" | "worktreePath" | "branch">,
+  sessionLayoutPlan: SessionLayoutPlan | undefined,
   git: GitGateway,
   deps: CreateManagedWorktreeDependencies,
 ): string | null {
   const cleanupErrors: string[] = [];
-  const sessionCleanupError = cleanupSessionLayout(deps.tmux, opts.sessionLayoutPlan);
+  const sessionCleanupError = cleanupSessionLayout(deps.tmux, sessionLayoutPlan);
   if (sessionCleanupError) cleanupErrors.push(sessionCleanupError);
 
   try {
@@ -179,6 +181,7 @@ export async function createManagedWorktree(
 ): Promise<InitializeManagedWorktreeResult> {
   const git = deps.git ?? new BunGitGateway();
   let worktreeCreated = false;
+  let sessionLayoutPlan = opts.sessionLayoutPlan;
 
   try {
     git.createWorktree({
@@ -205,15 +208,18 @@ export async function createManagedWorktree(
       worktreeId: opts.worktreeId,
     });
 
-    if (deps.tmux && opts.sessionLayoutPlan) {
-      ensureSessionLayout(deps.tmux, opts.sessionLayoutPlan);
+    if (deps.tmux) {
+      sessionLayoutPlan = sessionLayoutPlan ?? opts.sessionLayoutPlanBuilder?.(initialized);
+      if (sessionLayoutPlan) {
+        ensureSessionLayout(deps.tmux, sessionLayoutPlan);
+      }
     }
 
     return initialized;
   } catch (error) {
     if (!worktreeCreated) throw error;
 
-    const rollbackError = rollbackManagedWorktreeCreation(opts, git, deps);
+    const rollbackError = rollbackManagedWorktreeCreation(opts, sessionLayoutPlan, git, deps);
     if (!rollbackError) throw error;
 
     throw new Error(`${toErrorMessage(error)}; ${rollbackError}`);

@@ -46,12 +46,13 @@ Completed:
 - runtime-backed notification stream and dismiss
 - terminal websocket cutover onto deterministic runtime-owned tmux targets
 - prompt send cutover onto the new terminal transport
+- create/open/remove/merge route cutover onto `LifecycleService` for host worktrees
+- frontend worktree read path cutover onto `GET /api/project`
 - removal of the live `/rpc/workmux` route
 
 Still remaining:
 
-- lifecycle route cutover
-- frontend move to `GET /api/project`
+- Docker runtime support in the native lifecycle service
 - Docker and hook event delivery through `webmux-agentctl`
 - deletion of legacy backend code
 

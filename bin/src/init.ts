@@ -16,6 +16,7 @@ interface Dep {
 const deps: Dep[] = [
   { tool: "git", required: true, hint: "https://git-scm.com/downloads" },
   { tool: "bun", required: true, hint: "https://bun.sh" },
+  { tool: "python3", required: true, hint: "https://www.python.org/downloads/  or  brew install python  or  sudo apt install python3" },
   { tool: "tmux", required: true, hint: "brew install tmux / sudo apt install tmux" },
   { tool: "workmux", required: true, hint: "cargo install workmux  or  https://workmux.raine.dev" },
   { tool: "gh", required: false, hint: "brew install gh  then  gh auth login" },

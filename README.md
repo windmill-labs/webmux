@@ -40,6 +40,7 @@ Run agents in isolated Docker containers for untrusted or experimental work. web
 # 1. Install prerequisites
 cargo install workmux          # or: brew install raine/workmux/workmux
 sudo apt install tmux           # or: brew install tmux
+sudo apt install python3        # or: brew install python
 curl -fsSL https://bun.sh/install | bash
 
 # 2. Install webmux
@@ -58,6 +59,7 @@ webmux                          # opens on http://localhost:5111
 | Tool | Purpose |
 |------|---------|
 | [**bun**](https://bun.sh) | Runtime |
+| **python3** | Per-worktree hook/event helper runtime |
 | [**workmux**](https://github.com/raine/workmux) | Worktree + tmux orchestration |
 | **tmux** | Terminal multiplexer |
 | **git** | Worktree management |

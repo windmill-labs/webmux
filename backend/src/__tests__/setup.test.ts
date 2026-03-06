@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expandTemplate, loadConfig } from "../config";
+import { expandTemplate, loadConfig } from "../adapters/config";
 
 describe("expandTemplate", () => {
   it("replaces known placeholders", () => {

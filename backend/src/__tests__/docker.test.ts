@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { buildDockerRunArgs, type LaunchContainerOpts } from "../docker";
-import type { DockerProfileConfig } from "../config";
+import { buildDockerRunArgs, type LaunchContainerOpts } from "../adapters/docker";
+import type { DockerProfileConfig } from "../adapters/config";
 
 const HOME = "/home/testuser";
 const UID = 1000;

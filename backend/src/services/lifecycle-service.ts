@@ -11,9 +11,9 @@ import {
   writeControlEnv,
   writeRuntimeEnv,
 } from "../adapters/fs";
+import { expandTemplate, isDockerProfile, type DockerProfileConfig } from "../adapters/config";
+import { type DockerGateway } from "../adapters/docker";
 import { buildProjectSessionName, buildWorktreeWindowName, type TmuxGateway } from "../adapters/tmux";
-import { type DockerGateway } from "../docker";
-import { expandTemplate, isDockerProfile, type DockerProfileConfig } from "../config";
 import type { AgentKind, ProfileConfig, ProjectConfig, RuntimeKind } from "../domain/config";
 import type { WorktreeMeta } from "../domain/model";
 import { allocateServicePorts, isValidBranchName, isValidEnvKey } from "../domain/policies";

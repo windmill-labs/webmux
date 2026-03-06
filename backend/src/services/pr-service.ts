@@ -1,7 +1,7 @@
-import type { LinkedRepoConfig } from "./config";
-import { readWorktreePrs, writeWorktreePrs } from "./adapters/fs";
-import type { CiCheck, PrComment, PrEntry } from "./domain/model";
-import { log } from "./lib/log";
+import { readWorktreePrs, writeWorktreePrs } from "../adapters/fs";
+import type { LinkedRepoConfig } from "../domain/config";
+import type { CiCheck, PrComment, PrEntry } from "../domain/model";
+import { log } from "../lib/log";
 
 const PR_FETCH_LIMIT = 50;
 const GH_TIMEOUT_MS = 15_000;

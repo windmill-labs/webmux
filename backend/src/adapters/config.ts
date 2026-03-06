@@ -9,7 +9,7 @@ import type {
   ProfileConfig,
   ProjectConfig,
   ServiceSpec,
-} from "./domain/config";
+} from "../domain/config";
 
 export type { LinkedRepoConfig, MountSpec, PaneTemplate, ProfileConfig, ProjectConfig };
 export type ServiceConfig = ServiceSpec;

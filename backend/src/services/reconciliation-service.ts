@@ -1,10 +1,10 @@
 import { basename, resolve } from "node:path";
-import type { ProjectConfig } from "../config";
-import { expandTemplate } from "../config";
+import { expandTemplate } from "../adapters/config";
 import type { GitGateway, GitWorktreeEntry } from "../adapters/git";
 import type { PortProbe } from "../adapters/port-probe";
 import { buildProjectSessionName, buildWorktreeWindowName, type TmuxGateway, type TmuxWindowSummary } from "../adapters/tmux";
 import { buildRuntimeEnvMap, readWorktreeMeta, readWorktreePrs } from "../adapters/fs";
+import type { ProjectConfig } from "../domain/config";
 import type { ServiceRuntimeState } from "../domain/model";
 import { ProjectRuntime } from "./project-runtime";
 

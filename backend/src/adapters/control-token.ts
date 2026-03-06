@@ -1,7 +1,7 @@
 import { chmod, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 
-const CONTROL_TOKEN_PATH = `${Bun.env.HOME ?? "/root"}/.config/workmux/rpc-secret`;
+const CONTROL_TOKEN_PATH = `${Bun.env.HOME ?? "/root"}/.config/webmux/control-token`;
 
 let cachedToken: string | null = null;
 

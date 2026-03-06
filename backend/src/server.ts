@@ -14,34 +14,27 @@ import {
   cleanupStaleSessions,
   sendPrompt as sendTerminalPrompt,
   type TerminalAttachTarget,
-} from "./terminal";
+} from "./adapters/terminal";
 import {
   BunGitGateway,
 } from "./adapters/git";
+import { loadConfig, getDefaultProfileName, gitRoot, isDockerProfile, type ProjectConfig, type ProfileConfig } from "./adapters/config";
+import { loadControlToken } from "./adapters/control-token";
+import { BunDockerGateway } from "./adapters/docker";
 import { BunPortProbe } from "./adapters/port-probe";
 import {
   BunTmuxGateway,
 } from "./adapters/tmux";
-import { BunDockerGateway } from "./docker";
-import {
-  getDefaultProfileName,
-  gitRoot,
-  isDockerProfile,
-  loadConfig,
-  type ProjectConfig,
-  type ProfileConfig,
-} from "./config";
-import { startPrMonitor } from "./pr";
-import { jsonResponse, errorResponse } from "./http";
+import { jsonResponse, errorResponse } from "./lib/http";
 import { hasRecentDashboardActivity, touchDashboardActivity } from "./services/dashboard-activity";
-import { fetchAssignedIssues } from "./linear";
+import { fetchAssignedIssues } from "./services/linear-service";
 import { NotificationService as RuntimeNotificationService } from "./services/notification-service";
 import { LifecycleError, LifecycleService } from "./services/lifecycle-service";
+import { startPrMonitor } from "./services/pr-service";
 import { ProjectRuntime } from "./services/project-runtime";
 import { ReconciliationService } from "./services/reconciliation-service";
 import { buildProjectSnapshot } from "./services/snapshot-service";
 import { parseRuntimeEvent } from "./domain/events";
-import { loadControlToken } from "./control-token";
 
 const PORT = parseInt(Bun.env.BACKEND_PORT || "5111", 10);
 const STATIC_DIR = Bun.env.WEBMUX_STATIC_DIR || "";

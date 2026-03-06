@@ -1,12 +1,12 @@
 /**
  * Docker container lifecycle for sandbox worktrees.
  *
- * Runs sandbox containers directly instead of delegating runtime control to workmux.
+ * Runs sandbox containers directly for managed docker worktrees.
  */
 
 import { stat } from "node:fs/promises";
 import { type DockerProfileConfig, type ServiceConfig } from "./config";
-import { log } from "./lib/log";
+import { log } from "../lib/log";
 
 const DOCKER_RUN_TIMEOUT_MS = 60_000;
 

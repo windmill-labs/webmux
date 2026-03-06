@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ProjectConfig } from "../config";
+import type { ProjectConfig } from "../domain/config";
 import type { GitGateway, GitWorktreeEntry, GitWorktreeStatus } from "../adapters/git";
 import type { PortProbe } from "../adapters/port-probe";
 import type { TmuxGateway, TmuxWindowSummary } from "../adapters/tmux";

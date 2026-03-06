@@ -56,7 +56,6 @@ function mapWorktree(snapshot: ProjectWorktreeSnapshot): WorktreeInfo {
     dirty: snapshot.dirty,
     status: snapshot.status,
     elapsed: snapshot.elapsed,
-    title: snapshot.title,
     profile: snapshot.profile,
     agentName: snapshot.agentName,
     services: snapshot.services.map((service) => ({ ...service })),

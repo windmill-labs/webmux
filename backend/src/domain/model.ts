@@ -50,7 +50,6 @@ export interface SessionRuntimeState {
 export interface AgentRuntimeState {
   runtime: RuntimeKind;
   lifecycle: AgentLifecycle;
-  title: string;
   lastStartedAt: string | null;
   lastEventAt: string | null;
   lastError: string | null;
@@ -125,7 +124,6 @@ export interface WorktreeSnapshot {
   paneCount: number;
   status: string;
   elapsed: string;
-  title: string;
   services: ServiceRuntimeState[];
   prs: PrEntry[];
 }

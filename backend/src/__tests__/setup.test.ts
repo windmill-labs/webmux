@@ -49,6 +49,7 @@ describe("loadConfig", () => {
         "profiles:",
         "  default:",
         "    runtime: host",
+        "    yolo: true",
         "    envPassthrough: [GITHUB_TOKEN]",
         "    panes:",
         "      - id: agent",
@@ -56,6 +57,7 @@ describe("loadConfig", () => {
         "        focus: true",
         "  sandbox:",
         "    runtime: docker",
+        "    yolo: false",
         "    image: webmux-sandbox",
         "    envPassthrough: [AWS_ACCESS_KEY_ID]",
         "    panes:",
@@ -83,8 +85,10 @@ describe("loadConfig", () => {
     expect(config.workspace.defaultAgent).toBe("codex");
     expect(config.services).toEqual([{ name: "API", portEnv: "API_PORT", portStart: 4100 }]);
     expect(config.profiles.default.runtime).toBe("host");
+    expect(config.profiles.default.yolo).toBe(true);
     expect(config.profiles.default.envPassthrough).toEqual(["GITHUB_TOKEN"]);
     expect(config.profiles.sandbox?.runtime).toBe("docker");
+    expect(config.profiles.sandbox?.yolo).toBeUndefined();
     expect(config.profiles.sandbox?.image).toBe("webmux-sandbox");
     expect(config.startupEnvs).toEqual({ FEATURE_FLAG: true });
     expect(config.integrations.github.linkedRepos).toEqual([{ repo: "acme/linked", alias: "linked" }]);

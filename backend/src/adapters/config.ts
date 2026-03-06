@@ -123,6 +123,7 @@ function parseProfile(raw: unknown, fallbackRuntime: "host" | "docker"): Profile
   return {
     runtime,
     envPassthrough,
+    ...(raw.yolo === true ? { yolo: true } : {}),
     panes,
     ...(typeof raw.systemPrompt === "string" && raw.systemPrompt.length > 0 ? { systemPrompt: raw.systemPrompt } : {}),
     ...(image ? { image } : {}),

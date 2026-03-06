@@ -12,7 +12,7 @@ describe("NotificationService", () => {
     const notifications = new NotificationService();
 
     const started = notifications.recordEvent(
-      { worktreeId: "wt_search", branch: "feature/search", type: "agent_started" },
+      { worktreeId: "wt_search", branch: "feature/search", type: "agent_status_changed", lifecycle: "running" },
       () => new Date("2026-03-06T10:00:00.000Z"),
     );
     const stopped = notifications.recordEvent(

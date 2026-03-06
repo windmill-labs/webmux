@@ -77,7 +77,6 @@ export interface WorktreeInfo {
   dirty: boolean;
   status: string;
   elapsed: string;
-  title: string;
   profile: string | null;
   agentName: string | null;
   services: ServiceStatus[];
@@ -116,7 +115,6 @@ export interface ProjectWorktreeSnapshot {
   paneCount: number;
   status: string;
   elapsed: string;
-  title: string;
   services: ServiceStatus[];
   prs: PrEntry[];
 }

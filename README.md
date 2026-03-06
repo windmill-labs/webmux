@@ -94,6 +94,7 @@ services:
 profiles:
   default:
     runtime: host
+    yolo: false
     envPassthrough: []
     panes:
       - id: agent
@@ -106,6 +107,7 @@ profiles:
 
   sandbox:
     runtime: docker
+    yolo: true
     image: my-sandbox
     envPassthrough:
       - AWS_ACCESS_KEY_ID
@@ -142,6 +144,7 @@ startupEnvs:
 | `services[].portStart` | number | no | Base port for auto-allocation |
 | `services[].portStep` | number | no | Port increment per worktree slot (default: `1`) |
 | `profiles.<name>.runtime` | string | yes | `host` or `docker` |
+| `profiles.<name>.yolo` | boolean | no | Enables `--dangerously-skip-permissions` for Claude or `--yolo` for Codex |
 | `profiles.<name>.panes[]` | array | yes | Pane layout for that profile |
 | `profiles.<name>.panes[].kind` | string | yes | `agent`, `shell`, or `command` |
 | `profiles.<name>.panes[].command` | string | yes (for `command`) | Startup command run inside the pane |

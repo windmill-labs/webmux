@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
-import { ensureAgentRuntimeArtifacts, type AgentRuntimeArtifacts } from "../adapters/agent-runtime";
+import { ensureAgentRuntimeArtifacts } from "../adapters/agent-runtime";
 import type { GitGateway, GitWorktreeEntry } from "../adapters/git";
 import {
   buildControlEnvMap,
@@ -117,7 +117,7 @@ export class LifecycleService {
         },
       );
 
-      const artifacts = await ensureAgentRuntimeArtifacts({
+      await ensureAgentRuntimeArtifacts({
         gitDir: initialized.paths.gitDir,
         worktreePath,
       });
@@ -127,7 +127,6 @@ export class LifecycleService {
         profile,
         agent,
         initialized,
-        artifacts,
         worktreePath,
         prompt: input.prompt,
       });
@@ -159,7 +158,7 @@ export class LifecycleService {
         ? await this.refreshManagedArtifacts(resolved)
         : await this.initializeUnmanagedWorktree(resolved);
       const { profile } = this.resolveProfile(initialized.meta.profile);
-      const artifacts = await ensureAgentRuntimeArtifacts({
+      await ensureAgentRuntimeArtifacts({
         gitDir: initialized.paths.gitDir,
         worktreePath: resolved.entry.path,
       });
@@ -169,7 +168,6 @@ export class LifecycleService {
         profile,
         agent: initialized.meta.agent,
         initialized,
-        artifacts,
         worktreePath: resolved.entry.path,
       });
 
@@ -387,7 +385,6 @@ export class LifecycleService {
     profile: ProfileConfig;
     agent: AgentKind;
     initialized: InitializeManagedWorktreeResult;
-    artifacts: AgentRuntimeArtifacts;
     worktreePath: string;
     prompt?: string;
   }): Promise<void> {
@@ -406,7 +403,6 @@ export class LifecycleService {
         profile: input.profile,
         agent: input.agent,
         initialized: input.initialized,
-        artifacts: input.artifacts,
         worktreePath: input.worktreePath,
         prompt: input.prompt,
         containerName,
@@ -419,7 +415,6 @@ export class LifecycleService {
       profile: input.profile,
       agent: input.agent,
       initialized: input.initialized,
-      artifacts: input.artifacts,
       worktreePath: input.worktreePath,
       prompt: input.prompt,
     }));
@@ -430,7 +425,6 @@ export class LifecycleService {
     profile: ProfileConfig;
     agent: AgentKind;
     initialized: InitializeManagedWorktreeResult;
-    artifacts: AgentRuntimeArtifacts;
     worktreePath: string;
     prompt?: string;
     containerName?: string;
@@ -454,8 +448,7 @@ export class LifecycleService {
                 containerName,
                 worktreePath: input.worktreePath,
                 runtimeEnvPath: input.initialized.paths.runtimeEnvPath,
-                agentCtlPath: input.artifacts.agentCtlPath,
-                runtime: input.profile.runtime,
+                yolo: input.profile.yolo === true,
                 systemPrompt,
                 prompt: input.prompt,
               }),
@@ -469,8 +462,7 @@ export class LifecycleService {
               agent: buildAgentPaneCommand({
                 agent: input.agent,
                 runtimeEnvPath: input.initialized.paths.runtimeEnvPath,
-                agentCtlPath: input.artifacts.agentCtlPath,
-                runtime: input.profile.runtime,
+                yolo: input.profile.yolo === true,
                 systemPrompt,
                 prompt: input.prompt,
               }),

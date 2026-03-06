@@ -20,19 +20,17 @@ describe("agent-service command builders", () => {
     const claude = buildAgentPaneCommand({
       agent: "claude",
       runtimeEnvPath: "/tmp/gitdir/webmux/runtime.env",
-      agentCtlPath: "/tmp/gitdir/webmux/webmux-agentctl",
-      runtime: "host",
       prompt: "fix the tests",
     });
 
     expect(claude).toContain("/tmp/gitdir/webmux/runtime.env");
     expect(claude).toContain("set -a");
     expect(claude).toContain("set +a");
-    expect(claude).toContain("title-changed --title");
-    expect(claude).toContain("agent-started");
     expect(claude).toContain("claude");
     expect(claude).toContain("fix the tests");
-    expect(claude).toContain("runtime-error --message");
+    expect(claude).not.toContain("agent-started");
+    expect(claude).not.toContain("title-changed");
+    expect(claude).not.toContain("runtime-error");
   });
 
   it("builds docker commands that exec inside the container", () => {
@@ -47,8 +45,7 @@ describe("agent-service command builders", () => {
       containerName: "wm-feature-container",
       worktreePath: "/repos/feature",
       runtimeEnvPath: "/repos/main/.git/worktrees/feature/webmux/runtime.env",
-      agentCtlPath: "/repos/main/.git/worktrees/feature/webmux/webmux-agentctl",
-      runtime: "docker",
+      yolo: true,
       prompt: "ship the fix",
     });
 
@@ -56,6 +53,21 @@ describe("agent-service command builders", () => {
     expect(shell).toContain("/bin/zsh");
     expect(agent).toContain("codex --yolo");
     expect(agent).toContain("ship the fix");
-    expect(agent).toContain("agent-stopped");
+    expect(agent).not.toContain("agent-stopped");
+  });
+
+  it("adds the claude permissions bypass flag only when profile yolo is enabled", () => {
+    const normal = buildAgentPaneCommand({
+      agent: "claude",
+      runtimeEnvPath: "/tmp/gitdir/webmux/runtime.env",
+    });
+    const yolo = buildAgentPaneCommand({
+      agent: "claude",
+      runtimeEnvPath: "/tmp/gitdir/webmux/runtime.env",
+      yolo: true,
+    });
+
+    expect(normal).not.toContain("--dangerously-skip-permissions");
+    expect(yolo).toContain("--dangerously-skip-permissions");
   });
 });

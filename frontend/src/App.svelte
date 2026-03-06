@@ -166,7 +166,6 @@
         prompt || undefined,
         Object.keys(envOverrides).length > 0 ? envOverrides : undefined,
       );
-      await api.openWorktree(result.branch);
       showCreateDialog = false;
       assignIssue = null;
       await refresh();

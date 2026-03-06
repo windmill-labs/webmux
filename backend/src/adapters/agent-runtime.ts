@@ -47,14 +47,10 @@ def build_parser():
     parser = argparse.ArgumentParser(prog="webmux-agentctl")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    subparsers.add_parser("agent-started")
     subparsers.add_parser("agent-stopped")
 
     status_changed = subparsers.add_parser("status-changed")
     status_changed.add_argument("--lifecycle", choices=["starting", "running", "idle", "stopped"], required=True)
-
-    title_changed = subparsers.add_parser("title-changed")
-    title_changed.add_argument("--title", required=True)
 
     pr_opened = subparsers.add_parser("pr-opened")
     pr_opened.add_argument("--url")
@@ -74,19 +70,12 @@ def build_payload(command, args, control_env):
         "branch": control_env["WEBMUX_BRANCH"],
     }
 
-    if command == "agent-started":
-        payload["type"] = "agent_started"
-        return payload
     if command == "agent-stopped":
         payload["type"] = "agent_stopped"
         return payload
     if command == "status-changed":
         payload["type"] = "agent_status_changed"
         payload["lifecycle"] = args.lifecycle
-        return payload
-    if command == "title-changed":
-        payload["type"] = "title_changed"
-        payload["title"] = args.title
         return payload
     if command == "pr-opened":
         payload["type"] = "pr_opened"
@@ -160,11 +149,6 @@ def main():
         return 1
 
     if parsed.command == "claude-user-prompt-submit":
-        hook_payload = read_hook_payload()
-        prompt = hook_payload.get("prompt")
-        if isinstance(prompt, str) and prompt.strip():
-            if not send_payload(build_payload("title-changed", argparse.Namespace(title=prompt), control_env), control_env):
-                return 1
         if not send_payload(build_payload("status-changed", argparse.Namespace(lifecycle="running"), control_env), control_env):
             return 1
         return 0

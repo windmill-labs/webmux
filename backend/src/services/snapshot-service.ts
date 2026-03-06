@@ -43,7 +43,6 @@ function mapWorktreeSnapshot(
     paneCount: state.session.paneCount,
     status: state.agent.lifecycle,
     elapsed: formatElapsedSince(state.agent.lastStartedAt, now),
-    title: state.agent.title,
     services: state.services.map((service) => ({ ...service })),
     prs: state.prs.map((pr) => clonePrEntry(pr)),
   };

@@ -59,6 +59,7 @@ services:
 profiles:
   default:
     runtime: host
+    yolo: false
     envPassthrough: []
     panes:
       - id: agent
@@ -71,6 +72,7 @@ profiles:
 
   # sandbox:
   #   runtime: docker
+  #   yolo: true
   #   image: my-project-sandbox
   #   envPassthrough:
   #     - DATABASE_URL

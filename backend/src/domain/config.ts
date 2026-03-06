@@ -29,6 +29,7 @@ export interface ProfileConfig {
   runtime: RuntimeKind;
   systemPrompt?: string;
   envPassthrough: string[];
+  yolo?: boolean;
   panes: PaneTemplate[];
   image?: string;
   mounts?: MountSpec[];

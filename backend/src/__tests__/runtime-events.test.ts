@@ -6,28 +6,6 @@ describe("parseRuntimeEvent", () => {
     expect(parseRuntimeEvent({
       worktreeId: "wt_search",
       branch: "feature/search",
-      type: "agent_started",
-    })).toEqual({
-      worktreeId: "wt_search",
-      branch: "feature/search",
-      type: "agent_started",
-    });
-
-    expect(parseRuntimeEvent({
-      worktreeId: "wt_search",
-      branch: "feature/search",
-      type: "title_changed",
-      title: "Implement search",
-    })).toEqual({
-      worktreeId: "wt_search",
-      branch: "feature/search",
-      type: "title_changed",
-      title: "Implement search",
-    });
-
-    expect(parseRuntimeEvent({
-      worktreeId: "wt_search",
-      branch: "feature/search",
       type: "agent_status_changed",
       lifecycle: "idle",
     })).toEqual({
@@ -43,19 +21,24 @@ describe("parseRuntimeEvent", () => {
     expect(parseRuntimeEvent({
       worktreeId: "wt_search",
       branch: "feature/search",
-      type: "runtime_error",
+      type: "agent_started",
     })).toBeNull();
     expect(parseRuntimeEvent({
       worktreeId: "wt_search",
       branch: "feature/search",
-      type: "pr_opened",
-      url: 123,
+      type: "title_changed",
+      title: "ignored",
     })).toBeNull();
     expect(parseRuntimeEvent({
       worktreeId: "wt_search",
       branch: "feature/search",
       type: "agent_status_changed",
       lifecycle: "closed",
+    })).toBeNull();
+    expect(parseRuntimeEvent({
+      worktreeId: "wt_search",
+      branch: "feature/search",
+      type: "runtime_error",
     })).toBeNull();
   });
 });

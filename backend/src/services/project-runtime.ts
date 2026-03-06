@@ -1,4 +1,4 @@
-import type { AgentStatusChangedEvent, RuntimeEvent, RuntimeErrorEvent, TitleChangedEvent } from "../domain/events";
+import type { AgentStatusChangedEvent, RuntimeEvent, RuntimeErrorEvent } from "../domain/events";
 import type {
   AgentKind,
   RuntimeKind,
@@ -44,7 +44,6 @@ function makeDefaultState(input: {
     agent: {
       runtime: input.runtime ?? "host",
       lifecycle: "closed",
-      title: "",
       lastStartedAt: null,
       lastEventAt: null,
       lastError: null,
@@ -155,21 +154,12 @@ export class ProjectRuntime {
     const timestamp = isoNow(now);
 
     switch (event.type) {
-      case "agent_started":
-        state.agent.lifecycle = "running";
-        state.agent.lastStartedAt = timestamp;
-        state.agent.lastEventAt = timestamp;
-        state.agent.lastError = null;
-        break;
       case "agent_stopped":
         state.agent.lifecycle = "stopped";
         state.agent.lastEventAt = timestamp;
         break;
       case "agent_status_changed":
         this.applyStatusChanged(state, event, timestamp);
-        break;
-      case "title_changed":
-        this.applyTitleChanged(state, event, timestamp);
         break;
       case "runtime_error":
         this.applyRuntimeError(state, event, timestamp);
@@ -180,15 +170,6 @@ export class ProjectRuntime {
     }
 
     return state;
-  }
-
-  private applyTitleChanged(
-    state: ManagedWorktreeRuntimeState,
-    event: TitleChangedEvent,
-    timestamp: string,
-  ): void {
-    state.agent.title = event.title;
-    state.agent.lastEventAt = timestamp;
   }
 
   private applyStatusChanged(

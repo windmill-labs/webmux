@@ -53,12 +53,8 @@ describe("buildProjectSnapshot", () => {
       },
     ]);
     runtime.applyEvent(
-      { worktreeId: "wt_search", branch: "feature/search", type: "agent_started" },
+      { worktreeId: "wt_search", branch: "feature/search", type: "agent_status_changed", lifecycle: "running" },
       () => new Date("2026-03-06T10:00:00.000Z"),
-    );
-    runtime.applyEvent(
-      { worktreeId: "wt_search", branch: "feature/search", type: "title_changed", title: "Implement search" },
-      () => new Date("2026-03-06T10:01:00.000Z"),
     );
 
     const notifications = new NotificationService();
@@ -91,7 +87,6 @@ describe("buildProjectSnapshot", () => {
         paneCount: 2,
         status: "running",
         elapsed: "5m",
-        title: "Implement search",
         services: [
           { name: "frontend", port: 3010, running: true, url: "http://127.0.0.1:3010" },
         ],

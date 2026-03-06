@@ -126,6 +126,10 @@ linkedRepos:
 
 startupEnvs:
   NODE_ENV: development
+
+lifecycleHooks:
+  postCreate: scripts/post-create.sh
+  preRemove: scripts/pre-remove.sh
 ```
 
 </details>
@@ -159,8 +163,12 @@ startupEnvs:
 | `integrations.github.linkedRepos[].repo` | string | yes | GitHub repo slug (e.g. `org/repo`) |
 | `integrations.github.linkedRepos[].alias` | string | no | Short label for the UI |
 | `startupEnvs.<KEY>` | string or boolean | no | Extra env vars materialized into worktree runtime env |
+| `lifecycleHooks.postCreate` | string | no | Shell command run after a managed worktree is created and its session is materialized |
+| `lifecycleHooks.preRemove` | string | no | Shell command run before a managed worktree is removed |
 
 </details>
+
+Lifecycle hooks run with the worktree as `cwd` and receive the same computed runtime env as the managed panes, including `startupEnvs`, allocated service ports, and `WEBMUX_*` metadata.
 
 ## Keyboard Shortcuts
 

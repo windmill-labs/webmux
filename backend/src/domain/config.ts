@@ -61,6 +61,11 @@ export interface IntegrationConfig {
   linear: LinearIntegrationConfig;
 }
 
+export interface LifecycleHooksConfig {
+  postCreate?: string;
+  preRemove?: string;
+}
+
 export interface ProjectConfig {
   name: string;
   workspace: WorkspaceConfig;
@@ -68,4 +73,5 @@ export interface ProjectConfig {
   services: ServiceSpec[];
   startupEnvs: Record<string, string | boolean>;
   integrations: IntegrationConfig;
+  lifecycleHooks: LifecycleHooksConfig;
 }

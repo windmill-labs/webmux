@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import type {
   AgentKind,
+  LifecycleHooksConfig,
   LinkedRepoConfig,
   MountSpec,
   PaneTemplate,
@@ -40,6 +41,7 @@ const DEFAULT_CONFIG: ProjectConfig = {
     github: { linkedRepos: [] },
     linear: { enabled: true },
   },
+  lifecycleHooks: {},
 };
 
 function clonePanes(panes: PaneTemplate[]): PaneTemplate[] {
@@ -176,6 +178,19 @@ function parseStartupEnvs(raw: unknown): Record<string, string | boolean> {
   return startupEnvs;
 }
 
+function parseLifecycleHooks(raw: unknown): LifecycleHooksConfig {
+  if (!isRecord(raw)) return {};
+
+  const hooks: LifecycleHooksConfig = {};
+  if (typeof raw.postCreate === "string" && raw.postCreate.trim()) {
+    hooks.postCreate = raw.postCreate.trim();
+  }
+  if (typeof raw.preRemove === "string" && raw.preRemove.trim()) {
+    hooks.preRemove = raw.preRemove.trim();
+  }
+  return hooks;
+}
+
 function parseLinkedRepos(raw: unknown): LinkedRepoConfig[] {
   if (!Array.isArray(raw)) return [];
 
@@ -250,6 +265,7 @@ export function loadConfig(dir: string): ProjectConfig {
             : DEFAULT_CONFIG.integrations.linear.enabled,
         },
       },
+      lifecycleHooks: parseLifecycleHooks(parsed.lifecycleHooks),
     };
   } catch {
     return DEFAULT_CONFIG;

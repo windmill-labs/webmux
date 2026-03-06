@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ProjectConfig } from "../domain/config";
 import { BunGitGateway } from "../adapters/git";
+import type { LifecycleHookRunner, RunLifecycleHookInput } from "../adapters/hooks";
 import type { PortProbe } from "../adapters/port-probe";
 import { buildProjectSessionName, buildWorktreeWindowName, type TmuxGateway, type TmuxWindowSummary } from "../adapters/tmux";
 import { getWorktreeStoragePaths, readWorktreeMeta } from "../adapters/fs";
@@ -103,6 +104,17 @@ class FakePortProbe implements PortProbe {
   }
 }
 
+class FakeHookRunner implements LifecycleHookRunner {
+  readonly calls: RunLifecycleHookInput[] = [];
+
+  async run(input: RunLifecycleHookInput): Promise<void> {
+    this.calls.push({
+      ...input,
+      env: { ...input.env },
+    });
+  }
+}
+
 const TEST_CONFIG: ProjectConfig = {
   name: "Project",
   workspace: {
@@ -143,6 +155,10 @@ const TEST_CONFIG: ProjectConfig = {
     github: { linkedRepos: [] },
     linear: { enabled: true },
   },
+  lifecycleHooks: {
+    postCreate: "scripts/post-create.sh",
+    preRemove: "scripts/pre-remove.sh",
+  },
 };
 
 function makeLifecycleService(
@@ -150,6 +166,7 @@ function makeLifecycleService(
   tmux: FakeTmuxGateway,
   runtime: ProjectRuntime,
   docker: DockerGateway = new FakeDockerGateway(),
+  hooks: LifecycleHookRunner = new FakeHookRunner(),
 ): LifecycleService {
   const git = new BunGitGateway();
   const reconciliation = new ReconciliationService({
@@ -169,6 +186,7 @@ function makeLifecycleService(
     tmux,
     docker,
     reconciliation,
+    hooks,
   });
 }
 
@@ -198,7 +216,8 @@ describe("LifecycleService", () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
     const tmux = new FakeTmuxGateway();
-    const lifecycle = makeLifecycleService(repoRoot, tmux, runtime);
+    const hooks = new FakeHookRunner();
+    const lifecycle = makeLifecycleService(repoRoot, tmux, runtime, new FakeDockerGateway(), hooks);
 
     const created = await lifecycle.createWorktree({
       branch: "feature/search",
@@ -223,6 +242,22 @@ describe("LifecycleService", () => {
     expect(runtimeEnvText).toContain("WEBMUX_WORKTREE_PATH=");
     expect(runtimeEnvText).toContain("CUSTOM_TOKEN=abc123");
     expect(controlEnvText).toContain("WEBMUX_CONTROL_URL=http://127.0.0.1:5111/api/runtime/events");
+    expect(hooks.calls).toEqual([
+      expect.objectContaining({
+        name: "postCreate",
+        command: "scripts/post-create.sh",
+        cwd: worktreePath,
+        env: expect.objectContaining({
+          CUSTOM_TOKEN: "abc123",
+          FEATURE_FLAG: "true",
+          FRONTEND_PORT: "3010",
+          WEBMUX_BRANCH: "feature/search",
+          WEBMUX_PROFILE: "default",
+          WEBMUX_RUNTIME: "host",
+          WEBMUX_WORKTREE_PATH: worktreePath,
+        }),
+      }),
+    ]);
 
     expect(tmux.listWindows()).toEqual([
       {
@@ -297,7 +332,8 @@ describe("LifecycleService", () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
     const tmux = new FakeTmuxGateway();
-    const lifecycle = makeLifecycleService(repoRoot, tmux, runtime);
+    const hooks = new FakeHookRunner();
+    const lifecycle = makeLifecycleService(repoRoot, tmux, runtime, new FakeDockerGateway(), hooks);
 
     await lifecycle.createWorktree({ branch: "feature-dirty" });
 
@@ -308,6 +344,7 @@ describe("LifecycleService", () => {
       "Worktree has uncommitted changes: feature-dirty",
     );
 
+    expect(hooks.calls.filter((call) => call.name === "preRemove")).toHaveLength(0);
     expect(new BunGitGateway().listWorktrees(repoRoot).some((entry) => entry.path === worktreePath)).toBe(true);
     expect(run(["git", "branch", "--list", "feature-dirty"], repoRoot)).toContain("feature-dirty");
   });
@@ -317,7 +354,8 @@ describe("LifecycleService", () => {
     const runtime = new ProjectRuntime();
     const tmux = new FakeTmuxGateway();
     const docker = new FakeDockerGateway();
-    const lifecycle = makeLifecycleService(repoRoot, tmux, runtime, docker);
+    const hooks = new FakeHookRunner();
+    const lifecycle = makeLifecycleService(repoRoot, tmux, runtime, docker, hooks);
 
     await lifecycle.createWorktree({
       branch: "feature-remove-docker",
@@ -326,6 +364,11 @@ describe("LifecycleService", () => {
 
     await lifecycle.removeWorktree("feature-remove-docker");
 
+    expect(hooks.calls.some((call) =>
+      call.name === "preRemove"
+        && call.cwd === join(repoRoot, "__worktrees", "feature-remove-docker")
+        && call.env.WEBMUX_RUNTIME === "docker"
+    )).toBe(true);
     expect(docker.removed).toContain("feature-remove-docker");
     expect(new BunGitGateway().listWorktrees(repoRoot).some((entry) => entry.branch === "feature-remove-docker")).toBe(false);
   });

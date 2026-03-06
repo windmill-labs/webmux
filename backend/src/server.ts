@@ -21,6 +21,7 @@ import {
 import { loadConfig, getDefaultProfileName, gitRoot, type ProjectConfig } from "./adapters/config";
 import { loadControlToken } from "./adapters/control-token";
 import { BunDockerGateway } from "./adapters/docker";
+import { BunLifecycleHookRunner } from "./adapters/hooks";
 import { BunPortProbe } from "./adapters/port-probe";
 import {
   BunTmuxGateway,
@@ -44,6 +45,7 @@ const git = new BunGitGateway();
 const portProbe = new BunPortProbe();
 const tmux = new BunTmuxGateway();
 const docker = new BunDockerGateway();
+const hooks = new BunLifecycleHookRunner();
 const projectRuntime = new ProjectRuntime();
 const runtimeNotifications = new RuntimeNotificationService();
 const reconciliationService = new ReconciliationService({
@@ -62,6 +64,7 @@ const lifecycleService = new LifecycleService({
   tmux,
   docker,
   reconciliation: reconciliationService,
+  hooks,
 });
 
 function getFrontendConfig(): {

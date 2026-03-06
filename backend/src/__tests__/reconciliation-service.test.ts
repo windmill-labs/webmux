@@ -135,6 +135,7 @@ const TEST_CONFIG: ProjectConfig = {
     github: { linkedRepos: [] },
     linear: { enabled: true },
   },
+  lifecycleHooks: {},
 };
 
 describe("ReconciliationService", () => {

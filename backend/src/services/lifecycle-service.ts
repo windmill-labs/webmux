@@ -3,6 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { ensureAgentRuntimeArtifacts } from "../adapters/agent-runtime";
 import type { GitGateway, GitWorktreeEntry } from "../adapters/git";
+import type { LifecycleHookRunner, RunLifecycleHookInput } from "../adapters/hooks";
 import {
   buildControlEnvMap,
   buildRuntimeEnvMap,
@@ -60,6 +61,7 @@ export interface LifecycleServiceDependencies {
   tmux: TmuxGateway;
   docker: DockerGateway;
   reconciliation: ReconciliationService;
+  hooks: LifecycleHookRunner;
 }
 
 export interface CreateLifecycleWorktreeInput {
@@ -131,6 +133,13 @@ export class LifecycleService {
         prompt: input.prompt,
       });
 
+      await this.runLifecycleHook({
+        name: "postCreate",
+        command: this.deps.config.lifecycleHooks.postCreate,
+        meta: initialized.meta,
+        worktreePath,
+      });
+
       await this.deps.reconciliation.reconcile(this.deps.projectRoot);
 
       return {
@@ -186,6 +195,13 @@ export class LifecycleService {
     try {
       const resolved = await this.resolveExistingWorktree(branch);
       this.ensureClean(resolved.entry);
+
+      await this.runLifecycleHook({
+        name: "preRemove",
+        command: this.deps.config.lifecycleHooks.preRemove,
+        meta: resolved.meta,
+        worktreePath: resolved.entry.path,
+      });
 
       if (resolved.meta?.runtime === "docker") {
         await this.deps.docker.removeContainer(branch);
@@ -531,6 +547,26 @@ export class LifecycleService {
 
   private controlUrl(): string {
     return `${this.deps.controlBaseUrl.replace(/\/+$/, "")}/api/runtime/events`;
+  }
+
+  private async runLifecycleHook(input: {
+    name: RunLifecycleHookInput["name"];
+    command: string | undefined;
+    meta: WorktreeMeta | null;
+    worktreePath: string;
+  }): Promise<void> {
+    if (!input.command || !input.meta) {
+      return;
+    }
+
+    await this.deps.hooks.run({
+      name: input.name,
+      command: input.command,
+      cwd: input.worktreePath,
+      env: buildRuntimeEnvMap(input.meta, {
+        WEBMUX_WORKTREE_PATH: input.worktreePath,
+      }),
+    });
   }
 
   private wrapOperationError(error: unknown): LifecycleError {

@@ -66,6 +66,9 @@ describe("loadConfig", () => {
         "        focus: true",
         "startupEnvs:",
         "  FEATURE_FLAG: true",
+        "lifecycleHooks:",
+        "  postCreate: scripts/post-create.sh",
+        "  preRemove: scripts/pre-remove.sh",
         "integrations:",
         "  github:",
         "    linkedRepos:",
@@ -91,6 +94,10 @@ describe("loadConfig", () => {
     expect(config.profiles.sandbox?.yolo).toBeUndefined();
     expect(config.profiles.sandbox?.image).toBe("webmux-sandbox");
     expect(config.startupEnvs).toEqual({ FEATURE_FLAG: true });
+    expect(config.lifecycleHooks).toEqual({
+      postCreate: "scripts/post-create.sh",
+      preRemove: "scripts/pre-remove.sh",
+    });
     expect(config.integrations.github.linkedRepos).toEqual([{ repo: "acme/linked", alias: "linked" }]);
     expect(config.integrations.linear.enabled).toBe(false);
   });

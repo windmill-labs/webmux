@@ -31,6 +31,7 @@ function clonePrEntry(pr: PrEntry): PrEntry {
 function mapWorktreeSnapshot(
   state: ReturnType<ProjectRuntime["listWorktrees"]>[number],
   now: () => Date,
+  findLinearIssue?: (branch: string) => WorktreeSnapshot["linearIssue"],
 ): WorktreeSnapshot {
   return {
     branch: state.branch,
@@ -45,6 +46,7 @@ function mapWorktreeSnapshot(
     elapsed: formatElapsedSince(state.agent.lastStartedAt, now),
     services: state.services.map((service) => ({ ...service })),
     prs: state.prs.map((pr) => clonePrEntry(pr)),
+    linearIssue: findLinearIssue ? findLinearIssue(state.branch) : null,
   };
 }
 
@@ -53,6 +55,7 @@ export function buildProjectSnapshot(input: {
   mainBranch: string;
   runtime: ProjectRuntime;
   notifications: RuntimeNotification[];
+  findLinearIssue?: (branch: string) => WorktreeSnapshot["linearIssue"];
   now?: () => Date;
 }): ProjectSnapshot {
   const now = input.now ?? (() => new Date());
@@ -62,7 +65,9 @@ export function buildProjectSnapshot(input: {
       name: input.projectName,
       mainBranch: input.mainBranch,
     },
-    worktrees: input.runtime.listWorktrees().map((state) => mapWorktreeSnapshot(state, now)),
+    worktrees: input.runtime.listWorktrees().map((state) =>
+      mapWorktreeSnapshot(state, now, input.findLinearIssue),
+    ),
     notifications: input.notifications.map((notification) => ({ ...notification })),
   };
 }

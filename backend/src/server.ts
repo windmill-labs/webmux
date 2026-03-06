@@ -28,7 +28,7 @@ import {
 } from "./adapters/tmux";
 import { jsonResponse, errorResponse } from "./lib/http";
 import { hasRecentDashboardActivity, touchDashboardActivity } from "./services/dashboard-activity";
-import { fetchAssignedIssues } from "./services/linear-service";
+import { branchMatchesIssue, fetchAssignedIssues } from "./services/linear-service";
 import { NotificationService as RuntimeNotificationService } from "./services/notification-service";
 import { LifecycleError, LifecycleService } from "./services/lifecycle-service";
 import { startPrMonitor } from "./services/pr-service";
@@ -248,12 +248,29 @@ function makeCallbacks(ws: { send: (data: string) => void; readyState: number })
 
 async function apiGetProject(): Promise<Response> {
   touchDashboardActivity();
-  await reconciliationService.reconcile(PROJECT_DIR);
+  const linearIssuesPromise = config.integrations.linear.enabled
+    ? fetchAssignedIssues()
+    : Promise.resolve({ ok: true as const, data: [] });
+  const [, linearResult] = await Promise.all([
+    reconciliationService.reconcile(PROJECT_DIR),
+    linearIssuesPromise,
+  ]);
+  const linearIssues = linearResult.ok ? linearResult.data : [];
   return jsonResponse(buildProjectSnapshot({
     projectName: config.name,
     mainBranch: config.workspace.mainBranch,
     runtime: projectRuntime,
     notifications: runtimeNotifications.list(),
+    findLinearIssue: (branch) => {
+      const match = linearIssues.find((issue) => branchMatchesIssue(branch, issue.branchName));
+      return match
+        ? {
+            identifier: match.identifier,
+            url: match.url,
+            state: match.state,
+          }
+        : null;
+    },
   }));
 }
 

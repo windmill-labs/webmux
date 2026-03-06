@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expandTemplate, loadConfig } from "../adapters/config";
+import { expandTemplate, getDefaultProfileName, loadConfig } from "../adapters/config";
 
 describe("expandTemplate", () => {
   it("replaces known placeholders", () => {
@@ -100,5 +100,37 @@ describe("loadConfig", () => {
     });
     expect(config.integrations.github.linkedRepos).toEqual([{ repo: "acme/linked", alias: "linked" }]);
     expect(config.integrations.linear.enabled).toBe(false);
+  });
+
+  it("uses the first configured profile when no default profile exists", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "webmux-config-"));
+    tempDirs.push(dir);
+    Bun.spawnSync(["git", "init"], { cwd: dir });
+
+    await Bun.write(
+      join(dir, ".webmux.yaml"),
+      [
+        "profiles:",
+        "  slim:",
+        "    runtime: host",
+        "    envPassthrough: []",
+        "    panes:",
+        "      - id: agent",
+        "        kind: agent",
+        "        focus: true",
+        "  full:",
+        "    runtime: host",
+        "    envPassthrough: []",
+        "    panes:",
+        "      - id: agent",
+        "        kind: agent",
+        "        focus: true",
+        "",
+      ].join("\n"),
+    );
+
+    const config = loadConfig(dir);
+
+    expect(getDefaultProfileName(config)).toBe("slim");
   });
 });

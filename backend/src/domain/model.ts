@@ -91,6 +91,18 @@ export interface PrEntry {
   comments: PrComment[];
 }
 
+export interface LinearIssueState {
+  name: string;
+  color: string;
+  type: string;
+}
+
+export interface LinkedLinearIssue {
+  identifier: string;
+  url: string;
+  state: LinearIssueState;
+}
+
 export interface ManagedWorktreeRuntimeState {
   worktreeId: string;
   branch: string;
@@ -126,6 +138,7 @@ export interface WorktreeSnapshot {
   elapsed: string;
   services: ServiceRuntimeState[];
   prs: PrEntry[];
+  linearIssue: LinkedLinearIssue | null;
 }
 
 export interface ProjectSnapshot {

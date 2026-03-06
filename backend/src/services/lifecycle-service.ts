@@ -12,7 +12,7 @@ import {
   writeControlEnv,
   writeRuntimeEnv,
 } from "../adapters/fs";
-import { expandTemplate, isDockerProfile, type DockerProfileConfig } from "../adapters/config";
+import { expandTemplate, getDefaultProfileName, isDockerProfile, type DockerProfileConfig } from "../adapters/config";
 import { type DockerGateway } from "../adapters/docker";
 import { buildProjectSessionName, buildWorktreeWindowName, type TmuxGateway } from "../adapters/tmux";
 import type { AgentKind, ProfileConfig, ProjectConfig, RuntimeKind } from "../domain/config";
@@ -194,36 +194,7 @@ export class LifecycleService {
   async removeWorktree(branch: string): Promise<void> {
     try {
       const resolved = await this.resolveExistingWorktree(branch);
-      this.ensureClean(resolved.entry);
-
-      await this.runLifecycleHook({
-        name: "preRemove",
-        command: this.deps.config.lifecycleHooks.preRemove,
-        meta: resolved.meta,
-        worktreePath: resolved.entry.path,
-      });
-
-      if (resolved.meta?.runtime === "docker") {
-        await this.deps.docker.removeContainer(branch);
-      }
-
-      this.deps.tmux.killWindow(
-        buildProjectSessionName(this.deps.projectRoot),
-        buildWorktreeWindowName(branch),
-      );
-      removeManagedWorktree(
-        {
-          repoRoot: this.deps.projectRoot,
-          worktreePath: resolved.entry.path,
-          branch,
-          force: true,
-          deleteBranch: true,
-          deleteBranchForce: true,
-        },
-        this.deps.git,
-      );
-
-      await this.deps.reconciliation.reconcile(this.deps.projectRoot);
+      await this.removeResolvedWorktree(resolved, false);
     } catch (error) {
       throw this.wrapOperationError(error);
     }
@@ -232,7 +203,7 @@ export class LifecycleService {
   async mergeWorktree(branch: string): Promise<void> {
     try {
       const resolved = await this.resolveExistingWorktree(branch);
-      this.ensureClean(resolved.entry);
+      this.ensureNoUncommittedChanges(resolved.entry);
 
       mergeManagedWorktree(
         {
@@ -244,7 +215,7 @@ export class LifecycleService {
       );
 
       try {
-        await this.removeWorktree(branch);
+        await this.removeResolvedWorktree(resolved, true);
       } catch (error) {
         throw new LifecycleError(
           `Merged ${branch} into ${this.deps.config.workspace.mainBranch} but cleanup failed: ${toErrorMessage(error)}`,
@@ -275,7 +246,7 @@ export class LifecycleService {
     profileName: string;
     profile: ProfileConfig;
   } {
-    const name = profileName ?? "default";
+    const name = profileName ?? getDefaultProfileName(this.deps.config);
     const profile = this.deps.config.profiles[name];
     if (!profile) {
       throw new LifecycleError(`Unknown profile: ${name}`, 400);
@@ -538,15 +509,62 @@ export class LifecycleService {
     return cleanupErrors.length > 0 ? cleanupErrors.join("; ") : null;
   }
 
-  private ensureClean(entry: GitWorktreeEntry): void {
+  private ensureNoUncommittedChanges(entry: GitWorktreeEntry): void {
     const status = this.deps.git.readWorktreeStatus(entry.path);
     if (status.dirty) {
       throw new LifecycleError(`Worktree has uncommitted changes: ${entry.branch ?? entry.path}`, 409);
     }
   }
 
+  private ensureNoAheadCommits(entry: GitWorktreeEntry): void {
+    const status = this.deps.git.readWorktreeStatus(entry.path);
+    if (status.aheadCount > 0) {
+      throw new LifecycleError(`Worktree has unpushed commits: ${entry.branch ?? entry.path}`, 409);
+    }
+  }
+
   private controlUrl(): string {
     return `${this.deps.controlBaseUrl.replace(/\/+$/, "")}/api/runtime/events`;
+  }
+
+  private async removeResolvedWorktree(
+    resolved: ResolvedLifecycleWorktree,
+    allowAheadCommits: boolean,
+  ): Promise<void> {
+    this.ensureNoUncommittedChanges(resolved.entry);
+    if (!allowAheadCommits) {
+      this.ensureNoAheadCommits(resolved.entry);
+    }
+
+    await this.runLifecycleHook({
+      name: "preRemove",
+      command: this.deps.config.lifecycleHooks.preRemove,
+      meta: resolved.meta,
+      worktreePath: resolved.entry.path,
+    });
+
+    const branch = resolved.entry.branch ?? resolved.entry.path;
+    if (resolved.meta?.runtime === "docker") {
+      await this.deps.docker.removeContainer(branch);
+    }
+
+    this.deps.tmux.killWindow(
+      buildProjectSessionName(this.deps.projectRoot),
+      buildWorktreeWindowName(branch),
+    );
+    removeManagedWorktree(
+      {
+        repoRoot: this.deps.projectRoot,
+        worktreePath: resolved.entry.path,
+        branch,
+        force: true,
+        deleteBranch: true,
+        deleteBranchForce: true,
+      },
+      this.deps.git,
+    );
+
+    await this.deps.reconciliation.reconcile(this.deps.projectRoot);
   }
 
   private async runLifecycleHook(input: {

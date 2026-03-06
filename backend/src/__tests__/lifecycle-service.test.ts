@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ProjectConfig } from "../domain/config";
-import { BunGitGateway } from "../adapters/git";
+import { BunGitGateway, type GitGateway } from "../adapters/git";
 import type { LifecycleHookRunner, RunLifecycleHookInput } from "../adapters/hooks";
 import type { PortProbe } from "../adapters/port-probe";
 import { buildProjectSessionName, buildWorktreeWindowName, type TmuxGateway, type TmuxWindowSummary } from "../adapters/tmux";
@@ -115,6 +115,26 @@ class FakeHookRunner implements LifecycleHookRunner {
   }
 }
 
+class AheadTrackingGitGateway extends BunGitGateway {
+  constructor(private readonly branches: Set<string>) {
+    super();
+  }
+
+  readWorktreeStatus(cwd: string): ReturnType<BunGitGateway["readWorktreeStatus"]> {
+    const status = super.readWorktreeStatus(cwd);
+    for (const branch of this.branches) {
+      if (cwd.endsWith(branch)) {
+        return {
+          ...status,
+          dirty: false,
+          aheadCount: 2,
+        };
+      }
+    }
+    return status;
+  }
+}
+
 const TEST_CONFIG: ProjectConfig = {
   name: "Project",
   workspace: {
@@ -161,16 +181,38 @@ const TEST_CONFIG: ProjectConfig = {
   },
 };
 
+const NO_DEFAULT_PROFILE_CONFIG: ProjectConfig = {
+  ...TEST_CONFIG,
+  profiles: {
+    slim: {
+      runtime: "host",
+      envPassthrough: [],
+      panes: [
+        { id: "agent", kind: "agent", focus: true },
+      ],
+    },
+    full: {
+      runtime: "host",
+      envPassthrough: [],
+      panes: [
+        { id: "agent", kind: "agent", focus: true },
+        { id: "shell", kind: "shell", split: "right", sizePct: 25 },
+      ],
+    },
+  },
+};
+
 function makeLifecycleService(
   repoRoot: string,
   tmux: FakeTmuxGateway,
   runtime: ProjectRuntime,
   docker: DockerGateway = new FakeDockerGateway(),
   hooks: LifecycleHookRunner = new FakeHookRunner(),
+  config: ProjectConfig = TEST_CONFIG,
+  git: GitGateway = new BunGitGateway(),
 ): LifecycleService {
-  const git = new BunGitGateway();
   const reconciliation = new ReconciliationService({
-    config: TEST_CONFIG,
+    config,
     git,
     tmux,
     portProbe: new FakePortProbe(),
@@ -181,7 +223,7 @@ function makeLifecycleService(
     projectRoot: repoRoot,
     controlBaseUrl: "http://127.0.0.1:5111",
     getControlToken: async () => "secret-token",
-    config: TEST_CONFIG,
+    config,
     git,
     tmux,
     docker,
@@ -349,6 +391,32 @@ describe("LifecycleService", () => {
     expect(run(["git", "branch", "--list", "feature-dirty"], repoRoot)).toContain("feature-dirty");
   });
 
+  it("rejects removing a clean worktree that is ahead of its upstream", async () => {
+    const repoRoot = await initRepo();
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const hooks = new FakeHookRunner();
+    const git = new AheadTrackingGitGateway(new Set(["feature-ahead"]));
+    const lifecycle = makeLifecycleService(
+      repoRoot,
+      tmux,
+      runtime,
+      new FakeDockerGateway(),
+      hooks,
+      TEST_CONFIG,
+      git,
+    );
+
+    await lifecycle.createWorktree({ branch: "feature-ahead" });
+
+    await expect(lifecycle.removeWorktree("feature-ahead")).rejects.toThrow(
+      "Worktree has unpushed commits: feature-ahead",
+    );
+
+    expect(hooks.calls.filter((call) => call.name === "preRemove")).toHaveLength(0);
+    expect(run(["git", "branch", "--list", "feature-ahead"], repoRoot)).toContain("feature-ahead");
+  });
+
   it("removes the sandbox container before deleting a docker worktree", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
@@ -373,6 +441,40 @@ describe("LifecycleService", () => {
     expect(new BunGitGateway().listWorktrees(repoRoot).some((entry) => entry.branch === "feature-remove-docker")).toBe(false);
   });
 
+  it("falls back to the first configured profile when no default profile exists", async () => {
+    const repoRoot = await initRepo();
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const lifecycle = makeLifecycleService(
+      repoRoot,
+      tmux,
+      runtime,
+      new FakeDockerGateway(),
+      new FakeHookRunner(),
+      NO_DEFAULT_PROFILE_CONFIG,
+    );
+
+    await lifecycle.createWorktree({ branch: "feature-no-default-create" });
+
+    const createdGitDir = new BunGitGateway().resolveWorktreeGitDir(
+      join(repoRoot, "__worktrees", "feature-no-default-create"),
+    );
+    expect((await readWorktreeMeta(createdGitDir))?.profile).toBe("slim");
+
+    const unmanagedPath = join(repoRoot, "__worktrees", "feature-no-default-open");
+    new BunGitGateway().createWorktree({
+      repoRoot,
+      worktreePath: unmanagedPath,
+      branch: "feature-no-default-open",
+      baseBranch: "main",
+    });
+
+    await lifecycle.openWorktree("feature-no-default-open");
+
+    const openedGitDir = new BunGitGateway().resolveWorktreeGitDir(unmanagedPath);
+    expect((await readWorktreeMeta(openedGitDir))?.profile).toBe("slim");
+  });
+
   it("merges a clean worktree into main and removes it on success", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
@@ -391,5 +493,36 @@ describe("LifecycleService", () => {
     expect(new BunGitGateway().listWorktrees(repoRoot).some((entry) => entry.path === worktreePath)).toBe(false);
     expect(run(["git", "branch", "--list", "feature-merge"], repoRoot)).toBe("");
     expect(await Bun.file(join(repoRoot, "README.md")).text()).toContain("merged change");
+  });
+
+  it("merges and cleans up a worktree even when the source branch is ahead", async () => {
+    const repoRoot = await initRepo();
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const hooks = new FakeHookRunner();
+    const git = new AheadTrackingGitGateway(new Set(["feature-merge-ahead"]));
+    const lifecycle = makeLifecycleService(
+      repoRoot,
+      tmux,
+      runtime,
+      new FakeDockerGateway(),
+      hooks,
+      TEST_CONFIG,
+      git,
+    );
+
+    await lifecycle.createWorktree({ branch: "feature-merge-ahead" });
+
+    const worktreePath = join(repoRoot, "__worktrees", "feature-merge-ahead");
+    await Bun.write(join(worktreePath, "README.md"), "# merged ahead change\n");
+    run(["git", "add", "README.md"], worktreePath);
+    run(["git", "commit", "-m", "feature ahead change"], worktreePath);
+
+    await lifecycle.mergeWorktree("feature-merge-ahead");
+
+    expect(hooks.calls.some((call) => call.name === "preRemove" && call.cwd === worktreePath)).toBe(true);
+    expect(new BunGitGateway().listWorktrees(repoRoot).some((entry) => entry.path === worktreePath)).toBe(false);
+    expect(run(["git", "branch", "--list", "feature-merge-ahead"], repoRoot)).toBe("");
+    expect(await Bun.file(join(repoRoot, "README.md")).text()).toContain("merged ahead change");
   });
 });

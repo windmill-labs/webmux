@@ -61,7 +61,7 @@ function mapWorktree(snapshot: ProjectWorktreeSnapshot): WorktreeInfo {
     services: snapshot.services.map((service) => ({ ...service })),
     paneCount: snapshot.paneCount,
     prs: snapshot.prs.map((pr) => clonePrEntry(pr)),
-    linearIssue: null,
+    linearIssue: snapshot.linearIssue,
   };
 }
 

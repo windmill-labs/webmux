@@ -117,6 +117,7 @@ export interface ProjectWorktreeSnapshot {
   elapsed: string;
   services: ServiceStatus[];
   prs: PrEntry[];
+  linearIssue: LinkedLinearIssue | null;
 }
 
 export interface ProjectSnapshot {

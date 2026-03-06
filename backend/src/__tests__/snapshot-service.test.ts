@@ -68,6 +68,18 @@ describe("buildProjectSnapshot", () => {
       mainBranch: "main",
       runtime,
       notifications: notifications.list(),
+      findLinearIssue: (branch) =>
+        branch === "feature/search"
+          ? {
+              identifier: "ENG-123",
+              url: "https://linear.app/acme/issue/ENG-123",
+              state: {
+                name: "In Progress",
+                color: "#f59e0b",
+                type: "started",
+              },
+            }
+          : null,
       now: () => new Date("2026-03-06T10:05:00.000Z"),
     });
 
@@ -116,6 +128,15 @@ describe("buildProjectSnapshot", () => {
             ],
           },
         ],
+        linearIssue: {
+          identifier: "ENG-123",
+          url: "https://linear.app/acme/issue/ENG-123",
+          state: {
+            name: "In Progress",
+            color: "#f59e0b",
+            type: "started",
+          },
+        },
       },
     ]);
     expect(snapshot.notifications).toHaveLength(1);
@@ -141,5 +162,6 @@ describe("buildProjectSnapshot", () => {
     expect(snapshot.worktrees[0]?.elapsed).toBe("");
     expect(snapshot.worktrees[0]?.status).toBe("closed");
     expect(snapshot.worktrees[0]?.prs).toEqual([]);
+    expect(snapshot.worktrees[0]?.linearIssue).toBeNull();
   });
 });

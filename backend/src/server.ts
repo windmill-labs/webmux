@@ -27,7 +27,15 @@ import {
   clearCallbacks,
   cleanupStaleSessions,
 } from "./terminal";
-import { loadConfig, gitRoot, type WebmuxConfig } from "./config";
+import {
+  getDefaultAgent,
+  getDefaultProfileName,
+  gitRoot,
+  isDockerProfile,
+  loadConfig,
+  type ProjectConfig,
+  type ProfileConfig,
+} from "./config";
 import { startPrMonitor, type PrEntry } from "./pr";
 import { handleWorkmuxRpc } from "./rpc";
 import { jsonResponse, errorResponse } from "./http";
@@ -37,7 +45,55 @@ import { fetchAssignedIssues, branchMatchesIssue, type LinkedLinearIssue } from 
 const PORT = parseInt(Bun.env.BACKEND_PORT || "5111", 10);
 const STATIC_DIR = Bun.env.WEBMUX_STATIC_DIR || "";
 const PROJECT_DIR = Bun.env.WEBMUX_PROJECT_DIR || gitRoot(process.cwd());
-const config: WebmuxConfig = loadConfig(PROJECT_DIR);
+const config: ProjectConfig = loadConfig(PROJECT_DIR);
+
+function getProfileConfig(name: string): ProfileConfig | undefined {
+  return config.profiles[name];
+}
+
+function getPrimaryDockerProfileName(): string | null {
+  for (const [name, profile] of Object.entries(config.profiles)) {
+    if (isDockerProfile(profile)) return name;
+  }
+  return null;
+}
+
+function getFrontendConfig(): {
+  name: string;
+  services: ProjectConfig["services"];
+  profiles: {
+    default: { name: string; systemPrompt?: string };
+    sandbox?: { name: string; systemPrompt?: string };
+  };
+  autoName: boolean;
+  startupEnvs: ProjectConfig["startupEnvs"];
+} {
+  const defaultProfileName = getDefaultProfileName(config);
+  const defaultProfile = getProfileConfig(defaultProfileName) ?? config.profiles.default;
+  const dockerProfileName = getPrimaryDockerProfileName();
+  const dockerProfile = dockerProfileName ? getProfileConfig(dockerProfileName) : undefined;
+
+  return {
+    name: config.name,
+    services: config.services,
+    profiles: {
+      default: {
+        name: defaultProfileName,
+        ...(defaultProfile?.systemPrompt ? { systemPrompt: defaultProfile.systemPrompt } : {}),
+      },
+      ...(dockerProfileName && dockerProfile
+        ? {
+            sandbox: {
+              name: dockerProfileName,
+              ...(dockerProfile.systemPrompt ? { systemPrompt: dockerProfile.systemPrompt } : {}),
+            },
+          }
+        : {}),
+    },
+    autoName: false,
+    startupEnvs: config.startupEnvs,
+  };
+}
 
 // --- Worktree list cache (short TTL to deduplicate rapid polls) ---
 const WORKTREE_CACHE_TTL_MS = 2000;
@@ -299,10 +355,13 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
   const body = raw as Record<string, unknown>;
   const branch = typeof body.branch === "string" ? body.branch : undefined;
   const prompt = typeof body.prompt === "string" ? body.prompt : undefined;
-  const profileName = typeof body.profile === "string" ? body.profile : config.profiles.default.name;
-  const agent = typeof body.agent === "string" ? body.agent : "claude";
-  const isSandbox = config.profiles.sandbox !== undefined && profileName === config.profiles.sandbox.name;
-  const profileConfig = isSandbox ? config.profiles.sandbox! : config.profiles.default;
+  const defaultProfileName = getDefaultProfileName(config);
+  const profileName = typeof body.profile === "string" && getProfileConfig(body.profile)
+    ? body.profile
+    : defaultProfileName;
+  const agent = typeof body.agent === "string" ? body.agent : getDefaultAgent(config);
+  const profileConfig = getProfileConfig(profileName) ?? config.profiles[defaultProfileName]!;
+  const isSandbox = isDockerProfile(profileConfig);
 
   // Parse envOverrides: must be a plain object with string keys and values
   let envOverrides: Record<string, string> | undefined;
@@ -320,10 +379,9 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
     prompt,
     profile: profileName,
     agent,
-    autoName: config.autoName,
     profileConfig,
     isSandbox,
-    sandboxConfig: isSandbox ? config.profiles.sandbox : undefined,
+    sandboxConfig: isSandbox ? profileConfig : undefined,
     services: config.services,
     mainRepoDir: PROJECT_DIR,
     envOverrides,
@@ -354,8 +412,8 @@ async function apiOpenWorktree(name: string): Promise<Response> {
     if (!env.PROFILE) {
       log.info(`[worktree:open] initializing env for ${name}`);
       await initWorktreeEnv(name, {
-        profile: config.profiles.default.name,
-        agent: "claude",
+        profile: getDefaultProfileName(config),
+        agent: getDefaultAgent(config),
         services: config.services,
       });
       wtCache = null;
@@ -439,7 +497,7 @@ Bun.serve({
     },
 
     "/api/config": {
-      GET: () => jsonResponse(config),
+      GET: () => jsonResponse(getFrontendConfig()),
     },
 
     "/api/worktrees": {
@@ -611,7 +669,7 @@ if (tmuxCheck.exitCode !== 0) {
 }
 
 cleanupStaleSessions();
-startPrMonitor(getWorktreePaths, config.linkedRepos, PROJECT_DIR, undefined, hasDashboardActivity);
+startPrMonitor(getWorktreePaths, config.integrations.github.linkedRepos, PROJECT_DIR, undefined, hasDashboardActivity);
 installHookScripts().catch((err: unknown) => {
   log.error(`[notify] failed to install hook scripts: ${err instanceof Error ? err.message : String(err)}`);
 });

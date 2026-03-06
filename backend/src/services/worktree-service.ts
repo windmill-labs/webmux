@@ -1,11 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { BunGitGateway, type GitGateway } from "../adapters/git";
 import {
-  buildCompatibilityEnvMap,
   buildControlEnvMap,
   buildRuntimeEnvMap,
   ensureWorktreeStorageDirs,
-  writeCompatibilityEnvFile,
   writeControlEnv,
   writeRuntimeEnv,
   writeWorktreeMeta,
@@ -29,8 +27,6 @@ export interface InitializeManagedWorktreeOptions {
   startupEnvValues?: Record<string, string>;
   allocatedPorts?: Record<string, number>;
   runtimeEnvExtras?: Record<string, string>;
-  worktreePath?: string;
-  emitCompatibilityEnv?: boolean;
   controlUrl?: string;
   controlToken?: string;
   now?: () => Date;
@@ -42,7 +38,6 @@ export interface InitializeManagedWorktreeResult {
   paths: WorktreeStoragePaths;
   runtimeEnv: Record<string, string>;
   controlEnv: ControlEnvMap | null;
-  compatibilityEnv: Record<string, string> | null;
 }
 
 export interface CreateManagedWorktreeOptions {
@@ -56,7 +51,6 @@ export interface CreateManagedWorktreeOptions {
   startupEnvValues?: Record<string, string>;
   allocatedPorts?: Record<string, number>;
   runtimeEnvExtras?: Record<string, string>;
-  emitCompatibilityEnv?: boolean;
   controlUrl?: string;
   controlToken?: string;
   now?: () => Date;
@@ -90,9 +84,6 @@ export async function initializeManagedWorktree(
   if ((opts.controlUrl && !opts.controlToken) || (!opts.controlUrl && opts.controlToken)) {
     throw new Error("controlUrl and controlToken must be provided together");
   }
-  if (opts.emitCompatibilityEnv && !opts.worktreePath) {
-    throw new Error("worktreePath is required when emitCompatibilityEnv is true");
-  }
 
   const createdAt = (opts.now ?? (() => new Date()))().toISOString();
   const meta: WorktreeMeta = {
@@ -124,18 +115,11 @@ export async function initializeManagedWorktree(
     await writeControlEnv(opts.gitDir, controlEnv);
   }
 
-  let compatibilityEnv: Record<string, string> | null = null;
-  if (opts.emitCompatibilityEnv && opts.worktreePath) {
-    compatibilityEnv = buildCompatibilityEnvMap(meta);
-    await writeCompatibilityEnvFile(opts.worktreePath, compatibilityEnv);
-  }
-
   return {
     meta,
     paths,
     runtimeEnv,
     controlEnv,
-    compatibilityEnv,
   };
 }
 
@@ -154,8 +138,6 @@ export async function createManagedWorktree(
   const gitDir = git.resolveWorktreeGitDir(opts.worktreePath);
   const initialized = await initializeManagedWorktree({
     gitDir,
-    worktreePath: opts.worktreePath,
-    emitCompatibilityEnv: opts.emitCompatibilityEnv,
     branch: opts.branch,
     profile: opts.profile,
     agent: opts.agent,

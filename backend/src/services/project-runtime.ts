@@ -14,6 +14,7 @@ function isoNow(now?: () => Date): string {
 }
 
 function makeDefaultState(input: {
+  worktreeId: string;
   branch: string;
   path: string;
   profile?: string | null;
@@ -21,6 +22,7 @@ function makeDefaultState(input: {
   runtime?: RuntimeKind;
 }): ManagedWorktreeRuntimeState {
   return {
+    worktreeId: input.worktreeId,
     branch: input.branch,
     path: input.path,
     profile: input.profile ?? null,
@@ -52,35 +54,50 @@ function makeDefaultState(input: {
 
 export class ProjectRuntime {
   private readonly worktrees = new Map<string, ManagedWorktreeRuntimeState>();
+  private readonly worktreeIdsByBranch = new Map<string, string>();
 
   upsertWorktree(input: {
+    worktreeId: string;
     branch: string;
     path: string;
     profile?: string | null;
     agentName?: AgentKind | null;
     runtime?: RuntimeKind;
   }): ManagedWorktreeRuntimeState {
-    const existing = this.worktrees.get(input.branch);
+    const existing = this.worktrees.get(input.worktreeId);
     if (existing) {
+      this.reindexBranch(existing.branch, input.branch, input.worktreeId);
       existing.path = input.path;
+      existing.branch = input.branch;
       existing.profile = input.profile ?? existing.profile;
       existing.agentName = input.agentName ?? existing.agentName;
       if (input.runtime) existing.agent.runtime = input.runtime;
       existing.git.exists = true;
+      existing.git.branch = input.branch;
+      existing.session.windowName = buildWorktreeWindowName(input.branch);
       return existing;
     }
 
     const created = makeDefaultState(input);
-    this.worktrees.set(input.branch, created);
+    this.worktrees.set(input.worktreeId, created);
+    this.worktreeIdsByBranch.set(input.branch, input.worktreeId);
     return created;
   }
 
-  removeWorktree(branch: string): boolean {
-    return this.worktrees.delete(branch);
+  removeWorktree(worktreeId: string): boolean {
+    const state = this.worktrees.get(worktreeId);
+    if (!state) return false;
+    this.worktreeIdsByBranch.delete(state.branch);
+    return this.worktrees.delete(worktreeId);
   }
 
-  getWorktree(branch: string): ManagedWorktreeRuntimeState | null {
-    return this.worktrees.get(branch) ?? null;
+  getWorktree(worktreeId: string): ManagedWorktreeRuntimeState | null {
+    return this.worktrees.get(worktreeId) ?? null;
+  }
+
+  getWorktreeByBranch(branch: string): ManagedWorktreeRuntimeState | null {
+    const worktreeId = this.worktreeIdsByBranch.get(branch);
+    return worktreeId ? this.worktrees.get(worktreeId) ?? null : null;
   }
 
   listWorktrees(): ManagedWorktreeRuntimeState[] {
@@ -88,31 +105,37 @@ export class ProjectRuntime {
   }
 
   setGitState(
-    branch: string,
+    worktreeId: string,
     patch: Partial<ManagedWorktreeRuntimeState["git"]>,
   ): ManagedWorktreeRuntimeState {
-    const state = this.requireWorktree(branch);
+    const state = this.requireWorktree(worktreeId);
+    if (patch.branch && patch.branch !== state.branch) {
+      this.applyBranchChange(state, patch.branch);
+    }
     state.git = { ...state.git, ...patch, branch: state.branch };
     return state;
   }
 
   setSessionState(
-    branch: string,
+    worktreeId: string,
     patch: Partial<ManagedWorktreeRuntimeState["session"]>,
   ): ManagedWorktreeRuntimeState {
-    const state = this.requireWorktree(branch);
-    state.session = { ...state.session, ...patch, windowName: buildWorktreeWindowName(branch) };
+    const state = this.requireWorktree(worktreeId);
+    state.session = { ...state.session, ...patch, windowName: buildWorktreeWindowName(state.branch) };
     return state;
   }
 
-  setServices(branch: string, services: ServiceRuntimeState[]): ManagedWorktreeRuntimeState {
-    const state = this.requireWorktree(branch);
+  setServices(worktreeId: string, services: ServiceRuntimeState[]): ManagedWorktreeRuntimeState {
+    const state = this.requireWorktree(worktreeId);
     state.services = services.map((service) => ({ ...service }));
     return state;
   }
 
   applyEvent(event: RuntimeEvent, now?: () => Date): ManagedWorktreeRuntimeState {
-    const state = this.requireWorktree(event.branch);
+    const state = this.requireWorktree(event.worktreeId);
+    if (event.branch !== state.branch) {
+      this.applyBranchChange(state, event.branch);
+    }
     const timestamp = isoNow(now);
 
     switch (event.type) {
@@ -159,10 +182,24 @@ export class ProjectRuntime {
     state.agent.lastEventAt = timestamp;
   }
 
-  private requireWorktree(branch: string): ManagedWorktreeRuntimeState {
-    const state = this.worktrees.get(branch);
+  private applyBranchChange(state: ManagedWorktreeRuntimeState, branch: string): void {
+    this.reindexBranch(state.branch, branch, state.worktreeId);
+    state.branch = branch;
+    state.git.branch = branch;
+    state.session.windowName = buildWorktreeWindowName(branch);
+  }
+
+  private reindexBranch(previousBranch: string, nextBranch: string, worktreeId: string): void {
+    if (previousBranch !== nextBranch) {
+      this.worktreeIdsByBranch.delete(previousBranch);
+    }
+    this.worktreeIdsByBranch.set(nextBranch, worktreeId);
+  }
+
+  private requireWorktree(worktreeId: string): ManagedWorktreeRuntimeState {
+    const state = this.worktrees.get(worktreeId);
     if (!state) {
-      throw new Error(`Unknown worktree branch: ${branch}`);
+      throw new Error(`Unknown worktree id: ${worktreeId}`);
     }
     return state;
   }

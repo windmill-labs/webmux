@@ -5,8 +5,8 @@
  * Containers run as root with published ports (no socat needed).
  */
 
-import { access, constants, stat } from "node:fs/promises";
-import { type SandboxProfileConfig, type ServiceConfig } from "./config";
+import { stat } from "node:fs/promises";
+import { type DockerProfileConfig, type ServiceConfig } from "./config";
 import { log } from "./lib/log";
 import { loadRpcSecret } from "./rpc-secret";
 
@@ -53,7 +53,7 @@ export interface LaunchContainerOpts {
   branch: string;
   wtDir: string;
   mainRepoDir: string;
-  sandboxConfig: SandboxProfileConfig;
+  sandboxConfig: DockerProfileConfig;
   services: ServiceConfig[];
   env: Record<string, string>;
 }
@@ -157,7 +157,7 @@ export function buildDockerRunArgs(
   args.push("-e", `GIT_CONFIG_KEY_1=safe.directory`);
   args.push("-e", `GIT_CONFIG_VALUE_1=${mainRepoDir}`);
 
-  // Pass through host env vars listed in sandboxConfig.
+  // Pass through host env vars listed in the docker profile.
   if (sandboxConfig.envPassthrough) {
     for (const key of sandboxConfig.envPassthrough) {
       if (!isValidEnvKey(key)) {
@@ -192,11 +192,11 @@ export function buildDockerRunArgs(
   args.push("-v", `${home}/.claude.json:/root/.claude.json`);
   args.push("-v", `${home}/.codex:/root/.codex`);
 
-  // Compute which guest paths are already covered by extraMounts so credential
-  // mounts for the same path can be skipped (extraMounts win).
+  // Compute which guest paths are already covered by configured mounts so
+  // credential mounts for the same path can be skipped (explicit mounts win).
   const extraMountGuestPaths = new Set<string>();
-  if (sandboxConfig.extraMounts) {
-    for (const mount of sandboxConfig.extraMounts) {
+  if (sandboxConfig.mounts) {
+    for (const mount of sandboxConfig.mounts) {
       const hostPath = mount.hostPath.replace(/^~/, home);
       if (!hostPath.startsWith("/")) continue;
       extraMountGuestPaths.add(mount.guestPath ?? hostPath);
@@ -204,7 +204,7 @@ export function buildDockerRunArgs(
   }
 
   // Git/GitHub credential mounts (read-only, only if they exist on host and
-  // are not overridden by an extraMount for the same guest path).
+  // are not overridden by a configured mount for the same guest path).
   const credentialMounts = [
     { hostPath: `${home}/.gitconfig`, guestPath: "/root/.gitconfig" },
     { hostPath: `${home}/.ssh`, guestPath: "/root/.ssh" },
@@ -225,12 +225,12 @@ export function buildDockerRunArgs(
     args.push("-e", `SSH_AUTH_SOCK=${sshAuthSock}`);
   }
 
-  // Extra mounts from config; require absolute host paths after ~ expansion.
-  if (sandboxConfig.extraMounts) {
-    for (const mount of sandboxConfig.extraMounts) {
+  // Additional mounts from config; require absolute host paths after ~ expansion.
+  if (sandboxConfig.mounts) {
+    for (const mount of sandboxConfig.mounts) {
       const hostPath = mount.hostPath.replace(/^~/, home);
       if (!hostPath.startsWith("/")) {
-        log.warn(`[docker] skipping extra mount with non-absolute host path: ${JSON.stringify(hostPath)}`);
+        log.warn(`[docker] skipping mount with non-absolute host path: ${JSON.stringify(hostPath)}`);
         continue;
       }
       const guestPath = mount.guestPath ?? hostPath;

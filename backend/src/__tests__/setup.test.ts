@@ -1,5 +1,8 @@
-import { describe, expect, it } from "bun:test";
-import { expandTemplate } from "../config";
+import { afterEach, describe, expect, it } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { expandTemplate, loadConfig } from "../config";
 
 describe("expandTemplate", () => {
   it("replaces known placeholders", () => {
@@ -16,5 +19,75 @@ describe("expandTemplate", () => {
 
   it("returns the string unchanged when there are no placeholders", () => {
     expect(expandTemplate("no placeholders", {})).toBe("no placeholders");
+  });
+});
+
+describe("loadConfig", () => {
+  const tempDirs: string[] = [];
+
+  afterEach(async () => {
+    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+  });
+
+  it("loads the final .webmux.yaml shape into ProjectConfig", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "webmux-config-"));
+    tempDirs.push(dir);
+    Bun.spawnSync(["git", "init"], { cwd: dir });
+
+    await Bun.write(
+      join(dir, ".webmux.yaml"),
+      [
+        "name: Example",
+        "workspace:",
+        "  mainBranch: trunk",
+        "  worktreeRoot: worktrees",
+        "  defaultAgent: codex",
+        "services:",
+        "  - name: API",
+        "    portEnv: API_PORT",
+        "    portStart: 4100",
+        "profiles:",
+        "  default:",
+        "    runtime: host",
+        "    envPassthrough: [GITHUB_TOKEN]",
+        "    panes:",
+        "      - id: agent",
+        "        kind: agent",
+        "        focus: true",
+        "  sandbox:",
+        "    runtime: docker",
+        "    image: webmux-sandbox",
+        "    envPassthrough: [AWS_ACCESS_KEY_ID]",
+        "    panes:",
+        "      - id: agent",
+        "        kind: agent",
+        "        focus: true",
+        "startupEnvs:",
+        "  FEATURE_FLAG: true",
+        "integrations:",
+        "  github:",
+        "    linkedRepos:",
+        "      - repo: acme/linked",
+        "        alias: linked",
+        "  linear:",
+        "    enabled: false",
+        "",
+      ].join("\n"),
+    );
+
+    const config = loadConfig(dir);
+
+    expect(config.name).toBe("Example");
+    expect(config.workspace.mainBranch).toBe("trunk");
+    expect(config.workspace.worktreeRoot).toBe("worktrees");
+    expect(config.workspace.defaultAgent).toBe("codex");
+    expect(config.services).toEqual([{ name: "API", portEnv: "API_PORT", portStart: 4100 }]);
+    expect(config.profiles.default.runtime).toBe("host");
+    expect(config.profiles.default.envPassthrough).toEqual(["GITHUB_TOKEN"]);
+    expect(config.profiles.sandbox?.runtime).toBe("docker");
+    expect(config.profiles.sandbox?.image).toBe("webmux-sandbox");
+    expect(config.startupEnvs).toEqual({ FEATURE_FLAG: true });
+    expect(config.integrations.github.linkedRepos).toEqual([{ repo: "acme/linked", alias: "linked" }]);
+    expect(config.integrations.linear.enabled).toBe(false);
   });
 });

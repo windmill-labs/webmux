@@ -63,6 +63,7 @@ export interface ServiceRuntimeState {
 }
 
 export interface ManagedWorktreeRuntimeState {
+  worktreeId: string;
   branch: string;
   path: string;
   profile: string | null;

@@ -1,7 +1,7 @@
 import { $ } from "bun";
 import { mkdir } from "node:fs/promises";
 import { readEnvLocal, writeEnvLocal, readAllWorktreeEnvs, allocatePorts } from "./env";
-import { expandTemplate, type ProfileConfig, type SandboxProfileConfig, type ServiceConfig } from "./config";
+import { expandTemplate, type DockerProfileConfig, type ProfileConfig, type ServiceConfig } from "./config";
 import { launchContainer, removeContainer } from "./docker";
 import { log } from "./lib/log";
 
@@ -297,7 +297,7 @@ export interface AddWorktreeOpts {
   autoName?: boolean;
   profileConfig?: ProfileConfig;
   isSandbox?: boolean;
-  sandboxConfig?: SandboxProfileConfig;
+  sandboxConfig?: DockerProfileConfig;
   services?: ServiceConfig[];
   mainRepoDir?: string;
   envOverrides?: Record<string, string>;
@@ -627,4 +627,3 @@ export async function mergeWorktree(name: string): Promise<{ ok: true; output: s
   if (!result.ok) return result;
   return { ok: true, output: result.stdout };
 }
-

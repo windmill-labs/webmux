@@ -1,5 +1,5 @@
 import { mkdir } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import type { ControlEnvMap, WorktreeMeta, WorktreeStoragePaths } from "../domain/model";
 
 const SAFE_ENV_VALUE_RE = /^[A-Za-z0-9_./:@%+=,-]+$/;
@@ -61,13 +61,6 @@ export function buildRuntimeEnvMap(
   };
 }
 
-export function buildCompatibilityEnvMap(meta: WorktreeMeta): Record<string, string> {
-  return {
-    ...meta.startupEnvValues,
-    ...stringifyAllocatedPorts(meta.allocatedPorts),
-  };
-}
-
 export function buildControlEnvMap(input: {
   controlUrl: string;
   controlToken: string;
@@ -97,13 +90,4 @@ export async function writeRuntimeEnv(gitDir: string, env: Record<string, string
 export async function writeControlEnv(gitDir: string, env: ControlEnvMap): Promise<void> {
   const { controlEnvPath } = await ensureWorktreeStorageDirs(gitDir);
   await Bun.write(controlEnvPath, renderEnvFile(env));
-}
-
-export async function writeCompatibilityEnvFile(
-  worktreePath: string,
-  env: Record<string, string>,
-): Promise<void> {
-  const filePath = join(worktreePath, ".env.local");
-  await mkdir(dirname(filePath), { recursive: true });
-  await Bun.write(filePath, renderEnvFile(env));
 }

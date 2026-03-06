@@ -1,5 +1,10 @@
 name: Webmux
 
+workspace:
+  mainBranch: main
+  worktreeRoot: __worktrees
+  defaultAgent: claude
+
 services:
   - name: BE
     portEnv: BACKEND_PORT
@@ -12,10 +17,23 @@ services:
 
 profiles:
   default:
-    name: default
+    runtime: host
+    envPassthrough: []
+    panes:
+      - id: agent
+        kind: agent
+        focus: true
+      - id: backend
+        kind: command
+        split: bottom
+        command: cd backend && bun run dev
+      - id: frontend
+        kind: command
+        split: bottom
+        command: cd frontend && bun run dev
 
   sandbox:
-    name: sandbox
+    runtime: docker
     image: workmux-sandbox
     envPassthrough:
       - AWS_ACCESS_KEY_ID
@@ -23,17 +41,32 @@ profiles:
       - R2_ENDPOINT
       - R2_BUCKET
       - R2_PUBLIC_URL
+    panes:
+      - id: agent
+        kind: agent
+        focus: true
+      - id: backend
+        kind: command
+        split: bottom
+        command: cd backend && bun run dev
+      - id: frontend
+        kind: command
+        split: bottom
+        command: cd frontend && bun run dev
     systemPrompt: >
       You are running inside a sandboxed container with full permissions.
       IMPORTANT: Read docs/autonomous-mode.md before starting any work.
-      Source .env.local first to load port assignments: source .env.local
+      Worktree runtime env lives at:
+      $(git rev-parse --git-dir)/webmux/runtime.env
+      Load it with:
+      source "$(git rev-parse --git-dir)/webmux/runtime.env"
       This worktree is configured with the following ports:
 
       - Backend: port ${BACKEND_PORT}.
-        Start with: source .env.local && cd backend && bun run dev
+        Start with: source "$(git rev-parse --git-dir)/webmux/runtime.env" && cd backend && bun run dev
 
       - Frontend: port ${FRONTEND_PORT}.
-        Start with: source .env.local && cd frontend && bun run dev
+        Start with: source "$(git rev-parse --git-dir)/webmux/runtime.env" && cd frontend && bun run dev
 
       --- Screenshots ---
       You can take screenshots of the frontend UI and upload them to R2
@@ -95,6 +128,10 @@ profiles:
       5) Include in PR descriptions as markdown images:
           ![description]($(printenv R2_PUBLIC_URL)/<branch>/diagram.svg)
 
-linkedRepos:
-  - repo: centdix/workmux-test-linked
-    alias: linked
+integrations:
+  github:
+    linkedRepos:
+      - repo: centdix/workmux-test-linked
+        alias: linked
+  linear:
+    enabled: true

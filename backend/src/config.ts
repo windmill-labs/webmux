@@ -1,114 +1,254 @@
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
+import type {
+  AgentKind,
+  LinkedRepoConfig,
+  MountSpec,
+  PaneTemplate,
+  ProfileConfig,
+  ProjectConfig,
+  ServiceSpec,
+} from "./domain/config";
 
-export interface ServiceConfig {
-  name: string;
-  portEnv: string;
-  portStart?: number;
-  portStep?: number;
-}
+export type { LinkedRepoConfig, MountSpec, PaneTemplate, ProfileConfig, ProjectConfig };
+export type ServiceConfig = ServiceSpec;
+export type DockerProfileConfig = ProfileConfig & { runtime: "docker"; image: string };
 
-export interface ProfileConfig {
-  name: string;
-  systemPrompt?: string;
-  envPassthrough?: string[];
-}
+const DEFAULT_PANES: PaneTemplate[] = [
+  { id: "agent", kind: "agent", focus: true },
+  { id: "shell", kind: "shell", split: "right", sizePct: 25 },
+];
 
-export interface SandboxProfileConfig extends ProfileConfig {
-  image: string;
-  extraMounts?: { hostPath: string; guestPath?: string; writable?: boolean }[];
-}
-
-export interface LinkedRepoConfig {
-  repo: string;
-  alias: string;
-}
-
-export interface WebmuxConfig {
-  name?: string;
-  services: ServiceConfig[];
+const DEFAULT_CONFIG: ProjectConfig = {
+  name: "Webmux",
+  workspace: {
+    mainBranch: "main",
+    worktreeRoot: "__worktrees",
+    defaultAgent: "claude",
+  },
   profiles: {
-    default: ProfileConfig;
-    sandbox?: SandboxProfileConfig;
-  };
-  autoName: boolean;
-  linkedRepos: LinkedRepoConfig[];
-  startupEnvs: Record<string, string | boolean>;
-}
-
-const DEFAULT_CONFIG: WebmuxConfig = {
+    default: {
+      runtime: "host",
+      envPassthrough: [],
+      panes: clonePanes(DEFAULT_PANES),
+    },
+  },
   services: [],
-  profiles: { default: { name: "default" } },
-  autoName: false,
-  linkedRepos: [],
   startupEnvs: {},
+  integrations: {
+    github: { linkedRepos: [] },
+    linear: { enabled: true },
+  },
 };
 
-/** Check if .workmux.yaml has auto_name configured. */
-function hasAutoName(dir: string): boolean {
-  try {
-    const filePath = join(gitRoot(dir), ".workmux.yaml");
-    const result = Bun.spawnSync(["cat", filePath], { stdout: "pipe", stderr: "pipe" });
-    const text = new TextDecoder().decode(result.stdout).trim();
-    if (!text) return false;
-    const parsed = parseYaml(text) as Record<string, unknown>;
-    const autoName = parsed.auto_name as Record<string, unknown> | undefined;
-    return !!autoName?.model;
-  } catch {
-    return false;
+function clonePanes(panes: PaneTemplate[]): PaneTemplate[] {
+  return panes.map((pane) => ({ ...pane }));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((entry) => typeof entry === "string");
+}
+
+function parseAgentKind(value: unknown): AgentKind {
+  return value === "codex" ? "codex" : "claude";
+}
+
+function parsePanes(raw: unknown): PaneTemplate[] {
+  if (!Array.isArray(raw)) return clonePanes(DEFAULT_PANES);
+
+  const panes = raw
+    .map((entry, index) => parsePane(entry, index))
+    .filter((pane): pane is PaneTemplate => pane !== null);
+
+  return panes.length > 0 ? panes : clonePanes(DEFAULT_PANES);
+}
+
+function parsePane(raw: unknown, index: number): PaneTemplate | null {
+  if (!isRecord(raw)) return null;
+  if (raw.kind !== "agent" && raw.kind !== "shell" && raw.kind !== "command") return null;
+
+  const pane: PaneTemplate = {
+    id: typeof raw.id === "string" && raw.id.trim() ? raw.id.trim() : `pane-${index + 1}`,
+    kind: raw.kind,
+  };
+
+  if (raw.split === "right" || raw.split === "bottom") pane.split = raw.split;
+  if (typeof raw.sizePct === "number" && Number.isFinite(raw.sizePct)) pane.sizePct = raw.sizePct;
+  if (raw.focus === true) pane.focus = true;
+  if (raw.cwd === "repo" || raw.cwd === "worktree") pane.cwd = raw.cwd;
+
+  if (raw.kind === "command") {
+    if (typeof raw.command !== "string" || !raw.command.trim()) return null;
+    pane.command = raw.command.trim();
   }
+
+  return pane;
+}
+
+function parseMounts(raw: unknown): MountSpec[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+
+  const mounts = raw
+    .filter(isRecord)
+    .filter((entry) => typeof entry.hostPath === "string" && entry.hostPath.length > 0)
+    .map((entry) => ({
+      hostPath: entry.hostPath as string,
+      ...(typeof entry.guestPath === "string" && entry.guestPath.length > 0 ? { guestPath: entry.guestPath } : {}),
+      ...(typeof entry.writable === "boolean" ? { writable: entry.writable } : {}),
+    }));
+
+  return mounts.length > 0 ? mounts : undefined;
+}
+
+function parseProfile(raw: unknown, fallbackRuntime: "host" | "docker"): ProfileConfig {
+  if (!isRecord(raw)) {
+    return {
+      runtime: fallbackRuntime,
+      envPassthrough: [],
+      panes: clonePanes(DEFAULT_PANES),
+    };
+  }
+
+  const runtime = raw.runtime === "docker" ? "docker" : fallbackRuntime;
+  const envPassthrough = isStringArray(raw.envPassthrough) ? raw.envPassthrough : [];
+  const panes = parsePanes(raw.panes);
+  const mounts = parseMounts(raw.mounts);
+  const image = typeof raw.image === "string" && raw.image.trim() ? raw.image.trim() : undefined;
+
+  return {
+    runtime,
+    envPassthrough,
+    panes,
+    ...(typeof raw.systemPrompt === "string" && raw.systemPrompt.length > 0 ? { systemPrompt: raw.systemPrompt } : {}),
+    ...(image ? { image } : {}),
+    ...(mounts ? { mounts } : {}),
+  };
+}
+
+function parseProfiles(raw: unknown): Record<string, ProfileConfig> {
+  if (!isRecord(raw)) return { default: DEFAULT_CONFIG.profiles.default };
+
+  const profiles = Object.entries(raw).reduce<Record<string, ProfileConfig>>((acc, [name, value]) => {
+    const fallbackRuntime = name === "sandbox" ? "docker" : "host";
+    acc[name] = parseProfile(value, fallbackRuntime);
+    return acc;
+  }, {});
+
+  if (!profiles.default) {
+    profiles.default = { ...DEFAULT_CONFIG.profiles.default, panes: clonePanes(DEFAULT_CONFIG.profiles.default.panes) };
+  }
+
+  return profiles;
+}
+
+function parseServices(raw: unknown): ServiceSpec[] {
+  if (!Array.isArray(raw)) return [];
+
+  return raw
+    .filter(isRecord)
+    .filter((entry) => typeof entry.name === "string" && typeof entry.portEnv === "string")
+    .map((entry) => ({
+      name: entry.name as string,
+      portEnv: entry.portEnv as string,
+      ...(typeof entry.portStart === "number" && Number.isFinite(entry.portStart) ? { portStart: entry.portStart } : {}),
+      ...(typeof entry.portStep === "number" && Number.isFinite(entry.portStep) ? { portStep: entry.portStep } : {}),
+      ...(typeof entry.urlTemplate === "string" && entry.urlTemplate.length > 0 ? { urlTemplate: entry.urlTemplate } : {}),
+    }));
+}
+
+function parseStartupEnvs(raw: unknown): Record<string, string | boolean> {
+  if (!isRecord(raw)) return {};
+
+  const startupEnvs: Record<string, string | boolean> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (typeof value === "boolean") {
+      startupEnvs[key] = value;
+    } else {
+      startupEnvs[key] = typeof value === "string" ? value : String(value);
+    }
+  }
+  return startupEnvs;
+}
+
+function parseLinkedRepos(raw: unknown): LinkedRepoConfig[] {
+  if (!Array.isArray(raw)) return [];
+
+  return raw
+    .filter(isRecord)
+    .filter((entry) => typeof entry.repo === "string")
+    .map((entry) => ({
+      repo: entry.repo as string,
+      alias: typeof entry.alias === "string" ? entry.alias : (entry.repo as string).split("/").pop() ?? "repo",
+    }));
+}
+
+export function isDockerProfile(profile: ProfileConfig | undefined): profile is DockerProfileConfig {
+  return !!profile && profile.runtime === "docker" && typeof profile.image === "string" && profile.image.length > 0;
+}
+
+export function getDefaultProfileName(config: ProjectConfig): string {
+  if (config.profiles.default) return "default";
+  return Object.keys(config.profiles)[0] ?? "default";
+}
+
+export function getDefaultAgent(config: ProjectConfig): AgentKind {
+  return parseAgentKind(config.workspace.defaultAgent);
+}
+
+function readConfigFile(root: string): string {
+  return readFileSync(join(root, ".webmux.yaml"), "utf8");
 }
 
 /** Resolve the git repository root from a directory. */
 export function gitRoot(dir: string): string {
-  const result = Bun.spawnSync(["git", "rev-parse", "--show-toplevel"], { stdout: "pipe", cwd: dir });
-  return new TextDecoder().decode(result.stdout).trim() || dir;
+  const result = Bun.spawnSync(["git", "rev-parse", "--show-toplevel"], { stdout: "pipe", stderr: "pipe", cwd: dir });
+  if (result.exitCode !== 0) return dir;
+  const root = new TextDecoder().decode(result.stdout).trim();
+  return root || dir;
 }
 
-/** Load .webmux.yaml from the git root, merging with defaults. */
-export function loadConfig(dir: string): WebmuxConfig {
+/** Load `.webmux.yaml` from the git root into the final project config shape. */
+export function loadConfig(dir: string): ProjectConfig {
   try {
     const root = gitRoot(dir);
-    const filePath = join(root, ".webmux.yaml");
-    const result = Bun.spawnSync(["cat", filePath], { stdout: "pipe" });
-    const text = new TextDecoder().decode(result.stdout).trim();
+    const text = readConfigFile(root).trim();
     if (!text) return DEFAULT_CONFIG;
+
     const parsed = parseYaml(text) as Record<string, unknown>;
-    const profiles = parsed.profiles as Record<string, unknown> | undefined;
-    const defaultProfile = profiles?.default as ProfileConfig | undefined;
-    const sandboxProfile = profiles?.sandbox as SandboxProfileConfig | undefined;
-    const autoName = hasAutoName(dir);
-    const linkedRepos: LinkedRepoConfig[] = Array.isArray(parsed.linkedRepos)
-      ? (parsed.linkedRepos as Array<Record<string, unknown>>)
-          .filter((r) => typeof r === "object" && r !== null && typeof r.repo === "string")
-          .map((r) => ({
-            repo: r.repo as string,
-            alias: typeof r.alias === "string" ? r.alias : (r.repo as string).split("/").pop()!,
-          }))
-      : [];
-    // Parse startupEnvs: preserve booleans, coerce rest to string
-    let startupEnvs: Record<string, string | boolean> = {};
-    if (parsed.startupEnvs && typeof parsed.startupEnvs === "object" && !Array.isArray(parsed.startupEnvs)) {
-      const raw = parsed.startupEnvs as Record<string, unknown>;
-      for (const [k, v] of Object.entries(raw)) {
-        if (typeof v === "boolean") {
-          startupEnvs[k] = v;
-        } else {
-          startupEnvs[k] = typeof v === "string" ? v : String(v);
-        }
-      }
-    }
 
     return {
-      ...(typeof parsed.name === "string" ? { name: parsed.name } : {}),
-      services: Array.isArray(parsed.services) ? parsed.services as ServiceConfig[] : DEFAULT_CONFIG.services,
-      profiles: {
-        default: defaultProfile?.name ? defaultProfile : DEFAULT_CONFIG.profiles.default,
-        ...(sandboxProfile?.name && sandboxProfile?.image ? { sandbox: sandboxProfile } : {}),
+      name: typeof parsed.name === "string" && parsed.name.trim() ? parsed.name.trim() : DEFAULT_CONFIG.name,
+      workspace: {
+        mainBranch: isRecord(parsed.workspace) && typeof parsed.workspace.mainBranch === "string"
+          ? parsed.workspace.mainBranch
+          : DEFAULT_CONFIG.workspace.mainBranch,
+        worktreeRoot: isRecord(parsed.workspace) && typeof parsed.workspace.worktreeRoot === "string"
+          ? parsed.workspace.worktreeRoot
+          : DEFAULT_CONFIG.workspace.worktreeRoot,
+        defaultAgent: isRecord(parsed.workspace)
+          ? parseAgentKind(parsed.workspace.defaultAgent)
+          : DEFAULT_CONFIG.workspace.defaultAgent,
       },
-      autoName,
-      linkedRepos,
-      startupEnvs,
+      profiles: parseProfiles(parsed.profiles),
+      services: parseServices(parsed.services),
+      startupEnvs: parseStartupEnvs(parsed.startupEnvs),
+      integrations: {
+        github: {
+          linkedRepos: isRecord(parsed.integrations) && isRecord(parsed.integrations.github)
+            ? parseLinkedRepos(parsed.integrations.github.linkedRepos)
+            : [],
+        },
+        linear: {
+          enabled: isRecord(parsed.integrations) && isRecord(parsed.integrations.linear) && typeof parsed.integrations.linear.enabled === "boolean"
+            ? parsed.integrations.linear.enabled
+            : DEFAULT_CONFIG.integrations.linear.enabled,
+        },
+      },
     };
   } catch {
     return DEFAULT_CONFIG;

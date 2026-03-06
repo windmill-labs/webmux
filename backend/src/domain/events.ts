@@ -6,6 +6,7 @@ export type RuntimeEventType =
   | "runtime_error";
 
 interface RuntimeEventBase {
+  worktreeId: string;
   branch: string;
   type: RuntimeEventType;
 }

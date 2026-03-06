@@ -7,36 +7,37 @@ describe("buildProjectSnapshot", () => {
   it("projects runtime worktrees into frontend-facing snapshot state", () => {
     const runtime = new ProjectRuntime();
     runtime.upsertWorktree({
+      worktreeId: "wt_search",
       branch: "feature/search",
       path: "/repo/__worktrees/feature-search",
       profile: "default",
       agentName: "claude",
       runtime: "host",
     });
-    runtime.setGitState("feature/search", {
+    runtime.setGitState("wt_search", {
       dirty: true,
       aheadCount: 1,
     });
-    runtime.setSessionState("feature/search", {
+    runtime.setSessionState("wt_search", {
       exists: true,
       sessionName: "wm-project-12345678",
       paneCount: 2,
     });
-    runtime.setServices("feature/search", [
+    runtime.setServices("wt_search", [
       { name: "frontend", port: 3010, running: true, url: "http://127.0.0.1:3010" },
     ]);
     runtime.applyEvent(
-      { branch: "feature/search", type: "agent_started" },
+      { worktreeId: "wt_search", branch: "feature/search", type: "agent_started" },
       () => new Date("2026-03-06T10:00:00.000Z"),
     );
     runtime.applyEvent(
-      { branch: "feature/search", type: "title_changed", title: "Implement search" },
+      { worktreeId: "wt_search", branch: "feature/search", type: "title_changed", title: "Implement search" },
       () => new Date("2026-03-06T10:01:00.000Z"),
     );
 
     const notifications = new NotificationService();
     notifications.recordEvent(
-      { branch: "feature/search", type: "pr_opened", url: "https://github.com/org/repo/pull/123" },
+      { worktreeId: "wt_search", branch: "feature/search", type: "pr_opened", url: "https://github.com/org/repo/pull/123" },
       () => new Date("2026-03-06T10:02:00.000Z"),
     );
 
@@ -77,6 +78,7 @@ describe("buildProjectSnapshot", () => {
   it("returns blank elapsed for worktrees that never started", () => {
     const runtime = new ProjectRuntime();
     runtime.upsertWorktree({
+      worktreeId: "wt_idle",
       branch: "feature/idle",
       path: "/repo/__worktrees/feature-idle",
       runtime: "host",

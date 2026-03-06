@@ -6,11 +6,11 @@ describe("NotificationService", () => {
     const notifications = new NotificationService();
 
     const started = notifications.recordEvent(
-      { branch: "feature/search", type: "agent_started" },
+      { worktreeId: "wt_search", branch: "feature/search", type: "agent_started" },
       () => new Date("2026-03-06T10:00:00.000Z"),
     );
     const stopped = notifications.recordEvent(
-      { branch: "feature/search", type: "agent_stopped" },
+      { worktreeId: "wt_search", branch: "feature/search", type: "agent_stopped" },
       () => new Date("2026-03-06T10:01:00.000Z"),
     );
 
@@ -23,11 +23,11 @@ describe("NotificationService", () => {
     const notifications = new NotificationService();
 
     const pr = notifications.recordEvent(
-      { branch: "feature/search", type: "pr_opened", url: "https://github.com/org/repo/pull/123" },
+      { worktreeId: "wt_search", branch: "feature/search", type: "pr_opened", url: "https://github.com/org/repo/pull/123" },
       () => new Date("2026-03-06T10:01:00.000Z"),
     );
     const error = notifications.recordEvent(
-      { branch: "feature/search", type: "runtime_error", message: "agent crashed" },
+      { worktreeId: "wt_search", branch: "feature/search", type: "runtime_error", message: "agent crashed" },
       () => new Date("2026-03-06T10:02:00.000Z"),
     );
 
@@ -39,7 +39,7 @@ describe("NotificationService", () => {
   it("dismisses notifications by id", () => {
     const notifications = new NotificationService();
     const item = notifications.recordEvent(
-      { branch: "feature/search", type: "agent_stopped" },
+      { worktreeId: "wt_search", branch: "feature/search", type: "agent_stopped" },
       () => new Date("2026-03-06T10:01:00.000Z"),
     );
 

@@ -5,7 +5,6 @@ import { join } from "node:path";
 import type { GitGateway } from "../adapters/git";
 import type { TmuxGateway } from "../adapters/tmux";
 import {
-  buildCompatibilityEnvMap,
   buildRuntimeEnvMap,
   getWorktreeStoragePaths,
   readWorktreeMeta,
@@ -153,16 +152,6 @@ describe("worktree env maps", () => {
     expect(env.WEBMUX_PROFILE).toBe("default");
   });
 
-  it("builds compatibility env without internal WEBMUX fields", () => {
-    const env = buildCompatibilityEnvMap(makeMeta());
-
-    expect(env).toEqual({
-      NODE_ENV: "development",
-      BACKEND_PORT: "5111",
-      FRONTEND_PORT: "3010",
-    });
-    expect(Object.keys(env).some((key) => key.startsWith("WEBMUX_"))).toBe(false);
-  });
 });
 
 describe("initializeManagedWorktree", () => {
@@ -186,8 +175,6 @@ describe("initializeManagedWorktree", () => {
 
     const result = await initializeManagedWorktree({
       gitDir,
-      worktreePath,
-      emitCompatibilityEnv: true,
       branch: "feature/search-panel",
       profile: "default",
       agent: "claude",
@@ -205,7 +192,6 @@ describe("initializeManagedWorktree", () => {
     const meta = await readWorktreeMeta(gitDir);
     const runtimeEnvText = await Bun.file(paths.runtimeEnvPath).text();
     const controlEnvText = await Bun.file(paths.controlEnvPath).text();
-    const compatibilityText = await Bun.file(join(worktreePath, ".env.local")).text();
 
     expect(result.paths).toEqual(paths);
     expect(meta).not.toBeNull();
@@ -218,9 +204,6 @@ describe("initializeManagedWorktree", () => {
 
     expect(controlEnvText).toContain("WEBMUX_CONTROL_TOKEN=secret-token");
     expect(controlEnvText).toContain("WEBMUX_CONTROL_URL=http://127.0.0.1:5111");
-
-    expect(compatibilityText).toContain("FRONTEND_PORT=3010");
-    expect(compatibilityText).not.toContain("WEBMUX_BRANCH=");
   });
 
   it("can create a managed worktree and realize a tmux layout through gateways", async () => {

@@ -20,9 +20,7 @@ import { allocateServicePorts, isValidBranchName, isValidEnvKey } from "../domai
 import {
   buildAgentPaneCommand,
   buildDockerAgentPaneCommand,
-  buildDockerManagedCommand,
   buildDockerShellCommand,
-  buildManagedCommand,
   buildManagedShellCommand,
 } from "./agent-service";
 import type { ReconciliationService } from "./reconciliation-service";
@@ -466,13 +464,6 @@ export class LifecycleService {
                 input.worktreePath,
                 input.initialized.paths.runtimeEnvPath,
               ),
-              wrapCommand: (command) =>
-                buildDockerManagedCommand(
-                  containerName,
-                  input.worktreePath,
-                  input.initialized.paths.runtimeEnvPath,
-                  command,
-                ),
             }
           : {
               agent: buildAgentPaneCommand({
@@ -484,8 +475,7 @@ export class LifecycleService {
                 prompt: input.prompt,
               }),
               shell: buildManagedShellCommand(input.initialized.paths.runtimeEnvPath),
-              wrapCommand: (command) => buildManagedCommand(input.initialized.paths.runtimeEnvPath, command),
-            },
+        },
       },
     );
   }

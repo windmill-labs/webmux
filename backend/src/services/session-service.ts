@@ -5,7 +5,6 @@ import { buildProjectSessionName, buildWorktreeWindowName } from "../adapters/tm
 export interface PaneCommandSet {
   agent: string;
   shell: string;
-  wrapCommand?: (command: string) => string;
 }
 
 export interface SessionLayoutContext {
@@ -19,7 +18,7 @@ export interface PlannedPane {
   index: number;
   kind: PaneKind;
   cwd: string;
-  command: string;
+  startupCommand?: string;
   focus: boolean;
   split?: "right" | "bottom";
   sizePct?: number;
@@ -28,6 +27,7 @@ export interface PlannedPane {
 export interface SessionLayoutPlan {
   sessionName: string;
   windowName: string;
+  shellCommand: string;
   panes: PlannedPane[];
   focusPaneIndex: number;
 }
@@ -36,17 +36,17 @@ function resolvePaneCwd(template: PaneTemplate, ctx: SessionLayoutContext): stri
   return template.cwd === "repo" ? ctx.repoRoot : ctx.worktreePath;
 }
 
-function resolvePaneCommand(template: PaneTemplate, commands: PaneCommandSet): string {
+function resolvePaneStartupCommand(template: PaneTemplate, commands: PaneCommandSet): string | undefined {
   switch (template.kind) {
     case "agent":
       return commands.agent;
     case "shell":
-      return commands.shell;
+      return undefined;
     case "command":
       if (!template.command) {
         throw new Error(`Pane "${template.id}" is kind=command but has no command`);
       }
-      return commands.wrapCommand ? commands.wrapCommand(template.command) : template.command;
+      return template.command;
   }
 }
 
@@ -60,26 +60,30 @@ export function planSessionLayout(
     throw new Error("At least one pane template is required");
   }
 
-  const panes = templates.map((template, index) => ({
-    id: template.id,
-    index,
-    kind: template.kind,
-    cwd: resolvePaneCwd(template, ctx),
-    command: resolvePaneCommand(template, ctx.paneCommands),
-    focus: template.focus === true,
-    ...(index > 0
-      ? {
-          split: template.split ?? "right",
-          ...(template.sizePct !== undefined ? { sizePct: template.sizePct } : {}),
-        }
-      : {}),
-  }));
+  const panes = templates.map((template, index) => {
+    const startupCommand = resolvePaneStartupCommand(template, ctx.paneCommands);
+    return {
+      id: template.id,
+      index,
+      kind: template.kind,
+      cwd: resolvePaneCwd(template, ctx),
+      ...(startupCommand ? { startupCommand } : {}),
+      focus: template.focus === true,
+      ...(index > 0
+        ? {
+            split: template.split ?? "right",
+            ...(template.sizePct !== undefined ? { sizePct: template.sizePct } : {}),
+          }
+        : {}),
+    };
+  });
 
   const focusPaneIndex = panes.find((pane) => pane.focus)?.index ?? 0;
 
   return {
     sessionName: buildProjectSessionName(projectRoot),
     windowName: buildWorktreeWindowName(branch),
+    shellCommand: ctx.paneCommands.shell,
     panes,
     focusPaneIndex,
   };
@@ -111,7 +115,7 @@ export function ensureSessionLayout(
     sessionName: plan.sessionName,
     windowName: plan.windowName,
     cwd: rootPane.cwd,
-    command: rootPane.command,
+    command: plan.shellCommand,
   });
   tmux.setWindowOption(plan.sessionName, plan.windowName, "automatic-rename", "off");
   tmux.setWindowOption(plan.sessionName, plan.windowName, "allow-rename", "off");
@@ -123,8 +127,13 @@ export function ensureSessionLayout(
       split: pane.split ?? "right",
       sizePct: pane.sizePct,
       cwd: pane.cwd,
-      command: pane.command,
+      command: plan.shellCommand,
     });
+  }
+
+  for (const pane of plan.panes) {
+    if (!pane.startupCommand) continue;
+    tmux.runCommand(`${plan.sessionName}:${plan.windowName}.${pane.index}`, pane.startupCommand);
   }
 
   tmux.selectPane(`${plan.sessionName}:${plan.windowName}.${plan.focusPaneIndex}`);

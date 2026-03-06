@@ -5,7 +5,7 @@ function quoteShell(value: string): string {
 }
 
 function buildRuntimeBootstrap(runtimeEnvPath: string): string {
-  return `. ${quoteShell(runtimeEnvPath)}`;
+  return `set -a; . ${quoteShell(runtimeEnvPath)}; set +a`;
 }
 
 function buildAgentInvocation(input: {
@@ -69,13 +69,6 @@ export function buildManagedShellCommand(
   return `bash -lc ${quoteShell(`${buildRuntimeBootstrap(runtimeEnvPath)}; exec ${quoteShell(shellPath)} -i`)}`;
 }
 
-export function buildManagedCommand(
-  runtimeEnvPath: string,
-  command: string,
-): string {
-  return `bash -lc ${quoteShell(`${buildRuntimeBootstrap(runtimeEnvPath)}; exec ${command}`)}`;
-}
-
 export function buildAgentPaneCommand(input: {
   agent: AgentKind;
   runtimeEnvPath: string;
@@ -97,19 +90,6 @@ export function buildDockerShellCommand(
     containerName,
     worktreePath,
     `${buildRuntimeBootstrap(runtimeEnvPath)}; exec ${quoteShell(shellPath)} -i`,
-  );
-}
-
-export function buildDockerManagedCommand(
-  containerName: string,
-  worktreePath: string,
-  runtimeEnvPath: string,
-  command: string,
-): string {
-  return buildDockerExecCommand(
-    containerName,
-    worktreePath,
-    `${buildRuntimeBootstrap(runtimeEnvPath)}; exec ${command}`,
   );
 }
 

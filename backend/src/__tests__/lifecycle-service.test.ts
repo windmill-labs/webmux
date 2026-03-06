@@ -65,6 +65,8 @@ class FakeTmuxGateway implements TmuxGateway {
 
   setWindowOption(_sessionName: string, _windowName: string, _option: string, _value: string): void {}
 
+  runCommand(_target: string, _command: string): void {}
+
   selectPane(_target: string): void {}
 
   listWindows(): TmuxWindowSummary[] {

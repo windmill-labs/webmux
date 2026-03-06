@@ -41,6 +41,10 @@ class FakeTmuxGateway implements TmuxGateway {
     this.calls.push(`setWindowOption:${sessionName}:${windowName}:${option}:${value}`);
   }
 
+  runCommand(target: string, command: string): void {
+    this.calls.push(`runCommand:${target}:${command}`);
+  }
+
   selectPane(target: string): void {
     this.calls.push(`selectPane:${target}`);
   }
@@ -64,20 +68,21 @@ describe("planSessionLayout", () => {
         repoRoot: "/repo/project",
         worktreePath: "/repo/project/__worktrees/feature-search",
         paneCommands: {
-          agent: "webmux-shell --agent",
+          agent: "webmux-agent --start",
           shell: "webmux-shell --shell",
         },
       },
     );
 
     expect(plan.windowName).toBe("wm-feature/search");
+    expect(plan.shellCommand).toBe("webmux-shell --shell");
     expect(plan.panes).toEqual([
       {
         id: "agent",
         index: 0,
         kind: "agent",
         cwd: "/repo/project/__worktrees/feature-search",
-        command: "webmux-shell --agent",
+        startupCommand: "webmux-agent --start",
         focus: true,
       },
       {
@@ -85,7 +90,6 @@ describe("planSessionLayout", () => {
         index: 1,
         kind: "shell",
         cwd: "/repo/project/__worktrees/feature-search",
-        command: "webmux-shell --shell",
         focus: false,
         split: "right",
         sizePct: 25,
@@ -95,7 +99,7 @@ describe("planSessionLayout", () => {
         index: 2,
         kind: "command",
         cwd: "/repo/project",
-        command: "npm run dev",
+        startupCommand: "npm run dev",
         focus: false,
         split: "bottom",
       },
@@ -136,7 +140,7 @@ describe("ensureSessionLayout", () => {
         repoRoot: "/repo/project",
         worktreePath: "/repo/project/__worktrees/feature-search",
         paneCommands: {
-          agent: "agent-cmd",
+          agent: "agent-start",
           shell: "shell-cmd",
         },
       },
@@ -145,12 +149,17 @@ describe("ensureSessionLayout", () => {
     ensureSessionLayout(tmux, plan);
 
     expect(tmux.calls).toContain("ensureServer");
-    expect(tmux.calls.some((call) => call.startsWith(`createWindow:${plan.sessionName}:${plan.windowName}`))).toBe(true);
+    expect(
+      tmux.calls.some((call) =>
+        call.startsWith(`createWindow:${plan.sessionName}:${plan.windowName}:/repo/project/__worktrees/feature-search:shell-cmd`),
+      ),
+    ).toBe(true);
     expect(
       tmux.calls.some((call) =>
         call.startsWith(`splitWindow:${plan.sessionName}:${plan.windowName}.0:right:25:/repo/project/__worktrees/feature-search:shell-cmd`),
       ),
     ).toBe(true);
+    expect(tmux.calls).toContain(`runCommand:${plan.sessionName}:${plan.windowName}.0:agent-start`);
     expect(tmux.calls.at(-1)).toBe(`selectPane:${plan.sessionName}:${plan.windowName}.0`);
   });
 
@@ -164,7 +173,7 @@ describe("ensureSessionLayout", () => {
         repoRoot: "/repo/project",
         worktreePath: "/repo/project/__worktrees/feature-search",
         paneCommands: {
-          agent: "agent-cmd",
+          agent: "agent-start",
           shell: "shell-cmd",
         },
       },

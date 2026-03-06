@@ -2,9 +2,7 @@ import { describe, expect, it } from "bun:test";
 import {
   buildAgentPaneCommand,
   buildDockerAgentPaneCommand,
-  buildDockerManagedCommand,
   buildDockerShellCommand,
-  buildManagedCommand,
   buildManagedShellCommand,
 } from "../services/agent-service";
 
@@ -13,13 +11,9 @@ describe("agent-service command builders", () => {
     const command = buildManagedShellCommand("/tmp/gitdir/webmux/runtime.env", "/bin/zsh");
     expect(command).toContain("bash -lc");
     expect(command).toContain("/tmp/gitdir/webmux/runtime.env");
+    expect(command).toContain("set -a");
+    expect(command).toContain("set +a");
     expect(command).toContain("/bin/zsh");
-  });
-
-  it("wraps arbitrary host commands with runtime.env loading", () => {
-    const command = buildManagedCommand("/tmp/gitdir/webmux/runtime.env", "npm run dev");
-    expect(command).toContain("/tmp/gitdir/webmux/runtime.env");
-    expect(command).toContain("exec npm run dev");
   });
 
   it("wraps agent commands with runtime events and runtime.env loading", () => {
@@ -32,6 +26,8 @@ describe("agent-service command builders", () => {
     });
 
     expect(claude).toContain("/tmp/gitdir/webmux/runtime.env");
+    expect(claude).toContain("set -a");
+    expect(claude).toContain("set +a");
     expect(claude).toContain("title-changed --title");
     expect(claude).toContain("agent-started");
     expect(claude).toContain("claude");
@@ -46,12 +42,6 @@ describe("agent-service command builders", () => {
       "/repos/main/.git/worktrees/feature/webmux/runtime.env",
       "/bin/zsh",
     );
-    const command = buildDockerManagedCommand(
-      "wm-feature-container",
-      "/repos/feature",
-      "/repos/main/.git/worktrees/feature/webmux/runtime.env",
-      "npm run dev",
-    );
     const agent = buildDockerAgentPaneCommand({
       agent: "codex",
       containerName: "wm-feature-container",
@@ -64,7 +54,6 @@ describe("agent-service command builders", () => {
 
     expect(shell).toContain("docker exec -it -w '/repos/feature' 'wm-feature-container' bash -lc");
     expect(shell).toContain("/bin/zsh");
-    expect(command).toContain("exec npm run dev");
     expect(agent).toContain("codex --yolo");
     expect(agent).toContain("ship the fix");
     expect(agent).toContain("agent-stopped");

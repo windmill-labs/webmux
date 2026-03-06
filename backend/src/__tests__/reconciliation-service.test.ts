@@ -87,6 +87,10 @@ class FakeTmuxGateway implements TmuxGateway {
     throw new Error("not implemented");
   }
 
+  runCommand(): void {
+    throw new Error("not implemented");
+  }
+
   selectPane(): void {
     throw new Error("not implemented");
   }

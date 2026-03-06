@@ -113,6 +113,10 @@ class FakeTmuxGateway implements TmuxGateway {
     this.calls.push(`setWindowOption:${sessionName}:${windowName}:${option}:${value}`);
   }
 
+  runCommand(target: string, command: string): void {
+    this.calls.push(`runCommand:${target}:${command}`);
+  }
+
   selectPane(target: string): void {
     this.calls.push(`selectPane:${target}`);
   }
@@ -260,6 +264,7 @@ describe("initializeManagedWorktree", () => {
         sessionLayoutPlan: {
           sessionName: "wm-project-12345678",
           windowName: "wm-feature/search-panel",
+          shellCommand: "shell-cmd",
           focusPaneIndex: 0,
           panes: [
             {
@@ -267,7 +272,7 @@ describe("initializeManagedWorktree", () => {
               index: 0,
               kind: "agent",
               cwd: worktreePath,
-              command: "agent-cmd",
+              startupCommand: "agent-cmd",
               focus: true,
             },
           ],
@@ -346,6 +351,7 @@ describe("initializeManagedWorktree", () => {
           sessionLayoutPlan: {
             sessionName: "wm-project-12345678",
             windowName: "wm-feature-tmux-rollback",
+            shellCommand: "shell-cmd",
             focusPaneIndex: 0,
             panes: [
               {
@@ -353,7 +359,7 @@ describe("initializeManagedWorktree", () => {
                 index: 0,
                 kind: "agent",
                 cwd: worktreePath,
-                command: "agent-cmd",
+                startupCommand: "agent-cmd",
                 focus: true,
               },
             ],

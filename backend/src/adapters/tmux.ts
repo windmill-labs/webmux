@@ -27,6 +27,7 @@ export interface TmuxGateway {
     command?: string;
   }): void;
   setWindowOption(sessionName: string, windowName: string, option: string, value: string): void;
+  runCommand(target: string, command: string): void;
   selectPane(target: string): void;
   listWindows(): TmuxWindowSummary[];
 }
@@ -142,6 +143,11 @@ export class BunTmuxGateway implements TmuxGateway {
       ["set-window-option", "-t", `${sessionName}:${windowName}`, option, value],
       `set tmux option ${option} on ${sessionName}:${windowName}`,
     );
+  }
+
+  runCommand(target: string, command: string): void {
+    assertTmuxOk(["send-keys", "-t", target, "-l", "--", command], `send tmux command to ${target}`);
+    assertTmuxOk(["send-keys", "-t", target, "C-m"], `submit tmux command on ${target}`);
   }
 
   selectPane(target: string): void {

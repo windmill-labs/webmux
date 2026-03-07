@@ -313,7 +313,7 @@ export class LifecycleService {
   }
 
   private resolveWorktreePath(branch: string): string {
-    return join(this.deps.projectRoot, this.deps.config.workspace.worktreeRoot, branch);
+    return resolve(this.deps.projectRoot, this.deps.config.workspace.worktreeRoot, branch);
   }
 
   private listProjectWorktrees(): GitWorktreeEntry[] {

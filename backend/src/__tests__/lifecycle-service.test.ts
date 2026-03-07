@@ -333,6 +333,36 @@ describe("LifecycleService", () => {
     expect(state?.session.paneCount).toBe(2);
   });
 
+  it("creates a managed worktree under an absolute worktree root", async () => {
+    const repoRoot = await initRepo();
+    const absoluteWorktreeRoot = await mkdtemp(join(tmpdir(), "webmux-absolute-worktrees-"));
+    tempDirs.push(absoluteWorktreeRoot);
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const lifecycle = makeLifecycleService(
+      repoRoot,
+      tmux,
+      runtime,
+      new FakeDockerGateway(),
+      new FakeHookRunner(),
+      {
+        ...TEST_CONFIG,
+        workspace: {
+          ...TEST_CONFIG.workspace,
+          worktreeRoot: absoluteWorktreeRoot,
+        },
+      },
+    );
+
+    await lifecycle.createWorktree({ branch: "feature/absolute-root" });
+
+    const worktreePath = join(absoluteWorktreeRoot, "feature", "absolute-root");
+    const worktrees = new BunGitGateway().listWorktrees(repoRoot);
+
+    expect(worktrees.some((entry) => entry.branch === "feature/absolute-root" && entry.path === worktreePath)).toBe(true);
+    expect(await Bun.file(join(worktreePath, "README.md")).exists()).toBe(true);
+  });
+
   it("opens an unmanaged worktree by initializing metadata and rebuilding tmux layout", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();

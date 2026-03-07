@@ -15,6 +15,7 @@
     notificationHistory = [],
     unreadCount = 0,
     ontogglesidebar,
+    onclose,
     onmerge,
     onremove,
     onsettings,
@@ -30,6 +31,7 @@
     notificationHistory?: AppNotification[];
     unreadCount?: number;
     ontogglesidebar?: () => void;
+    onclose: () => void;
     onmerge: () => void;
     onremove: () => void;
     onsettings: () => void;
@@ -158,7 +160,14 @@
     {/if}
   </div>
   <div class="flex gap-2 items-center">
-    {#if name}
+    {#if worktree}
+      {#if worktree.mux === "✓"}
+        <Btn
+          variant="default"
+          onclick={onclose}
+          title="Close worktree window">{isMobile ? "C" : "Close"}</Btn
+        >
+      {/if}
       <Btn
         variant="accent-outline"
         onclick={onmerge}

@@ -361,6 +361,13 @@ async function apiOpenWorktree(name: string): Promise<Response> {
   return jsonResponse({ ok: true });
 }
 
+async function apiCloseWorktree(name: string): Promise<Response> {
+  log.info(`[worktree:close] name=${name}`);
+  await lifecycleService.closeWorktree(name);
+  log.debug(`[worktree:close] done name=${name}`);
+  return jsonResponse({ ok: true });
+}
+
 async function apiSendPrompt(name: string, req: Request): Promise<Response> {
   const raw: unknown = await req.json();
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
@@ -454,6 +461,14 @@ Bun.serve({
         const name = decodeURIComponent(req.params.name);
         if (!isValidWorktreeName(name)) return errorResponse("Invalid worktree name", 400);
         return catching(`POST /api/worktrees/${name}/open`, () => apiOpenWorktree(name));
+      },
+    },
+
+    "/api/worktrees/:name/close": {
+      POST: (req) => {
+        const name = decodeURIComponent(req.params.name);
+        if (!isValidWorktreeName(name)) return errorResponse("Invalid worktree name", 400);
+        return catching(`POST /api/worktrees/${name}/close`, () => apiCloseWorktree(name));
       },
     },
 

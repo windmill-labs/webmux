@@ -359,6 +359,21 @@ describe("LifecycleService", () => {
     expect(runtime.getWorktreeByBranch("feature-open")?.worktreeId).toBe(opened.worktreeId);
   });
 
+  it("closes the tmux window without removing the worktree or branch", async () => {
+    const repoRoot = await initRepo();
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const lifecycle = makeLifecycleService(repoRoot, tmux, runtime);
+
+    await lifecycle.createWorktree({ branch: "feature-close" });
+    await lifecycle.closeWorktree("feature-close");
+
+    expect(tmux.listWindows()).toEqual([]);
+    expect(new BunGitGateway().listWorktrees(repoRoot).some((entry) => entry.branch === "feature-close")).toBe(true);
+    expect(run(["git", "branch", "--list", "feature-close"], repoRoot)).toContain("feature-close");
+    expect(runtime.getWorktreeByBranch("feature-close")?.session.exists).toBe(false);
+  });
+
   it("creates a managed docker worktree through the container runtime path", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();

@@ -193,6 +193,19 @@ export class LifecycleService {
     }
   }
 
+  async closeWorktree(branch: string): Promise<void> {
+    try {
+      const resolved = await this.resolveExistingWorktree(branch);
+      this.deps.tmux.killWindow(
+        buildProjectSessionName(this.deps.projectRoot),
+        buildWorktreeWindowName(branch),
+      );
+      await this.deps.reconciliation.reconcile(this.deps.projectRoot);
+    } catch (error) {
+      throw this.wrapOperationError(error);
+    }
+  }
+
   async removeWorktree(branch: string): Promise<void> {
     try {
       const resolved = await this.resolveExistingWorktree(branch);

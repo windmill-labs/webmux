@@ -1,6 +1,6 @@
 # webmux
 
-A web dashboard for managing parallel AI coding agents. Built on top of [workmux](https://github.com/raine/workmux), which handles git worktrees and tmux orchestration — webmux adds a browser UI with embedded terminals, live status tracking, and CI integration.
+A web dashboard for managing parallel AI coding agents. webmux owns git worktree lifecycle, tmux layout, agent runtime events, service health monitoring, and sandbox containers directly.
 
 https://github.com/user-attachments/assets/48c9564f-42a5-404f-97e2-c5ee0138f15d
 
@@ -38,8 +38,8 @@ Run agents in isolated Docker containers for untrusted or experimental work. web
 
 ```bash
 # 1. Install prerequisites
-cargo install workmux          # or: brew install raine/workmux/workmux
 sudo apt install tmux           # or: brew install tmux
+sudo apt install python3        # or: brew install python
 curl -fsSL https://bun.sh/install | bash
 
 # 2. Install webmux
@@ -47,7 +47,7 @@ bun install -g webmux
 
 # 3. Set up your project
 cd /path/to/your/project
-webmux init                     # creates .workmux.yaml and .webmux.yaml
+webmux init                     # creates .webmux.yaml
 
 # 4. Start the dashboard
 webmux                          # opens on http://localhost:5111
@@ -58,7 +58,7 @@ webmux                          # opens on http://localhost:5111
 | Tool | Purpose |
 |------|---------|
 | [**bun**](https://bun.sh) | Runtime |
-| [**workmux**](https://github.com/raine/workmux) | Worktree + tmux orchestration |
+| **python3** | Per-worktree hook/event helper runtime |
 | **tmux** | Terminal multiplexer |
 | **git** | Worktree management |
 | **gh** | PR and CI status (optional) |
@@ -66,16 +66,20 @@ webmux                          # opens on http://localhost:5111
 
 ## Configuration
 
-webmux uses two config files in the project root:
+webmux uses a single config file in the project root:
 
-- **`.workmux.yaml`** — Controls worktree directory, pane layout, agent selection, and lifecycle hooks. See the [workmux docs](https://github.com/raine/workmux).
-- **`.webmux.yaml`** — Dashboard-specific config: service health checks, profiles, linked repos, and Docker sandbox settings.
+- **`.webmux.yaml`** — Worktree root, pane layout, service ports, profiles, linked repos, and Docker sandbox settings.
 
 <details>
 <summary><strong>.webmux.yaml example</strong></summary>
 
 ```yaml
 name: My Project
+
+workspace:
+  mainBranch: main
+  worktreeRoot: __worktrees
+  defaultAgent: claude
 
 services:
   - name: BE
@@ -89,15 +93,26 @@ services:
 
 profiles:
   default:
-    name: default
+    runtime: host
+    yolo: false
+    envPassthrough: []
+    panes:
+      - id: agent
+        kind: agent
+        focus: true
+      - id: frontend
+        kind: command
+        split: right
+        command: FRONTEND_PORT=$FRONTEND_PORT npm run dev
 
   sandbox:
-    name: sandbox
+    runtime: docker
+    yolo: true
     image: my-sandbox
     envPassthrough:
       - AWS_ACCESS_KEY_ID
       - AWS_SECRET_ACCESS_KEY
-    extraMounts:
+    mounts:
       - hostPath: ~/.codex
         guestPath: /root/.codex
         writable: true
@@ -108,6 +123,19 @@ profiles:
 linkedRepos:
   - repo: myorg/related-service
     alias: svc
+
+startupEnvs:
+  NODE_ENV: development
+
+auto_name:
+  model: claude-3-5-haiku-latest
+  system_prompt: >
+    Generate a concise git branch name from the task description.
+    Return only the branch name in lowercase kebab-case.
+
+lifecycleHooks:
+  postCreate: scripts/post-create.sh
+  preRemove: scripts/pre-remove.sh
 ```
 
 </details>
@@ -118,24 +146,39 @@ linkedRepos:
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `name` | string | no | Project name shown in sidebar and browser tab |
+| `workspace.mainBranch` | string | no | Base branch used for new worktrees |
+| `workspace.worktreeRoot` | string | no | Relative or absolute directory for managed worktrees |
+| `workspace.defaultAgent` | string | no | Default agent for new worktrees |
 | `services[].name` | string | yes | Display name shown in the dashboard |
 | `services[].portEnv` | string | yes | Env var containing the service port |
 | `services[].portStart` | number | no | Base port for auto-allocation |
 | `services[].portStep` | number | no | Port increment per worktree slot (default: `1`) |
-| `profiles.default.name` | string | yes | Identifier for the default profile |
+| `profiles.<name>.runtime` | string | yes | `host` or `docker` |
+| `profiles.<name>.yolo` | boolean | no | Enables `--dangerously-skip-permissions` for Claude or `--yolo` for Codex |
+| `profiles.<name>.panes[]` | array | yes | Pane layout for that profile |
+| `profiles.<name>.panes[].kind` | string | yes | `agent`, `shell`, or `command` |
+| `profiles.<name>.panes[].command` | string | yes (for `command`) | Startup command run inside the pane |
 | `profiles.default.systemPrompt` | string | no | Agent system prompt; `${VAR}` placeholders expanded at runtime |
 | `profiles.default.envPassthrough` | string[] | no | Env vars passed to the agent process |
-| `profiles.sandbox.name` | string | yes (if used) | Identifier for the sandbox profile |
 | `profiles.sandbox.image` | string | yes (if used) | Docker image for containers |
 | `profiles.sandbox.systemPrompt` | string | no | Agent system prompt for sandbox |
 | `profiles.sandbox.envPassthrough` | string[] | no | Host env vars forwarded into the container |
-| `profiles.sandbox.extraMounts[].hostPath` | string | yes | Host path to mount (`~` expands to `$HOME`) |
-| `profiles.sandbox.extraMounts[].guestPath` | string | no | Container mount path (defaults to `hostPath`) |
-| `profiles.sandbox.extraMounts[].writable` | boolean | no | `true` for read-write; omit or `false` for read-only |
-| `linkedRepos[].repo` | string | yes | GitHub repo slug (e.g. `org/repo`) |
-| `linkedRepos[].alias` | string | no | Short label for the UI |
+| `profiles.sandbox.mounts[].hostPath` | string | yes | Host path to mount (`~` expands to `$HOME`) |
+| `profiles.sandbox.mounts[].guestPath` | string | no | Container mount path (defaults to `hostPath`) |
+| `profiles.sandbox.mounts[].writable` | boolean | no | `true` for read-write; omit or `false` for read-only |
+| `integrations.github.linkedRepos[].repo` | string | yes | GitHub repo slug (e.g. `org/repo`) |
+| `integrations.github.linkedRepos[].alias` | string | no | Short label for the UI |
+| `startupEnvs.<KEY>` | string or boolean | no | Extra env vars materialized into worktree runtime env |
+| `auto_name.model` | string | no | Model used to generate the branch name when the branch field is left empty; supports Anthropic (`claude-*`), Gemini (`gemini-*`), and OpenAI (`gpt-*`, `chatgpt-*`, `o*`) models |
+| `auto_name.system_prompt` | string | no | System prompt sent to the auto-name model |
+| `lifecycleHooks.postCreate` | string | no | Shell command run after a managed worktree is created and its session is materialized |
+| `lifecycleHooks.preRemove` | string | no | Shell command run before a managed worktree is removed |
 
 </details>
+
+Lifecycle hooks run with the worktree as `cwd` and receive the same computed runtime env as the managed panes, including `startupEnvs`, allocated service ports, and `WEBMUX_*` metadata.
+
+When `auto_name` is enabled, `webmux` calls the provider API directly with structured output and uses `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, or `OPENAI_API_KEY` based on the configured model.
 
 ## Keyboard Shortcuts
 

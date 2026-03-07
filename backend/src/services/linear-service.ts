@@ -1,4 +1,6 @@
-import { log } from "./lib/log";
+import { log } from "../lib/log";
+
+export type { LinkedLinearIssue } from "../domain/model";
 
 // --- Types ---
 
@@ -65,12 +67,6 @@ export interface LinearIssue {
   team: { name: string; key: string };
   labels: { name: string; color: string }[];
   project: string | null;
-}
-
-export interface LinkedLinearIssue {
-  identifier: string;
-  url: string;
-  state: { name: string; color: string; type: string };
 }
 
 export type FetchIssuesResult =

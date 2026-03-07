@@ -113,9 +113,9 @@
           >
         </div>
         <div class="flex items-center gap-2 mt-1.5">
-          {#if check.status === "failed" && check.runId}
+          {#if check.status === "failed" && check.runId !== null}
             <LinkBtn
-              onclick={() => handleViewLogs(check.runId)}
+              onclick={() => handleViewLogs(check.runId ?? -1)}
               >{expandedRunId === check.runId
                 ? "Hide logs"
                 : "View logs"}</LinkBtn

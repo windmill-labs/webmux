@@ -3,7 +3,17 @@
 import * as p from "@clack/prompts";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { run, which, getGitRoot, detectProjectName } from "./shared.ts";
+import { run, which, getGitRoot } from "./shared.ts";
+import {
+  buildInitAgentCommand,
+  buildInitPromptSpec,
+  buildStarterTemplate,
+  detectInitProjectContext,
+  runInitAgentCommand,
+  type InitAgent,
+  type InitAgentStreamEvent,
+  type InitAuthoringChoice,
+} from "./init-helpers.ts";
 
 // ── Dependency checks ───────────────────────────────────────────────────────
 
@@ -16,9 +26,11 @@ interface Dep {
 const deps: Dep[] = [
   { tool: "git", required: true, hint: "https://git-scm.com/downloads" },
   { tool: "bun", required: true, hint: "https://bun.sh" },
+  { tool: "python3", required: true, hint: "https://www.python.org/downloads/  or  brew install python  or  sudo apt install python3" },
   { tool: "tmux", required: true, hint: "brew install tmux / sudo apt install tmux" },
-  { tool: "workmux", required: true, hint: "cargo install workmux  or  https://workmux.raine.dev" },
   { tool: "gh", required: false, hint: "brew install gh  then  gh auth login" },
+  { tool: "claude", required: false, hint: "Install the Claude Code CLI to let Claude scaffold .webmux.yaml" },
+  { tool: "codex", required: false, hint: "Install the Codex CLI to let Codex scaffold .webmux.yaml" },
   { tool: "docker", required: false, hint: "https://docs.docker.com/get-started/get-docker/" },
 ];
 
@@ -38,72 +50,73 @@ function checkDeps(): Dep[] {
   return missing;
 }
 
-function webmuxTemplate(name: string): string {
-  return `# Project display name in the dashboard
-name: ${name}
-
-# Each service defines a port env var that webmux injects into .env.local
-# when creating a worktree. Ports are auto-assigned: base + (slot × step).
-# Use \`source .env.local\` in your .workmux.yaml pane commands to pick them up.
-services:
-  - name: app
-    portEnv: PORT
-    portStart: 3000       # Port for the main branch (slot 0)
-    portStep: 10          # Increment per worktree (3010, 3020, ...)
-
-# Agent profiles determine how AI agents run in worktrees
-profiles:
-  default:
-    name: default
-
-  # --- Sandbox profile (uncomment to enable) ---
-  # Runs agents in Docker containers for full isolation.
-  # Requires: docker + a built image.
-  # sandbox:
-  #   name: sandbox
-  #   image: my-project-sandbox
-  #   envPassthrough:            # Env vars forwarded into the container
-  #     - DATABASE_URL
-  #   systemPrompt: >
-  #     You are running inside a sandboxed container.
-  #     Start the dev server with: npm run dev
-
-# --- Linked repos (uncomment to enable) ---
-# Monitor PRs from related repos in the dashboard.
-# linkedRepos:
-#   - repo: org/other-repo
-#     alias: other
-
-# --- Startup environment variables ---
-# These will appear as configurable fields in the UI when creating a worktree.
-# startupEnvs:
-#   NODE_ENV: development
-`;
+function agentLabel(agent: InitAgent): string {
+  return agent === "claude" ? "Claude" : "Codex";
 }
 
-function workmuxTemplate(): string {
-  return `main_branch: main
+function defaultTemplateAgent(): InitAgent {
+  return which("codex") && !which("claude") ? "codex" : "claude";
+}
 
-panes:
-  # Agent pane — runs the AI coding assistant
-  - command: >-
-      claude --append-system-prompt
-      "You are running inside a git worktree managed by workmux.\\n
-      Pane layout (current window):\\n
-      - Pane 0: this pane (claude agent)\\n
-      - Pane 1: dev server\\n\\n
-      To check dev server logs: tmux capture-pane -t .1 -p -S -50\\n
-      To restart dev server: tmux send-keys -t .1 C-c 'source .env.local && PORT=\\$PORT npm run dev' Enter"
-    focus: true
+function createAgentStreamPrinter(label: string): {
+  onEvent: (event: InitAgentStreamEvent) => void;
+  finish: () => void;
+  sawAssistantText: () => boolean;
+} {
+  const prefix = `  ${label}: `;
+  let atLineStart = true;
+  let assistantActive = false;
+  let sawAssistantText = false;
 
-  # Dev server — waits for .env.local (written by webmux) then starts
-  - command: >-
-      npm install &&
-      until [ -f .env.local ]; do sleep 0.2; done;
-      source .env.local;
-      PORT=$PORT npm run dev
-    split: horizontal
-`;
+  const closeAssistantLine = (): void => {
+    if (assistantActive && !atLineStart) {
+      process.stdout.write("\n");
+    }
+    assistantActive = false;
+    atLineStart = true;
+  };
+
+  const writeAssistantChunk = (text: string): void => {
+    if (!text) return;
+
+    assistantActive = true;
+    sawAssistantText = true;
+
+    for (const char of text) {
+      if (atLineStart) {
+        process.stdout.write(prefix);
+        atLineStart = false;
+      }
+      process.stdout.write(char);
+      if (char === "\n") {
+        atLineStart = true;
+      }
+    }
+  };
+
+  return {
+    onEvent(event: InitAgentStreamEvent): void {
+      if (event.kind === "assistant_delta") {
+        writeAssistantChunk(event.text);
+        return;
+      }
+
+      if (event.kind === "assistant_done") {
+        closeAssistantLine();
+        return;
+      }
+
+      closeAssistantLine();
+      const tag = event.kind === "warning" ? "warning" : "status";
+      console.log(`  ${label} ${tag}: ${event.text}`);
+    },
+    finish(): void {
+      closeAssistantLine();
+    },
+    sawAssistantText(): boolean {
+      return sawAssistantText;
+    },
+  };
 }
 
 // ── Main ─────────────────────────────────────────────────────────────────────
@@ -141,31 +154,123 @@ if (which("gh")) {
   }
 }
 
-// Step 4 — .workmux.yaml
+// Step 4 — .webmux.yaml
 p.log.step("Checking config files...");
 
-const workmuxYaml = join(gitRoot, ".workmux.yaml");
-if (existsSync(workmuxYaml)) {
-  p.log.info(".workmux.yaml already exists, skipping");
-} else {
-  await Bun.write(workmuxYaml, workmuxTemplate());
-  p.log.success(".workmux.yaml created");
-}
-
-// Step 5 — .webmux.yaml
 const webmuxYaml = join(gitRoot, ".webmux.yaml");
 if (existsSync(webmuxYaml)) {
   p.log.info(".webmux.yaml already exists, skipping");
 } else {
-  const name = detectProjectName(gitRoot);
-  await Bun.write(webmuxYaml, webmuxTemplate(name));
-  p.log.success(".webmux.yaml created");
+  const claudeAvailable = which("claude");
+  const codexAvailable = which("codex");
+
+  const choice = await p.select<InitAuthoringChoice>({
+    message: "No .webmux.yaml found. How should webmux create it?",
+    initialValue: claudeAvailable ? "claude" : codexAvailable ? "codex" : "manual",
+    options: [
+      {
+        value: "claude",
+        label: "Claude",
+        hint: claudeAvailable ? "Claude inspects the repo and adapts the starter .webmux.yaml" : "Claude CLI not found",
+        disabled: !claudeAvailable,
+      },
+      {
+        value: "codex",
+        label: "Codex",
+        hint: codexAvailable ? "Codex inspects the repo and adapts the starter .webmux.yaml" : "Codex CLI not found",
+        disabled: !codexAvailable,
+      },
+      {
+        value: "manual",
+        label: "I'll do it myself",
+        hint: "Create the starter template now so you can edit it manually",
+      },
+    ],
+  });
+
+  if (p.isCancel(choice)) {
+    p.outro("Aborted.");
+    process.exit(1);
+  }
+
+  const selectedAgent: InitAgent = choice === "codex" ? "codex" : defaultTemplateAgent();
+  const context = detectInitProjectContext(gitRoot, selectedAgent);
+
+  if (choice === "manual") {
+    await Bun.write(
+      webmuxYaml,
+      buildStarterTemplate({
+        projectName: context.projectName,
+        mainBranch: context.mainBranch,
+        defaultAgent: context.defaultAgent,
+        packageManager: context.packageManager,
+      }),
+    );
+    p.log.success(".webmux.yaml starter template created");
+  } else {
+    const label = agentLabel(choice);
+    const starterTemplate = buildStarterTemplate({
+      projectName: context.projectName,
+      mainBranch: context.mainBranch,
+      defaultAgent: choice,
+      packageManager: context.packageManager,
+    });
+
+    await Bun.write(webmuxYaml, starterTemplate);
+
+    const prompt = buildInitPromptSpec({ ...context, defaultAgent: choice });
+    const command = buildInitAgentCommand(choice, prompt);
+    const streamPrinter = createAgentStreamPrinter(label);
+
+    p.log.step(`Running ${label} to adapt the starter .webmux.yaml...`);
+    const result = await runInitAgentCommand(command, gitRoot, { onEvent: streamPrinter.onEvent });
+    streamPrinter.finish();
+
+    if (!existsSync(webmuxYaml)) {
+      p.log.error(`${label} removed .webmux.yaml`);
+
+      const details = [
+        result.summary ? `Summary:\n${result.summary}` : "",
+        result.stderr.trim() ? `stderr:\n${result.stderr.trim()}` : "",
+      ].filter((entry) => entry.length > 0).join("\n\n");
+
+      if (details) {
+        p.note(details, `${label} output`);
+      }
+      p.outro("Setup incomplete.");
+      process.exit(1);
+    }
+
+    const finalYaml = await Bun.file(webmuxYaml).text();
+    const changedTemplate = finalYaml !== starterTemplate;
+
+    if (result.exitCode === 0 && changedTemplate) {
+      p.log.success(`${label} adapted .webmux.yaml`);
+    } else if (result.exitCode === 0) {
+      p.log.warning(`${label} left the starter template unchanged`);
+      p.log.warning(`${label} did not change the starter template. Review .webmux.yaml manually.`);
+    } else if (changedTemplate) {
+      p.log.warning(`${label} updated .webmux.yaml`);
+      p.log.warning(`${label} exited with code ${result.exitCode}. Review the generated file before using it.`);
+    } else {
+      p.log.warning(`${label} left the starter template in place`);
+      p.log.warning(`${label} exited with code ${result.exitCode}. The starter template is still there for manual editing.`);
+    }
+
+    if (result.summary && !streamPrinter.sawAssistantText()) {
+      p.note(result.summary, `${label} summary`);
+    }
+
+    const trimmedStderr = result.stderr.trim();
+    if (trimmedStderr) {
+      p.note(trimmedStderr, `${label} stderr`);
+    }
+  }
 }
 
-// Step 6 — Summary
+// Step 5 — Summary
 p.outro("You're all set! Next steps:");
 console.log();
-console.log("  1. Edit .workmux.yaml to configure pane layout for your project");
-console.log("  2. Edit .webmux.yaml to set up service ports and profiles");
-console.log("  3. Run: webmux");
+console.log("  1. Review .webmux.yaml and adjust panes, ports, and profiles if needed");
+console.log("  2. Run: webmux");
 console.log();

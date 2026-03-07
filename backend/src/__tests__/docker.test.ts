@@ -1,21 +1,30 @@
 import { describe, expect, it } from "bun:test";
-import { buildDockerRunArgs, type LaunchContainerOpts } from "../docker";
+import { buildDockerRunArgs, type LaunchContainerOpts } from "../adapters/docker";
+import type { DockerProfileConfig } from "../adapters/config";
 
 const HOME = "/home/testuser";
-const RPC_SECRET = "test-rpc-secret";
-const RPC_PORT = "5111";
 const UID = 1000;
 const GID = 1000;
 
 /** Minimal valid opts; individual tests override what they need. */
+function makeDockerProfile(overrides: Partial<DockerProfileConfig> = {}): DockerProfileConfig {
+  return {
+    runtime: "docker",
+    image: "my-image:latest",
+    envPassthrough: [],
+    panes: [],
+    ...overrides,
+  };
+}
+
 function makeOpts(overrides: Partial<LaunchContainerOpts> = {}): LaunchContainerOpts {
   return {
     branch: "my-branch",
     wtDir: "/repos/my-branch",
     mainRepoDir: "/repos/main",
-    sandboxConfig: { name: "sandbox", image: "my-image:latest" },
+    sandboxConfig: makeDockerProfile(),
     services: [],
-    env: {},
+    runtimeEnv: {},
     ...overrides,
   };
 }
@@ -26,7 +35,7 @@ function build(
   existingPaths = new Set<string>(),
   sshAuthSock?: string,
 ): string[] {
-  return buildDockerRunArgs(opts, existingPaths, HOME, "wm-test-123", RPC_SECRET, RPC_PORT, sshAuthSock, UID, GID);
+  return buildDockerRunArgs(opts, existingPaths, HOME, "wm-test-123", sshAuthSock, UID, GID);
 }
 
 /** Pull all -v flag values out of an args array. */
@@ -75,53 +84,53 @@ describe("buildDockerRunArgs — host user mapping", () => {
 
 describe("buildDockerRunArgs — extraMounts", () => {
   it("adds a read-only mount when writable is false", () => {
-    const args = build(makeOpts({ sandboxConfig: { name: "sandbox", image: "img", extraMounts: [
+    const args = build(makeOpts({ sandboxConfig: makeDockerProfile({ image: "img", mounts: [
       { hostPath: "/data/shared", guestPath: "/mnt/shared", writable: false },
-    ]}}));
+    ] }) }));
     expect(mounts(args)).toContain("/data/shared:/mnt/shared:ro");
   });
 
   it("adds a writable mount when writable is true", () => {
-    const args = build(makeOpts({ sandboxConfig: { name: "sandbox", image: "img", extraMounts: [
+    const args = build(makeOpts({ sandboxConfig: makeDockerProfile({ image: "img", mounts: [
       { hostPath: "/data/shared", guestPath: "/mnt/shared", writable: true },
-    ]}}));
+    ] }) }));
     expect(mounts(args)).toContain("/data/shared:/mnt/shared");
     expect(mounts(args)).not.toContain("/data/shared:/mnt/shared:ro");
   });
 
   it("defaults to read-only when writable is omitted", () => {
-    const args = build(makeOpts({ sandboxConfig: { name: "sandbox", image: "img", extraMounts: [
+    const args = build(makeOpts({ sandboxConfig: makeDockerProfile({ image: "img", mounts: [
       { hostPath: "/data/shared", guestPath: "/mnt/shared" },
-    ]}}));
+    ] }) }));
     expect(mounts(args)).toContain("/data/shared:/mnt/shared:ro");
   });
 
   it("uses hostPath as guestPath when guestPath is omitted", () => {
-    const args = build(makeOpts({ sandboxConfig: { name: "sandbox", image: "img", extraMounts: [
+    const args = build(makeOpts({ sandboxConfig: makeDockerProfile({ image: "img", mounts: [
       { hostPath: "/data/shared" },
-    ]}}));
+    ] }) }));
     expect(mounts(args)).toContain("/data/shared:/data/shared:ro");
   });
 
   it("expands ~ to the home directory", () => {
-    const args = build(makeOpts({ sandboxConfig: { name: "sandbox", image: "img", extraMounts: [
+    const args = build(makeOpts({ sandboxConfig: makeDockerProfile({ image: "img", mounts: [
       { hostPath: "~/projects", guestPath: "/root/projects" },
-    ]}}));
+    ] }) }));
     expect(mounts(args)).toContain(`${HOME}/projects:/root/projects:ro`);
   });
 
   it("skips mounts with non-absolute paths after ~ expansion", () => {
-    const args = build(makeOpts({ sandboxConfig: { name: "sandbox", image: "img", extraMounts: [
+    const args = build(makeOpts({ sandboxConfig: makeDockerProfile({ image: "img", mounts: [
       { hostPath: "relative/path", guestPath: "/mnt/data" },
-    ]}}));
+    ] }) }));
     expect(mounts(args).join("\n")).not.toContain("/mnt/data");
   });
 
   it("includes multiple extra mounts in order", () => {
-    const args = build(makeOpts({ sandboxConfig: { name: "sandbox", image: "img", extraMounts: [
+    const args = build(makeOpts({ sandboxConfig: makeDockerProfile({ image: "img", mounts: [
       { hostPath: "/data/a", guestPath: "/mnt/a", writable: true },
       { hostPath: "/data/b", guestPath: "/mnt/b" },
-    ]}}));
+    ] }) }));
     const m = mounts(args);
     expect(m).toContain("/data/a:/mnt/a");
     expect(m).toContain("/data/b:/mnt/b:ro");
@@ -136,9 +145,9 @@ describe("buildDockerRunArgs — extraMounts override credential mounts", () => 
   it("config ~/.ssh writable overrides the default read-only credential mount", () => {
     const existingPaths = new Set([`${HOME}/.ssh`]);
     const args = build(
-      makeOpts({ sandboxConfig: { name: "sandbox", image: "img", extraMounts: [
+      makeOpts({ sandboxConfig: makeDockerProfile({ image: "img", mounts: [
         { hostPath: "~/.ssh", guestPath: "/root/.ssh", writable: true },
-      ]}}),
+      ] }) }),
       existingPaths,
     );
     const m = mounts(args);
@@ -149,9 +158,9 @@ describe("buildDockerRunArgs — extraMounts override credential mounts", () => 
   it("config ~/.ssh read-only still suppresses the credential mount (config controls it)", () => {
     const existingPaths = new Set([`${HOME}/.ssh`]);
     const args = build(
-      makeOpts({ sandboxConfig: { name: "sandbox", image: "img", extraMounts: [
+      makeOpts({ sandboxConfig: makeDockerProfile({ image: "img", mounts: [
         { hostPath: "~/.ssh", guestPath: "/root/.ssh", writable: false },
-      ]}}),
+      ] }) }),
       existingPaths,
     );
     const m = mounts(args);
@@ -163,9 +172,9 @@ describe("buildDockerRunArgs — extraMounts override credential mounts", () => 
   it("config ~/.gitconfig override does not affect unrelated credential mounts", () => {
     const existingPaths = new Set([`${HOME}/.gitconfig`, `${HOME}/.ssh`]);
     const args = build(
-      makeOpts({ sandboxConfig: { name: "sandbox", image: "img", extraMounts: [
+      makeOpts({ sandboxConfig: makeDockerProfile({ image: "img", mounts: [
         { hostPath: "~/.gitconfig", guestPath: "/root/.gitconfig", writable: true },
-      ]}}),
+      ] }) }),
       existingPaths,
     );
     const m = mounts(args);
@@ -198,7 +207,7 @@ describe("buildDockerRunArgs — ports", () => {
   it("binds valid ports to loopback only", () => {
     const args = build(makeOpts({
       services: [{ name: "web", portEnv: "PORT" }],
-      env: { PORT: "3000" },
+      runtimeEnv: { PORT: "3000" },
     }));
     expect(ports(args)).toContain("127.0.0.1:3000:3000");
   });
@@ -206,7 +215,7 @@ describe("buildDockerRunArgs — ports", () => {
   it("skips ports with non-numeric values", () => {
     const args = build(makeOpts({
       services: [{ name: "web", portEnv: "PORT" }],
-      env: { PORT: "auto" },
+      runtimeEnv: { PORT: "auto" },
     }));
     expect(ports(args)).toHaveLength(0);
   });
@@ -217,7 +226,7 @@ describe("buildDockerRunArgs — ports", () => {
         { name: "web", portEnv: "PORT" },
         { name: "api", portEnv: "API_PORT" },
       ],
-      env: { PORT: "3000", API_PORT: "3000" },
+      runtimeEnv: { PORT: "3000", API_PORT: "3000" },
     }));
     expect(ports(args).filter(p => p.startsWith("127.0.0.1:3000"))).toHaveLength(1);
   });
@@ -228,18 +237,23 @@ describe("buildDockerRunArgs — ports", () => {
 // ---------------------------------------------------------------------------
 
 describe("buildDockerRunArgs — reserved env vars", () => {
-  it("HOME from .env.local does not override the hardcoded HOME=/root", () => {
-    const args = build(makeOpts({ env: { HOME: "/attacker" } }));
+  it("HOME from runtime env does not override the hardcoded HOME=/root", () => {
+    const args = build(makeOpts({ runtimeEnv: { HOME: "/attacker" } }));
     const flags = envFlags(args);
     expect(flags).toContain("HOME=/root");
     expect(flags).not.toContain("HOME=/attacker");
   });
 
-  it("IS_SANDBOX from .env.local is silently dropped", () => {
-    const args = build(makeOpts({ env: { IS_SANDBOX: "0" } }));
+  it("IS_SANDBOX from runtime env is silently dropped", () => {
+    const args = build(makeOpts({ runtimeEnv: { IS_SANDBOX: "0" } }));
     const flags = envFlags(args);
     expect(flags).toContain("IS_SANDBOX=1");
     expect(flags.filter(f => f.startsWith("IS_SANDBOX="))).toHaveLength(1);
+  });
+
+  it("does not inject legacy workmux rpc env vars", () => {
+    const flags = envFlags(build(makeOpts()));
+    expect(flags.some((flag) => flag.startsWith("WORKMUX_RPC_"))).toBe(false);
   });
 });
 
@@ -269,7 +283,7 @@ describe("buildDockerRunArgs — SSH agent forwarding", () => {
   });
 
   it("SSH_AUTH_SOCK from envPassthrough is blocked by reservedKeys", () => {
-    const args = build(makeOpts({ sandboxConfig: { name: "sandbox", image: "img", envPassthrough: ["SSH_AUTH_SOCK"] } }));
+    const args = build(makeOpts({ sandboxConfig: makeDockerProfile({ image: "img", envPassthrough: ["SSH_AUTH_SOCK"] }) }));
     expect(envFlags(args).filter(f => f.startsWith("SSH_AUTH_SOCK="))).toHaveLength(0);
   });
 });

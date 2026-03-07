@@ -2,6 +2,7 @@ export interface ServiceStatus {
   name: string;
   port: number | null;
   running: boolean;
+  url?: string | null;
 }
 
 export interface PrComment {
@@ -17,17 +18,18 @@ export interface PrComment {
 
 export interface CiCheck {
   name: string;
-  status: string;
+  status: "pending" | "success" | "failed" | "skipped";
   url: string;
-  runId: number;
+  runId: number | null;
 }
 
 export interface PrEntry {
   repo: string;
   number: number;
-  state: string;
+  state: "open" | "closed" | "merged";
   url: string;
-  ciStatus: string;
+  updatedAt: string;
+  ciStatus: "none" | "pending" | "success" | "failed";
   ciChecks: CiCheck[];
   comments: PrComment[];
 }
@@ -75,7 +77,6 @@ export interface WorktreeInfo {
   dirty: boolean;
   status: string;
   elapsed: string;
-  title: string;
   profile: string | null;
   agentName: string | null;
   services: ServiceStatus[];
@@ -97,19 +98,42 @@ export interface ProfileConfig {
 export interface AppNotification {
   id: number;
   branch: string;
-  type: "agent_stopped" | "pr_opened";
+  type: "agent_stopped" | "pr_opened" | "runtime_error";
   message: string;
   url?: string;
   timestamp: number;
 }
 
+export interface ProjectWorktreeSnapshot {
+  branch: string;
+  path: string;
+  dir: string;
+  profile: string | null;
+  agentName: string | null;
+  mux: boolean;
+  dirty: boolean;
+  paneCount: number;
+  status: string;
+  elapsed: string;
+  services: ServiceStatus[];
+  prs: PrEntry[];
+  linearIssue: LinkedLinearIssue | null;
+}
+
+export interface ProjectSnapshot {
+  project: {
+    name: string;
+    mainBranch: string;
+  };
+  worktrees: ProjectWorktreeSnapshot[];
+  notifications: AppNotification[];
+}
+
 export interface AppConfig {
   name?: string;
   services: ServiceConfig[];
-  profiles: {
-    default: ProfileConfig;
-    sandbox?: ProfileConfig;
-  };
+  profiles: ProfileConfig[];
+  defaultProfileName: string;
   autoName: boolean;
   startupEnvs?: Record<string, string | boolean>;
 }

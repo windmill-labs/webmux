@@ -1,6 +1,7 @@
-import { readEnvLocal, writeEnvLocal } from "./env";
-import type { LinkedRepoConfig } from "./config";
-import { log } from "./lib/log";
+import { readWorktreePrs, writeWorktreePrs } from "../adapters/fs";
+import type { LinkedRepoConfig } from "../domain/config";
+import type { CiCheck, PrComment, PrEntry } from "../domain/model";
+import { log } from "../lib/log";
 
 const PR_FETCH_LIMIT = 50;
 const GH_TIMEOUT_MS = 15_000;
@@ -23,17 +24,6 @@ type GhCheckConclusion =
   | "SKIPPED"
   | "TIMED_OUT"
   | "ACTION_REQUIRED";
-
-export interface PrComment {
-  type: "comment" | "inline";
-  author: string;
-  body: string;
-  createdAt: string;
-  path?: string;
-  line?: number | null;
-  diffHunk?: string;
-  isReply?: boolean;
-}
 
 interface GhComment {
   author: { login: string };
@@ -66,26 +56,6 @@ interface GhPrEntry {
   statusCheckRollup: GhCheckEntry[] | null;
   url: string;
   comments: GhComment[];
-}
-
-// ── Public types ──────────────────────────────────────────────────────────────
-
-export interface CiCheck {
-  name: string;
-  status: "pending" | "success" | "failed" | "skipped";
-  url: string;
-  runId: number | null;
-}
-
-export interface PrEntry {
-  repo: string;
-  number: number;
-  state: "open" | "closed" | "merged";
-  url: string;
-  updatedAt: string;
-  ciStatus: "none" | "pending" | "success" | "failed";
-  ciChecks: CiCheck[];
-  comments: PrComment[];
 }
 
 type FetchPrsResult =
@@ -375,19 +345,10 @@ async function fetchPrState(url: string): Promise<PrEntry["state"] | null> {
   }
 }
 
-/** Update PR_DATA for a worktree whose PR is no longer in the open PR list.
+/** Update stored PR state for a worktree whose PR is no longer in the open PR list.
  *  Fetches the actual current state for any entry still marked "open". */
-async function refreshStalePrData(wtDir: string): Promise<void> {
-  const env = await readEnvLocal(wtDir);
-  if (!env.PR_DATA) return;
-
-  let entries: PrEntry[];
-  try {
-    entries = JSON.parse(env.PR_DATA) as PrEntry[];
-  } catch {
-    return;
-  }
-
+async function refreshStalePrData(gitDir: string): Promise<void> {
+  const entries = await readWorktreePrs(gitDir);
   if (!entries.some((e) => e.state === "open")) return;
 
   const updated = await Promise.all(
@@ -398,12 +359,12 @@ async function refreshStalePrData(wtDir: string): Promise<void> {
     }),
   );
 
-  await writeEnvLocal(wtDir, { PR_DATA: JSON.stringify(updated) });
+  await writeWorktreePrs(gitDir, updated);
 }
 
-/** Sync PR status to .env.local for all worktrees that have open PRs. */
+/** Sync PR status into per-worktree webmux storage for all worktrees that have open PRs. */
 export async function syncPrStatus(
-  getWorktreePaths: () => Promise<Map<string, string>>,
+  getWorktreeGitDirs: () => Promise<Map<string, string>>,
   linkedRepos: LinkedRepoConfig[],
   projectDir?: string,
 ): Promise<void> {
@@ -428,8 +389,8 @@ export async function syncPrStatus(
     }
   }
 
-  const wtPaths = await getWorktreePaths();
-  const activeBranches = new Set(wtPaths.keys());
+  const worktreeGitDirs = await getWorktreeGitDirs();
+  const activeBranches = new Set(worktreeGitDirs.keys());
 
   // Fetch inline review comments only for PRs matching active worktrees.
   // PRs that haven't been updated reuse cached comments (saves API calls).
@@ -471,11 +432,11 @@ export async function syncPrStatus(
   const seen = new Set<string>();
 
   for (const [branch, entries] of branchPrs) {
-    const wtDir = wtPaths.get(branch);
-    if (!wtDir || seen.has(wtDir)) continue;
-    seen.add(wtDir);
+    const gitDir = worktreeGitDirs.get(branch);
+    if (!gitDir || seen.has(gitDir)) continue;
+    seen.add(gitDir);
 
-    await writeEnvLocal(wtDir, { PR_DATA: JSON.stringify(entries) });
+    await writeWorktreePrs(gitDir, entries);
   }
 
   if (seen.size > 0) {
@@ -485,12 +446,12 @@ export async function syncPrStatus(
   }
 
   // For worktrees not matched by the open-PR sync, refresh any stale "open"
-  // entries so merged/closed PRs are reflected in PR_DATA.
-  const uniqueDirs = new Set(wtPaths.values());
+  // entries so merged/closed PRs are reflected in stored worktree PR state.
+  const uniqueDirs = new Set(worktreeGitDirs.values());
   const staleRefreshes: Promise<void>[] = [];
-  for (const wtDir of uniqueDirs) {
-    if (seen.has(wtDir)) continue;
-    staleRefreshes.push(refreshStalePrData(wtDir));
+  for (const gitDir of uniqueDirs) {
+    if (seen.has(gitDir)) continue;
+    staleRefreshes.push(refreshStalePrData(gitDir));
   }
   await Promise.all(staleRefreshes);
 
@@ -520,7 +481,7 @@ export async function syncPrStatus(
 /** Start periodic PR status sync. Returns a cleanup function that stops the monitor.
  *  When `isActive` is provided, polling is skipped if no clients are connected. */
 export function startPrMonitor(
-  getWorktreePaths: () => Promise<Map<string, string>>,
+  getWorktreeGitDirs: () => Promise<Map<string, string>>,
   linkedRepos: LinkedRepoConfig[],
   projectDir?: string,
   intervalMs: number = 20_000,
@@ -531,7 +492,7 @@ export function startPrMonitor(
       log.debug("[pr] skipping PR sync: no active clients");
       return;
     }
-    syncPrStatus(getWorktreePaths, linkedRepos, projectDir).catch(
+    syncPrStatus(getWorktreeGitDirs, linkedRepos, projectDir).catch(
       (err: unknown) => {
         log.error(`[pr] sync error: ${err}`);
       },

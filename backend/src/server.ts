@@ -2,20 +2,6 @@ import { join, resolve } from "node:path";
 import { networkInterfaces } from "node:os";
 import { log } from "./lib/log";
 import {
-  listWorktrees,
-  getStatus,
-  addWorktree,
-  removeWorktree,
-  openWorktree,
-  mergeWorktree,
-  sendPrompt,
-  readEnvLocal,
-  parseWorktreePorcelain,
-  checkDirty,
-  cleanupStaleWindows,
-  initWorktreeEnv,
-} from "./workmux";
-import {
   attach,
   detach,
   write,
@@ -26,27 +12,97 @@ import {
   setCallbacks,
   clearCallbacks,
   cleanupStaleSessions,
-} from "./terminal";
-import { loadConfig, gitRoot, type WebmuxConfig } from "./config";
-import { startPrMonitor, type PrEntry } from "./pr";
-import { handleWorkmuxRpc } from "./rpc";
-import { jsonResponse, errorResponse } from "./http";
-import { handleNotificationStream, handleDismissNotification, installHookScripts, hasDashboardActivity, touchActivity } from "./notifications";
-import { fetchAssignedIssues, branchMatchesIssue, type LinkedLinearIssue } from "./linear";
+  sendPrompt as sendTerminalPrompt,
+  type TerminalAttachTarget,
+} from "./adapters/terminal";
+import {
+  BunGitGateway,
+} from "./adapters/git";
+import { loadConfig, getDefaultProfileName, gitRoot, type ProjectConfig } from "./adapters/config";
+import { loadControlToken } from "./adapters/control-token";
+import { BunDockerGateway } from "./adapters/docker";
+import { BunLifecycleHookRunner } from "./adapters/hooks";
+import { BunPortProbe } from "./adapters/port-probe";
+import {
+  BunTmuxGateway,
+} from "./adapters/tmux";
+import { jsonResponse, errorResponse } from "./lib/http";
+import { hasRecentDashboardActivity, touchDashboardActivity } from "./services/dashboard-activity";
+import { AutoNameService } from "./services/auto-name-service";
+import { branchMatchesIssue, fetchAssignedIssues } from "./services/linear-service";
+import { NotificationService as RuntimeNotificationService } from "./services/notification-service";
+import { LifecycleError, LifecycleService } from "./services/lifecycle-service";
+import { startPrMonitor } from "./services/pr-service";
+import { ProjectRuntime } from "./services/project-runtime";
+import { ReconciliationService } from "./services/reconciliation-service";
+import { buildProjectSnapshot } from "./services/snapshot-service";
+import { parseRuntimeEvent } from "./domain/events";
 
 const PORT = parseInt(Bun.env.BACKEND_PORT || "5111", 10);
 const STATIC_DIR = Bun.env.WEBMUX_STATIC_DIR || "";
 const PROJECT_DIR = Bun.env.WEBMUX_PROJECT_DIR || gitRoot(process.cwd());
-const config: WebmuxConfig = loadConfig(PROJECT_DIR);
+const config: ProjectConfig = loadConfig(PROJECT_DIR);
+const git = new BunGitGateway();
+const portProbe = new BunPortProbe();
+const tmux = new BunTmuxGateway();
+const docker = new BunDockerGateway();
+const hooks = new BunLifecycleHookRunner();
+const autoName = new AutoNameService();
+const projectRuntime = new ProjectRuntime();
+const runtimeNotifications = new RuntimeNotificationService();
+const reconciliationService = new ReconciliationService({
+  config,
+  git,
+  tmux,
+  portProbe,
+  runtime: projectRuntime,
+});
+const lifecycleService = new LifecycleService({
+  projectRoot: PROJECT_DIR,
+  controlBaseUrl: `http://127.0.0.1:${PORT}`,
+  getControlToken: loadControlToken,
+  config,
+  git,
+  tmux,
+  docker,
+  reconciliation: reconciliationService,
+  hooks,
+  autoName,
+});
 
-// --- Worktree list cache (short TTL to deduplicate rapid polls) ---
-const WORKTREE_CACHE_TTL_MS = 2000;
-let wtCache: { json: string; etag: string; expiry: number } | null = null;
+function getFrontendConfig(): {
+  name: string;
+  services: ProjectConfig["services"];
+  profiles: Array<{ name: string; systemPrompt?: string }>;
+  defaultProfileName: string;
+  autoName: boolean;
+  startupEnvs: ProjectConfig["startupEnvs"];
+} {
+  const defaultProfileName = getDefaultProfileName(config);
+  const orderedProfileEntries = Object.entries(config.profiles).sort(([left], [right]) => {
+    if (left === defaultProfileName) return -1;
+    if (right === defaultProfileName) return 1;
+    return 0;
+  });
+
+  return {
+    name: config.name,
+    services: config.services,
+    profiles: orderedProfileEntries.map(([name, profile]) => ({
+      name,
+      ...(profile.systemPrompt ? { systemPrompt: profile.systemPrompt } : {}),
+    })),
+    defaultProfileName,
+    autoName: config.autoName !== null,
+    startupEnvs: config.startupEnvs,
+  };
+}
 
 // --- WebSocket protocol types ---
 
 interface WsData {
-  worktree: string;
+  branch: string;
+  worktreeId: string | null;
   attached: boolean;
 }
 
@@ -118,80 +174,63 @@ function isValidWorktreeName(name: string): boolean {
 /** Wrap an async API handler to catch and log unhandled errors. */
 function catching(label: string, fn: () => Promise<Response>): Promise<Response> {
   return fn().catch((err: unknown) => {
+    if (err instanceof LifecycleError) {
+      return errorResponse(err.message, err.status);
+    }
+
     const msg = err instanceof Error ? err.message : String(err);
     log.error(`[api:error] ${label}: ${msg}`);
     return errorResponse(msg);
   });
 }
 
-function safeJsonParse<T>(str: string): T | null {
-  try {
-    return JSON.parse(str) as T;
-  } catch {
-    return null;
+async function resolveTerminalWorktree(branch: string): Promise<{
+  worktreeId: string;
+  attachTarget: TerminalAttachTarget;
+}> {
+  await reconciliationService.reconcile(PROJECT_DIR);
+  const state = projectRuntime.getWorktreeByBranch(branch);
+  if (!state) {
+    throw new Error(`Worktree not found: ${branch}`);
   }
+  if (!state.session.exists || !state.session.sessionName) {
+    throw new Error(`No open tmux window found for worktree: ${branch}`);
+  }
+
+  return {
+    worktreeId: state.worktreeId,
+    attachTarget: {
+      ownerSessionName: state.session.sessionName,
+      windowName: state.session.windowName,
+    },
+  };
+}
+
+function getAttachedWorktreeId(ws: { data: WsData; readyState: number; send: (data: string) => void }): string | null {
+  if (ws.data.attached && ws.data.worktreeId) {
+    return ws.data.worktreeId;
+  }
+
+  sendWs(ws, { type: "error", message: "Terminal not attached" });
+  return null;
+}
+
+async function hasValidControlToken(req: Request): Promise<boolean> {
+  const authHeader = req.headers.get("Authorization");
+  const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  return token === await loadControlToken();
 }
 
 // --- Process helpers ---
 
-/** Map branch name → worktree directory using git worktree list.
- *  Skips the main working tree (always the first entry). */
-async function getWorktreePaths(): Promise<Map<string, string>> {
-  const proc = Bun.spawn(["git", "worktree", "list", "--porcelain"], { stdout: "pipe" });
-  await proc.exited;
-  const output = await new Response(proc.stdout).text();
-  const all = parseWorktreePorcelain(output);
-  const paths = new Map<string, string>();
-  let isFirst = true;
-  for (const [branch, path] of all) {
-    // Skip the main working tree (first entry in porcelain output)
-    if (isFirst) { isFirst = false; continue; }
-    paths.set(branch, path);
-    // Also map by directory basename (workmux uses basename as branch key)
-    const basename = path.split("/").pop() ?? "";
-    if (basename !== branch) paths.set(basename, path);
+async function getWorktreeGitDirs(): Promise<Map<string, string>> {
+  const gitDirs = new Map<string, string>();
+  const projectRoot = resolve(PROJECT_DIR);
+  for (const entry of git.listWorktrees(projectRoot)) {
+    if (entry.bare || resolve(entry.path) === projectRoot || !entry.branch) continue;
+    gitDirs.set(entry.branch, git.resolveWorktreeGitDir(entry.path));
   }
-  return paths;
-}
-
-/** Get pane counts for all wm-* windows in a single tmux call. */
-async function getAllPaneCounts(): Promise<Map<string, number>> {
-  const proc = Bun.spawn(
-    ["tmux", "list-windows", "-a", "-F", "#{window_name} #{window_panes}"],
-    { stdout: "pipe", stderr: "pipe" }
-  );
-  if (await proc.exited !== 0) return new Map();
-  const out = await new Response(proc.stdout).text();
-  const counts = new Map<string, number>();
-  for (const line of out.trim().split("\n")) {
-    const spaceIdx = line.lastIndexOf(" ");
-    if (spaceIdx === -1) continue;
-    const name = line.slice(0, spaceIdx);
-    if (!name.startsWith("wm-")) continue;
-    const branch = name.slice(3);
-    // Keep the highest count (multiple sessions may share the window)
-    const count = parseInt(line.slice(spaceIdx + 1), 10) || 0;
-    if (!counts.has(branch) || count > counts.get(branch)!) {
-      counts.set(branch, count);
-    }
-  }
-  return counts;
-}
-
-/** Check if a port is accepting TCP connections. Faster than HTTP for localhost. */
-function isPortListening(port: number): Promise<boolean> {
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => resolve(false), 300);
-    Bun.connect({
-      hostname: "127.0.0.1",
-      port,
-      socket: {
-        open(socket) { clearTimeout(timer); socket.end(); resolve(true); },
-        error() { clearTimeout(timer); resolve(false); },
-        data() {},
-      },
-    }).catch(() => { clearTimeout(timer); resolve(false); });
-  });
+  return gitDirs;
 }
 
 function makeCallbacks(ws: { send: (data: string) => void; readyState: number }): {
@@ -210,84 +249,64 @@ function makeCallbacks(ws: { send: (data: string) => void; readyState: number })
 
 // --- API handler functions (thin I/O layer, testable by injecting deps) ---
 
-async function apiGetWorktrees(req: Request): Promise<Response> {
-  touchActivity();
-  const now = Date.now();
-
-  // Serve from cache if still fresh
-  if (wtCache && now < wtCache.expiry) {
-    if (req.headers.get("if-none-match") === wtCache.etag) {
-      return new Response(null, { status: 304 });
-    }
-    return new Response(wtCache.json, {
-      headers: { "Content-Type": "application/json", "ETag": wtCache.etag },
-    });
-  }
-
-  const [worktrees, status, wtPaths, paneCounts, linearResult] = await Promise.all([
-    listWorktrees(),
-    getStatus(),
-    getWorktreePaths(),
-    getAllPaneCounts(),
-    fetchAssignedIssues(),
+async function apiGetProject(): Promise<Response> {
+  touchDashboardActivity();
+  const linearIssuesPromise = config.integrations.linear.enabled
+    ? fetchAssignedIssues()
+    : Promise.resolve({ ok: true as const, data: [] });
+  const [, linearResult] = await Promise.all([
+    reconciliationService.reconcile(PROJECT_DIR),
+    linearIssuesPromise,
   ]);
   const linearIssues = linearResult.ok ? linearResult.data : [];
-
-  // Fire-and-forget: kill tmux windows that belong to this project but have
-  // no matching worktree.  Scoped via pane path so other projects are safe.
-  const activeBranches = new Set(worktrees.map(wt => wt.branch));
-  activeBranches.add("main");
-  cleanupStaleWindows(activeBranches, `${PROJECT_DIR}__worktrees/`);
-
-  // Filter out the main working tree — it has no entry in wtPaths
-  // (getWorktreePaths skips the first porcelain entry).
-  const nonMainWorktrees = worktrees.filter(wt => wtPaths.has(wt.branch));
-
-  const merged = await Promise.all(nonMainWorktrees.map(async (wt) => {
-    const st = status.find(s =>
-      s.worktree.includes(wt.branch) || s.worktree.startsWith(wt.branch)
-    );
-    const wtDir = wtPaths.get(wt.branch);
-    const env = wtDir ? await readEnvLocal(wtDir) : {};
-    const dirty = wtDir ? await checkDirty(wtDir) : false;
-    const services = await Promise.all(
-      config.services.map(async (svc) => {
-        const port = env[svc.portEnv] ? parseInt(env[svc.portEnv], 10) : null;
-        const running = port !== null && port >= 1 && port <= 65535
-          ? await isPortListening(port)
-          : false;
-        return { name: svc.name, port, running };
-      })
-    );
-    const matchedIssue = linearIssues.find((issue) =>
-      branchMatchesIssue(wt.branch, issue.branchName),
-    );
-    const linearIssue: LinkedLinearIssue | null = matchedIssue
-      ? { identifier: matchedIssue.identifier, url: matchedIssue.url, state: matchedIssue.state }
-      : null;
-
-    return {
-      ...wt,
-      dir: wtDir ?? null,
-      dirty,
-      status: st?.status ?? "",
-      elapsed: st?.elapsed ?? "",
-      title: st?.title ?? "",
-      profile: env.PROFILE || null,
-      agentName: env.AGENT || null,
-      services,
-      paneCount: wt.mux === "✓" ? (paneCounts.get(wt.branch) ?? 0) : 0,
-      prs: env.PR_DATA ? (safeJsonParse<PrEntry[]>(env.PR_DATA) ?? []).map(pr => ({ ...pr, comments: pr.comments ?? [] })) : [],
-      linearIssue,
-    };
+  return jsonResponse(buildProjectSnapshot({
+    projectName: config.name,
+    mainBranch: config.workspace.mainBranch,
+    runtime: projectRuntime,
+    notifications: runtimeNotifications.list(),
+    findLinearIssue: (branch) => {
+      const match = linearIssues.find((issue) => branchMatchesIssue(branch, issue.branchName));
+      return match
+        ? {
+            identifier: match.identifier,
+            url: match.url,
+            state: match.state,
+          }
+        : null;
+    },
   }));
+}
 
-  const json = JSON.stringify(merged);
-  const etag = `"${Bun.hash(json).toString(36)}"`;
-  wtCache = { json, etag, expiry: now + WORKTREE_CACHE_TTL_MS };
+async function apiRuntimeEvent(req: Request): Promise<Response> {
+  if (!await hasValidControlToken(req)) {
+    return new Response("Unauthorized", { status: 401 });
+  }
 
-  return new Response(json, {
-    headers: { "Content-Type": "application/json", "ETag": etag },
+  let raw: unknown;
+  try {
+    raw = await req.json();
+  } catch {
+    return errorResponse("Invalid JSON", 400);
+  }
+  const event = parseRuntimeEvent(raw);
+  if (!event) return errorResponse("Invalid runtime event body", 400);
+
+  await reconciliationService.reconcile(PROJECT_DIR);
+
+  try {
+    projectRuntime.applyEvent(event);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes("Unknown worktree id")) {
+      return errorResponse(message, 404);
+    }
+    throw error;
+  }
+
+  const notification = runtimeNotifications.recordEvent(event);
+  return jsonResponse({
+    ok: true,
+    ...(notification ? { notification } : {}),
   });
 }
 
@@ -297,12 +316,6 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
     return errorResponse("Invalid request body", 400);
   }
   const body = raw as Record<string, unknown>;
-  const branch = typeof body.branch === "string" ? body.branch : undefined;
-  const prompt = typeof body.prompt === "string" ? body.prompt : undefined;
-  const profileName = typeof body.profile === "string" ? body.profile : config.profiles.default.name;
-  const agent = typeof body.agent === "string" ? body.agent : "claude";
-  const isSandbox = config.profiles.sandbox !== undefined && profileName === config.profiles.sandbox.name;
-  const profileConfig = isSandbox ? config.profiles.sandbox! : config.profiles.default;
 
   // Parse envOverrides: must be a plain object with string keys and values
   let envOverrides: Record<string, string> | undefined;
@@ -315,57 +328,44 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
     if (Object.keys(parsed).length > 0) envOverrides = parsed;
   }
 
-  log.info(`[worktree:add] agent=${agent} profile=${profileName}${branch ? ` branch=${branch}` : ""}${prompt ? ` prompt="${prompt.slice(0, 80)}"` : ""}`);
-  const result = await addWorktree(branch, {
+  const branch = typeof body.branch === "string" ? body.branch : undefined;
+  const prompt = typeof body.prompt === "string" ? body.prompt : undefined;
+  const profile = typeof body.profile === "string" ? body.profile : undefined;
+  const agent = body.agent === "claude" || body.agent === "codex" ? body.agent : undefined;
+
+  log.info(
+    `[worktree:add]${branch ? ` branch=${branch}` : ""}${profile ? ` profile=${profile}` : ""}${agent ? ` agent=${agent}` : ""}${prompt ? ` prompt="${prompt.slice(0, 80)}"` : ""}`,
+  );
+  const result = await lifecycleService.createWorktree({
+    branch,
     prompt,
-    profile: profileName,
+    profile,
     agent,
-    autoName: config.autoName,
-    profileConfig,
-    isSandbox,
-    sandboxConfig: isSandbox ? config.profiles.sandbox : undefined,
-    services: config.services,
-    mainRepoDir: PROJECT_DIR,
     envOverrides,
   });
-  if (!result.ok) return errorResponse(result.error, 422);
-  log.debug(`[worktree:add] done branch=${result.branch}: ${result.output}`);
-  wtCache = null;
+  log.debug(`[worktree:add] done branch=${result.branch} worktreeId=${result.worktreeId}`);
   return jsonResponse({ branch: result.branch }, 201);
 }
 
 async function apiDeleteWorktree(name: string): Promise<Response> {
   log.info(`[worktree:rm] name=${name}`);
-  const result = await removeWorktree(name);
-  if (!result.ok) return errorResponse(result.error, 422);
-  log.debug(`[worktree:rm] done name=${name}: ${result.output}`);
-  wtCache = null;
-  return jsonResponse({ message: result.output });
+  await lifecycleService.removeWorktree(name);
+  log.debug(`[worktree:rm] done name=${name}`);
+  return jsonResponse({ ok: true });
 }
 
 async function apiOpenWorktree(name: string): Promise<Response> {
   log.info(`[worktree:open] name=${name}`);
+  const result = await lifecycleService.openWorktree(name);
+  log.debug(`[worktree:open] done name=${name} worktreeId=${result.worktreeId}`);
+  return jsonResponse({ ok: true });
+}
 
-  // Lazily initialize env/hooks for externally-created worktrees
-  const wtPaths = await getWorktreePaths();
-  const wtDir = wtPaths.get(name);
-  if (wtDir) {
-    const env = await readEnvLocal(wtDir);
-    if (!env.PROFILE) {
-      log.info(`[worktree:open] initializing env for ${name}`);
-      await initWorktreeEnv(name, {
-        profile: config.profiles.default.name,
-        agent: "claude",
-        services: config.services,
-      });
-      wtCache = null;
-    }
-  }
-
-  const result = await openWorktree(name);
-  if (!result.ok) return errorResponse(result.error, 422);
-  wtCache = null;
-  return jsonResponse({ message: result.output });
+async function apiCloseWorktree(name: string): Promise<Response> {
+  log.info(`[worktree:close] name=${name}`);
+  await lifecycleService.closeWorktree(name);
+  log.debug(`[worktree:close] done name=${name}`);
+  return jsonResponse({ ok: true });
 }
 
 async function apiSendPrompt(name: string, req: Request): Promise<Response> {
@@ -378,25 +378,23 @@ async function apiSendPrompt(name: string, req: Request): Promise<Response> {
   if (!text) return errorResponse("Missing 'text' field", 400);
   const preamble = typeof body.preamble === "string" ? body.preamble : undefined;
   log.info(`[worktree:send] name=${name} text="${text.slice(0, 80)}"`);
-  const result = await sendPrompt(name, text, 0, preamble);
+  const terminalWorktree = await resolveTerminalWorktree(name);
+  const result = await sendTerminalPrompt(
+    terminalWorktree.worktreeId,
+    terminalWorktree.attachTarget,
+    text,
+    0,
+    preamble,
+  );
   if (!result.ok) return errorResponse(result.error, 503);
   return jsonResponse({ ok: true });
 }
 
 async function apiMergeWorktree(name: string): Promise<Response> {
   log.info(`[worktree:merge] name=${name}`);
-  const result = await mergeWorktree(name);
-  if (!result.ok) return errorResponse(result.error, 422);
-  log.debug(`[worktree:merge] done name=${name}: ${result.output}`);
-  wtCache = null;
-  return jsonResponse({ message: result.output });
-}
-
-async function apiWorktreeStatus(name: string): Promise<Response> {
-  const statuses = await getStatus();
-  const match = statuses.find(s => s.worktree.includes(name));
-  if (!match) return errorResponse("Worktree status not found", 404);
-  return jsonResponse(match);
+  await lifecycleService.mergeWorktree(name);
+  log.debug(`[worktree:merge] done name=${name}`);
+  return jsonResponse({ ok: true });
 }
 
 async function apiGetLinearIssues(): Promise<Response> {
@@ -428,22 +426,25 @@ Bun.serve({
 
   routes: {
     "/ws/:worktree": (req, server) => {
-      const worktree = decodeURIComponent(req.params.worktree);
-      return server.upgrade(req, { data: { worktree, attached: false } })
+      const branch = decodeURIComponent(req.params.worktree);
+      return server.upgrade(req, { data: { branch, worktreeId: null, attached: false } })
         ? undefined
         : new Response("WebSocket upgrade failed", { status: 400 });
     },
 
-    "/rpc/workmux": {
-      POST: (req) => handleWorkmuxRpc(req),
+    "/api/config": {
+      GET: () => jsonResponse(getFrontendConfig()),
     },
 
-    "/api/config": {
-      GET: () => jsonResponse(config),
+    "/api/project": {
+      GET: () => catching("GET /api/project", () => apiGetProject()),
+    },
+
+    "/api/runtime/events": {
+      POST: (req) => catching("POST /api/runtime/events", () => apiRuntimeEvent(req)),
     },
 
     "/api/worktrees": {
-      GET: (req) => catching("GET /api/worktrees", () => apiGetWorktrees(req)),
       POST: (req) => catching("POST /api/worktrees", () => apiCreateWorktree(req)),
     },
 
@@ -463,6 +464,14 @@ Bun.serve({
       },
     },
 
+    "/api/worktrees/:name/close": {
+      POST: (req) => {
+        const name = decodeURIComponent(req.params.name);
+        if (!isValidWorktreeName(name)) return errorResponse("Invalid worktree name", 400);
+        return catching(`POST /api/worktrees/${name}/close`, () => apiCloseWorktree(name));
+      },
+    },
+
     "/api/worktrees/:name/send": {
       POST: (req) => {
         const name = decodeURIComponent(req.params.name);
@@ -479,14 +488,6 @@ Bun.serve({
       },
     },
 
-    "/api/worktrees/:name/status": {
-      GET: (req) => {
-        const name = decodeURIComponent(req.params.name);
-        if (!isValidWorktreeName(name)) return errorResponse("Invalid worktree name", 400);
-        return catching(`GET /api/worktrees/${name}/status`, () => apiWorktreeStatus(name));
-      },
-    },
-
     "/api/linear/issues": {
       GET: () => catching("GET /api/linear/issues", () => apiGetLinearIssues()),
     },
@@ -496,14 +497,15 @@ Bun.serve({
     },
 
     "/api/notifications/stream": {
-      GET: () => handleNotificationStream(),
+      GET: () => runtimeNotifications.stream(),
     },
 
     "/api/notifications/:id/dismiss": {
       POST: (req) => {
         const id = parseInt(req.params.id, 10);
         if (isNaN(id)) return errorResponse("Invalid notification ID", 400);
-        return handleDismissNotification(id);
+        if (!runtimeNotifications.dismiss(id)) return errorResponse("Not found", 404);
+        return jsonResponse({ ok: true });
       },
     },
   },
@@ -540,7 +542,7 @@ Bun.serve({
     data: {} as WsData,
 
     open(ws) {
-      log.debug(`[ws] open worktree=${ws.data.worktree}`);
+      log.debug(`[ws] open branch=${ws.data.branch}`);
     },
 
     async message(ws, message) {
@@ -549,55 +551,79 @@ Bun.serve({
         sendWs(ws, { type: "error", message: "malformed message" });
         return;
       }
-      const { worktree } = ws.data;
+      const { branch } = ws.data;
 
       switch (msg.type) {
-        case "input":
-          write(worktree, msg.data);
+        case "input": {
+          const worktreeId = getAttachedWorktreeId(ws);
+          if (!worktreeId) return;
+          write(worktreeId, msg.data);
           break;
-        case "sendKeys":
-          await sendKeys(worktree, msg.hexBytes);
+        }
+        case "sendKeys": {
+          const worktreeId = getAttachedWorktreeId(ws);
+          if (!worktreeId) return;
+          await sendKeys(worktreeId, msg.hexBytes);
           break;
+        }
         case "selectPane":
-          if (ws.data.attached) {
-            log.debug(`[ws] selectPane pane=${msg.pane} worktree=${worktree}`);
-            await selectPane(worktree, msg.pane);
+          {
+            const worktreeId = getAttachedWorktreeId(ws);
+            if (!worktreeId) return;
+            log.debug(`[ws] selectPane pane=${msg.pane} branch=${branch} worktreeId=${worktreeId}`);
+            await selectPane(worktreeId, msg.pane);
           }
           break;
         case "resize":
           if (!ws.data.attached) {
             // First resize = client reporting actual dimensions. Attach now.
             ws.data.attached = true;
-            log.debug(`[ws] first resize (attaching) worktree=${worktree} cols=${msg.cols} rows=${msg.rows}`);
+            log.debug(`[ws] first resize (attaching) branch=${branch} cols=${msg.cols} rows=${msg.rows}`);
             try {
               if (msg.initialPane !== undefined) {
-                log.debug(`[ws] initialPane=${msg.initialPane} worktree=${worktree}`);
+                log.debug(`[ws] initialPane=${msg.initialPane} branch=${branch}`);
               }
-              await attach(worktree, msg.cols, msg.rows, msg.initialPane);
+              const terminalWorktree = await resolveTerminalWorktree(branch);
+              ws.data.worktreeId = terminalWorktree.worktreeId;
+              await attach(
+                terminalWorktree.worktreeId,
+                terminalWorktree.attachTarget,
+                msg.cols,
+                msg.rows,
+                msg.initialPane,
+              );
               const { onData, onExit } = makeCallbacks(ws);
-              setCallbacks(worktree, onData, onExit);
-              const scrollback = getScrollback(worktree);
-              log.debug(`[ws] attached worktree=${worktree} scrollback=${scrollback.length} bytes`);
+              setCallbacks(terminalWorktree.worktreeId, onData, onExit);
+              const scrollback = getScrollback(terminalWorktree.worktreeId);
+              log.debug(
+                `[ws] attached branch=${branch} worktreeId=${terminalWorktree.worktreeId} scrollback=${scrollback.length} bytes`,
+              );
               if (scrollback.length > 0) {
                 sendWs(ws, { type: "scrollback", data: scrollback });
               }
             } catch (err: unknown) {
               const errMsg = err instanceof Error ? err.message : String(err);
-              log.error(`[ws] attach failed worktree=${worktree}: ${errMsg}`);
+              ws.data.attached = false;
+              ws.data.worktreeId = null;
+              log.error(`[ws] attach failed branch=${branch}: ${errMsg}`);
               sendWs(ws, { type: "error", message: errMsg });
               ws.close(1011, errMsg.slice(0, 123)); // 1011 = Internal Error
             }
           } else {
-            await resize(worktree, msg.cols, msg.rows);
+            const worktreeId = getAttachedWorktreeId(ws);
+            if (!worktreeId) return;
+            await resize(worktreeId, msg.cols, msg.rows);
           }
           break;
       }
     },
 
     async close(ws) {
-      log.debug(`[ws] close worktree=${ws.data.worktree} attached=${ws.data.attached}`);
-      clearCallbacks(ws.data.worktree);
-      await detach(ws.data.worktree);
+      log.debug(`[ws] close branch=${ws.data.branch} attached=${ws.data.attached} worktreeId=${ws.data.worktreeId}`);
+      if (ws.data.worktreeId) {
+        clearCallbacks(ws.data.worktreeId);
+        await detach(ws.data.worktreeId);
+      }
     },
   },
 });
@@ -611,10 +637,7 @@ if (tmuxCheck.exitCode !== 0) {
 }
 
 cleanupStaleSessions();
-startPrMonitor(getWorktreePaths, config.linkedRepos, PROJECT_DIR, undefined, hasDashboardActivity);
-installHookScripts().catch((err: unknown) => {
-  log.error(`[notify] failed to install hook scripts: ${err instanceof Error ? err.message : String(err)}`);
-});
+startPrMonitor(getWorktreeGitDirs, config.integrations.github.linkedRepos, PROJECT_DIR, undefined, hasRecentDashboardActivity);
 
 log.info(`Dev Dashboard API running at http://localhost:${PORT}`);
 const nets = networkInterfaces();

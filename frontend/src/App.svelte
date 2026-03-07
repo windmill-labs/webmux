@@ -18,7 +18,8 @@
 
   let config = $state<AppConfig>({
     services: [],
-    profiles: { default: { name: "default" } },
+    profiles: [],
+    defaultProfileName: "",
     autoName: false,
   });
   let worktrees = $state<WorktreeInfo[]>([]);
@@ -106,11 +107,18 @@
   let canConnect = $derived(!!selectedBranch && selectedWorktree?.mux === "✓");
 
   $effect(() => {
-    if (!selectedBranch && visibleWorktrees.length > 0) {
-      // Prefer an open worktree, fall back to the first one
-      const open = visibleWorktrees.find((w) => w.mux === "✓");
-      selectedBranch = (open ?? visibleWorktrees[0]).branch;
+    if (selectedBranch && selectedWorktree) {
+      return;
     }
+
+    if (visibleWorktrees.length === 0) {
+      selectedBranch = null;
+      return;
+    }
+
+    // Prefer an open worktree, fall back to the first one.
+    const open = visibleWorktrees.find((w) => w.mux === "✓");
+    selectedBranch = (open ?? visibleWorktrees[0]).branch;
   });
 
   $effect(() => {
@@ -166,7 +174,6 @@
         prompt || undefined,
         Object.keys(envOverrides).length > 0 ? envOverrides : undefined,
       );
-      await api.openWorktree(result.branch);
       showCreateDialog = false;
       assignIssue = null;
       await refresh();
@@ -221,6 +228,18 @@
       removingBranches = new Set(
         [...removingBranches].filter((b) => b !== branch),
       );
+    }
+  }
+
+  async function handleClose() {
+    const branch = selectedBranch;
+    if (!branch) return;
+    selectNeighborOf(branch);
+    try {
+      await api.closeWorktree(branch);
+      await refresh();
+    } catch (err) {
+      alert(`Failed to close worktree: ${errorMessage(err)}`);
     }
   }
 
@@ -430,13 +449,14 @@
 
   <main class="flex-1 min-w-0 flex flex-col overflow-hidden">
     <TopBar
-      name={selectedBranch}
+      name={selectedWorktree?.branch ?? null}
       worktree={selectedWorktree}
       {sshHost}
       {isMobile}
       {notificationHistory}
       {unreadCount}
       ontogglesidebar={() => (sidebarOpen = !sidebarOpen)}
+      onclose={handleClose}
       onmerge={() => {
         if (selectedBranch) mergeBranch = selectedBranch;
       }}
@@ -478,10 +498,9 @@
 {#if showCreateDialog}
   <CreateWorktreeDialog
     loading={creating}
-    profiles={[
-      config.profiles.default,
-      ...(config.profiles.sandbox ? [config.profiles.sandbox] : []),
-    ]}
+    profiles={config.profiles}
+    defaultProfileName={config.defaultProfileName}
+    autoNameEnabled={config.autoName}
     initialBranch={assignIssue?.branchName ?? ""}
     initialPrompt={assignIssue ? `${assignIssue.title}${assignIssue.description ? '\n\n' + assignIssue.description : ''}` : ""}
     startupEnvs={config.startupEnvs ?? {}}

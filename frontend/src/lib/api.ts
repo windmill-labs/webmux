@@ -1,4 +1,12 @@
-import type { WorktreeInfo, AppConfig, AppNotification, LinearIssue } from "./types";
+import type {
+  WorktreeInfo,
+  AppConfig,
+  AppNotification,
+  LinearIssue,
+  PrEntry,
+  ProjectSnapshot,
+  ProjectWorktreeSnapshot,
+} from "./types";
 
 async function api<T = unknown>(path: string, opts?: RequestInit): Promise<T> {
   const res = await fetch(`/api/${path}`, {
@@ -14,24 +22,52 @@ export function fetchConfig(): Promise<AppConfig> {
   return api<AppConfig>("config");
 }
 
-let _wtEtag: string | null = null;
-let _wtCache: WorktreeInfo[] | null = null;
+function mapAgentStatus(status: string): string {
+  switch (status) {
+    case "running":
+    case "starting":
+      return "working";
+    case "idle":
+      return "waiting";
+    case "stopped":
+      return "done";
+    case "error":
+      return "error";
+    default:
+      return "idle";
+  }
+}
+
+function clonePrEntry(pr: PrEntry): PrEntry {
+  return {
+    ...pr,
+    ciChecks: pr.ciChecks.map((check) => ({ ...check })),
+    comments: pr.comments.map((comment) => ({ ...comment })),
+  };
+}
+
+function mapWorktree(snapshot: ProjectWorktreeSnapshot): WorktreeInfo {
+  return {
+    branch: snapshot.branch,
+    agent: mapAgentStatus(snapshot.status),
+    mux: snapshot.mux ? "✓" : "",
+    path: snapshot.path,
+    dir: snapshot.dir,
+    dirty: snapshot.dirty,
+    status: snapshot.status,
+    elapsed: snapshot.elapsed,
+    profile: snapshot.profile,
+    agentName: snapshot.agentName,
+    services: snapshot.services.map((service) => ({ ...service })),
+    paneCount: snapshot.paneCount,
+    prs: snapshot.prs.map((pr) => clonePrEntry(pr)),
+    linearIssue: snapshot.linearIssue,
+  };
+}
 
 export async function fetchWorktrees(): Promise<WorktreeInfo[]> {
-  const headers: Record<string, string> = {};
-  if (_wtEtag) headers["If-None-Match"] = _wtEtag;
-
-  const res = await fetch("/api/worktrees", { headers });
-  if (res.status === 304 && _wtCache) return _wtCache;
-  if (!res.ok) {
-    const data = await res.json();
-    throw new Error(data.error || `HTTP ${res.status}`);
-  }
-
-  const data = (await res.json()) as WorktreeInfo[];
-  _wtEtag = res.headers.get("etag");
-  _wtCache = data;
-  return data;
+  const snapshot = await api<ProjectSnapshot>("project");
+  return snapshot.worktrees.map((worktree) => mapWorktree(worktree));
 }
 
 export function createWorktree(
@@ -59,6 +95,10 @@ export function removeWorktree(name: string): Promise<unknown> {
 
 export function openWorktree(name: string): Promise<unknown> {
   return api(`worktrees/${encodeURIComponent(name)}/open`, { method: "POST" });
+}
+
+export function closeWorktree(name: string): Promise<unknown> {
+  return api(`worktrees/${encodeURIComponent(name)}/close`, { method: "POST" });
 }
 
 export function mergeWorktree(name: string): Promise<unknown> {

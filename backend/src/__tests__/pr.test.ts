@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { parseReviewComments, mapWithConcurrency } from "../pr";
+import { parseReviewComments, mapWithConcurrency } from "../services/pr-service";
 
 describe("parseReviewComments", () => {
   it("parses normal review comments", () => {

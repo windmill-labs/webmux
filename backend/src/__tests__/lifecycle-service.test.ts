@@ -109,11 +109,16 @@ class FakePortProbe implements PortProbe {
 class FakeHookRunner implements LifecycleHookRunner {
   readonly calls: RunLifecycleHookInput[] = [];
 
+  constructor(
+    private readonly onRun?: (input: RunLifecycleHookInput) => void,
+  ) {}
+
   async run(input: RunLifecycleHookInput): Promise<void> {
     this.calls.push({
       ...input,
       env: { ...input.env },
     });
+    this.onRun?.(input);
   }
 }
 
@@ -277,7 +282,9 @@ describe("LifecycleService", () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
     const tmux = new FakeTmuxGateway();
-    const hooks = new FakeHookRunner();
+    const hooks = new FakeHookRunner(() => {
+      expect(tmux.listWindows()).toEqual([]);
+    });
     const lifecycle = makeLifecycleService(repoRoot, tmux, runtime, new FakeDockerGateway(), hooks);
 
     const created = await lifecycle.createWorktree({

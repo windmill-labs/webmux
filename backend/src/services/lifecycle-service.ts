@@ -126,6 +126,13 @@ export class LifecycleService {
         worktreePath,
       });
 
+      await this.runLifecycleHook({
+        name: "postCreate",
+        command: this.deps.config.lifecycleHooks.postCreate,
+        meta: initialized.meta,
+        worktreePath,
+      });
+
       await this.materializeRuntimeSession({
         branch,
         profile,
@@ -133,13 +140,6 @@ export class LifecycleService {
         initialized,
         worktreePath,
         prompt: input.prompt,
-      });
-
-      await this.runLifecycleHook({
-        name: "postCreate",
-        command: this.deps.config.lifecycleHooks.postCreate,
-        meta: initialized.meta,
-        worktreePath,
       });
 
       await this.deps.reconciliation.reconcile(this.deps.projectRoot);

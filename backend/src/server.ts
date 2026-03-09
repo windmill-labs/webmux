@@ -57,6 +57,7 @@ const reconciliationService = new ReconciliationService({
   portProbe,
   runtime: projectRuntime,
 });
+const removingBranches = new Set<string>();
 const lifecycleService = new LifecycleService({
   projectRoot: PROJECT_DIR,
   controlBaseUrl: `http://127.0.0.1:${PORT}`,
@@ -184,10 +185,27 @@ function catching(label: string, fn: () => Promise<Response>): Promise<Response>
   });
 }
 
+function ensureBranchNotRemoving(branch: string): void {
+  if (removingBranches.has(branch)) {
+    throw new LifecycleError(`Worktree is being removed: ${branch}`, 409);
+  }
+}
+
+async function withRemovingBranch<T>(branch: string, fn: () => Promise<T>): Promise<T> {
+  ensureBranchNotRemoving(branch);
+  removingBranches.add(branch);
+  try {
+    return await fn();
+  } finally {
+    removingBranches.delete(branch);
+  }
+}
+
 async function resolveTerminalWorktree(branch: string): Promise<{
   worktreeId: string;
   attachTarget: TerminalAttachTarget;
 }> {
+  ensureBranchNotRemoving(branch);
   await reconciliationService.reconcile(PROJECT_DIR);
   const state = projectRuntime.getWorktreeByBranch(branch);
   if (!state) {
@@ -348,13 +366,16 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
 }
 
 async function apiDeleteWorktree(name: string): Promise<Response> {
-  log.info(`[worktree:rm] name=${name}`);
-  await lifecycleService.removeWorktree(name);
-  log.debug(`[worktree:rm] done name=${name}`);
-  return jsonResponse({ ok: true });
+  return withRemovingBranch(name, async () => {
+    log.info(`[worktree:rm] name=${name}`);
+    await lifecycleService.removeWorktree(name);
+    log.debug(`[worktree:rm] done name=${name}`);
+    return jsonResponse({ ok: true });
+  });
 }
 
 async function apiOpenWorktree(name: string): Promise<Response> {
+  ensureBranchNotRemoving(name);
   log.info(`[worktree:open] name=${name}`);
   const result = await lifecycleService.openWorktree(name);
   log.debug(`[worktree:open] done name=${name} worktreeId=${result.worktreeId}`);

@@ -6,6 +6,7 @@ import {
   BunGitGateway,
   parseGitWorktreePorcelain,
   readGitWorktreeStatus,
+  removeGitWorktree,
   resolveWorktreeGitDir,
   resolveWorktreeRoot,
 } from "../adapters/git";
@@ -257,5 +258,73 @@ describe("BunGitGateway", () => {
     expect(dirtyStatus.dirty).toBe(true);
     expect(dirtyStatus.aheadCount).toBe(1);
     expect(dirtyStatus.currentCommit).toBe(cleanStatus.currentCommit);
+  });
+});
+
+describe("removeGitWorktree", () => {
+  it("cleans up the leftover directory when git already unregistered the worktree", () => {
+    const removedPaths: string[] = [];
+
+    removeGitWorktree(
+      {
+        repoRoot: "/repo",
+        worktreePath: "/repo/__worktrees/feature-a",
+        force: true,
+      },
+      {
+        tryRunGit: () => ({
+          ok: false,
+          stderr: "error: failed to delete '/repo/__worktrees/feature-a': Directory not empty",
+        }),
+        listWorktrees: () => [
+          {
+            path: "/repo",
+            head: "abc123",
+            branch: "main",
+            detached: false,
+            bare: false,
+          },
+        ],
+        removeDirectory: (path) => {
+          removedPaths.push(path);
+        },
+      },
+    );
+
+    expect(removedPaths).toEqual(["/repo/__worktrees/feature-a"]);
+  });
+
+  it("surfaces the git error when the worktree is still registered", () => {
+    expect(() => {
+      removeGitWorktree(
+        {
+          repoRoot: "/repo",
+          worktreePath: "/repo/__worktrees/feature-a",
+          force: true,
+        },
+        {
+          tryRunGit: () => ({
+            ok: false,
+            stderr: "error: failed to delete '/repo/__worktrees/feature-a': Directory not empty",
+          }),
+          listWorktrees: () => [
+            {
+              path: "/repo",
+              head: "abc123",
+              branch: "main",
+              detached: false,
+              bare: false,
+            },
+            {
+              path: "/repo/__worktrees/feature-a",
+              head: "def456",
+              branch: "feature-a",
+              detached: false,
+              bare: false,
+            },
+          ],
+        },
+      );
+    }).toThrow("git worktree remove --force /repo/__worktrees/feature-a failed");
   });
 });

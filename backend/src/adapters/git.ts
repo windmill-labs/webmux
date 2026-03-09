@@ -1,3 +1,4 @@
+import { rmSync } from "node:fs";
 import { resolve } from "node:path";
 
 export interface GitWorktreeEntry {
@@ -33,6 +34,16 @@ export interface GitWorktreeStatus {
   currentCommit: string | null;
 }
 
+export type TryGitCommandResult =
+  | { ok: true; stdout: string }
+  | { ok: false; stderr: string };
+
+export interface RemoveGitWorktreeDeps {
+  tryRunGit?: (args: string[], cwd: string) => TryGitCommandResult;
+  listWorktrees?: (cwd: string) => GitWorktreeEntry[];
+  removeDirectory?: (path: string) => void;
+}
+
 export interface GitGateway {
   resolveWorktreeRoot(cwd: string): string;
   resolveWorktreeGitDir(cwd: string): string;
@@ -60,7 +71,7 @@ function runGit(args: string[], cwd: string): string {
   return new TextDecoder().decode(result.stdout).trim();
 }
 
-function tryRunGit(args: string[], cwd: string): { ok: true; stdout: string } | { ok: false; stderr: string } {
+function tryRunGit(args: string[], cwd: string): TryGitCommandResult {
   const result = Bun.spawnSync(["git", ...args], {
     cwd,
     stdout: "pipe",
@@ -82,6 +93,18 @@ function tryRunGit(args: string[], cwd: string): { ok: true; stdout: string } | 
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function isRegisteredWorktree(entries: GitWorktreeEntry[], worktreePath: string): boolean {
+  const resolvedPath = resolve(worktreePath);
+  return entries.some((entry) => resolve(entry.path) === resolvedPath);
+}
+
+function removeDirectory(path: string): void {
+  rmSync(path, {
+    recursive: true,
+    force: true,
+  });
 }
 
 function currentCheckoutRef(cwd: string): { ref: string; branch: string | null } {
@@ -180,6 +203,32 @@ export function readGitWorktreeStatus(cwd: string): GitWorktreeStatus {
   };
 }
 
+export function removeGitWorktree(
+  opts: RemoveGitWorktreeOptions,
+  deps: RemoveGitWorktreeDeps = {},
+): void {
+  const args = ["worktree", "remove"];
+  if (opts.force) args.push("--force");
+  args.push(opts.worktreePath);
+
+  const result = (deps.tryRunGit ?? tryRunGit)(args, opts.repoRoot);
+  if (result.ok) {
+    return;
+  }
+
+  const failure = `git ${args.join(" ")} failed: ${result.stderr || "exit 1"}`;
+  const remainingWorktrees = (deps.listWorktrees ?? listGitWorktrees)(opts.repoRoot);
+  if (isRegisteredWorktree(remainingWorktrees, opts.worktreePath)) {
+    throw new Error(failure);
+  }
+
+  try {
+    (deps.removeDirectory ?? removeDirectory)(opts.worktreePath);
+  } catch (error) {
+    throw new Error(`${failure}; cleanup failed: ${errorMessage(error)}`);
+  }
+}
+
 export class BunGitGateway implements GitGateway {
   resolveWorktreeRoot(cwd: string): string {
     return resolveWorktreeRoot(cwd);
@@ -204,10 +253,7 @@ export class BunGitGateway implements GitGateway {
   }
 
   removeWorktree(opts: RemoveGitWorktreeOptions): void {
-    const args = ["worktree", "remove"];
-    if (opts.force) args.push("--force");
-    args.push(opts.worktreePath);
-    runGit(args, opts.repoRoot);
+    removeGitWorktree(opts);
   }
 
   deleteBranch(repoRoot: string, branch: string, force = false): void {

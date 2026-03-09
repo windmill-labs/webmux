@@ -1,12 +1,19 @@
 name: Webmux
 
 workspace:
-  mainBranch: main
+  mainBranch: refactor
   worktreeRoot: ../workmux-web__worktrees
   defaultAgent: claude
 
 auto_name:
   model: gemini-2.5-flash-lite
+
+startupEnvs:
+  NODE_ENV: development
+
+lifecycleHooks:
+  postCreate: ./scripts/post-create.sh
+  preRemove: ./scripts/pre-remove.sh
 
 services:
   - name: BE

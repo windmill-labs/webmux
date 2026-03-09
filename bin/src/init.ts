@@ -144,6 +144,25 @@ if (missing.length > 0) {
   process.exit(1);
 }
 
+// Step 2b — Bun version check (>= 1.3.5 required)
+const MIN_BUN_VERSION = "1.3.5";
+const bunVersionResult = run("bun", ["--version"]);
+if (bunVersionResult.success) {
+  const bunVersion = bunVersionResult.stdout.toString().trim();
+  const [major, minor, patch] = bunVersion.split(".").map(Number);
+  const [reqMajor, reqMinor, reqPatch] = MIN_BUN_VERSION.split(".").map(Number);
+  const tooOld =
+    major < reqMajor ||
+    (major === reqMajor && minor < reqMinor) ||
+    (major === reqMajor && minor === reqMinor && patch < reqPatch);
+  if (tooOld) {
+    p.log.error(`Bun ${bunVersion} is too old. webmux requires Bun >= ${MIN_BUN_VERSION}.`);
+    p.log.info("Upgrade with: bun upgrade");
+    p.outro("Setup incomplete.");
+    process.exit(1);
+  }
+}
+
 // Step 3 — gh auth check
 if (which("gh")) {
   const ghAuth = run("gh", ["auth", "status"]);

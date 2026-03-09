@@ -34,6 +34,12 @@ Track dev server ports across worktrees. webmux polls configured services and sh
 
 Run agents in isolated Docker containers for untrusted or experimental work. webmux manages the container lifecycle, port forwarding, and volume mounts automatically.
 
+### Linear Integration
+
+<!-- gif -->
+
+See your assigned Linear issues alongside your worktrees. webmux matches branches to issues automatically, so you can browse your backlog, pick an issue, and spin up a worktree for it in one click.
+
 ## Quick Start
 
 ```bash

@@ -38,7 +38,7 @@ Run agents in isolated Docker containers for untrusted or experimental work. web
 
 ![linear-1 5x](https://github.com/user-attachments/assets/3187fbe2-eeee-4a33-8780-c51c3575b72a)
 
-See your assigned Linear issues alongside your worktrees. webmux matches branches to issues automatically, so you can browse your backlog, pick an issue, and spin up a worktree for it in one click.
+See your assigned Linear issues alongside your worktrees. Webmux matches branches to issues automatically, so you can browse your backlog, pick an issue, and spin up a worktree for it in one click.
 
 ## Quick Start
 

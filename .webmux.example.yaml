@@ -1,0 +1,177 @@
+# Example `.webmux.yaml` for the current refactored config shape.
+# Copy the parts you need into `.webmux.yaml`.
+
+# Project name shown in the dashboard and browser tab.
+name: Example Project
+
+workspace:
+  # Base branch used when creating a new worktree.
+  mainBranch: main
+
+  # Relative or absolute path where managed worktrees are created.
+  worktreeRoot: __worktrees
+
+  # Default agent if the UI caller does not choose one.
+  # Allowed values: claude, codex
+  defaultAgent: claude
+
+# Auto-generated service ports that are injected into pane processes,
+# lifecycle hooks, and runtime env files.
+services:
+  # Human-readable label shown in the UI.
+  - name: Backend
+
+    # Env var that receives the allocated port number.
+    portEnv: BACKEND_PORT
+
+    # Starting port for the first worktree.
+    portStart: 5111
+
+    # Increment applied per worktree slot.
+    portStep: 10
+
+    # Optional URL template used by the UI when showing service links.
+    # `${PORT_ENV_NAME}` placeholders are expanded from allocated ports.
+    urlTemplate: http://127.0.0.1:${BACKEND_PORT}
+
+  - name: Frontend
+    portEnv: FRONTEND_PORT
+    portStart: 5112
+    portStep: 10
+    urlTemplate: http://127.0.0.1:${FRONTEND_PORT}
+
+# Extra env vars materialized into the worktree runtime env.
+# Values can be strings or booleans.
+startupEnvs:
+  NODE_ENV: development
+  FEATURE_FLAG: true
+
+profiles:
+  # Any profile name is allowed. The UI shows these names as choices.
+  default:
+    # Allowed values: host, docker
+    runtime: host
+
+    # Enables permissive agent flags:
+    # Claude => --dangerously-skip-permissions
+    # Codex => --yolo
+    yolo: false
+
+    # Host env vars forwarded to the agent process.
+    envPassthrough:
+      - GITHUB_TOKEN
+      - OPENAI_API_KEY
+
+    # Optional system prompt for the agent pane.
+    # `${VAR}` placeholders are expanded from the computed runtime env.
+    systemPrompt: >
+      You are working inside a webmux-managed worktree.
+      Backend: ${BACKEND_PORT}
+      Frontend: ${FRONTEND_PORT}
+
+    panes:
+      # `agent` panes start the configured coding agent.
+      - id: agent
+        kind: agent
+
+        # Gives focus to this pane when the session opens.
+        focus: true
+
+        # Optional pane placement relative to the previous pane.
+        # Allowed values: right, bottom
+        split: right
+
+        # Optional pane size percentage for the split.
+        sizePct: 65
+
+        # Optional working directory for this pane.
+        # Allowed values: repo, worktree
+        cwd: worktree
+
+      # `shell` panes start an interactive shell.
+      - id: shell
+        kind: shell
+        split: bottom
+        sizePct: 35
+        cwd: worktree
+
+      # `command` panes run a startup command.
+      - id: frontend
+        kind: command
+        split: right
+        sizePct: 40
+        cwd: worktree
+        command: bun run frontend:dev
+
+  sandbox:
+    runtime: docker
+    yolo: true
+
+    # Required when `runtime: docker`.
+    image: example-sandbox-image
+
+    envPassthrough:
+      - AWS_ACCESS_KEY_ID
+      - AWS_SECRET_ACCESS_KEY
+      - AWS_SESSION_TOKEN
+
+    systemPrompt: >
+      You are running inside a sandbox container.
+      Use the runtime env file before starting services.
+
+    # Optional Docker mounts.
+    mounts:
+      # Host path to mount into the container.
+      - hostPath: ~/.codex
+
+        # Optional container path. Defaults to `hostPath` if omitted.
+        guestPath: /root/.codex
+
+        # Optional write access. Omit or set false for read-only.
+        writable: true
+
+    panes:
+      - id: agent
+        kind: agent
+        focus: true
+      - id: backend
+        kind: command
+        split: right
+        cwd: worktree
+        command: bun run backend:dev
+
+integrations:
+  github:
+    # Linked repos used for PR monitoring in the UI.
+    linkedRepos:
+      # GitHub repo slug.
+      - repo: your-org/shared-lib
+
+        # Short display label in the UI.
+        alias: shared
+
+  linear:
+    # Enables or disables Linear issue fetching in the dashboard.
+    enabled: true
+
+lifecycleHooks:
+  # Shell command run after a managed worktree is created and its session exists.
+  # Runs with the worktree as cwd and receives startupEnvs, allocated ports,
+  # and WEBMUX_* metadata in its environment.
+  postCreate: scripts/post-create.sh
+
+  # Shell command run before a managed worktree is removed.
+  preRemove: scripts/pre-remove.sh
+
+auto_name:
+  # Model used when the branch field is left empty and a prompt is provided.
+  # Supported provider families currently include:
+  # - claude-*
+  # - gemini-*
+  # - gpt-*, chatgpt-*, o*
+  model: claude-3-5-haiku-latest
+
+  # Optional system prompt for branch-name generation.
+  system_prompt: >
+    Generate a concise git branch name from the task description.
+    Return only the branch name in lowercase kebab-case.

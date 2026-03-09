@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.7.3](https://github.com/windmill-labs/webmux/compare/v0.7.2...v0.7.3) (2026-03-09)
+
+
+### Bug Fixes
+
+* avoid reopening removing worktrees ([cabbeac](https://github.com/windmill-labs/webmux/commit/cabbeac3df2af5d59b45d42b26efbee05cdcbf58))
+* force remove worktrees from backend ([7e0f192](https://github.com/windmill-labs/webmux/commit/7e0f192d47e6034f94933475be0e06294f5eb26a))
+* harden backend worktree removal ([a79e171](https://github.com/windmill-labs/webmux/commit/a79e1717d4fe3c2e7aec0160fcadcdbecc927c1d))
+* run postcreate hook before tmux startup ([4ad6a73](https://github.com/windmill-labs/webmux/commit/4ad6a73f5fcb1dabc084073ca6b30897d97339aa))
+
 ## [0.7.2](https://github.com/windmill-labs/webmux/compare/v0.7.1...v0.7.2) (2026-03-06)
 
 

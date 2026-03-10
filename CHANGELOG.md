@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.8.0](https://github.com/windmill-labs/webmux/compare/v0.7.3...v0.8.0) (2026-03-10)
+
+
+### Features
+
+* enforce minimum bun version (&gt;= 1.3.5) during webmux init ([867ea63](https://github.com/windmill-labs/webmux/commit/867ea63c12fa637af5a75b63b709a294c8169f5a))
+
+
+### Bug Fixes
+
+* use direnv exec for lifecycle hooks to provide nix dev shell env ([#82](https://github.com/windmill-labs/webmux/issues/82)) ([3d0d2c5](https://github.com/windmill-labs/webmux/commit/3d0d2c516c9b634b0f670a84e0f0bb08fbca3dd8))
+
 ## [0.7.3](https://github.com/windmill-labs/webmux/compare/v0.7.2...v0.7.3) (2026-03-09)
 
 

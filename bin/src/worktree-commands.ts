@@ -1,9 +1,12 @@
+import { basename, resolve } from "node:path";
+import { readWorktreeMeta } from "../../backend/src/adapters/fs";
+import { buildProjectSessionName, buildWorktreeWindowName } from "../../backend/src/adapters/tmux";
 import type { AgentKind } from "../../backend/src/domain/config";
 import { isValidWorktreeName } from "../../backend/src/domain/policies";
 import { createWebmuxRuntime } from "../../backend/src/runtime";
 import type { CreateLifecycleWorktreeInput } from "../../backend/src/services/lifecycle-service";
 
-export type WorktreeSubcommand = "add" | "open" | "close" | "remove" | "merge";
+export type WorktreeSubcommand = "add" | "list" | "open" | "close" | "remove" | "merge";
 
 interface LifecycleServiceLike {
   createWorktree(input: CreateLifecycleWorktreeInput): Promise<{ branch: string; worktreeId: string }>;
@@ -14,10 +17,18 @@ interface LifecycleServiceLike {
 }
 
 interface WorktreeRuntimeLike {
+  projectDir: string;
   config: {
     workspace: {
       mainBranch: string;
     };
+  };
+  git: {
+    listWorktrees(cwd: string): Array<{ path: string; branch: string | null; bare: boolean }>;
+    resolveWorktreeGitDir(cwd: string): string;
+  };
+  tmux: {
+    listWindows(): Array<{ sessionName: string; windowName: string }>;
   };
   lifecycleService: LifecycleServiceLike;
 }
@@ -33,6 +44,7 @@ interface WorktreeCommandDependencies {
   createRuntime?: (options: { projectDir: string; port: number }) => WorktreeRuntimeLike;
   stdout?: (message: string) => void;
   stderr?: (message: string) => void;
+  switchToTmuxWindow?: (projectDir: string, branch: string) => void;
 }
 
 class CommandUsageError extends Error {}
@@ -51,6 +63,8 @@ export function getWorktreeCommandUsage(command: WorktreeSubcommand): string {
         "  --env KEY=VALUE          Runtime env override (repeatable)",
         "  --help                   Show this help message",
       ].join("\n");
+    case "list":
+      return "Usage:\n  webmux list";
     case "open":
       return "Usage:\n  webmux open <branch>";
     case "close":
@@ -189,6 +203,77 @@ export function parseBranchCommandArgs(args: string[]): string | null {
   return branch;
 }
 
+function defaultSwitchToTmuxWindow(projectDir: string, branch: string): void {
+  const sessionName = buildProjectSessionName(resolve(projectDir));
+  const windowName = buildWorktreeWindowName(branch);
+  const target = `${sessionName}:${windowName}`;
+
+  const selectResult = Bun.spawnSync(["tmux", "select-window", "-t", target], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (selectResult.exitCode !== 0) return;
+
+  if (Bun.env.TMUX) {
+    Bun.spawnSync(["tmux", "switch-client", "-t", sessionName], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+  } else {
+    Bun.spawnSync(["tmux", "attach-session", "-t", sessionName], {
+      stdin: "inherit",
+      stdout: "inherit",
+      stderr: "inherit",
+    });
+  }
+}
+
+async function listWorktrees(
+  runtime: WorktreeRuntimeLike,
+  stdout: (message: string) => void,
+): Promise<void> {
+  const projectDir = resolve(runtime.projectDir);
+  const entries = runtime.git.listWorktrees(projectDir)
+    .filter((entry) => !entry.bare && resolve(entry.path) !== projectDir);
+
+  if (entries.length === 0) {
+    stdout("No worktrees found.");
+    return;
+  }
+
+  const sessionName = buildProjectSessionName(projectDir);
+  let windows: Array<{ sessionName: string; windowName: string }> = [];
+  try {
+    windows = runtime.tmux.listWindows();
+  } catch {
+    windows = [];
+  }
+
+  const openWindows = new Set(
+    windows
+      .filter((w) => w.sessionName === sessionName)
+      .map((w) => w.windowName),
+  );
+
+  const rows: Array<{ branch: string; isOpen: boolean; info: string }> = [];
+  for (const entry of entries) {
+    const branch = entry.branch ?? basename(entry.path);
+    const isOpen = openWindows.has(buildWorktreeWindowName(branch));
+    const gitDir = runtime.git.resolveWorktreeGitDir(entry.path);
+    const meta = await readWorktreeMeta(gitDir);
+    const info = meta ? `${meta.profile} / ${meta.agent}` : "";
+    rows.push({ branch, isOpen, info });
+  }
+
+  rows.sort((a, b) => a.branch.localeCompare(b.branch));
+
+  const maxBranch = Math.max(...rows.map((r) => r.branch.length));
+  for (const row of rows) {
+    const status = row.isOpen ? "open" : "closed";
+    stdout(`${row.branch.padEnd(maxBranch + 2)} ${status.padEnd(8)} ${row.info}`.trimEnd());
+  }
+}
+
 export async function runWorktreeCommand(
   context: WorktreeCommandContext,
   deps: WorktreeCommandDependencies = {},
@@ -196,6 +281,7 @@ export async function runWorktreeCommand(
   const createRuntime = deps.createRuntime ?? ((options: { projectDir: string; port: number }) => createWebmuxRuntime(options));
   const stdout = deps.stdout ?? ((message: string) => console.log(message));
   const stderr = deps.stderr ?? ((message: string) => console.error(message));
+  const switchToTmuxWindow = deps.switchToTmuxWindow ?? defaultSwitchToTmuxWindow;
 
   try {
     if (context.command === "add") {
@@ -211,10 +297,25 @@ export async function runWorktreeCommand(
       });
       const result = await runtime.lifecycleService.createWorktree(input);
       stdout(`Created worktree ${result.branch}`);
+      switchToTmuxWindow(runtime.projectDir, result.branch);
       return 0;
     }
 
-    const command: Exclude<WorktreeSubcommand, "add"> = context.command;
+    if (context.command === "list") {
+      if (context.args.includes("--help") || context.args.includes("-h")) {
+        stdout(getWorktreeCommandUsage("list"));
+        return 0;
+      }
+
+      const runtime = createRuntime({
+        projectDir: context.projectDir,
+        port: context.port,
+      });
+      await listWorktrees(runtime, stdout);
+      return 0;
+    }
+
+    const command: Exclude<WorktreeSubcommand, "add" | "list"> = context.command;
     const branch = parseBranchCommandArgs(context.args);
     if (!branch) {
       stdout(getWorktreeCommandUsage(command));

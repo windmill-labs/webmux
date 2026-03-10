@@ -1,6 +1,40 @@
 import { describe, expect, it } from "bun:test";
+import { buildProjectSessionName, buildWorktreeWindowName } from "../../backend/src/adapters/tmux";
 import type { CreateLifecycleWorktreeInput } from "../../backend/src/services/lifecycle-service";
 import { parseAddCommandArgs, parseBranchCommandArgs, runWorktreeCommand } from "./worktree-commands";
+
+function stubLifecycleService(calls: Array<{ method: string; value: unknown }>) {
+  return {
+    async createWorktree(input: CreateLifecycleWorktreeInput): Promise<{ branch: string; worktreeId: string }> {
+      calls.push({ method: "createWorktree", value: input });
+      return { branch: input.branch ?? "generated-branch", worktreeId: "wt-1" };
+    },
+    async openWorktree(branch: string): Promise<{ branch: string; worktreeId: string }> {
+      calls.push({ method: "openWorktree", value: branch });
+      return { branch, worktreeId: "wt-2" };
+    },
+    async closeWorktree(branch: string): Promise<void> {
+      calls.push({ method: "closeWorktree", value: branch });
+    },
+    async removeWorktree(branch: string): Promise<void> {
+      calls.push({ method: "removeWorktree", value: branch });
+    },
+    async mergeWorktree(branch: string): Promise<void> {
+      calls.push({ method: "mergeWorktree", value: branch });
+    },
+  };
+}
+
+function stubGit(worktrees: Array<{ path: string; branch: string | null; bare: boolean }> = []) {
+  return {
+    listWorktrees: () => worktrees,
+    resolveWorktreeGitDir: (cwd: string) => `${cwd}/.git`,
+  };
+}
+
+function stubTmux(windows: Array<{ sessionName: string; windowName: string }> = []) {
+  return { listWindows: () => windows };
+}
 
 function makeRuntime() {
   const calls: Array<{ method: string; value: unknown }> = [];
@@ -8,30 +42,15 @@ function makeRuntime() {
   return {
     calls,
     runtime: {
+      projectDir: "/repo",
       config: {
         workspace: {
           mainBranch: "develop",
         },
       },
-      lifecycleService: {
-        async createWorktree(input: CreateLifecycleWorktreeInput): Promise<{ branch: string; worktreeId: string }> {
-          calls.push({ method: "createWorktree", value: input });
-          return { branch: input.branch ?? "generated-branch", worktreeId: "wt-1" };
-        },
-        async openWorktree(branch: string): Promise<{ branch: string; worktreeId: string }> {
-          calls.push({ method: "openWorktree", value: branch });
-          return { branch, worktreeId: "wt-2" };
-        },
-        async closeWorktree(branch: string): Promise<void> {
-          calls.push({ method: "closeWorktree", value: branch });
-        },
-        async removeWorktree(branch: string): Promise<void> {
-          calls.push({ method: "removeWorktree", value: branch });
-        },
-        async mergeWorktree(branch: string): Promise<void> {
-          calls.push({ method: "mergeWorktree", value: branch });
-        },
-      },
+      git: stubGit(),
+      tmux: stubTmux(),
+      lifecycleService: stubLifecycleService(calls),
     },
   };
 }
@@ -80,10 +99,11 @@ describe("parseBranchCommandArgs", () => {
 });
 
 describe("runWorktreeCommand", () => {
-  it("dispatches add through the lifecycle service", async () => {
+  it("dispatches add through the lifecycle service and switches to tmux", async () => {
     const { runtime, calls } = makeRuntime();
     const stdout: string[] = [];
     const stderr: string[] = [];
+    const switchCalls: Array<{ projectDir: string; branch: string }> = [];
 
     const exitCode = await runWorktreeCommand(
       {
@@ -96,6 +116,7 @@ describe("runWorktreeCommand", () => {
         createRuntime: () => runtime,
         stdout: (message) => stdout.push(message),
         stderr: (message) => stderr.push(message),
+        switchToTmuxWindow: (projectDir, branch) => switchCalls.push({ projectDir, branch }),
       },
     );
 
@@ -112,6 +133,7 @@ describe("runWorktreeCommand", () => {
     ]);
     expect(stdout).toEqual(["Created worktree feature/search"]);
     expect(stderr).toEqual([]);
+    expect(switchCalls).toEqual([{ projectDir: "/repo", branch: "feature/search" }]);
   });
 
   it("prints subcommand help without creating a runtime", async () => {
@@ -174,11 +196,14 @@ describe("runWorktreeCommand", () => {
       },
       {
         createRuntime: () => ({
+          projectDir: "/repo",
           config: {
             workspace: {
               mainBranch: "main",
             },
           },
+          git: stubGit(),
+          tmux: stubTmux(),
           lifecycleService: {
             async createWorktree(): Promise<{ branch: string; worktreeId: string }> {
               throw new Error("not used");
@@ -230,5 +255,78 @@ describe("runWorktreeCommand", () => {
     expect(exitCode).toBe(1);
     expect(createRuntimeCalled).toBe(false);
     expect(stderr).toEqual(["Error: Invalid worktree name"]);
+  });
+
+  it("lists worktrees with open/closed status", async () => {
+    const sessionName = buildProjectSessionName("/repo");
+    const stdout: string[] = [];
+
+    const exitCode = await runWorktreeCommand(
+      { command: "list", args: [], projectDir: "/repo", port: 5111 },
+      {
+        createRuntime: () => ({
+          projectDir: "/repo",
+          config: { workspace: { mainBranch: "main" } },
+          git: stubGit([
+            { path: "/repo", branch: "main", bare: false },
+            { path: "/repo/.worktrees/fix-bug", branch: "fix-bug", bare: false },
+            { path: "/repo/.worktrees/my-feature", branch: "my-feature", bare: false },
+          ]),
+          tmux: stubTmux([
+            { sessionName, windowName: buildWorktreeWindowName("my-feature") },
+          ]),
+          lifecycleService: stubLifecycleService([]),
+        }),
+        stdout: (msg) => stdout.push(msg),
+      },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(stdout).toHaveLength(2);
+    expect(stdout[0]).toContain("fix-bug");
+    expect(stdout[0]).toContain("closed");
+    expect(stdout[1]).toContain("my-feature");
+    expect(stdout[1]).toContain("open");
+  });
+
+  it("prints empty message when no worktrees exist", async () => {
+    const stdout: string[] = [];
+
+    const exitCode = await runWorktreeCommand(
+      { command: "list", args: [], projectDir: "/repo", port: 5111 },
+      {
+        createRuntime: () => ({
+          projectDir: "/repo",
+          config: { workspace: { mainBranch: "main" } },
+          git: stubGit([{ path: "/repo", branch: "main", bare: false }]),
+          tmux: stubTmux(),
+          lifecycleService: stubLifecycleService([]),
+        }),
+        stdout: (msg) => stdout.push(msg),
+      },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(stdout).toEqual(["No worktrees found."]);
+  });
+
+  it("prints list help without creating a runtime", async () => {
+    let createRuntimeCalled = false;
+    const stdout: string[] = [];
+
+    const exitCode = await runWorktreeCommand(
+      { command: "list", args: ["--help"], projectDir: "/repo", port: 5111 },
+      {
+        createRuntime: () => {
+          createRuntimeCalled = true;
+          throw new Error("unexpected");
+        },
+        stdout: (msg) => stdout.push(msg),
+      },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(createRuntimeCalled).toBe(false);
+    expect(stdout).toEqual(["Usage:\n  webmux list"]);
   });
 });

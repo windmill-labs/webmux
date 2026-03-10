@@ -18,6 +18,7 @@ Usage:
   webmux init         Interactive project setup
   webmux service      Manage webmux as a system service
   webmux add          Create a worktree using the dashboard lifecycle
+  webmux list         List worktrees and their status
   webmux open         Open an existing worktree session
   webmux close        Close a worktree session without removing it
   webmux remove       Remove a worktree
@@ -31,7 +32,7 @@ Environment:
 `);
 }
 
-type RootCommand = "init" | "service" | "add" | "open" | "close" | "remove" | "merge" | null;
+type RootCommand = "init" | "service" | "add" | "list" | "open" | "close" | "remove" | "merge" | null;
 
 interface ParsedRootArgs {
   port: number;
@@ -44,6 +45,7 @@ function isRootCommand(value: string): value is NonNullable<RootCommand> {
   return value === "init"
     || value === "service"
     || value === "add"
+    || value === "list"
     || value === "open"
     || value === "close"
     || value === "remove"
@@ -101,8 +103,9 @@ function parseRootArgs(args: string[]): ParsedRootArgs {
   };
 }
 
-function isWorktreeCommand(command: RootCommand): command is "add" | "open" | "close" | "remove" | "merge" {
+function isWorktreeCommand(command: RootCommand): command is "add" | "list" | "open" | "close" | "remove" | "merge" {
   return command === "add"
+    || command === "list"
     || command === "open"
     || command === "close"
     || command === "remove"

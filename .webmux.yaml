@@ -1,7 +1,7 @@
 name: Webmux
 
 workspace:
-  mainBranch: refactor
+  mainBranch: main
   worktreeRoot: ../workmux-web__worktrees
   defaultAgent: claude
 

@@ -15,61 +15,31 @@ import {
   sendPrompt as sendTerminalPrompt,
   type TerminalAttachTarget,
 } from "./adapters/terminal";
-import {
-  BunGitGateway,
-} from "./adapters/git";
-import { loadConfig, getDefaultProfileName, gitRoot, type ProjectConfig } from "./adapters/config";
-import { loadControlToken } from "./adapters/control-token";
-import { BunDockerGateway } from "./adapters/docker";
-import { BunLifecycleHookRunner } from "./adapters/hooks";
-import { BunPortProbe } from "./adapters/port-probe";
-import {
-  BunTmuxGateway,
-} from "./adapters/tmux";
+import { getDefaultProfileName, type ProjectConfig } from "./adapters/config";
 import { jsonResponse, errorResponse } from "./lib/http";
 import { hasRecentDashboardActivity, touchDashboardActivity } from "./services/dashboard-activity";
-import { AutoNameService } from "./services/auto-name-service";
 import { branchMatchesIssue, fetchAssignedIssues } from "./services/linear-service";
-import { NotificationService as RuntimeNotificationService } from "./services/notification-service";
-import { LifecycleError, LifecycleService } from "./services/lifecycle-service";
+import { LifecycleError } from "./services/lifecycle-service";
 import { startPrMonitor } from "./services/pr-service";
-import { ProjectRuntime } from "./services/project-runtime";
-import { ReconciliationService } from "./services/reconciliation-service";
 import { buildProjectSnapshot } from "./services/snapshot-service";
 import { parseRuntimeEvent } from "./domain/events";
+import { createWebmuxRuntime } from "./runtime";
 
 const PORT = parseInt(Bun.env.BACKEND_PORT || "5111", 10);
 const STATIC_DIR = Bun.env.WEBMUX_STATIC_DIR || "";
-const PROJECT_DIR = Bun.env.WEBMUX_PROJECT_DIR || gitRoot(process.cwd());
-const config: ProjectConfig = loadConfig(PROJECT_DIR);
-const git = new BunGitGateway();
-const portProbe = new BunPortProbe();
-const tmux = new BunTmuxGateway();
-const docker = new BunDockerGateway();
-const hooks = new BunLifecycleHookRunner();
-const autoName = new AutoNameService();
-const projectRuntime = new ProjectRuntime();
-const runtimeNotifications = new RuntimeNotificationService();
-const reconciliationService = new ReconciliationService({
-  config,
-  git,
-  tmux,
-  portProbe,
-  runtime: projectRuntime,
+const runtime = createWebmuxRuntime({
+  port: PORT,
+  projectDir: Bun.env.WEBMUX_PROJECT_DIR || process.cwd(),
 });
+const PROJECT_DIR = runtime.projectDir;
+const config: ProjectConfig = runtime.config;
+const git = runtime.git;
+const tmux = runtime.tmux;
+const projectRuntime = runtime.projectRuntime;
+const runtimeNotifications = runtime.runtimeNotifications;
+const reconciliationService = runtime.reconciliationService;
 const removingBranches = new Set<string>();
-const lifecycleService = new LifecycleService({
-  projectRoot: PROJECT_DIR,
-  controlBaseUrl: `http://127.0.0.1:${PORT}`,
-  getControlToken: loadControlToken,
-  config,
-  git,
-  tmux,
-  docker,
-  reconciliation: reconciliationService,
-  hooks,
-  autoName,
-});
+const lifecycleService = runtime.lifecycleService;
 
 function getFrontendConfig(): {
   name: string;

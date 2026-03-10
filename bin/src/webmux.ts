@@ -17,6 +17,11 @@ Usage:
   webmux              Start the dashboard
   webmux init         Interactive project setup
   webmux service      Manage webmux as a system service
+  webmux add          Create a worktree using the dashboard lifecycle
+  webmux open         Open an existing worktree session
+  webmux close        Close a worktree session without removing it
+  webmux remove       Remove a worktree
+  webmux merge        Merge a worktree into the main branch and remove it
   webmux --port N     Set port (default: 5111)
   webmux --debug      Show debug-level logs
   webmux --help       Show this help message
@@ -26,45 +31,116 @@ Environment:
 `);
 }
 
+type RootCommand = "init" | "service" | "add" | "open" | "close" | "remove" | "merge" | null;
+
+interface ParsedRootArgs {
+  port: number;
+  debug: boolean;
+  command: RootCommand;
+  commandArgs: string[];
+}
+
+function isRootCommand(value: string): value is NonNullable<RootCommand> {
+  return value === "init"
+    || value === "service"
+    || value === "add"
+    || value === "open"
+    || value === "close"
+    || value === "remove"
+    || value === "merge";
+}
+
+function parseRootArgs(args: string[]): ParsedRootArgs {
+  let port = parseInt(process.env.BACKEND_PORT || "5111", 10);
+  let debug = false;
+  let command: RootCommand = null;
+  const commandArgs: string[] = [];
+
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index];
+    if (!arg) continue;
+
+    if (command) {
+      commandArgs.push(arg);
+      continue;
+    }
+
+    switch (arg) {
+      case "--port": {
+        const value = args[index + 1];
+        if (!value) {
+          throw new Error("Error: --port requires a numeric value");
+        }
+        port = parseInt(value, 10);
+        if (Number.isNaN(port)) {
+          throw new Error("Error: --port requires a numeric value");
+        }
+        index += 1;
+        break;
+      }
+      case "--debug":
+        debug = true;
+        break;
+      case "--help":
+      case "-h":
+        usage();
+        process.exit(0);
+      default:
+        if (!isRootCommand(arg)) {
+          throw new Error(`Unknown command or option: ${arg}\nRun webmux --help for usage.`);
+        }
+        command = arg;
+    }
+  }
+
+  return {
+    port,
+    debug,
+    command,
+    commandArgs,
+  };
+}
+
+function isWorktreeCommand(command: RootCommand): command is "add" | "open" | "close" | "remove" | "merge" {
+  return command === "add"
+    || command === "open"
+    || command === "close"
+    || command === "remove"
+    || command === "merge";
+}
+
 // ── Parse args ───────────────────────────────────────────────────────────────
 
 const args = process.argv.slice(2);
+let parsed: ParsedRootArgs;
 
-if (args[0] === "init") {
+try {
+  parsed = parseRootArgs(args);
+} catch (error) {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exit(1);
+}
+
+if (parsed.command === "init") {
   await import("./init.ts");
   process.exit(0);
 }
 
-if (args[0] === "service") {
+if (parsed.command === "service") {
   const { default: service } = await import("./service.ts");
-  await service(args.slice(1));
+  await service(parsed.commandArgs);
   process.exit(0);
 }
 
-let port = parseInt(process.env.BACKEND_PORT || "5111");
-let debug = false;
-
-for (let i = 0; i < args.length; i++) {
-  switch (args[i]) {
-    case "--port":
-      port = parseInt(args[++i]);
-      if (Number.isNaN(port)) {
-        console.error("Error: --port requires a numeric value");
-        process.exit(1);
-      }
-      break;
-    case "--debug":
-      debug = true;
-      break;
-    case "--help":
-    case "-h":
-      usage();
-      process.exit(0);
-      break;
-    default:
-      console.error(`Unknown option: ${args[i]}\nRun webmux --help for usage.`);
-      process.exit(1);
-  }
+if (isWorktreeCommand(parsed.command) && parsed.commandArgs.some((arg) => arg === "--help" || arg === "-h")) {
+  const { runWorktreeCommand } = await import("./worktree-commands.ts");
+  const exitCode = await runWorktreeCommand({
+    command: parsed.command,
+    args: parsed.commandArgs,
+    projectDir: process.cwd(),
+    port: parsed.port,
+  });
+  process.exit(exitCode);
 }
 
 // ── Check for .webmux.yaml ───────────────────────────────────────────────────
@@ -95,9 +171,25 @@ async function loadEnvFile(path: string) {
 await loadEnvFile(resolve(process.cwd(), ".env.local"));
 await loadEnvFile(resolve(process.cwd(), ".env"));
 
+if (isWorktreeCommand(parsed.command)) {
+  const { runWorktreeCommand } = await import("./worktree-commands.ts");
+  const exitCode = await runWorktreeCommand({
+    command: parsed.command,
+    args: parsed.commandArgs,
+    projectDir: process.cwd(),
+    port: parsed.port,
+  });
+  process.exit(exitCode);
+}
+
 // ── Shared env for child processes ───────────────────────────────────────────
 
-const baseEnv = { ...process.env, BACKEND_PORT: String(port), WEBMUX_PROJECT_DIR: process.cwd(), ...(debug ? { WEBMUX_DEBUG: "1" } : {}) };
+const baseEnv = {
+  ...process.env,
+  BACKEND_PORT: String(parsed.port),
+  WEBMUX_PROJECT_DIR: process.cwd(),
+  ...(parsed.debug ? { WEBMUX_DEBUG: "1" } : {}),
+};
 
 // ── Prefixed output ──────────────────────────────────────────────────────────
 
@@ -158,7 +250,7 @@ if (!existsSync(staticDir)) {
   process.exit(1);
 }
 
-console.log(`Starting webmux on port ${port}...`);
+console.log(`Starting webmux on port ${parsed.port}...`);
 
 const be = Bun.spawn(["bun", backendEntry], {
   env: { ...baseEnv, WEBMUX_STATIC_DIR: staticDir },

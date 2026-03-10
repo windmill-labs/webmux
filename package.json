@@ -28,8 +28,8 @@
     "start": "bun bin/webmux.js",
     "build": "cd frontend && bun run build && cd .. && bun build backend/src/server.ts --target=bun --outfile=backend/dist/server.js && bun build bin/src/webmux.ts --target=bun --outfile=bin/webmux.js",
     "prepublishOnly": "bun run build",
-    "test": "bun run --cwd backend test && bun run --cwd frontend test",
-    "test:coverage": "bun run --cwd backend test --coverage && bun run --cwd frontend test:coverage"
+    "test": "bun run --cwd backend test && bun test bin/src && bun run --cwd frontend test",
+    "test:coverage": "bun run --cwd backend test --coverage && bun test --coverage bin/src && bun run --cwd frontend test:coverage"
   },
   "files": [
     "bin/webmux.js",

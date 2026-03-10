@@ -10,7 +10,7 @@ import type {
 } from "../domain/model";
 
 const SAFE_ENV_VALUE_RE = /^[A-Za-z0-9_./:@%+=,-]+$/;
-const DOTENV_LINE_RE = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)/;
+const DOTENV_LINE_RE = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)/;
 
 function stringifyAllocatedPorts(ports: Record<string, number>): Record<string, string> {
   const entries = Object.entries(ports).map(([key, value]) => [key, String(value)]);
@@ -30,9 +30,12 @@ export function parseDotenv(content: string): Record<string, string> {
     if (!match) continue;
     const key = match[1];
     let value = match[2];
-    if ((value.startsWith('"') && value.endsWith('"'))
-      || (value.startsWith("'") && value.endsWith("'"))) {
+    if (value.length >= 2
+      && ((value.startsWith('"') && value.endsWith('"'))
+        || (value.startsWith("'") && value.endsWith("'")))) {
       value = value.slice(1, -1);
+    } else {
+      value = value.trimEnd();
     }
     env[key] = value;
   }

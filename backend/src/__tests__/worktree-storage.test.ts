@@ -196,6 +196,22 @@ describe("parseDotenv", () => {
     expect(parseDotenv("")).toEqual({});
     expect(parseDotenv("# just a comment")).toEqual({});
   });
+
+  it("handles export prefix", () => {
+    expect(parseDotenv("export FOO=bar\nexport BAZ='hello world'")).toEqual({
+      FOO: "bar",
+      BAZ: "hello world",
+    });
+  });
+
+  it("trims trailing whitespace on unquoted values", () => {
+    expect(parseDotenv("KEY=value   ")).toEqual({ KEY: "value" });
+  });
+
+  it("preserves a lone quote character as-is", () => {
+    expect(parseDotenv('KEY="')).toEqual({ KEY: '"' });
+    expect(parseDotenv("KEY='")).toEqual({ KEY: "'" });
+  });
 });
 
 describe("loadDotenvLocal", () => {
@@ -206,10 +222,13 @@ describe("loadDotenvLocal", () => {
 
   it("loads and parses .env.local from worktree path", async () => {
     const dir = await mkdtemp(join(tmpdir(), "webmux-dotenv-"));
-    await Bun.write(join(dir, ".env.local"), "FOO=bar\nBAZ=qux\n");
-    const env = await loadDotenvLocal(dir);
-    expect(env).toEqual({ FOO: "bar", BAZ: "qux" });
-    await rm(dir, { recursive: true, force: true });
+    try {
+      await Bun.write(join(dir, ".env.local"), "FOO=bar\nBAZ=qux\n");
+      const env = await loadDotenvLocal(dir);
+      expect(env).toEqual({ FOO: "bar", BAZ: "qux" });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
 

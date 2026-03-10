@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.10.0](https://github.com/windmill-labs/webmux/compare/v0.9.0...v0.10.0) (2026-03-10)
+
+
+### Features
+
+* change default worktree root from __worktrees to ../worktrees ([dd4fbed](https://github.com/windmill-labs/webmux/commit/dd4fbed4bbb0daa4d30a6a302fe845ff8b36dcb3))
+* inject .env.local into worktree runtime environment ([#86](https://github.com/windmill-labs/webmux/issues/86)) ([4d25f95](https://github.com/windmill-labs/webmux/commit/4d25f95d98fd6cc3d12ab525f733c8e87ee459c4))
+
+
+### Bug Fixes
+
+* probe both IPv4 and IPv6 in service port health check ([#87](https://github.com/windmill-labs/webmux/issues/87)) ([62eb812](https://github.com/windmill-labs/webmux/commit/62eb812d3d6b45be96fe5ac4b8b6f845e8551d5c))
+
 ## [0.9.0](https://github.com/windmill-labs/webmux/compare/v0.8.0...v0.9.0) (2026-03-10)
 
 

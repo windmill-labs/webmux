@@ -70,7 +70,7 @@ describe("loadConfig", () => {
         "  postCreate: scripts/post-create.sh",
         "  preRemove: scripts/pre-remove.sh",
         "auto_name:",
-        "  model: claude-3-5-haiku-latest",
+        "  provider: claude",
         "  system_prompt: Generate a branch name",
         "integrations:",
         "  github:",
@@ -102,7 +102,7 @@ describe("loadConfig", () => {
       preRemove: "scripts/pre-remove.sh",
     });
     expect(config.autoName).toEqual({
-      model: "claude-3-5-haiku-latest",
+      provider: "claude",
       systemPrompt: "Generate a branch name",
     });
     expect(config.integrations.github.linkedRepos).toEqual([{ repo: "acme/linked", alias: "linked" }]);

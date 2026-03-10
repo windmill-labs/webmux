@@ -195,10 +195,14 @@ function parseLifecycleHooks(raw: unknown): LifecycleHooksConfig {
 
 function parseAutoName(raw: unknown): AutoNameConfig | null {
   if (!isRecord(raw)) return null;
-  if (typeof raw.model !== "string" || !raw.model.trim()) return null;
+  const provider = raw.provider;
+  if (provider !== "claude" && provider !== "codex") return null;
 
   return {
-    model: raw.model.trim(),
+    provider,
+    ...(typeof raw.model === "string" && raw.model.trim()
+      ? { model: raw.model.trim() }
+      : {}),
     ...(typeof raw.system_prompt === "string" && raw.system_prompt.trim()
       ? { systemPrompt: raw.system_prompt.trim() }
       : {}),

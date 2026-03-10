@@ -8,6 +8,7 @@ import {
   buildControlEnvMap,
   buildRuntimeEnvMap,
   getWorktreeStoragePaths,
+  loadDotenvLocal,
   readWorktreeMeta,
   writeControlEnv,
   writeRuntimeEnv,
@@ -350,6 +351,7 @@ export class LifecycleService {
   ): Promise<InitializeManagedWorktreeResult> {
     const { profileName, profile } = this.resolveProfile(undefined);
 
+    const dotenvValues = await loadDotenvLocal(resolved.entry.path);
     return initializeManagedWorktree({
       gitDir: resolved.gitDir,
       branch: resolved.entry.branch ?? resolved.entry.path,
@@ -359,6 +361,7 @@ export class LifecycleService {
       startupEnvValues: await this.buildStartupEnvValues(undefined),
       allocatedPorts: await this.allocatePorts(),
       runtimeEnvExtras: { WEBMUX_WORKTREE_PATH: resolved.entry.path },
+      dotenvValues,
       controlUrl: this.controlUrl(),
       controlToken: await this.deps.getControlToken(),
     });
@@ -371,9 +374,10 @@ export class LifecycleService {
       throw new Error("Missing managed metadata");
     }
 
+    const dotenvValues = await loadDotenvLocal(resolved.entry.path);
     const runtimeEnv = buildRuntimeEnvMap(resolved.meta, {
       WEBMUX_WORKTREE_PATH: resolved.entry.path,
-    });
+    }, dotenvValues);
     await writeRuntimeEnv(resolved.gitDir, runtimeEnv);
 
     const controlEnv = buildControlEnvMap({
@@ -592,13 +596,14 @@ export class LifecycleService {
     }
 
     console.debug(`[lifecycle-hook] RUNNING ${input.name}: ${input.command} in ${input.worktreePath}`);
+    const dotenvValues = await loadDotenvLocal(input.worktreePath);
     await this.deps.hooks.run({
       name: input.name,
       command: input.command,
       cwd: input.worktreePath,
       env: buildRuntimeEnvMap(input.meta, {
         WEBMUX_WORKTREE_PATH: input.worktreePath,
-      }),
+      }, dotenvValues),
     });
     console.debug(`[lifecycle-hook] COMPLETED ${input.name}`);
   }

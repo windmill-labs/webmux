@@ -10,6 +10,7 @@ import type {
 } from "../domain/model";
 
 const SAFE_ENV_VALUE_RE = /^[A-Za-z0-9_./:@%+=,-]+$/;
+const DOTENV_LINE_RE = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)/;
 
 function stringifyAllocatedPorts(ports: Record<string, number>): Record<string, string> {
   const entries = Object.entries(ports).map(([key, value]) => [key, String(value)]);
@@ -19,6 +20,32 @@ function stringifyAllocatedPorts(ports: Record<string, number>): Record<string, 
 function quoteEnvValue(value: string): string {
   if (value.length > 0 && SAFE_ENV_VALUE_RE.test(value)) return value;
   return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+export function parseDotenv(content: string): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const line of content.split("\n")) {
+    if (line.trimStart().startsWith("#")) continue;
+    const match = DOTENV_LINE_RE.exec(line);
+    if (!match) continue;
+    const key = match[1];
+    let value = match[2];
+    if ((value.startsWith('"') && value.endsWith('"'))
+      || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    env[key] = value;
+  }
+  return env;
+}
+
+export async function loadDotenvLocal(worktreePath: string): Promise<Record<string, string>> {
+  try {
+    const content = await Bun.file(join(worktreePath, ".env.local")).text();
+    return parseDotenv(content);
+  } catch {
+    return {};
+  }
 }
 
 export function getWorktreeStoragePaths(gitDir: string): WorktreeStoragePaths {
@@ -56,8 +83,10 @@ export async function writeWorktreeMeta(gitDir: string, meta: WorktreeMeta): Pro
 export function buildRuntimeEnvMap(
   meta: WorktreeMeta,
   extraEnv: Record<string, string> = {},
+  dotenvValues: Record<string, string> = {},
 ): Record<string, string> {
   return {
+    ...dotenvValues,
     ...meta.startupEnvValues,
     ...stringifyAllocatedPorts(meta.allocatedPorts),
     ...extraEnv,

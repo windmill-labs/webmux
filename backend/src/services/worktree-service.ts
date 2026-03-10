@@ -4,6 +4,7 @@ import {
   buildControlEnvMap,
   buildRuntimeEnvMap,
   ensureWorktreeStorageDirs,
+  loadDotenvLocal,
   writeControlEnv,
   writeRuntimeEnv,
   writeWorktreeMeta,
@@ -27,6 +28,7 @@ export interface InitializeManagedWorktreeOptions {
   startupEnvValues?: Record<string, string>;
   allocatedPorts?: Record<string, number>;
   runtimeEnvExtras?: Record<string, string>;
+  dotenvValues?: Record<string, string>;
   controlUrl?: string;
   controlToken?: string;
   now?: () => Date;
@@ -153,7 +155,7 @@ export async function initializeManagedWorktree(
   const paths = await ensureWorktreeStorageDirs(opts.gitDir);
   await writeWorktreeMeta(opts.gitDir, meta);
 
-  const runtimeEnv = buildRuntimeEnvMap(meta, opts.runtimeEnvExtras);
+  const runtimeEnv = buildRuntimeEnvMap(meta, opts.runtimeEnvExtras, opts.dotenvValues);
   await writeRuntimeEnv(opts.gitDir, runtimeEnv);
 
   let controlEnv: ControlEnvMap | null = null;
@@ -193,6 +195,7 @@ export async function createManagedWorktree(
     worktreeCreated = true;
 
     const gitDir = git.resolveWorktreeGitDir(opts.worktreePath);
+    const dotenvValues = await loadDotenvLocal(opts.worktreePath);
     const initialized = await initializeManagedWorktree({
       gitDir,
       branch: opts.branch,
@@ -202,6 +205,7 @@ export async function createManagedWorktree(
       startupEnvValues: opts.startupEnvValues,
       allocatedPorts: opts.allocatedPorts,
       runtimeEnvExtras: opts.runtimeEnvExtras,
+      dotenvValues,
       controlUrl: opts.controlUrl,
       controlToken: opts.controlToken,
       now: opts.now,

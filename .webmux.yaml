@@ -7,6 +7,7 @@ workspace:
 
 auto_name:
   provider: claude
+  model: haiku
 
 startupEnvs:
   NODE_ENV: development

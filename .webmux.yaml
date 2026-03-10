@@ -6,7 +6,7 @@ workspace:
   defaultAgent: claude
 
 auto_name:
-  model: gemini-2.5-flash-lite
+  provider: claude
 
 startupEnvs:
   NODE_ENV: development

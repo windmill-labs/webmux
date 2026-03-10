@@ -455,7 +455,7 @@ describe("LifecycleService", () => {
       {
         ...TEST_CONFIG,
         autoName: {
-          model: "claude-3-5-haiku-latest",
+          provider: "claude" as const,
           systemPrompt: "Generate a branch name",
         },
       },
@@ -471,7 +471,7 @@ describe("LifecycleService", () => {
     expect(autoName.calls).toEqual([
       {
         config: {
-          model: "claude-3-5-haiku-latest",
+          provider: "claude",
           systemPrompt: "Generate a branch name",
         },
         task: "Fix the login flow for OAuth redirects",

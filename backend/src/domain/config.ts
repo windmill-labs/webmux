@@ -67,7 +67,8 @@ export interface LifecycleHooksConfig {
 }
 
 export interface AutoNameConfig {
-  model: string;
+  provider: "claude" | "codex";
+  model?: string;
   systemPrompt?: string;
 }
 

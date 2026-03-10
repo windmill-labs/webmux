@@ -1,190 +1,166 @@
 import { describe, expect, it } from "bun:test";
 import { AutoNameService } from "../services/auto-name-service";
 
+function fakeSpawn(stdout: string, exitCode = 0, stderr = "") {
+  const calls: string[][] = [];
+  const spawnImpl = async (args: string[]) => {
+    calls.push(args);
+    return { exitCode, stdout, stderr };
+  };
+  return { calls, spawnImpl };
+}
+
 describe("AutoNameService", () => {
-  it("calls Anthropic's messages API for claude models", async () => {
-    let calledUrl = "";
-    let calledInit: RequestInit | undefined;
-    const service = new AutoNameService({
-      anthropicApiKey: "anthropic-key",
-      fetchImpl: async (url, init) => {
-        calledUrl = String(url);
-        calledInit = init;
-        return new Response(JSON.stringify({
-          content: [{ type: "text", text: "{\"branch_name\":\"fix-login-flow\"}" }],
-        }));
-      },
-    });
+  it("spawns claude -p with correct args", async () => {
+    const { calls, spawnImpl } = fakeSpawn("fix-login-flow");
+    const service = new AutoNameService({ spawnImpl });
 
     const branch = await service.generateBranchName(
-      {
-        model: "claude-3-5-haiku-latest",
-        systemPrompt: "Generate a branch name",
-      },
+      { provider: "claude", systemPrompt: "Generate a branch name" },
       "Fix the login flow",
     );
 
     expect(branch).toBe("fix-login-flow");
-    expect(calledUrl).toBe("https://api.anthropic.com/v1/messages");
-    expect(calledInit?.headers).toEqual({
-      "content-type": "application/json",
-      "x-api-key": "anthropic-key",
-      "anthropic-version": "2023-06-01",
-    });
-    expect(JSON.parse(String(calledInit?.body))).toEqual({
-      model: "claude-3-5-haiku-latest",
-      system: "Generate a branch name",
-      max_tokens: 64,
-      messages: [{ role: "user", content: "Task description:\nFix the login flow" }],
-      output_config: {
-        format: {
-          type: "json_schema",
-          schema: {
-            type: "object",
-            properties: {
-              branch_name: {
-                type: "string",
-                description: "A lowercase kebab-case git branch name with no prefix",
-              },
-            },
-            required: ["branch_name"],
-            additionalProperties: false,
-          },
-        },
-      },
-    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toEqual([
+      "claude", "-p",
+      "--system-prompt", "Generate a branch name",
+      "--output-format", "text",
+      "--no-session-persistence",
+      "Task description:\nFix the login flow",
+    ]);
   });
 
-  it("calls Google's generateContent API for gemini models", async () => {
-    let calledUrl = "";
-    let calledInit: RequestInit | undefined;
-    const service = new AutoNameService({
-      geminiApiKey: "gemini-key",
-      fetchImpl: async (url, init) => {
-        calledUrl = String(url);
-        calledInit = init;
-        return new Response(JSON.stringify({
-          candidates: [
-            {
-              content: {
-                parts: [{ text: "{\"branch_name\":\"improve-search-ranking\"}" }],
-              },
-            },
-          ],
-        }));
-      },
-    });
+  it("passes --model to claude when model is specified", async () => {
+    const { calls, spawnImpl } = fakeSpawn("add-search");
+    const service = new AutoNameService({ spawnImpl });
+
+    await service.generateBranchName(
+      { provider: "claude", model: "haiku" },
+      "Add search",
+    );
+
+    expect(calls[0]).toContain("--model");
+    expect(calls[0]).toContain("haiku");
+  });
+
+  it("omits --model from claude when model is not specified", async () => {
+    const { calls, spawnImpl } = fakeSpawn("add-search");
+    const service = new AutoNameService({ spawnImpl });
+
+    await service.generateBranchName(
+      { provider: "claude" },
+      "Add search",
+    );
+
+    expect(calls[0]).not.toContain("--model");
+  });
+
+  it("spawns codex exec with correct args", async () => {
+    const { calls, spawnImpl } = fakeSpawn("improve-search-ranking");
+    const service = new AutoNameService({ spawnImpl });
 
     const branch = await service.generateBranchName(
-      {
-        model: "gemini-2.5-flash",
-        systemPrompt: "Generate a branch name",
-      },
+      { provider: "codex", systemPrompt: "Generate a branch name" },
       "Improve search ranking",
     );
 
     expect(branch).toBe("improve-search-ranking");
-    expect(calledUrl).toBe("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent");
-    expect(calledInit?.headers).toEqual({
-      "content-type": "application/json",
-      "x-goog-api-key": "gemini-key",
-    });
-    expect(JSON.parse(String(calledInit?.body))).toEqual({
-      systemInstruction: {
-        parts: [{ text: "Generate a branch name" }],
-      },
-      contents: [
-        {
-          role: "user",
-          parts: [{ text: "Task description:\nImprove search ranking" }],
-        },
-      ],
-      generationConfig: {
-        responseMimeType: "application/json",
-        responseJsonSchema: {
-          type: "object",
-          properties: {
-            branch_name: {
-              type: "string",
-              description: "A lowercase kebab-case git branch name with no prefix",
-            },
-          },
-          required: ["branch_name"],
-          additionalProperties: false,
-          propertyOrdering: ["branch_name"],
-        },
-      },
-    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toEqual([
+      "codex",
+      "-c", 'developer_instructions="Generate a branch name"',
+      "exec",
+      "--ephemeral",
+      "Task description:\nImprove search ranking",
+    ]);
   });
 
-  it("calls OpenAI's responses API for OpenAI models", async () => {
-    let calledUrl = "";
-    let calledInit: RequestInit | undefined;
-    const service = new AutoNameService({
-      openaiApiKey: "openai-key",
-      fetchImpl: async (url, init) => {
-        calledUrl = String(url);
-        calledInit = init;
-        return new Response(JSON.stringify({
-          output: [
-            {
-              content: [{ type: "output_text", text: "{\"branch_name\":\"add-bulk-actions\"}" }],
-            },
-          ],
-        }));
-      },
-    });
+  it("passes -m to codex when model is specified", async () => {
+    const { calls, spawnImpl } = fakeSpawn("add-bulk-actions");
+    const service = new AutoNameService({ spawnImpl });
 
-    const branch = await service.generateBranchName(
-      {
-        model: "openai/gpt-5-mini",
-        systemPrompt: "Generate a branch name",
-      },
-      "Add bulk actions to the list view",
+    await service.generateBranchName(
+      { provider: "codex", model: "gpt-4.1" },
+      "Add bulk actions",
     );
 
-    expect(branch).toBe("add-bulk-actions");
-    expect(calledUrl).toBe("https://api.openai.com/v1/responses");
-    expect(calledInit?.headers).toEqual({
-      "content-type": "application/json",
-      authorization: "Bearer openai-key",
-    });
-    expect(JSON.parse(String(calledInit?.body))).toEqual({
-      model: "gpt-5-mini",
-      input: [
-        { role: "system", content: "Generate a branch name" },
-        { role: "user", content: "Task description:\nAdd bulk actions to the list view" },
-      ],
-      max_output_tokens: 64,
-      text: {
-        format: {
-          type: "json_schema",
-          name: "branch_name_response",
-          strict: true,
-          schema: {
-            type: "object",
-            properties: {
-              branch_name: {
-                type: "string",
-                description: "A lowercase kebab-case git branch name with no prefix",
-              },
-            },
-            required: ["branch_name"],
-            additionalProperties: false,
-          },
-        },
-      },
-    });
+    expect(calls[0]).toContain("-m");
+    expect(calls[0]).toContain("gpt-4.1");
   });
 
-  it("fails clearly when the matching provider key is missing", async () => {
+  it("omits -m from codex when model is not specified", async () => {
+    const { calls, spawnImpl } = fakeSpawn("add-bulk-actions");
+    const service = new AutoNameService({ spawnImpl });
+
+    await service.generateBranchName(
+      { provider: "codex" },
+      "Add bulk actions",
+    );
+
+    expect(calls[0]).not.toContain("-m");
+  });
+
+  it("uses default system prompt when none provided", async () => {
+    const { calls, spawnImpl } = fakeSpawn("fix-bug");
+    const service = new AutoNameService({ spawnImpl });
+
+    await service.generateBranchName({ provider: "claude" }, "Fix bug");
+
+    const systemPromptIdx = calls[0].indexOf("--system-prompt");
+    expect(calls[0][systemPromptIdx + 1]).toContain("Generate a concise git branch name");
+  });
+
+  it("normalizes messy output into a valid branch name", async () => {
+    const { spawnImpl } = fakeSpawn('```\n"Fix-Login-Flow"\n```');
+    const service = new AutoNameService({ spawnImpl });
+
+    const branch = await service.generateBranchName(
+      { provider: "claude" },
+      "Fix login",
+    );
+
+    expect(branch).toBe("fix-login-flow");
+  });
+
+  it("throws when CLI is not found", async () => {
     const service = new AutoNameService({
-      fetchImpl: async () => new Response("{}"),
+      spawnImpl: async () => { throw new Error("ENOENT"); },
     });
 
-    await expect(service.generateBranchName(
-      { model: "gemini-2.5-flash" },
-      "Improve search ranking",
-    )).rejects.toThrow("GEMINI_API_KEY is required");
+    await expect(
+      service.generateBranchName({ provider: "claude" }, "Fix bug"),
+    ).rejects.toThrow("'claude' CLI not found");
+  });
+
+  it("throws on non-zero exit code", async () => {
+    const { spawnImpl } = fakeSpawn("", 1, "authentication required");
+    const service = new AutoNameService({ spawnImpl });
+
+    await expect(
+      service.generateBranchName({ provider: "codex" }, "Fix bug"),
+    ).rejects.toThrow("codex failed: authentication required");
+  });
+
+  it("throws on empty output", async () => {
+    const { spawnImpl } = fakeSpawn("");
+    const service = new AutoNameService({ spawnImpl });
+
+    await expect(
+      service.generateBranchName({ provider: "claude" }, "Fix bug"),
+    ).rejects.toThrow("claude returned empty output");
+  });
+
+  it("escapes special characters in system prompt for codex TOML config", async () => {
+    const { calls, spawnImpl } = fakeSpawn("fix-bug");
+    const service = new AutoNameService({ spawnImpl });
+
+    await service.generateBranchName(
+      { provider: "codex", systemPrompt: 'Use "kebab-case"\nNo prefixes' },
+      "Fix bug",
+    );
+
+    const cIdx = calls[0].indexOf("-c");
+    expect(calls[0][cIdx + 1]).toBe('developer_instructions="Use \\"kebab-case\\"\\nNo prefixes"');
   });
 });

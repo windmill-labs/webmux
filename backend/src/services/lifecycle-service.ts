@@ -585,10 +585,13 @@ export class LifecycleService {
     meta: WorktreeMeta | null;
     worktreePath: string;
   }): Promise<void> {
+    console.debug(`[lifecycle-hook] name=${input.name} command=${input.command ?? "UNDEFINED"} meta=${input.meta ? "present" : "NULL"} cwd=${input.worktreePath}`);
     if (!input.command || !input.meta) {
+      console.debug(`[lifecycle-hook] SKIPPING ${input.name}: command=${!!input.command} meta=${!!input.meta}`);
       return;
     }
 
+    console.debug(`[lifecycle-hook] RUNNING ${input.name}: ${input.command} in ${input.worktreePath}`);
     await this.deps.hooks.run({
       name: input.name,
       command: input.command,
@@ -597,6 +600,7 @@ export class LifecycleService {
         WEBMUX_WORKTREE_PATH: input.worktreePath,
       }),
     });
+    console.debug(`[lifecycle-hook] COMPLETED ${input.name}`);
   }
 
   private wrapOperationError(error: unknown): LifecycleError {

@@ -23,6 +23,7 @@ import { LifecycleError } from "./services/lifecycle-service";
 import { startPrMonitor } from "./services/pr-service";
 import { buildProjectSnapshot } from "./services/snapshot-service";
 import { parseRuntimeEvent } from "./domain/events";
+import { isValidWorktreeName } from "./domain/policies";
 import { createWebmuxRuntime } from "./runtime";
 
 const PORT = parseInt(Bun.env.BACKEND_PORT || "5111", 10);
@@ -136,10 +137,6 @@ function sendWs(ws: { send: (data: string) => void }, msg: WsOutboundMessage): v
     default:
       ws.send(JSON.stringify(msg));
   }
-}
-
-function isValidWorktreeName(name: string): boolean {
-  return name.length > 0 && /^[a-z0-9][a-z0-9\-_./]*$/.test(name) && !name.includes("..");
 }
 
 /** Wrap an async API handler to catch and log unhandled errors. */

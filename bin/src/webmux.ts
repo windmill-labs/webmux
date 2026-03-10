@@ -132,24 +132,6 @@ if (parsed.command === "service") {
   process.exit(0);
 }
 
-if (isWorktreeCommand(parsed.command) && parsed.commandArgs.some((arg) => arg === "--help" || arg === "-h")) {
-  const { runWorktreeCommand } = await import("./worktree-commands.ts");
-  const exitCode = await runWorktreeCommand({
-    command: parsed.command,
-    args: parsed.commandArgs,
-    projectDir: process.cwd(),
-    port: parsed.port,
-  });
-  process.exit(exitCode);
-}
-
-// ── Check for .webmux.yaml ───────────────────────────────────────────────────
-
-if (!existsSync(resolve(process.cwd(), ".webmux.yaml"))) {
-  console.error("No .webmux.yaml found in this directory.\nRun `webmux init` to set up your project.");
-  process.exit(1);
-}
-
 // ── Load env files from CWD (.env.local overrides .env) ─────────────────────
 
 async function loadEnvFile(path: string) {
@@ -180,6 +162,13 @@ if (isWorktreeCommand(parsed.command)) {
     port: parsed.port,
   });
   process.exit(exitCode);
+}
+
+// ── Check for .webmux.yaml ───────────────────────────────────────────────────
+
+if (!existsSync(resolve(process.cwd(), ".webmux.yaml"))) {
+  console.error("No .webmux.yaml found in this directory.\nRun `webmux init` to set up your project.");
+  process.exit(1);
 }
 
 // ── Shared env for child processes ───────────────────────────────────────────

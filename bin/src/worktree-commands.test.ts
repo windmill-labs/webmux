@@ -73,6 +73,10 @@ describe("parseBranchCommandArgs", () => {
   it("returns null for help", () => {
     expect(parseBranchCommandArgs(["--help"])).toBeNull();
   });
+
+  it("rejects invalid worktree names", () => {
+    expect(() => parseBranchCommandArgs(["feature..search"])).toThrow("Invalid worktree name");
+  });
 });
 
 describe("runWorktreeCommand", () => {
@@ -201,5 +205,30 @@ describe("runWorktreeCommand", () => {
     expect(exitCode).toBe(1);
     expect(stdout).toEqual([]);
     expect(stderr).toEqual(["Error: Worktree has uncommitted changes: feature/search"]);
+  });
+
+  it("rejects invalid branch arguments before creating a runtime", async () => {
+    let createRuntimeCalled = false;
+    const stderr: string[] = [];
+
+    const exitCode = await runWorktreeCommand(
+      {
+        command: "open",
+        args: ["feature..search"],
+        projectDir: "/repo",
+        port: 5111,
+      },
+      {
+        createRuntime: () => {
+          createRuntimeCalled = true;
+          throw new Error("unexpected");
+        },
+        stderr: (message) => stderr.push(message),
+      },
+    );
+
+    expect(exitCode).toBe(1);
+    expect(createRuntimeCalled).toBe(false);
+    expect(stderr).toEqual(["Error: Invalid worktree name"]);
   });
 });

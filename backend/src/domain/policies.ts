@@ -3,6 +3,7 @@ import type { WorktreeMeta } from "./model";
 
 const INVALID_BRANCH_CHARS_RE = /[~^:?*\[\]\\]+/g;
 const UNSAFE_ENV_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const VALID_WORKTREE_NAME_RE = /^[a-z0-9][a-z0-9\-_./]*$/;
 
 export function sanitizeBranchName(raw: string): string {
   return raw
@@ -19,6 +20,10 @@ export function sanitizeBranchName(raw: string): string {
 
 export function isValidBranchName(raw: string): boolean {
   return raw.length > 0 && sanitizeBranchName(raw) === raw;
+}
+
+export function isValidWorktreeName(name: string): boolean {
+  return name.length > 0 && VALID_WORKTREE_NAME_RE.test(name) && !name.includes("..");
 }
 
 export function isValidEnvKey(key: string): boolean {

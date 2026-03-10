@@ -1,4 +1,5 @@
 import type { AgentKind } from "../../backend/src/domain/config";
+import { isValidWorktreeName } from "../../backend/src/domain/policies";
 import { createWebmuxRuntime } from "../../backend/src/runtime";
 import type { CreateLifecycleWorktreeInput } from "../../backend/src/services/lifecycle-service";
 
@@ -181,6 +182,10 @@ export function parseBranchCommandArgs(args: string[]): string | null {
     throw new CommandUsageError("Missing required argument: <branch>");
   }
 
+  if (!isValidWorktreeName(branch)) {
+    throw new CommandUsageError("Invalid worktree name");
+  }
+
   return branch;
 }
 
@@ -209,9 +214,10 @@ export async function runWorktreeCommand(
       return 0;
     }
 
+    const command: Exclude<WorktreeSubcommand, "add"> = context.command;
     const branch = parseBranchCommandArgs(context.args);
     if (!branch) {
-      stdout(getWorktreeCommandUsage(context.command));
+      stdout(getWorktreeCommandUsage(command));
       return 0;
     }
 
@@ -220,7 +226,7 @@ export async function runWorktreeCommand(
       port: context.port,
     });
 
-    switch (context.command) {
+    switch (command) {
       case "open":
         await runtime.lifecycleService.openWorktree(branch);
         stdout(`Opened worktree ${branch}`);
@@ -237,8 +243,6 @@ export async function runWorktreeCommand(
         await runtime.lifecycleService.mergeWorktree(branch);
         stdout(`Merged ${branch} into ${runtime.config.workspace.mainBranch}`);
         return 0;
-      case "add":
-        return 1;
     }
   } catch (error) {
     stderr(`Error: ${error instanceof Error ? error.message : String(error)}`);

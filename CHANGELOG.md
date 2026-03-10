@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.0](https://github.com/windmill-labs/webmux/compare/v0.8.0...v0.9.0) (2026-03-10)
+
+
+### Features
+
+* add native webmux lifecycle commands ([#83](https://github.com/windmill-labs/webmux/issues/83)) ([41818f7](https://github.com/windmill-labs/webmux/commit/41818f7339b37620fd0e3b9d4c24d001bda3a011))
+* add webmux list command and auto-attach tmux on add ([#85](https://github.com/windmill-labs/webmux/issues/85)) ([07c199d](https://github.com/windmill-labs/webmux/commit/07c199d87d77cad28f97c1b14513fce80edcc876))
+
 ## [0.8.0](https://github.com/windmill-labs/webmux/compare/v0.7.3...v0.8.0) (2026-03-10)
 
 

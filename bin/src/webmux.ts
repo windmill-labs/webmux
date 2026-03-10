@@ -23,6 +23,7 @@ Usage:
   webmux close        Close a worktree session without removing it
   webmux remove       Remove a worktree
   webmux merge        Merge a worktree into the main branch and remove it
+  webmux update       Update webmux to the latest version
   webmux --port N     Set port (default: 5111)
   webmux --debug      Show debug-level logs
   webmux --help       Show this help message
@@ -32,7 +33,7 @@ Environment:
 `);
 }
 
-type RootCommand = "init" | "service" | "add" | "list" | "open" | "close" | "remove" | "merge" | null;
+type RootCommand = "init" | "service" | "update" | "add" | "list" | "open" | "close" | "remove" | "merge" | null;
 
 interface ParsedRootArgs {
   port: number;
@@ -44,6 +45,7 @@ interface ParsedRootArgs {
 function isRootCommand(value: string): value is NonNullable<RootCommand> {
   return value === "init"
     || value === "service"
+    || value === "update"
     || value === "add"
     || value === "list"
     || value === "open"
@@ -133,6 +135,16 @@ if (parsed.command === "service") {
   const { default: service } = await import("./service.ts");
   await service(parsed.commandArgs);
   process.exit(0);
+}
+
+if (parsed.command === "update") {
+  console.log("Updating webmux to the latest version...");
+  const proc = Bun.spawn(["bun", "install", "--global", "webmux@latest"], {
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+  const code = await proc.exited;
+  process.exit(code);
 }
 
 // ── Load env files from CWD (.env.local overrides .env) ─────────────────────

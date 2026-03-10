@@ -25,7 +25,11 @@ function buildErrorMessage(
 }
 
 function hasDirenv(): boolean {
-  return Bun.spawnSync(["direnv", "version"], { stdout: "pipe", stderr: "pipe" }).exitCode === 0;
+  try {
+    return Bun.spawnSync(["direnv", "version"], { stdout: "pipe", stderr: "pipe" }).exitCode === 0;
+  } catch {
+    return false;
+  }
 }
 
 export class BunLifecycleHookRunner implements LifecycleHookRunner {

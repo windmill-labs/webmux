@@ -14,7 +14,7 @@ function usage() {
 webmux — Dev dashboard for managing Git worktrees
 
 Usage:
-  webmux              Start the dashboard
+  webmux serve        Start the dashboard server
   webmux init         Interactive project setup
   webmux service      Manage webmux as a system service
   webmux update       Update webmux to the latest version
@@ -24,16 +24,18 @@ Usage:
   webmux close        Close a worktree session without removing it
   webmux remove       Remove a worktree
   webmux merge        Merge a worktree into the main branch and remove it
-  webmux --port N     Set port (default: 5111)
-  webmux --debug      Show debug-level logs
-  webmux --help       Show this help message
+
+Options:
+  --port N            Set port (default: 5111)
+  --debug             Show debug-level logs
+  --help              Show this help message
 
 Environment:
   BACKEND_PORT     Same as --port (flag takes precedence)
 `);
 }
 
-type RootCommand = "init" | "service" | "update" | "add" | "list" | "open" | "close" | "remove" | "merge" | null;
+type RootCommand = "serve" | "init" | "service" | "update" | "add" | "list" | "open" | "close" | "remove" | "merge" | null;
 
 interface ParsedRootArgs {
   port: number;
@@ -43,7 +45,8 @@ interface ParsedRootArgs {
 }
 
 function isRootCommand(value: string): value is NonNullable<RootCommand> {
-  return value === "init"
+  return value === "serve"
+    || value === "init"
     || value === "service"
     || value === "update"
     || value === "add"
@@ -180,7 +183,14 @@ if (isWorktreeCommand(parsed.command)) {
   process.exit(exitCode);
 }
 
-// ── Check for .webmux.yaml ───────────────────────────────────────────────────
+// ── No command → show help ───────────────────────────────────────────────────
+
+if (parsed.command === null) {
+  usage();
+  process.exit(0);
+}
+
+// ── serve: Check for .webmux.yaml ────────────────────────────────────────────
 
 if (!existsSync(resolve(process.cwd(), ".webmux.yaml"))) {
   console.error("No .webmux.yaml found in this directory.\nRun `webmux init` to set up your project.");

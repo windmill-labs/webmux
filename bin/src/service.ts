@@ -74,7 +74,7 @@ Description=webmux dashboard — ${config.projectName}
 
 [Service]
 Type=simple
-ExecStart=${config.webmuxPath} --port ${config.port}
+ExecStart=${config.webmuxPath} serve --port ${config.port}
 WorkingDirectory=${config.projectDir}
 Restart=on-failure
 RestartSec=5
@@ -98,6 +98,7 @@ function generateLaunchdPlist(config: ServiceConfig): string {
   <key>ProgramArguments</key>
   <array>
     <string>${config.webmuxPath}</string>
+    <string>serve</string>
     <string>--port</string>
     <string>${config.port}</string>
   </array>

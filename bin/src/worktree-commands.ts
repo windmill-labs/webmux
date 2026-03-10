@@ -215,16 +215,22 @@ function defaultSwitchToTmuxWindow(projectDir: string, branch: string): void {
   if (selectResult.exitCode !== 0) return;
 
   if (Bun.env.TMUX) {
-    Bun.spawnSync(["tmux", "switch-client", "-t", sessionName], {
+    const result = Bun.spawnSync(["tmux", "switch-client", "-t", sessionName], {
       stdout: "pipe",
       stderr: "pipe",
     });
+    if (result.exitCode !== 0) {
+      console.error(`Warning: failed to switch tmux client to ${sessionName}`);
+    }
   } else {
-    Bun.spawnSync(["tmux", "attach-session", "-t", sessionName], {
+    const result = Bun.spawnSync(["tmux", "attach-session", "-t", sessionName], {
       stdin: "inherit",
       stdout: "inherit",
       stderr: "inherit",
     });
+    if (result.exitCode !== 0) {
+      console.error(`Warning: failed to attach to tmux session ${sessionName}`);
+    }
   }
 }
 
@@ -255,15 +261,14 @@ async function listWorktrees(
       .map((w) => w.windowName),
   );
 
-  const rows: Array<{ branch: string; isOpen: boolean; info: string }> = [];
-  for (const entry of entries) {
+  const rows = await Promise.all(entries.map(async (entry) => {
     const branch = entry.branch ?? basename(entry.path);
     const isOpen = openWindows.has(buildWorktreeWindowName(branch));
     const gitDir = runtime.git.resolveWorktreeGitDir(entry.path);
     const meta = await readWorktreeMeta(gitDir);
     const info = meta ? `${meta.profile} / ${meta.agent}` : "";
-    rows.push({ branch, isOpen, info });
-  }
+    return { branch, isOpen, info };
+  }));
 
   rows.sort((a, b) => a.branch.localeCompare(b.branch));
 

@@ -17,13 +17,13 @@ Usage:
   webmux              Start the dashboard
   webmux init         Interactive project setup
   webmux service      Manage webmux as a system service
+  webmux update       Update webmux to the latest version
   webmux add          Create a worktree using the dashboard lifecycle
   webmux list         List worktrees and their status
   webmux open         Open an existing worktree session
   webmux close        Close a worktree session without removing it
   webmux remove       Remove a worktree
   webmux merge        Merge a worktree into the main branch and remove it
-  webmux update       Update webmux to the latest version
   webmux --port N     Set port (default: 5111)
   webmux --debug      Show debug-level logs
   webmux --help       Show this help message
@@ -140,6 +140,7 @@ if (parsed.command === "service") {
 if (parsed.command === "update") {
   console.log("Updating webmux to the latest version...");
   const proc = Bun.spawn(["bun", "install", "--global", "webmux@latest"], {
+    stdin: "inherit",
     stdout: "inherit",
     stderr: "inherit",
   });

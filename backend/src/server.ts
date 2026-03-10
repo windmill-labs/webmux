@@ -15,6 +15,7 @@ import {
   sendPrompt as sendTerminalPrompt,
   type TerminalAttachTarget,
 } from "./adapters/terminal";
+import { loadControlToken } from "./adapters/control-token";
 import { getDefaultProfileName, type ProjectConfig } from "./adapters/config";
 import { jsonResponse, errorResponse } from "./lib/http";
 import { hasRecentDashboardActivity, touchDashboardActivity } from "./services/dashboard-activity";

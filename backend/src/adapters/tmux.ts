@@ -97,8 +97,12 @@ export class BunTmuxGateway implements TmuxGateway {
 
   ensureSession(sessionName: string, cwd: string): void {
     const check = runTmux(["has-session", "-t", sessionName]);
-    if (check.exitCode === 0) return;
-    assertTmuxOk(["new-session", "-d", "-s", sessionName, "-c", cwd], `create tmux session ${sessionName}`);
+    if (check.exitCode !== 0) {
+      assertTmuxOk(["new-session", "-d", "-s", sessionName, "-c", cwd], `create tmux session ${sessionName}`);
+    }
+    // Force 0-based pane indices so our code works regardless of the user's
+    // global pane-base-index setting (commonly set to 1).
+    runTmux(["set-option", "-t", sessionName, "pane-base-index", "0"]);
   }
 
   hasWindow(sessionName: string, windowName: string): boolean {

@@ -457,7 +457,7 @@
 
 <span class="text-accent">services</span>:
   - <span class="text-muted">name</span>: Backend
-    <span class="text-muted">portEnv</span>: BACKEND_PORT
+    <span class="text-muted">portEnv</span>: PORT
     <span class="text-muted">portStart</span>: <span class="text-warning"
             >5111</span
           >

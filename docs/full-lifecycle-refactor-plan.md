@@ -473,7 +473,7 @@ Suggested contents of `runtime.env`:
 ```bash
 PORT=3010
 FRONTEND_PORT=3010
-BACKEND_PORT=5111
+PORT=5111
 NODE_ENV=development
 WEBMUX_BRANCH=feature/search-panel
 WEBMUX_PROFILE=default

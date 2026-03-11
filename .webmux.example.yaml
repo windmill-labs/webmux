@@ -22,7 +22,7 @@ services:
   - name: Backend
 
     # Env var that receives the allocated port number.
-    portEnv: BACKEND_PORT
+    portEnv: PORT
 
     # Starting port for the first worktree.
     portStart: 5111
@@ -32,7 +32,7 @@ services:
 
     # Optional URL template used by the UI when showing service links.
     # `${PORT_ENV_NAME}` placeholders are expanded from allocated ports.
-    urlTemplate: http://127.0.0.1:${BACKEND_PORT}
+    urlTemplate: http://127.0.0.1:${PORT}
 
   - name: Frontend
     portEnv: FRONTEND_PORT
@@ -66,7 +66,7 @@ profiles:
     # `${VAR}` placeholders are expanded from the computed runtime env.
     systemPrompt: >
       You are working inside a webmux-managed worktree.
-      Backend: ${BACKEND_PORT}
+      Backend: ${PORT}
       Frontend: ${FRONTEND_PORT}
 
     panes:

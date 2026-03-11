@@ -14,7 +14,7 @@ describe("allocateServicePorts", () => {
           agent: "claude",
           runtime: "host",
           startupEnvValues: {},
-          allocatedPorts: { FRONTEND_PORT: 3010, BACKEND_PORT: 5111 },
+          allocatedPorts: { FRONTEND_PORT: 3010, PORT: 5111 },
         },
         {
           schemaVersion: 1,
@@ -25,18 +25,18 @@ describe("allocateServicePorts", () => {
           agent: "claude",
           runtime: "host",
           startupEnvValues: {},
-          allocatedPorts: { FRONTEND_PORT: 3030, BACKEND_PORT: 5131 },
+          allocatedPorts: { FRONTEND_PORT: 3030, PORT: 5131 },
         },
       ],
       [
         { name: "frontend", portEnv: "FRONTEND_PORT", portStart: 3000, portStep: 10 },
-        { name: "backend", portEnv: "BACKEND_PORT", portStart: 5101, portStep: 10 },
+        { name: "backend", portEnv: "PORT", portStart: 5101, portStep: 10 },
       ],
     );
 
     expect(ports).toEqual({
       FRONTEND_PORT: 3020,
-      BACKEND_PORT: 5121,
+      PORT: 5121,
     });
   });
 });

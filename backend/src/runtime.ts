@@ -33,7 +33,7 @@ export interface WebmuxRuntime {
 }
 
 export function createWebmuxRuntime(options: WebmuxRuntimeOptions = {}): WebmuxRuntime {
-  const port = options.port ?? parseInt(Bun.env.BACKEND_PORT || "5111", 10);
+  const port = options.port ?? parseInt(Bun.env.PORT || "5111", 10);
   const projectDir = gitRoot(options.projectDir ?? Bun.env.WEBMUX_PROJECT_DIR ?? process.cwd());
   const config = loadConfig(projectDir);
   const git = new BunGitGateway();

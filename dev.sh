@@ -6,8 +6,8 @@ cd "$(dirname "$0")"
 while getopts "p:" opt; do
   case $opt in
     p) 
-      export BACKEND_PORT="$OPTARG"
-      export PORT=$((BACKEND_PORT + 1))
+      export PORT="$OPTARG"
+      export FRONTEND_PORT=$((PORT + 1))
       ;;
     *) echo "Usage: $0 [-p backend_port]" >&2; exit 1 ;;
   esac
@@ -18,7 +18,7 @@ if [ -f .env ]; then
   set -a; source .env; set +a
 fi
 
-# Load worktree-specific port assignments (BACKEND_PORT, FRONTEND_PORT)
+# Load worktree-specific port assignments (PORT, FRONTEND_PORT)
 if [ -f .env.local ]; then
   set -a; source .env.local; set +a
 fi

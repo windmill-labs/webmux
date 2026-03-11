@@ -26,6 +26,23 @@
 </script>
 
 <ul class="list-none overflow-y-auto flex-1 p-2">
+  {#each creating as entry (entry.id)}
+    <li class="mb-0.5 opacity-50 pointer-events-none">
+      <div
+        class="w-full py-2.5 px-3 rounded-md border border-transparent flex flex-col gap-1 text-left text-sm"
+      >
+        <span class="flex items-center gap-1.5">
+          <div class="flex items-center gap-2">
+            <span class="font-medium truncate">{entry.name}</span>
+            <span class="shrink-0 text-[10px] text-muted flex items-center gap-1">
+              <span class="spinner"></span>
+              creating…
+            </span>
+          </div>
+        </span>
+      </div>
+    </li>
+  {/each}
   {#each worktrees as wt (wt.branch)}
     {@const isActive = wt.branch === selected}
     {@const isRemoving = removing.has(wt.branch)}
@@ -93,23 +110,6 @@
           onremove(wt.branch);
         }}>&times;</button
       >
-    </li>
-  {/each}
-  {#each creating as entry (entry.id)}
-    <li class="mb-0.5 opacity-50 pointer-events-none">
-      <div
-        class="w-full py-2.5 px-3 rounded-md border border-transparent flex flex-col gap-1 text-left text-sm"
-      >
-        <span class="flex items-center gap-1.5">
-          <div class="flex items-center gap-2">
-            <span class="font-medium truncate">{entry.name}</span>
-            <span class="shrink-0 text-[10px] text-muted flex items-center gap-1">
-              <span class="spinner"></span>
-              creating…
-            </span>
-          </div>
-        </span>
-      </div>
     </li>
   {/each}
 </ul>

@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.12.0](https://github.com/windmill-labs/webmux/compare/v0.11.0...v0.12.0) (2026-03-11)
+
+
+### Features
+
+* add --version / -V flag ([#101](https://github.com/windmill-labs/webmux/issues/101)) ([4d3e614](https://github.com/windmill-labs/webmux/commit/4d3e6147605a92d9f6fd6eeb2851e3697feeac1b))
+* add shell autocompletion for CLI commands ([#100](https://github.com/windmill-labs/webmux/issues/100)) ([d08512d](https://github.com/windmill-labs/webmux/commit/d08512de69ba2b7315371ecbeeb49ecdd29eec2d))
+* enforce 40-char max on auto-generated branch names ([#108](https://github.com/windmill-labs/webmux/issues/108)) ([10311f6](https://github.com/windmill-labs/webmux/commit/10311f65774fcdc6c43f9993cd17ba244eec2c6a))
+* migrate site docs to sveltekit ([#113](https://github.com/windmill-labs/webmux/issues/113)) ([9b53372](https://github.com/windmill-labs/webmux/commit/9b53372bb69a628c999c231f5180652589228291))
+* redesign header with per-repo rows and linked repo cursor button ([#104](https://github.com/windmill-labs/webmux/issues/104)) ([40e2256](https://github.com/windmill-labs/webmux/commit/40e225643eed3f99b9f9ab497e344b9f5728108a))
+* show creating indicator in worktree list instead of blocking dialog ([#99](https://github.com/windmill-labs/webmux/issues/99)) ([c388ee5](https://github.com/windmill-labs/webmux/commit/c388ee562271b764cd058674b2b3bd5c0199bf9c))
+* show creating worktree at top of list instead of bottom ([#103](https://github.com/windmill-labs/webmux/issues/103)) ([e3a8440](https://github.com/windmill-labs/webmux/commit/e3a8440264be54eb7ee6532d509307530e909916))
+* surface backend worktree creation progress ([#112](https://github.com/windmill-labs/webmux/issues/112)) ([c193879](https://github.com/windmill-labs/webmux/commit/c193879fcfa9da350379c412a53f62d6d7ca968a))
+
+
+### Bug Fixes
+
+* append branch name to linked repo cursor URL path ([#107](https://github.com/windmill-labs/webmux/issues/107)) ([64a877a](https://github.com/windmill-labs/webmux/commit/64a877af585de98f5c8abb0b13e4725cfcd97d68))
+* filter duplicate worktree entry while creating ([#105](https://github.com/windmill-labs/webmux/issues/105)) ([c64f670](https://github.com/windmill-labs/webmux/commit/c64f670021f8008bac08cadfe33bcca384dac829))
+* force pane-base-index 0 on managed tmux sessions ([#98](https://github.com/windmill-labs/webmux/issues/98)) ([f326134](https://github.com/windmill-labs/webmux/commit/f326134abf4e26843d08ad87aea30628df2826b0))
+* parse serve flags after subcommand ([#95](https://github.com/windmill-labs/webmux/issues/95)) ([a09918f](https://github.com/windmill-labs/webmux/commit/a09918fcb2d65094a2db9ccc3b2aa56ac0e24196))
+* persist startupEnvs and checkbox state in save as default ([#109](https://github.com/windmill-labs/webmux/issues/109)) ([7b26564](https://github.com/windmill-labs/webmux/commit/7b26564d684b42bbd4d225103bb5eea771bc46ac))
+* register zsh completion for webmux ([#102](https://github.com/windmill-labs/webmux/issues/102)) ([195822d](https://github.com/windmill-labs/webmux/commit/195822d7a1283e2bffecc646387ac4f4cb64a423))
+* reload dotenv after post-create hook ([#111](https://github.com/windmill-labs/webmux/issues/111)) ([5402897](https://github.com/windmill-labs/webmux/commit/54028975c64214b0ac6462b7ff398fd843843ffa))
+* resolve relative linked repo dir and support array github config ([#106](https://github.com/windmill-labs/webmux/issues/106)) ([43d80dd](https://github.com/windmill-labs/webmux/commit/43d80dd4e7ceab83b0cd54be8f0c38303c11bc58))
+* restore claude hooks after post-create ([#114](https://github.com/windmill-labs/webmux/issues/114)) ([8ac4528](https://github.com/windmill-labs/webmux/commit/8ac4528635b06e861474375192efb74339a54f21))
+* simplify worktree create loading state ([#110](https://github.com/windmill-labs/webmux/issues/110)) ([2fc6722](https://github.com/windmill-labs/webmux/commit/2fc67227f4c265cc264a06eca2fb5fe65836b318))
+
 ## [0.11.0](https://github.com/windmill-labs/webmux/compare/v0.10.1...v0.11.0) (2026-03-11)
 
 

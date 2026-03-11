@@ -5,7 +5,6 @@
   import StartupEnvFields from "./StartupEnvFields.svelte";
 
   let {
-    loading = false,
     profiles = [],
     defaultProfileName = "",
     autoNameEnabled = false,
@@ -15,7 +14,6 @@
     oncreate,
     oncancel,
   }: {
-    loading?: boolean;
     profiles: ProfileConfig[];
     defaultProfileName?: string;
     autoNameEnabled?: boolean;
@@ -172,13 +170,11 @@
       Save as default
     </label>
     <div class="flex justify-end gap-2">
-      <Btn type="button" onclick={oncancel} disabled={loading}>Cancel</Btn>
+      <Btn type="button" onclick={oncancel}>Cancel</Btn>
       <Btn
         type="submit"
         variant="cta"
-        class="flex items-center gap-1.5"
-        disabled={loading}
-        >{#if loading}<span class="spinner"></span>{/if} Create</Btn
+        >Create</Btn
       >
     </div>
   </form>

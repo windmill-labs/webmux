@@ -505,7 +505,6 @@
 
 {#if showCreateDialog}
   <CreateWorktreeDialog
-    loading={false}
     profiles={config.profiles}
     defaultProfileName={config.defaultProfileName}
     autoNameEnabled={config.autoName}

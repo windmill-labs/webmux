@@ -154,6 +154,7 @@ describe("ensureSessionLayout", () => {
         call.startsWith(`createWindow:${plan.sessionName}:${plan.windowName}:/repo/project/__worktrees/feature-search:shell-cmd`),
       ),
     ).toBe(true);
+    expect(tmux.calls).toContain(`setWindowOption:${plan.sessionName}:${plan.windowName}:pane-base-index:0`);
     expect(
       tmux.calls.some((call) =>
         call.startsWith(`splitWindow:${plan.sessionName}:${plan.windowName}.0:right:25:/repo/project/__worktrees/feature-search:shell-cmd`),

@@ -100,9 +100,6 @@ export class BunTmuxGateway implements TmuxGateway {
     if (check.exitCode !== 0) {
       assertTmuxOk(["new-session", "-d", "-s", sessionName, "-c", cwd], `create tmux session ${sessionName}`);
     }
-    // Force 0-based pane indices so our code works regardless of the user's
-    // global pane-base-index setting (commonly set to 1).
-    assertTmuxOk(["set-option", "-t", sessionName, "pane-base-index", "0"], `set pane-base-index on ${sessionName}`);
   }
 
   hasWindow(sessionName: string, windowName: string): boolean {

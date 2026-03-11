@@ -117,6 +117,7 @@ export function ensureSessionLayout(
     cwd: rootPane.cwd,
     command: plan.shellCommand,
   });
+  tmux.setWindowOption(plan.sessionName, plan.windowName, "pane-base-index", "0");
   tmux.setWindowOption(plan.sessionName, plan.windowName, "automatic-rename", "off");
   tmux.setWindowOption(plan.sessionName, plan.windowName, "allow-rename", "off");
 

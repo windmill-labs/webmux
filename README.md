@@ -89,7 +89,7 @@ workspace:
 
 services:
   - name: BE
-    portEnv: BACKEND_PORT
+    portEnv: PORT
     portStart: 5111
     portStep: 10
   - name: FE
@@ -124,7 +124,7 @@ profiles:
         writable: true
     systemPrompt: >
       You are running inside a sandboxed container.
-      Backend port: ${BACKEND_PORT}. Frontend port: ${FRONTEND_PORT}.
+      Backend port: ${PORT}. Frontend port: ${FRONTEND_PORT}.
 
 linkedRepos:
   - repo: myorg/related-service

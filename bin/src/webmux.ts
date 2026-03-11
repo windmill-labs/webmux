@@ -31,7 +31,7 @@ Options:
   --help              Show this help message
 
 Environment:
-  BACKEND_PORT     Same as --port (flag takes precedence)
+  PORT             Same as --port (flag takes precedence)
 `);
 }
 
@@ -62,7 +62,7 @@ function isServeRootOption(value: string): boolean {
 }
 
 export function parseRootArgs(args: string[]): ParsedRootArgs {
-  let port = parseInt(process.env.BACKEND_PORT || "5111", 10);
+  let port = parseInt(process.env.PORT || "5111", 10);
   let debug = false;
   let command: RootCommand = null;
   const commandArgs: string[] = [];
@@ -221,7 +221,7 @@ async function main(args: string[] = process.argv.slice(2)): Promise<void> {
 
   const baseEnv = {
     ...process.env,
-    BACKEND_PORT: String(parsed.port),
+    PORT: String(parsed.port),
     WEBMUX_PROJECT_DIR: process.cwd(),
     ...(parsed.debug ? { WEBMUX_DEBUG: "1" } : {}),
   };

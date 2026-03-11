@@ -30,7 +30,7 @@ const textEncoder = new TextEncoder();
 
 // Scope session names per backend instance using the backend port so multiple
 // backends sharing the same tmux server don't collide or kill each other's sessions.
-const DASH_PORT = Bun.env.BACKEND_PORT || "5111";
+const DASH_PORT = Bun.env.PORT || "5111";
 const SESSION_PREFIX = `wm-dash-${DASH_PORT}-`;
 const MAX_SCROLLBACK_BYTES = 1 * 1024 * 1024; // 1 MB
 const TMUX_TIMEOUT_MS = 5_000;

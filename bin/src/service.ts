@@ -78,7 +78,7 @@ ExecStart=${config.webmuxPath} serve --port ${config.port}
 WorkingDirectory=${config.projectDir}
 Restart=on-failure
 RestartSec=5
-Environment=BACKEND_PORT=${config.port}
+Environment=PORT=${config.port}
 Environment=WEBMUX_PROJECT_DIR=${config.projectDir}
 Environment=PATH=${process.env.PATH}
 
@@ -117,7 +117,7 @@ function generateLaunchdPlist(config: ServiceConfig): string {
   <string>${logPath}</string>
   <key>EnvironmentVariables</key>
   <dict>
-    <key>BACKEND_PORT</key>
+    <key>PORT</key>
     <string>${config.port}</string>
     <key>WEBMUX_PROJECT_DIR</key>
     <string>${config.projectDir}</string>
@@ -364,7 +364,7 @@ export default async function service(args: string[]): Promise<void> {
     return;
   }
 
-  let port = parseInt(process.env.BACKEND_PORT || "5111");
+  let port = parseInt(process.env.PORT || "5111");
   for (let i = 1; i < args.length; i++) {
     if (args[i] === "--port" && args[i + 1]) {
       const parsed = parseInt(args[++i]);

@@ -8,7 +8,7 @@ import { parseRootArgs } from "./webmux";
 const tempDirs: string[] = [];
 const decoder = new TextDecoder();
 const webmuxEntry = join(dirname(fileURLToPath(import.meta.url)), "webmux.ts");
-const originalBackendPort = process.env.BACKEND_PORT;
+const originalPort = process.env.PORT;
 
 function runOrThrow(cmd: string[], cwd: string): void {
   const result = Bun.spawnSync(cmd, {
@@ -35,16 +35,16 @@ async function initRepo(repoRoot: string): Promise<void> {
 
 describe("webmux entrypoint", () => {
   afterEach(async () => {
-    if (originalBackendPort === undefined) {
-      delete process.env.BACKEND_PORT;
+    if (originalPort === undefined) {
+      delete process.env.PORT;
     } else {
-      process.env.BACKEND_PORT = originalBackendPort;
+      process.env.PORT = originalPort;
     }
     await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
   });
 
   it("parses serve flags after the subcommand", () => {
-    delete process.env.BACKEND_PORT;
+    delete process.env.PORT;
 
     expect(parseRootArgs(["serve", "--port", "8080", "--debug"])).toEqual({
       port: 8080,
@@ -55,7 +55,7 @@ describe("webmux entrypoint", () => {
   });
 
   it("leaves service subcommand flags untouched", () => {
-    delete process.env.BACKEND_PORT;
+    delete process.env.PORT;
 
     expect(parseRootArgs(["service", "install", "--port", "8080"])).toEqual({
       port: 5111,

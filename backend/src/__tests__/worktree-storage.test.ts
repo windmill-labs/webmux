@@ -143,7 +143,7 @@ function makeMeta(): WorktreeMeta {
       NODE_ENV: "development",
     },
     allocatedPorts: {
-      BACKEND_PORT: 5111,
+      PORT: 5111,
       FRONTEND_PORT: 3010,
     },
   };
@@ -240,7 +240,7 @@ describe("worktree env maps", () => {
     });
 
     expect(env.FRONTEND_PORT).toBe("3010");
-    expect(env.BACKEND_PORT).toBe("5111");
+    expect(env.PORT).toBe("5111");
     expect(env.NODE_ENV).toBe("development");
     expect(env.WEBMUX_WORKTREE_PATH).toBe("/tmp/worktree");
     expect(env.WEBMUX_BRANCH).toBe("feature/search-panel");
@@ -295,7 +295,7 @@ describe("initializeManagedWorktree", () => {
       agent: "claude",
       runtime: "host",
       startupEnvValues: { NODE_ENV: "development" },
-      allocatedPorts: { FRONTEND_PORT: 3010, BACKEND_PORT: 5111 },
+      allocatedPorts: { FRONTEND_PORT: 3010, PORT: 5111 },
       runtimeEnvExtras: { WEBMUX_WORKTREE_PATH: worktreePath },
       controlUrl: "http://127.0.0.1:5111",
       controlToken: "secret-token",

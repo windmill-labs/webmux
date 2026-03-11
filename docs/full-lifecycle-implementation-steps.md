@@ -138,7 +138,7 @@ Files:
 
 - define the final `.webmux.yaml` schema
 - remove all references to `.workmux.yaml` from the new config layer
-- define explicit service env names like `FRONTEND_PORT`, `BACKEND_PORT`
+- define explicit service env names like `FRONTEND_PORT`, `PORT`
 
 ### Tests
 

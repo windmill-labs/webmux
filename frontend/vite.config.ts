@@ -2,10 +2,10 @@ import { defineConfig } from "vite";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
 import tailwindcss from "@tailwindcss/vite";
 
-const backendPort = process.env.BACKEND_PORT || "5111";
+const backendPort = process.env.PORT || "5111";
 const backendUrl = `http://localhost:${backendPort}`;
 const backendWs = `ws://localhost:${backendPort}`;
-const port = parseInt(process.env.PORT || "5112");
+const port = parseInt(process.env.FRONTEND_PORT || "5112");
 
 export default defineConfig({
   plugins: [svelte(), tailwindcss()],

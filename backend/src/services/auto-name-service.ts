@@ -16,10 +16,6 @@ const DEFAULT_SYSTEM_PROMPT = [
   "Do not include quotes, code fences, or prefixes like feature/ or fix/.",
 ].join(" ");
 
-function buildPrompt(task: string): string {
-  return `Task description:\n${task.trim()}`;
-}
-
 function normalizeGeneratedBranchName(raw: string): string {
   let branch = raw.trim();
   branch = branch.replace(/^```[\w-]*\s*/, "").replace(/\s*```$/, "");
@@ -75,6 +71,10 @@ function buildClaudeArgs(model: string | undefined, systemPrompt: string, prompt
 
 function escapeTomlString(s: string): string {
   return s.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n");
+}
+
+function buildPrompt(prompt: string): string {
+  return `Here is the task description: ${prompt}. You MUST return the branch name only, no other text or comments. Be fast, make it simple, and concise.`;
 }
 
 function buildCodexArgs(model: string | undefined, systemPrompt: string, prompt: string): string[] {

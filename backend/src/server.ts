@@ -27,7 +27,7 @@ import { parseRuntimeEvent } from "./domain/events";
 import { isValidWorktreeName } from "./domain/policies";
 import { createWebmuxRuntime } from "./runtime";
 
-const PORT = parseInt(Bun.env.BACKEND_PORT || "5111", 10);
+const PORT = parseInt(Bun.env.PORT || "5111", 10);
 const STATIC_DIR = Bun.env.WEBMUX_STATIC_DIR || "";
 const runtime = createWebmuxRuntime({
   port: PORT,

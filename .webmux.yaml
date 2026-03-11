@@ -18,11 +18,11 @@ lifecycleHooks:
 
 services:
   - name: BE
-    portEnv: BACKEND_PORT
+    portEnv: PORT
     portStart: 5111
     portStep: 10
   - name: FE
-    portEnv: PORT
+    portEnv: FRONTEND_PORT
     portStart: 5112
     portStep: 10
 
@@ -52,7 +52,7 @@ profiles:
         command: cd frontend && bun install && bun run dev
     systemPrompt: >
       You are working inside a project managed by webmux.
-      Backend port: ${BACKEND_PORT}. Frontend port: ${PORT}.
+      Backend port: ${PORT}. Frontend port: ${FRONTEND_PORT}.
       Start the backend with: source "$(git rev-parse --git-dir)/webmux/runtime.env" && cd backend && bun run dev
       Start the frontend with: source "$(git rev-parse --git-dir)/webmux/runtime.env" && cd frontend && bun run dev
     yolo: true
@@ -86,7 +86,7 @@ profiles:
       source "$(git rev-parse --git-dir)/webmux/runtime.env"
       This worktree is configured with the following ports:
 
-      - Backend: port ${BACKEND_PORT}.
+      - Backend: port ${PORT}.
         Start with: source "$(git rev-parse --git-dir)/webmux/runtime.env" && cd backend && bun run dev
 
       - Frontend: port ${FRONTEND_PORT}.

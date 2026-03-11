@@ -29,7 +29,7 @@
   {#if label}
     <span class="shrink-0 text-[10px] font-medium text-muted">{label}:</span>
   {/if}
-  {#each prs as pr (pr.repo + pr.number)}
+  {#each prs as pr (`${pr.repo}#${pr.number}`)}
     <PrBadge {pr} clickable />
     {#if pr.ciChecks && pr.ciChecks.length > 0}
       <CiBadge {pr} onclick={onciclick} />

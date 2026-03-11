@@ -78,7 +78,7 @@
         cursorUrl: makeCursorUrl(lr.dir),
         prs: (worktree?.prs ?? []).filter((pr) => pr.repo === lr.alias),
       }))
-      .filter((g) => g.prs.length > 0),
+      .filter((g) => g.prs.length > 0 || g.cursorUrl),
   );
 </script>
 
@@ -124,15 +124,13 @@
     <!-- Linked repo rows (desktop only) -->
     {#if !isMobile}
       {#each linkedRepoGroups as group (group.alias)}
-        <div class="flex items-center gap-3 min-w-0 pl-0">
-          <RepoGroup
-            label={group.alias}
-            prs={group.prs}
-            cursorUrl={group.cursorUrl}
-            {onciclick}
-            {onreviewsclick}
-          />
-        </div>
+        <RepoGroup
+          label={group.alias}
+          prs={group.prs}
+          cursorUrl={group.cursorUrl}
+          {onciclick}
+          {onreviewsclick}
+        />
       {/each}
     {/if}
   </div>

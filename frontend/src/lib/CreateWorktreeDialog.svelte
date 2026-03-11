@@ -37,8 +37,10 @@
 
   const STORAGE_KEY = "wt-default-profile";
   const AGENT_STORAGE_KEY = "wt-default-agent";
+  const ENV_STORAGE_KEY = "wt-default-envs";
   const savedProfile = localStorage.getItem(STORAGE_KEY);
   const savedAgent = localStorage.getItem(AGENT_STORAGE_KEY);
+  const savedEnvs = localStorage.getItem(ENV_STORAGE_KEY);
 
   let fallbackProfile = $derived(defaultProfileName || profiles[0]?.name || "default");
   // svelte-ignore state_referenced_locally
@@ -47,9 +49,12 @@
   let prompt = $state(initialPrompt);
   let agent = $state(savedAgent ?? "claude");
   let profile = $state(savedProfile ?? "");
-  let saveDefault = $state(false);
+  const hasSavedDefaults = savedProfile != null || savedAgent != null;
+  let saveDefault = $state(hasSavedDefaults);
   // svelte-ignore state_referenced_locally
-  let envValues = $state<Record<string, string | boolean>>({ ...startupEnvs });
+  let envValues = $state<Record<string, string | boolean>>(
+    savedEnvs ? { ...startupEnvs, ...JSON.parse(savedEnvs) } : { ...startupEnvs },
+  );
 
   function focus(node: HTMLElement) {
     node.focus();
@@ -69,9 +74,11 @@
       if (saveDefault) {
         localStorage.setItem(STORAGE_KEY, profile);
         localStorage.setItem(AGENT_STORAGE_KEY, agent);
+        localStorage.setItem(ENV_STORAGE_KEY, JSON.stringify(envValues));
       } else {
         localStorage.removeItem(STORAGE_KEY);
         localStorage.removeItem(AGENT_STORAGE_KEY);
+        localStorage.removeItem(ENV_STORAGE_KEY);
       }
       const filteredEnvs: Record<string, string> = {};
       for (const [k, v] of Object.entries(envValues)) {

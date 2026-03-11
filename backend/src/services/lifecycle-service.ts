@@ -21,6 +21,7 @@ import type { WorktreeCreationPhase, WorktreeMeta } from "../domain/model";
 import { allocateServicePorts, isValidBranchName, isValidEnvKey } from "../domain/policies";
 import type { AutoNameGenerator } from "./auto-name-service";
 import {
+  type AgentLaunchMode,
   buildAgentPaneCommand,
   buildDockerAgentPaneCommand,
   buildDockerShellCommand,
@@ -184,6 +185,7 @@ export class LifecycleService {
         initialized,
         worktreePath,
         prompt: input.prompt,
+        launchMode: "fresh",
       });
 
       await this.reportCreateProgress({
@@ -218,6 +220,7 @@ export class LifecycleService {
   }> {
     try {
       const resolved = await this.resolveExistingWorktree(branch);
+      const launchMode: AgentLaunchMode = resolved.meta ? "resume" : "fresh";
       const initialized = resolved.meta
         ? await this.refreshManagedArtifacts(resolved)
         : await this.initializeUnmanagedWorktree(resolved);
@@ -233,6 +236,7 @@ export class LifecycleService {
         agent: initialized.meta.agent,
         initialized,
         worktreePath: resolved.entry.path,
+        launchMode,
       });
 
       await this.deps.reconciliation.reconcile(this.deps.projectRoot);
@@ -467,6 +471,7 @@ export class LifecycleService {
     initialized: InitializeManagedWorktreeResult;
     worktreePath: string;
     prompt?: string;
+    launchMode: AgentLaunchMode;
   }): Promise<void> {
     if (input.profile.runtime === "docker") {
       const dockerProfile = this.requireDockerProfile(input.profile);
@@ -485,6 +490,7 @@ export class LifecycleService {
         initialized: input.initialized,
         worktreePath: input.worktreePath,
         prompt: input.prompt,
+        launchMode: input.launchMode,
         containerName,
       }));
       return;
@@ -497,6 +503,7 @@ export class LifecycleService {
       initialized: input.initialized,
       worktreePath: input.worktreePath,
       prompt: input.prompt,
+      launchMode: input.launchMode,
     }));
   }
 
@@ -507,9 +514,10 @@ export class LifecycleService {
     initialized: InitializeManagedWorktreeResult;
     worktreePath: string;
     prompt?: string;
+    launchMode: AgentLaunchMode;
     containerName?: string;
   }) {
-    const systemPrompt = input.profile.systemPrompt
+    const systemPrompt = input.launchMode === "fresh" && input.profile.systemPrompt
       ? expandTemplate(input.profile.systemPrompt, input.initialized.runtimeEnv)
       : undefined;
     const containerName = input.containerName;
@@ -530,7 +538,8 @@ export class LifecycleService {
                 runtimeEnvPath: input.initialized.paths.runtimeEnvPath,
                 yolo: input.profile.yolo === true,
                 systemPrompt,
-                prompt: input.prompt,
+                prompt: input.launchMode === "fresh" ? input.prompt : undefined,
+                launchMode: input.launchMode,
               }),
               shell: buildDockerShellCommand(
                 containerName,
@@ -544,7 +553,8 @@ export class LifecycleService {
                 runtimeEnvPath: input.initialized.paths.runtimeEnvPath,
                 yolo: input.profile.yolo === true,
                 systemPrompt,
-                prompt: input.prompt,
+                prompt: input.launchMode === "fresh" ? input.prompt : undefined,
+                launchMode: input.launchMode,
               }),
               shell: buildManagedShellCommand(input.initialized.paths.runtimeEnvPath),
         },

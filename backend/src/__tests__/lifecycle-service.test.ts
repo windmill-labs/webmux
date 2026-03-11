@@ -476,7 +476,92 @@ describe("LifecycleService", () => {
     expect(meta).not.toBeNull();
     expect(meta?.branch).toBe("feature-open");
     expect(tmux.listWindows()[0]?.windowName).toBe(buildWorktreeWindowName("feature-open"));
+    expect(tmux.commands[0]?.command).toContain("claude");
+    expect(tmux.commands[0]?.command).not.toContain("--continue");
     expect(runtime.getWorktreeByBranch("feature-open")?.worktreeId).toBe(opened.worktreeId);
+  });
+
+  it("reopens a managed claude worktree with claude continue", async () => {
+    const repoRoot = await initRepo();
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const lifecycle = makeLifecycleService(
+      repoRoot,
+      tmux,
+      runtime,
+      new FakeDockerGateway(),
+      new FakeHookRunner(),
+      {
+        ...TEST_CONFIG,
+        profiles: {
+          ...TEST_CONFIG.profiles,
+          default: {
+            ...TEST_CONFIG.profiles.default,
+            systemPrompt: "Database: ${FRONTEND_PORT}",
+          },
+        },
+      },
+    );
+
+    await lifecycle.createWorktree({
+      branch: "feature-continue",
+      prompt: "fix the tests",
+    });
+
+    tmux.commands.length = 0;
+    await lifecycle.closeWorktree("feature-continue");
+    await lifecycle.openWorktree("feature-continue");
+
+    const agentCommand = tmux.commands.at(-1)?.command;
+
+    expect(agentCommand).toContain("claude --continue");
+    expect(agentCommand).not.toContain("--append-system-prompt");
+    expect(agentCommand).not.toContain("Database:");
+    expect(agentCommand).not.toContain("fix the tests");
+  });
+
+  it("reopens a managed codex worktree with codex resume --last", async () => {
+    const repoRoot = await initRepo();
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const lifecycle = makeLifecycleService(
+      repoRoot,
+      tmux,
+      runtime,
+      new FakeDockerGateway(),
+      new FakeHookRunner(),
+      {
+        ...TEST_CONFIG,
+        workspace: {
+          ...TEST_CONFIG.workspace,
+          defaultAgent: "codex",
+        },
+        profiles: {
+          ...TEST_CONFIG.profiles,
+          default: {
+            ...TEST_CONFIG.profiles.default,
+            yolo: true,
+            systemPrompt: "Database: ${FRONTEND_PORT}",
+          },
+        },
+      },
+    );
+
+    await lifecycle.createWorktree({
+      branch: "feature-codex-resume",
+      prompt: "ship the fix",
+    });
+
+    tmux.commands.length = 0;
+    await lifecycle.closeWorktree("feature-codex-resume");
+    await lifecycle.openWorktree("feature-codex-resume");
+
+    const agentCommand = tmux.commands.at(-1)?.command;
+
+    expect(agentCommand).toContain("codex --yolo resume --last");
+    expect(agentCommand).not.toContain("developer_instructions=");
+    expect(agentCommand).not.toContain("Database:");
+    expect(agentCommand).not.toContain("ship the fix");
   });
 
   it("closes the tmux window without removing the worktree or branch", async () => {

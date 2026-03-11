@@ -1,5 +1,7 @@
 import type { AgentKind } from "../domain/config";
 
+export type AgentLaunchMode = "fresh" | "resume";
+
 function quoteShell(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
@@ -13,11 +15,14 @@ function buildAgentInvocation(input: {
   yolo?: boolean;
   systemPrompt?: string;
   prompt?: string;
+  launchMode?: AgentLaunchMode;
 }): string {
-  const promptSuffix = input.prompt ? ` ${quoteShell(input.prompt)}` : "";
-
   if (input.agent === "codex") {
     const yoloFlag = input.yolo ? " --yolo" : "";
+    if (input.launchMode === "resume") {
+      return `codex${yoloFlag} resume --last`;
+    }
+    const promptSuffix = input.prompt ? ` ${quoteShell(input.prompt)}` : "";
     if (input.systemPrompt) {
       return `codex${yoloFlag} -c ${quoteShell(`developer_instructions=${input.systemPrompt}`)}${promptSuffix}`;
     }
@@ -25,6 +30,10 @@ function buildAgentInvocation(input: {
   }
 
   const yoloFlag = input.yolo ? " --dangerously-skip-permissions" : "";
+  if (input.launchMode === "resume") {
+    return `claude${yoloFlag} --continue`;
+  }
+  const promptSuffix = input.prompt ? ` ${quoteShell(input.prompt)}` : "";
   if (input.systemPrompt) {
     return `claude${yoloFlag} --append-system-prompt ${quoteShell(input.systemPrompt)}${promptSuffix}`;
   }
@@ -37,6 +46,7 @@ function buildAgentCommand(input: {
   yolo?: boolean;
   systemPrompt?: string;
   prompt?: string;
+  launchMode?: AgentLaunchMode;
 }): string {
   return `${buildRuntimeBootstrap(input.runtimeEnvPath)}; ${buildAgentInvocation(input)}`;
 }
@@ -62,6 +72,7 @@ export function buildAgentPaneCommand(input: {
   yolo?: boolean;
   systemPrompt?: string;
   prompt?: string;
+  launchMode?: AgentLaunchMode;
 }): string {
   return buildAgentCommand(input);
 }
@@ -87,6 +98,7 @@ export function buildDockerAgentPaneCommand(input: {
   yolo?: boolean;
   systemPrompt?: string;
   prompt?: string;
+  launchMode?: AgentLaunchMode;
 }): string {
   return buildDockerExecCommand(
     input.containerName,

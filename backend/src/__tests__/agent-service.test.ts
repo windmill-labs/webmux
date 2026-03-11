@@ -28,9 +28,26 @@ describe("agent-service command builders", () => {
     expect(claude).toContain("set +a");
     expect(claude).toContain("claude");
     expect(claude).toContain("fix the tests");
+    expect(claude).not.toContain("--continue");
     expect(claude).not.toContain("agent-started");
     expect(claude).not.toContain("title-changed");
     expect(claude).not.toContain("runtime-error");
+  });
+
+  it("uses claude continue on resume without replaying the initial prompt", () => {
+    const command = buildAgentPaneCommand({
+      agent: "claude",
+      runtimeEnvPath: "/tmp/gitdir/webmux/runtime.env",
+      yolo: true,
+      systemPrompt: "stay focused",
+      prompt: "fix the tests",
+      launchMode: "resume",
+    });
+
+    expect(command).toContain("claude --dangerously-skip-permissions --continue");
+    expect(command).not.toContain("--append-system-prompt");
+    expect(command).not.toContain("fix the tests");
+    expect(command).not.toContain("stay focused");
   });
 
   it("builds docker commands that exec inside the container", () => {
@@ -54,6 +71,22 @@ describe("agent-service command builders", () => {
     expect(agent).toContain("codex --yolo");
     expect(agent).toContain("ship the fix");
     expect(agent).not.toContain("agent-stopped");
+  });
+
+  it("uses codex resume --last on resume without replaying the initial prompt", () => {
+    const command = buildAgentPaneCommand({
+      agent: "codex",
+      runtimeEnvPath: "/tmp/gitdir/webmux/runtime.env",
+      yolo: true,
+      systemPrompt: "stay focused",
+      prompt: "ship the fix",
+      launchMode: "resume",
+    });
+
+    expect(command).toContain("codex --yolo resume --last");
+    expect(command).not.toContain("developer_instructions=");
+    expect(command).not.toContain("ship the fix");
+    expect(command).not.toContain("stay focused");
   });
 
   it("adds the claude permissions bypass flag only when profile yolo is enabled", () => {

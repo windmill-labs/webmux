@@ -102,7 +102,7 @@ export class BunTmuxGateway implements TmuxGateway {
     }
     // Force 0-based pane indices so our code works regardless of the user's
     // global pane-base-index setting (commonly set to 1).
-    runTmux(["set-option", "-t", sessionName, "pane-base-index", "0"]);
+    assertTmuxOk(["set-option", "-t", sessionName, "pane-base-index", "0"], `set pane-base-index on ${sessionName}`);
   }
 
   hasWindow(sessionName: string, windowName: string): boolean {

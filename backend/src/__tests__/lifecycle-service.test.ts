@@ -31,6 +31,7 @@ function run(args: string[], cwd: string): string {
 
 class FakeTmuxGateway implements TmuxGateway {
   private readonly windows = new Map<string, TmuxWindowSummary>();
+  readonly commands: Array<{ target: string; command: string }> = [];
 
   ensureServer(): void {}
 
@@ -69,7 +70,9 @@ class FakeTmuxGateway implements TmuxGateway {
 
   setWindowOption(_sessionName: string, _windowName: string, _option: string, _value: string): void {}
 
-  runCommand(_target: string, _command: string): void {}
+  runCommand(target: string, command: string): void {
+    this.commands.push({ target, command });
+  }
 
   selectPane(_target: string): void {}
 
@@ -110,7 +113,7 @@ class FakeHookRunner implements LifecycleHookRunner {
   readonly calls: RunLifecycleHookInput[] = [];
 
   constructor(
-    private readonly onRun?: (input: RunLifecycleHookInput) => void,
+    private readonly onRun?: (input: RunLifecycleHookInput) => void | Promise<void>,
   ) {}
 
   async run(input: RunLifecycleHookInput): Promise<void> {
@@ -118,7 +121,7 @@ class FakeHookRunner implements LifecycleHookRunner {
       ...input,
       env: { ...input.env },
     });
-    this.onRun?.(input);
+    await this.onRun?.(input);
   }
 }
 
@@ -338,6 +341,47 @@ describe("LifecycleService", () => {
     const state = runtime.getWorktreeByBranch("feature/search");
     expect(state?.session.exists).toBe(true);
     expect(state?.session.paneCount).toBe(2);
+  });
+
+  it("refreshes runtime env after postCreate so system prompts see .env.local values", async () => {
+    const repoRoot = await initRepo();
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const databaseUrl = "postgres://postgres:changeme@127.0.0.1:5432/windmill_feature_prompt?sslmode=disable";
+    const hooks = new FakeHookRunner(async (input) => {
+      await Bun.write(join(input.cwd, ".env.local"), `DATABASE_URL=${databaseUrl}\n`);
+    });
+    const lifecycle = makeLifecycleService(
+      repoRoot,
+      tmux,
+      runtime,
+      new FakeDockerGateway(),
+      hooks,
+      {
+        ...TEST_CONFIG,
+        profiles: {
+          ...TEST_CONFIG.profiles,
+          default: {
+            ...TEST_CONFIG.profiles.default,
+            systemPrompt: "Database: ${DATABASE_URL}",
+          },
+        },
+      },
+    );
+
+    await lifecycle.createWorktree({
+      branch: "feature/prompt-env",
+    });
+
+    const worktreePath = join(repoRoot, "__worktrees", "feature", "prompt-env");
+    const gitDir = new BunGitGateway().resolveWorktreeGitDir(worktreePath);
+    const runtimeEnvText = await Bun.file(getWorktreeStoragePaths(gitDir).runtimeEnvPath).text();
+    const agentCommand = tmux.commands.find(({ target }) =>
+      target === `${buildProjectSessionName(repoRoot)}:${buildWorktreeWindowName("feature/prompt-env")}.0`
+    )?.command;
+
+    expect(runtimeEnvText).toContain(databaseUrl);
+    expect(agentCommand).toContain(`Database: ${databaseUrl}`);
   });
 
   it("creates a managed worktree under an absolute worktree root", async () => {

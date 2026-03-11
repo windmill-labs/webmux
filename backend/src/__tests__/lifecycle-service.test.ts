@@ -13,7 +13,7 @@ import type { AutoNameConfig } from "../domain/config";
 import { ProjectRuntime } from "../services/project-runtime";
 import type { AutoNameGenerator } from "../services/auto-name-service";
 import { ReconciliationService } from "../services/reconciliation-service";
-import { LifecycleService } from "../services/lifecycle-service";
+import { LifecycleService, type CreateWorktreeProgress } from "../services/lifecycle-service";
 
 function run(args: string[], cwd: string): string {
   const result = Bun.spawnSync(args, {
@@ -236,6 +236,10 @@ function makeLifecycleService(
   config: ProjectConfig = TEST_CONFIG,
   git: GitGateway = new BunGitGateway(),
   autoName: AutoNameGenerator = new FakeAutoNameService(),
+  createCallbacks: {
+    onProgress?: (progress: CreateWorktreeProgress) => void | Promise<void>;
+    onFinished?: (branch: string) => void | Promise<void>;
+  } = {},
 ): LifecycleService {
   const reconciliation = new ReconciliationService({
     config,
@@ -256,6 +260,8 @@ function makeLifecycleService(
     reconciliation,
     hooks,
     autoName,
+    onCreateProgress: createCallbacks.onProgress,
+    onCreateFinished: createCallbacks.onFinished,
   });
 }
 
@@ -483,6 +489,46 @@ describe("LifecycleService", () => {
     const state = runtime.getWorktreeByBranch("feature-sandbox");
     expect(state?.agent.runtime).toBe("docker");
     expect(state?.session.exists).toBe(true);
+  });
+
+  it("reports backend creation phases in order until the worktree is ready", async () => {
+    const repoRoot = await initRepo();
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const phases: string[] = [];
+    const activeBranches = new Set<string>();
+    const lifecycle = makeLifecycleService(
+      repoRoot,
+      tmux,
+      runtime,
+      new FakeDockerGateway(),
+      new FakeHookRunner(),
+      TEST_CONFIG,
+      new BunGitGateway(),
+      new FakeAutoNameService(),
+      {
+        onProgress: (progress) => {
+          activeBranches.add(progress.branch);
+          phases.push(`${progress.branch}:${progress.phase}`);
+        },
+        onFinished: (branch) => {
+          activeBranches.delete(branch);
+          phases.push(`${branch}:finished`);
+        },
+      },
+    );
+
+    await lifecycle.createWorktree({ branch: "feature/progress" });
+
+    expect(phases).toEqual([
+      "feature/progress:creating_worktree",
+      "feature/progress:preparing_runtime",
+      "feature/progress:running_post_create_hook",
+      "feature/progress:starting_session",
+      "feature/progress:reconciling",
+      "feature/progress:finished",
+    ]);
+    expect(activeBranches.has("feature/progress")).toBe(false);
   });
 
   it("uses auto_name to generate the branch when the prompt is present and no branch was provided", async () => {

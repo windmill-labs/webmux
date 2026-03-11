@@ -17,7 +17,7 @@ import { expandTemplate, getDefaultProfileName, isDockerProfile, type DockerProf
 import { type DockerGateway } from "../adapters/docker";
 import { buildProjectSessionName, buildWorktreeWindowName, type TmuxGateway } from "../adapters/tmux";
 import type { AgentKind, ProfileConfig, ProjectConfig, RuntimeKind } from "../domain/config";
-import type { WorktreeMeta } from "../domain/model";
+import type { WorktreeCreationPhase, WorktreeMeta } from "../domain/model";
 import { allocateServicePorts, isValidBranchName, isValidEnvKey } from "../domain/policies";
 import type { AutoNameGenerator } from "./auto-name-service";
 import {
@@ -54,6 +54,14 @@ interface ResolvedLifecycleWorktree {
   meta: WorktreeMeta | null;
 }
 
+export interface CreateWorktreeProgress {
+  branch: string;
+  path: string;
+  profile: string;
+  agent: AgentKind;
+  phase: WorktreeCreationPhase;
+}
+
 export interface LifecycleServiceDependencies {
   projectRoot: string;
   controlBaseUrl: string;
@@ -65,6 +73,8 @@ export interface LifecycleServiceDependencies {
   reconciliation: ReconciliationService;
   hooks: LifecycleHookRunner;
   autoName: AutoNameGenerator;
+  onCreateProgress?: (progress: CreateWorktreeProgress) => void | Promise<void>;
+  onCreateFinished?: (branch: string) => void | Promise<void>;
 }
 
 export interface CreateLifecycleWorktreeInput {
@@ -99,6 +109,14 @@ export class LifecycleService {
     const worktreePath = this.resolveWorktreePath(branch);
     let initialized: InitializeManagedWorktreeResult | null = null;
 
+    await this.reportCreateProgress({
+      branch,
+      path: worktreePath,
+      profile: profileName,
+      agent,
+      phase: "creating_worktree",
+    });
+
     try {
       await mkdir(dirname(worktreePath), { recursive: true });
 
@@ -122,11 +140,25 @@ export class LifecycleService {
         },
       );
 
+      await this.reportCreateProgress({
+        branch,
+        path: worktreePath,
+        profile: profileName,
+        agent,
+        phase: "preparing_runtime",
+      });
       await ensureAgentRuntimeArtifacts({
         gitDir: initialized.paths.gitDir,
         worktreePath,
       });
 
+      await this.reportCreateProgress({
+        branch,
+        path: worktreePath,
+        profile: profileName,
+        agent,
+        phase: "running_post_create_hook",
+      });
       await this.runLifecycleHook({
         name: "postCreate",
         command: this.deps.config.lifecycleHooks.postCreate,
@@ -139,7 +171,13 @@ export class LifecycleService {
         meta: initialized.meta,
         worktreePath,
       });
-
+      await this.reportCreateProgress({
+        branch,
+        path: worktreePath,
+        profile: profileName,
+        agent,
+        phase: "starting_session",
+      });
       await this.materializeRuntimeSession({
         branch,
         profile,
@@ -149,6 +187,13 @@ export class LifecycleService {
         prompt: input.prompt,
       });
 
+      await this.reportCreateProgress({
+        branch,
+        path: worktreePath,
+        profile: profileName,
+        agent,
+        phase: "reconciling",
+      });
       await this.deps.reconciliation.reconcile(this.deps.projectRoot);
 
       return {
@@ -163,6 +208,8 @@ export class LifecycleService {
         }
       }
       throw this.wrapOperationError(error);
+    } finally {
+      await this.finishCreateProgress(branch);
     }
   }
 
@@ -624,6 +671,14 @@ export class LifecycleService {
       }, dotenvValues),
     });
     console.debug(`[lifecycle-hook] COMPLETED ${input.name}`);
+  }
+
+  private async reportCreateProgress(progress: CreateWorktreeProgress): Promise<void> {
+    await this.deps.onCreateProgress?.(progress);
+  }
+
+  private async finishCreateProgress(branch: string): Promise<void> {
+    await this.deps.onCreateFinished?.(branch);
   }
 
   private wrapOperationError(error: unknown): LifecycleError {

@@ -13,7 +13,7 @@
   import LinearPanel from "./lib/LinearPanel.svelte";
   import LinearDetailDialog from "./lib/LinearDetailDialog.svelte";
   import type { WorktreeInfo, AppConfig, AppNotification, PrEntry, LinearIssue } from "./lib/types";
-  import { SSH_STORAGE_KEY, errorMessage } from "./lib/utils";
+  import { SSH_STORAGE_KEY, errorMessage, worktreeCreationPhaseLabel } from "./lib/utils";
   import * as api from "./lib/api";
 
   let config = $state<AppConfig>({
@@ -36,6 +36,8 @@
   let latestAutoSelectCreateId = -1;
   let nextCreateRequestId = 0;
   let sshHost = $state(localStorage.getItem(SSH_STORAGE_KEY) ?? "");
+  let applyPollInterval: ((intervalMs: number) => void) | null = null;
+  let pendingCreateBranchHint = $state<string | null>(null);
 
   // Linear integration
   let linearIssues = $state<LinearIssue[]>([]);
@@ -43,6 +45,8 @@
   let detailIssue = $state<LinearIssue | null>(null);
   let linearLastFetch = 0;
   const LINEAR_THROTTLE_MS = 300_000;
+  const DEFAULT_POLL_INTERVAL_MS = 5000;
+  const ACTIVE_CREATE_POLL_INTERVAL_MS = 1000;
 
   // Notifications
   let notifications = $state<AppNotification[]>([]);
@@ -104,18 +108,25 @@
 
   let openingBranches = $state<Set<string>>(new Set());
   let visibleWorktrees = $derived(worktrees);
+  let creatingWorktrees = $derived(visibleWorktrees.filter((w) => w.creating));
+  let backendCreatingCount = $derived(visibleWorktrees.filter((w) => w.creating).length);
+  let activeCreateCount = $derived(Math.max(pendingCreateCount, backendCreatingCount));
+  let hasCreatingWorktrees = $derived(activeCreateCount > 0);
   let selectableWorktrees = $derived(
     visibleWorktrees.filter((w) => !removingBranches.has(w.branch)),
   );
   let createIndicatorLabel = $derived(
-    pendingCreateCount === 1 ? "Creating..." : `Creating ${pendingCreateCount}...`,
+    activeCreateCount === 1 ? "Creating..." : `Creating ${activeCreateCount}...`,
   );
   let selectedWorktree = $derived(
     selectedBranch && !removingBranches.has(selectedBranch)
       ? visibleWorktrees.find((w) => w.branch === selectedBranch)
       : undefined,
   );
-  let canConnect = $derived(!!selectedBranch && selectedWorktree?.mux === "✓");
+  let canConnect = $derived(!!selectedBranch && selectedWorktree?.mux === "✓" && !selectedWorktree?.creating);
+  let pollIntervalMs = $derived(
+    hasCreatingWorktrees ? ACTIVE_CREATE_POLL_INTERVAL_MS : DEFAULT_POLL_INTERVAL_MS,
+  );
 
   $effect(() => {
     if (selectedBranch && selectedWorktree) {
@@ -130,6 +141,22 @@
     // Prefer an open worktree, fall back to the first one.
     const open = selectableWorktrees.find((w) => w.mux === "✓");
     selectedBranch = (open ?? selectableWorktrees[0]).branch;
+  });
+
+  $effect(() => {
+    if (pendingCreateCount === 0) return;
+    const target = pendingCreateBranchHint
+      ? visibleWorktrees.find((w) => w.branch === pendingCreateBranchHint)
+      : creatingWorktrees.length === 1
+        ? creatingWorktrees[0]
+        : undefined;
+    if (!target) return;
+    selectedBranch = target.branch;
+    if (isMobile) sidebarOpen = false;
+  });
+
+  $effect(() => {
+    applyPollInterval?.(pollIntervalMs);
   });
 
   $effect(() => {
@@ -179,17 +206,21 @@
     const requestId = nextCreateRequestId++;
     latestAutoSelectCreateId = requestId;
     pendingCreateCount += 1;
+    pendingCreateBranchHint = name || null;
     showCreateDialog = false;
     assignIssue = null;
 
     try {
-      const result = await api.createWorktree(
+      const createPromise = api.createWorktree(
         name || undefined,
         profile,
         agent,
         prompt || undefined,
         Object.keys(envOverrides).length > 0 ? envOverrides : undefined,
       );
+      void refresh();
+      const result = await createPromise;
+      pendingCreateBranchHint = result.branch;
       await refresh();
       if (requestId === latestAutoSelectCreateId) {
         selectedBranch = result.branch;
@@ -199,13 +230,21 @@
       alert(`Failed to create: ${errorMessage(err)}`);
     } finally {
       pendingCreateCount = Math.max(0, pendingCreateCount - 1);
+      if (requestId === latestAutoSelectCreateId) {
+        pendingCreateBranchHint = null;
+      }
     }
   }
 
   function selectNeighborOf(branch: string) {
     if (selectedBranch !== branch) return;
     const idx = visibleWorktrees.findIndex((w) => w.branch === branch);
-    const neighbor = visibleWorktrees[idx - 1] ?? visibleWorktrees[idx + 1];
+    const previous = visibleWorktrees[idx - 1];
+    const next = visibleWorktrees[idx + 1];
+    const neighbor = [previous, next].find((candidate) =>
+      candidate
+      && !removingBranches.has(candidate.branch)
+    );
     selectedBranch = neighbor ? neighbor.branch : null;
   }
 
@@ -315,7 +354,8 @@
       .catch(() => {});
     refresh();
     refreshLinear();
-    let interval = setInterval(refresh, 5000);
+    let intervalMs = pollIntervalMs;
+    let interval: ReturnType<typeof setInterval> | undefined;
     window.addEventListener("keydown", handleKeydown);
     let unsubNotifications = api.subscribeNotifications(handleNotification, handleSseDismiss, handleInitialNotification);
     // Request notification permission (no-op if already granted/denied)
@@ -327,16 +367,29 @@
     let idleTimer: ReturnType<typeof setTimeout>;
     let idle = false;
 
+    function startPolling(): void {
+      if (interval) clearInterval(interval);
+      if (document.hidden || idle) return;
+      interval = setInterval(refresh, intervalMs);
+    }
+
+    applyPollInterval = (nextIntervalMs: number): void => {
+      if (intervalMs === nextIntervalMs) return;
+      intervalMs = nextIntervalMs;
+      startPolling();
+    };
+    startPolling();
+
     function resetIdleTimer(): void {
       if (idle) {
         idle = false;
         refresh();
-        interval = setInterval(refresh, 5000);
+        startPolling();
       }
       clearTimeout(idleTimer);
       idleTimer = setTimeout(() => {
         idle = true;
-        clearInterval(interval);
+        if (interval) clearInterval(interval);
       }, 60_000);
     }
 
@@ -346,11 +399,11 @@
 
     function onVisibilityChange(): void {
       if (document.hidden) {
-        clearInterval(interval);
+        if (interval) clearInterval(interval);
       } else {
         resetIdleTimer();
         refresh();
-        interval = setInterval(refresh, 5000);
+        startPolling();
       }
     }
     document.addEventListener("visibilitychange", onVisibilityChange);
@@ -364,7 +417,8 @@
     mq.addEventListener("change", onMqChange);
 
     return () => {
-      clearInterval(interval);
+      if (interval) clearInterval(interval);
+      applyPollInterval = null;
       clearTimeout(idleTimer);
       document.removeEventListener("click", resetIdleTimer);
       document.removeEventListener("keydown", resetIdleTimer);
@@ -413,7 +467,7 @@
             {/if}
           </div>
         </div>
-        {#if pendingCreateCount > 0}
+        {#if activeCreateCount > 0}
           <div class="mt-2 flex items-center gap-1 text-[10px] text-muted">
             <span class="spinner"></span>
             {createIndicatorLabel}
@@ -427,11 +481,12 @@
         initializing={openingBranches}
         {notifiedBranches}
         onselect={async (b) => {
+          const wt = worktrees.find((w) => w.branch === b);
           selectedBranch = b;
           notifiedBranches = new Set([...notifiedBranches].filter((x) => x !== b));
           if (isMobile) sidebarOpen = false;
+          if (wt?.creating) return;
           // Open closed worktrees on click
-          const wt = worktrees.find((w) => w.branch === b);
           if (wt && wt.mux !== "✓") {
             openingBranches = new Set([...openingBranches, b]);
             try {
@@ -507,6 +562,14 @@
           bind:this={terminalRef}
         />
       {/key}
+    {:else if selectedWorktree?.creating}
+      <div class="flex-1 flex items-center justify-center px-6">
+        <div class="flex flex-col items-center gap-3 text-center">
+          <span class="spinner" style="width: 24px; height: 24px; border-width: 2px;"></span>
+          <p class="text-sm text-primary font-medium">{selectedWorktree.branch}</p>
+          <p class="text-xs text-muted">{worktreeCreationPhaseLabel(selectedWorktree.creationPhase)}</p>
+        </div>
+      </div>
     {:else}
       <div class="flex-1 flex items-center justify-center text-muted text-sm">
         <p>Select a worktree from the sidebar to connect</p>

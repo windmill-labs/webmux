@@ -1,4 +1,4 @@
-import type { PrEntry, ProjectSnapshot, WorktreeSnapshot } from "../domain/model";
+import type { CreatingWorktreeState, PrEntry, ProjectSnapshot, WorktreeSnapshot } from "../domain/model";
 import type { RuntimeNotification } from "./notification-service";
 import { ProjectRuntime } from "./project-runtime";
 
@@ -28,9 +28,18 @@ function clonePrEntry(pr: PrEntry): PrEntry {
   };
 }
 
+function mapCreationSnapshot(creating: CreatingWorktreeState | null): WorktreeSnapshot["creation"] {
+  return creating
+    ? {
+        phase: creating.phase,
+      }
+    : null;
+}
+
 function mapWorktreeSnapshot(
   state: ReturnType<ProjectRuntime["listWorktrees"]>[number],
   now: () => Date,
+  creating: CreatingWorktreeState | null,
   findLinearIssue?: (branch: string) => WorktreeSnapshot["linearIssue"],
 ): WorktreeSnapshot {
   return {
@@ -42,11 +51,34 @@ function mapWorktreeSnapshot(
     mux: state.session.exists,
     dirty: state.git.dirty || state.git.aheadCount > 0,
     paneCount: state.session.paneCount,
-    status: state.agent.lifecycle,
+    status: creating ? "creating" : state.agent.lifecycle,
     elapsed: formatElapsedSince(state.agent.lastStartedAt, now),
     services: state.services.map((service) => ({ ...service })),
     prs: state.prs.map((pr) => clonePrEntry(pr)),
     linearIssue: findLinearIssue ? findLinearIssue(state.branch) : null,
+    creation: mapCreationSnapshot(creating),
+  };
+}
+
+function mapCreatingWorktreeSnapshot(
+  creating: CreatingWorktreeState,
+  findLinearIssue?: (branch: string) => WorktreeSnapshot["linearIssue"],
+): WorktreeSnapshot {
+  return {
+    branch: creating.branch,
+    path: creating.path,
+    dir: creating.path,
+    profile: creating.profile,
+    agentName: creating.agentName,
+    mux: false,
+    dirty: false,
+    paneCount: 0,
+    status: "creating",
+    elapsed: "",
+    services: [],
+    prs: [],
+    linearIssue: findLinearIssue ? findLinearIssue(creating.branch) : null,
+    creation: mapCreationSnapshot(creating),
   };
 }
 
@@ -55,19 +87,33 @@ export function buildProjectSnapshot(input: {
   mainBranch: string;
   runtime: ProjectRuntime;
   notifications: RuntimeNotification[];
+  creatingWorktrees?: CreatingWorktreeState[];
   findLinearIssue?: (branch: string) => WorktreeSnapshot["linearIssue"];
   now?: () => Date;
 }): ProjectSnapshot {
   const now = input.now ?? (() => new Date());
+  const creatingWorktrees = input.creatingWorktrees ?? [];
+  const creatingByBranch = new Map(creatingWorktrees.map((worktree) => [worktree.branch, worktree]));
+  const runtimeWorktrees = input.runtime.listWorktrees();
+  const runtimeBranches = new Set(runtimeWorktrees.map((worktree) => worktree.branch));
+  const worktrees = runtimeWorktrees.map((state) =>
+    mapWorktreeSnapshot(state, now, creatingByBranch.get(state.branch) ?? null, input.findLinearIssue),
+  );
+
+  for (const creating of creatingWorktrees) {
+    if (!runtimeBranches.has(creating.branch)) {
+      worktrees.push(mapCreatingWorktreeSnapshot(creating, input.findLinearIssue));
+    }
+  }
+
+  worktrees.sort((left, right) => left.branch.localeCompare(right.branch));
 
   return {
     project: {
       name: input.projectName,
       mainBranch: input.mainBranch,
     },
-    worktrees: input.runtime.listWorktrees().map((state) =>
-      mapWorktreeSnapshot(state, now, input.findLinearIssue),
-    ),
+    worktrees,
     notifications: input.notifications.map((notification) => ({ ...notification })),
   };
 }

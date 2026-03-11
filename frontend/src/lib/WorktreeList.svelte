@@ -3,6 +3,7 @@
   import PrBadge from "./PrBadge.svelte";
   import LinearBadge from "./LinearBadge.svelte";
   import AgentStatusIcon from "./AgentStatusIcon.svelte";
+  import { worktreeCreationPhaseLabel } from "./utils";
 
   let {
     worktrees,
@@ -29,22 +30,30 @@
     {@const isRemoving = removing.has(wt.branch)}
     {@const isClosed = wt.mux !== "✓"}
     {@const isInitializing = initializing.has(wt.branch)}
+    {@const isCreating = wt.creating}
+    {@const isBusy = isRemoving || isInitializing}
     <li
-      class="mb-0.5 group relative {isRemoving || isInitializing
+      class="mb-0.5 group relative {isBusy
         ? 'opacity-40 pointer-events-none'
         : ''}"
     >
       <button
         type="button"
+        disabled={isBusy}
         class="w-full py-2.5 px-3 rounded-md border cursor-pointer flex flex-col gap-1 text-left text-inherit text-sm bg-transparent hover:bg-hover {isActive
           ? 'bg-active border-accent'
-          : 'border-transparent'} {isClosed && !isInitializing ? 'opacity-50' : ''}"
+          : 'border-transparent'} {isClosed && !isInitializing && !isCreating ? 'opacity-50' : ''}"
         onclick={() => onselect(wt.branch)}
       >
         <span class="flex items-center gap-1.5 pr-5 flex-wrap">
           <div class="flex items-center gap-2 max-w-[90%] min-w-0">
             <span class="font-medium truncate">{wt.branch}</span>
-            {#if isInitializing}
+            {#if isCreating}
+              <span class="shrink-0 inline-flex items-center gap-1 text-[10px] text-muted">
+                <span class="spinner"></span>
+                {worktreeCreationPhaseLabel(wt.creationPhase)}...
+              </span>
+            {:else if isInitializing}
               <span class="shrink-0 text-[10px] text-muted">opening...</span>
             {:else if isClosed}
               <span class="shrink-0 text-[10px] text-muted">closed</span>
@@ -84,6 +93,7 @@
       </button>
       <button
         type="button"
+        disabled={isBusy}
         class="absolute top-2 right-2 w-5 h-5 rounded flex items-center justify-center text-muted hover:text-danger hover:bg-hover opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
         title="Remove worktree"
         onclick={(e) => {

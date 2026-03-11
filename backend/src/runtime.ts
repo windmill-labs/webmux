@@ -10,6 +10,7 @@ import { LifecycleService } from "./services/lifecycle-service";
 import { NotificationService as RuntimeNotificationService } from "./services/notification-service";
 import { ProjectRuntime } from "./services/project-runtime";
 import { ReconciliationService } from "./services/reconciliation-service";
+import { WorktreeCreationTracker } from "./services/worktree-creation-service";
 
 export interface WebmuxRuntimeOptions {
   projectDir?: string;
@@ -27,6 +28,7 @@ export interface WebmuxRuntime {
   hooks: BunLifecycleHookRunner;
   autoName: AutoNameService;
   projectRuntime: ProjectRuntime;
+  worktreeCreationTracker: WorktreeCreationTracker;
   runtimeNotifications: RuntimeNotificationService;
   reconciliationService: ReconciliationService;
   lifecycleService: LifecycleService;
@@ -43,6 +45,7 @@ export function createWebmuxRuntime(options: WebmuxRuntimeOptions = {}): WebmuxR
   const hooks = new BunLifecycleHookRunner();
   const autoName = new AutoNameService();
   const projectRuntime = new ProjectRuntime();
+  const worktreeCreationTracker = new WorktreeCreationTracker();
   const runtimeNotifications = new RuntimeNotificationService();
   const reconciliationService = new ReconciliationService({
     config,
@@ -62,6 +65,12 @@ export function createWebmuxRuntime(options: WebmuxRuntimeOptions = {}): WebmuxR
     reconciliation: reconciliationService,
     hooks,
     autoName,
+    onCreateProgress: (progress) => {
+      worktreeCreationTracker.set(progress);
+    },
+    onCreateFinished: (branch) => {
+      worktreeCreationTracker.clear(branch);
+    },
   });
 
   return {
@@ -75,6 +84,7 @@ export function createWebmuxRuntime(options: WebmuxRuntimeOptions = {}): WebmuxR
     hooks,
     autoName,
     projectRuntime,
+    worktreeCreationTracker,
     runtimeNotifications,
     reconciliationService,
     lifecycleService,

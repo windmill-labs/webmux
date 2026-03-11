@@ -103,6 +103,25 @@ export interface LinkedLinearIssue {
   state: LinearIssueState;
 }
 
+export type WorktreeCreationPhase =
+  | "creating_worktree"
+  | "preparing_runtime"
+  | "running_post_create_hook"
+  | "starting_session"
+  | "reconciling";
+
+export interface CreatingWorktreeState {
+  branch: string;
+  path: string;
+  profile: string | null;
+  agentName: AgentKind | null;
+  phase: WorktreeCreationPhase;
+}
+
+export interface WorktreeCreationSnapshot {
+  phase: WorktreeCreationPhase;
+}
+
 export interface ManagedWorktreeRuntimeState {
   worktreeId: string;
   branch: string;
@@ -139,6 +158,7 @@ export interface WorktreeSnapshot {
   services: ServiceRuntimeState[];
   prs: PrEntry[];
   linearIssue: LinkedLinearIssue | null;
+  creation: WorktreeCreationSnapshot | null;
 }
 
 export interface ProjectSnapshot {

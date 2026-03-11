@@ -67,6 +67,15 @@ describe("buildProjectSnapshot", () => {
       projectName: "Project",
       mainBranch: "main",
       runtime,
+      creatingWorktrees: [
+        {
+          branch: "feature/search",
+          path: "/repo/__worktrees/feature-search",
+          profile: "default",
+          agentName: "claude",
+          phase: "starting_session",
+        },
+      ],
       notifications: notifications.list(),
       findLinearIssue: (branch) =>
         branch === "feature/search"
@@ -97,7 +106,7 @@ describe("buildProjectSnapshot", () => {
         mux: true,
         dirty: true,
         paneCount: 2,
-        status: "running",
+        status: "creating",
         elapsed: "5m",
         services: [
           { name: "frontend", port: 3010, running: true, url: "http://127.0.0.1:3010" },
@@ -137,6 +146,9 @@ describe("buildProjectSnapshot", () => {
             type: "started",
           },
         },
+        creation: {
+          phase: "starting_session",
+        },
       },
     ]);
     expect(snapshot.notifications).toHaveLength(1);
@@ -163,5 +175,67 @@ describe("buildProjectSnapshot", () => {
     expect(snapshot.worktrees[0]?.status).toBe("closed");
     expect(snapshot.worktrees[0]?.prs).toEqual([]);
     expect(snapshot.worktrees[0]?.linearIssue).toBeNull();
+    expect(snapshot.worktrees[0]?.creation).toBeNull();
+  });
+
+  it("includes placeholder snapshots for worktrees that are still being created", () => {
+    const runtime = new ProjectRuntime();
+
+    const snapshot = buildProjectSnapshot({
+      projectName: "Project",
+      mainBranch: "main",
+      runtime,
+      notifications: [],
+      creatingWorktrees: [
+        {
+          branch: "feature/new-flow",
+          path: "/repo/__worktrees/feature/new-flow",
+          profile: "default",
+          agentName: "codex",
+          phase: "creating_worktree",
+        },
+      ],
+      findLinearIssue: (branch) =>
+        branch === "feature/new-flow"
+          ? {
+              identifier: "ENG-999",
+              url: "https://linear.app/acme/issue/ENG-999",
+              state: {
+                name: "Todo",
+                color: "#64748b",
+                type: "unstarted",
+              },
+            }
+          : null,
+    });
+
+    expect(snapshot.worktrees).toEqual([
+      {
+        branch: "feature/new-flow",
+        path: "/repo/__worktrees/feature/new-flow",
+        dir: "/repo/__worktrees/feature/new-flow",
+        profile: "default",
+        agentName: "codex",
+        mux: false,
+        dirty: false,
+        paneCount: 0,
+        status: "creating",
+        elapsed: "",
+        services: [],
+        prs: [],
+        linearIssue: {
+          identifier: "ENG-999",
+          url: "https://linear.app/acme/issue/ENG-999",
+          state: {
+            name: "Todo",
+            color: "#64748b",
+            type: "unstarted",
+          },
+        },
+        creation: {
+          phase: "creating_worktree",
+        },
+      },
+    ]);
   });
 });

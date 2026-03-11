@@ -24,6 +24,7 @@ export function fetchConfig(): Promise<AppConfig> {
 
 function mapAgentStatus(status: string): string {
   switch (status) {
+    case "creating":
     case "running":
     case "starting":
       return "working";
@@ -62,6 +63,8 @@ function mapWorktree(snapshot: ProjectWorktreeSnapshot): WorktreeInfo {
     paneCount: snapshot.paneCount,
     prs: snapshot.prs.map((pr) => clonePrEntry(pr)),
     linearIssue: snapshot.linearIssue,
+    creating: snapshot.creation !== null,
+    creationPhase: snapshot.creation?.phase ?? null,
   };
 }
 

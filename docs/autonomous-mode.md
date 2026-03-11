@@ -15,14 +15,7 @@ Even in autonomous mode, **enter plan mode before starting non-trivial work**:
 
 After code changes compile and type-check, verify the feature works:
 
-1. **Check frontend logs** (`tmux capture-pane -t .1 -p -S -50`) — confirm no build errors
-2. **Check backend** — the backend runs on the main worktree; verify API responses with `curl`
-3. **Test the UI flow** in the browser or with Playwright screenshots
-4. **Test edge cases**: empty states, error states, loading states
-
-## End-of-Task Summary
-
-When done, provide:
+When done, open a PR directly, then provide:
 
 - What was changed and why (files modified, approach taken)
 - What checks passed (`bun run check` in frontend, etc.)

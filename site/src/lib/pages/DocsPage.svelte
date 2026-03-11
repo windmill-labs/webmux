@@ -37,7 +37,7 @@
       </p>
       <div class="mt-8 flex flex-col gap-3 sm:flex-row">
         <a
-          href="https://github.com/windmill-labs/workmux-web"
+          href="https://github.com/windmill-labs/webmux"
           target="_blank"
           rel="noopener"
           class="inline-flex items-center justify-center rounded-lg border border-edge px-5 py-3 text-sm font-medium text-primary no-underline transition-colors hover:bg-hover"
@@ -270,14 +270,13 @@
             hooks, and auto naming.
           </p>
         </div>
-        <div class="grid gap-8 xl:grid-cols-[1.25fr_0.75fr]">
+        <div class="max-w-5xl">
           <article class="rounded-2xl border border-edge bg-sidebar p-6 md:p-8">
             <h3 class="text-xl font-semibold text-primary">Full example</h3>
             <div class="mt-6">
               <CommandBlock command={configExample} />
             </div>
           </article>
-          <div></div>
         </div>
       </section>
 
@@ -313,7 +312,7 @@
             generated branch names and port allocation.
           </p>
         </div>
-        <div class="grid gap-8 xl:grid-cols-[0.95fr_1.05fr]">
+        <div class="max-w-5xl">
           <article class="rounded-2xl border border-edge bg-sidebar p-6 md:p-8">
             <h3 class="text-xl font-semibold text-primary">Runtime environment reference</h3>
             <div class="mt-6 space-y-6">
@@ -325,7 +324,6 @@
               {/each}
             </div>
           </article>
-          <div></div>
         </div>
       </section>
 

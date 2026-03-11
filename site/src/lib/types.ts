@@ -41,11 +41,6 @@ export interface DocFact {
   value: string;
 }
 
-export interface DocNote {
-  title: string;
-  body: string;
-}
-
 export interface ConfigField {
   key: string;
   type: string;

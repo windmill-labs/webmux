@@ -36,7 +36,7 @@
         >
       {/if}
       <a
-        href="https://github.com/windmill-labs/workmux-web"
+        href="https://github.com/windmill-labs/webmux"
         target="_blank"
         rel="noopener"
         class="text-muted transition-colors hover:text-primary"

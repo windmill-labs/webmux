@@ -3,7 +3,6 @@ import type {
   DocCommand,
   DocFact,
   DocFeature,
-  DocNote,
   DocsNavItem,
   DocStep,
   DocTool,

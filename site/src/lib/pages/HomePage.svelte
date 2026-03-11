@@ -77,7 +77,7 @@
           Read docs
         </a>
         <a
-          href="https://github.com/windmill-labs/workmux-web"
+          href="https://github.com/windmill-labs/webmux"
           target="_blank"
           rel="noopener"
           class="inline-flex items-center gap-2 rounded-lg border border-edge px-5 py-2.5 text-sm font-medium text-primary no-underline transition-colors hover:bg-hover"
@@ -525,7 +525,7 @@
   >
     <div class="flex items-center gap-4">
       <a
-        href="https://github.com/windmill-labs/workmux-web"
+        href="https://github.com/windmill-labs/webmux"
         target="_blank"
         rel="noopener"
         class="text-muted transition-colors hover:text-primary">GitHub</a

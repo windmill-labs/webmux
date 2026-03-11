@@ -276,7 +276,9 @@ export function loadConfig(dir: string): ProjectConfig {
         github: {
           linkedRepos: isRecord(parsed.integrations) && isRecord(parsed.integrations.github)
             ? parseLinkedRepos(parsed.integrations.github.linkedRepos)
-            : [],
+            : isRecord(parsed.integrations) && Array.isArray(parsed.integrations.github)
+              ? parseLinkedRepos(parsed.integrations.github)
+              : [],
         },
         linear: {
           enabled: isRecord(parsed.integrations) && isRecord(parsed.integrations.linear) && typeof parsed.integrations.linear.enabled === "boolean"

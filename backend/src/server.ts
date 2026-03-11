@@ -71,7 +71,7 @@ function getFrontendConfig(): {
     startupEnvs: config.startupEnvs,
     linkedRepos: config.integrations.github.linkedRepos.map((lr) => ({
       alias: lr.alias,
-      ...(lr.dir ? { dir: lr.dir } : {}),
+      ...(lr.dir ? { dir: resolve(PROJECT_DIR, lr.dir) } : {}),
     })),
   };
 }

@@ -75,7 +75,7 @@
       .map((lr) => ({
         alias: lr.alias,
         dir: lr.dir,
-        cursorUrl: makeCursorUrl(lr.dir),
+        cursorUrl: makeCursorUrl(lr.dir && name ? `${lr.dir}/${name}` : null),
         prs: (worktree?.prs ?? []).filter((pr) => pr.repo === lr.alias),
       }))
       .filter((g) => g.prs.length > 0 || g.cursorUrl),

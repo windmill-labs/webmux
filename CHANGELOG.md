@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.0](https://github.com/windmill-labs/webmux/compare/v0.13.0...v0.14.0) (2026-03-11)
+
+
+### Features
+
+* notify changelog to discord on release ([365d73f](https://github.com/windmill-labs/webmux/commit/365d73f1e650db7720d43dad59e78efec20a12dd))
+
 ## [0.13.0](https://github.com/windmill-labs/webmux/compare/v0.12.0...v0.13.0) (2026-03-11)
 
 

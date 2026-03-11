@@ -32,8 +32,9 @@
   let showSettingsDialog = $state(false);
   let ciDetailsPr = $state<PrEntry | null>(null);
   let commentReviewPr = $state<PrEntry | null>(null);
-  let creatingWorktrees = $state<{ id: number; name: string }[]>([]);
-  let nextCreatingId = 0;
+  let pendingCreateCount = $state(0);
+  let latestAutoSelectCreateId = -1;
+  let nextCreateRequestId = 0;
   let sshHost = $state(localStorage.getItem(SSH_STORAGE_KEY) ?? "");
 
   // Linear integration
@@ -106,6 +107,9 @@
   let selectableWorktrees = $derived(
     visibleWorktrees.filter((w) => !removingBranches.has(w.branch)),
   );
+  let createIndicatorLabel = $derived(
+    pendingCreateCount === 1 ? "Creating..." : `Creating ${pendingCreateCount}...`,
+  );
   let selectedWorktree = $derived(
     selectedBranch && !removingBranches.has(selectedBranch)
       ? visibleWorktrees.find((w) => w.branch === selectedBranch)
@@ -172,8 +176,9 @@
     prompt: string,
     envOverrides: Record<string, string>,
   ) {
-    const id = nextCreatingId++;
-    creatingWorktrees = [...creatingWorktrees, { id, name: name || "new worktree" }];
+    const requestId = nextCreateRequestId++;
+    latestAutoSelectCreateId = requestId;
+    pendingCreateCount += 1;
     showCreateDialog = false;
     assignIssue = null;
 
@@ -185,16 +190,15 @@
         prompt || undefined,
         Object.keys(envOverrides).length > 0 ? envOverrides : undefined,
       );
-      creatingWorktrees = creatingWorktrees.map((c) =>
-        c.id === id ? { ...c, name: result.branch } : c,
-      );
       await refresh();
-      selectedBranch = result.branch;
-      if (isMobile) sidebarOpen = false;
+      if (requestId === latestAutoSelectCreateId) {
+        selectedBranch = result.branch;
+        if (isMobile) sidebarOpen = false;
+      }
     } catch (err) {
       alert(`Failed to create: ${errorMessage(err)}`);
     } finally {
-      creatingWorktrees = creatingWorktrees.filter((c) => c.id !== id);
+      pendingCreateCount = Math.max(0, pendingCreateCount - 1);
     }
   }
 
@@ -390,30 +394,37 @@
         ? 'fixed inset-0 z-50 w-full'
         : 'w-[220px] min-w-[220px]'} bg-sidebar border-r border-edge flex flex-col overflow-hidden"
     >
-      <div class="flex items-center justify-between p-4 border-b border-edge">
-        <h1 class="text-base font-semibold">{config.name ?? "Dashboard"}</h1>
-        <div class="flex items-center gap-2">
-          <button
-            class="h-8 px-2 gap-1.5 rounded-md border border-edge bg-surface text-accent text-xs flex items-center justify-center cursor-pointer hover:bg-hover disabled:opacity-50 disabled:cursor-not-allowed"
-            onclick={() => (showCreateDialog = true)}
-            title="New Worktree (Cmd+K)"
-            ><span class="text-lg leading-none">+</span> New</button
-          >
-          {#if isMobile}
+      <div class="p-4 border-b border-edge">
+        <div class="flex items-center justify-between">
+          <h1 class="text-base font-semibold">{config.name ?? "Dashboard"}</h1>
+          <div class="flex items-center gap-2">
             <button
-              class="h-8 w-8 rounded-md border border-edge bg-surface text-muted text-sm flex items-center justify-center cursor-pointer hover:bg-hover"
-              onclick={() => (sidebarOpen = false)}
-              title="Close sidebar">&times;</button
+              class="h-8 px-2 gap-1.5 rounded-md border border-edge bg-surface text-accent text-xs flex items-center justify-center cursor-pointer hover:bg-hover disabled:opacity-50 disabled:cursor-not-allowed"
+              onclick={() => (showCreateDialog = true)}
+              title="New Worktree (Cmd+K)"
+              ><span class="text-lg leading-none">+</span> New</button
             >
-          {/if}
+            {#if isMobile}
+              <button
+                class="h-8 w-8 rounded-md border border-edge bg-surface text-muted text-sm flex items-center justify-center cursor-pointer hover:bg-hover"
+                onclick={() => (sidebarOpen = false)}
+                title="Close sidebar">&times;</button
+              >
+            {/if}
+          </div>
         </div>
+        {#if pendingCreateCount > 0}
+          <div class="mt-2 flex items-center gap-1 text-[10px] text-muted">
+            <span class="spinner"></span>
+            {createIndicatorLabel}
+          </div>
+        {/if}
       </div>
       <WorktreeList
         worktrees={visibleWorktrees}
         selected={selectedBranch}
         removing={removingBranches}
         initializing={openingBranches}
-        creating={creatingWorktrees}
         {notifiedBranches}
         onselect={async (b) => {
           selectedBranch = b;

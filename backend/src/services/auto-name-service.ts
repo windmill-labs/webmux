@@ -69,7 +69,7 @@ function buildClaudeArgs(model: string | undefined, systemPrompt: string, prompt
   if (model) {
     args.push("--model", model);
   }
-  args.push(prompt);
+  args.push(`Here is the task description: ${prompt}. You MUST return the branch name only, no other text or comments.`);
   return args;
 }
 
@@ -87,7 +87,7 @@ function buildCodexArgs(model: string | undefined, systemPrompt: string, prompt:
   if (model) {
     args.push("-m", model);
   }
-  args.push(prompt);
+  args.push(`Here is the task description: ${prompt}. You MUST return the branch name only, no other text or comments.`);
   return args;
 }
 

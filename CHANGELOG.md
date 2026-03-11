@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.13.0](https://github.com/windmill-labs/webmux/compare/v0.12.0...v0.13.0) (2026-03-11)
+
+
+### Features
+
+* add existing branch worktree picker ([#119](https://github.com/windmill-labs/webmux/issues/119)) ([93e0bd8](https://github.com/windmill-labs/webmux/commit/93e0bd806b13eafecdc07d5cdc73272f631b48de))
+* add webmux prune command ([#118](https://github.com/windmill-labs/webmux/issues/118)) ([eda234a](https://github.com/windmill-labs/webmux/commit/eda234a810e91209bf130eecc81e674be2d8edda))
+
+
+### Bug Fixes
+
+* isolate pane base index from user tmux config ([#115](https://github.com/windmill-labs/webmux/issues/115)) ([5308220](https://github.com/windmill-labs/webmux/commit/53082200e72ae1d8c2f84a653b26e9b4d59869ff))
+* resume agent sessions on reopen ([#116](https://github.com/windmill-labs/webmux/issues/116)) ([6748292](https://github.com/windmill-labs/webmux/commit/6748292f20c197804842ac9f9eccf6c4c38f6b3c))
+
 ## [0.12.0](https://github.com/windmill-labs/webmux/compare/v0.11.0...v0.12.0) (2026-03-11)
 
 

@@ -27,7 +27,7 @@ describe("AutoNameService", () => {
       "--system-prompt", "Generate a branch name",
       "--output-format", "text",
       "--no-session-persistence",
-      "Task description:\nFix the login flow",
+      "Here is the task description: Fix the login flow. You MUST return the branch name only, no other text or comments. Be fast, make it simple, and concise.",
     ]);
   });
 
@@ -72,7 +72,7 @@ describe("AutoNameService", () => {
       "-c", 'developer_instructions="Generate a branch name"',
       "exec",
       "--ephemeral",
-      "Task description:\nImprove search ranking",
+      "Here is the task description: Improve search ranking. You MUST return the branch name only, no other text or comments. Be fast, make it simple, and concise.",
     ]);
   });
 
@@ -149,6 +149,33 @@ describe("AutoNameService", () => {
     await expect(
       service.generateBranchName({ provider: "claude" }, "Fix bug"),
     ).rejects.toThrow("claude returned empty output");
+  });
+
+  it("truncates branch names longer than 40 characters", async () => {
+    const { spawnImpl } = fakeSpawn("this-is-a-very-long-branch-name-that-exceeds-the-forty-character-limit");
+    const service = new AutoNameService({ spawnImpl });
+
+    const branch = await service.generateBranchName(
+      { provider: "claude" },
+      "A very long task description",
+    );
+
+    expect(branch.length).toBeLessThanOrEqual(40);
+    expect(branch).toBe("this-is-a-very-long-branch-name-that-exc");
+  });
+
+  it("removes trailing hyphens after truncation", async () => {
+    // 40th char lands right after a hyphen: "a]b-c" → truncate at 40 → trailing hyphen
+    const { spawnImpl } = fakeSpawn("add-feature-to-handle-user-authentication-flow");
+    const service = new AutoNameService({ spawnImpl });
+
+    const branch = await service.generateBranchName(
+      { provider: "claude" },
+      "Some task",
+    );
+
+    expect(branch.length).toBeLessThanOrEqual(40);
+    expect(branch).not.toMatch(/-$/);
   });
 
   it("escapes special characters in system prompt for codex TOML config", async () => {

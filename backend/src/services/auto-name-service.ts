@@ -9,10 +9,13 @@ interface SpawnResult {
 
 type SpawnLike = (args: string[]) => Promise<SpawnResult>;
 
+const MAX_BRANCH_LENGTH = 40;
+
 const DEFAULT_SYSTEM_PROMPT = [
   "Generate a concise git branch name from the task description.",
   "Return only the branch name.",
   "Use lowercase kebab-case.",
+  `Maximum ${MAX_BRANCH_LENGTH} characters.`,
   "Do not include quotes, code fences, or prefixes like feature/ or fix/.",
 ].join(" ");
 
@@ -27,6 +30,7 @@ function normalizeGeneratedBranchName(raw: string): string {
   branch = branch.replace(/[/.]+/g, "-");
   branch = branch.replace(/-+/g, "-");
   branch = branch.replace(/^-+|-+$/g, "");
+  branch = branch.slice(0, MAX_BRANCH_LENGTH).replace(/-+$/, "");
 
   if (!branch) {
     throw new Error("Auto-name model returned an empty branch name");
@@ -65,7 +69,7 @@ function buildClaudeArgs(model: string | undefined, systemPrompt: string, prompt
   if (model) {
     args.push("--model", model);
   }
-  args.push(`Here is the task description: ${prompt}. You MUST return the branch name only, no other text or comments.`);
+  args.push(prompt);
   return args;
 }
 
@@ -87,7 +91,7 @@ function buildCodexArgs(model: string | undefined, systemPrompt: string, prompt:
   if (model) {
     args.push("-m", model);
   }
-  args.push(`Here is the task description: ${prompt}. You MUST return the branch name only, no other text or comments.`);
+  args.push(prompt);
   return args;
 }
 

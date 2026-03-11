@@ -134,6 +134,12 @@ export class LifecycleService {
         worktreePath,
       });
 
+      initialized = await this.refreshManagedArtifactsFromMeta({
+        gitDir: initialized.paths.gitDir,
+        meta: initialized.meta,
+        worktreePath,
+      });
+
       await this.materializeRuntimeSession({
         branch,
         profile,
@@ -374,23 +380,35 @@ export class LifecycleService {
       throw new Error("Missing managed metadata");
     }
 
-    const dotenvValues = await loadDotenvLocal(resolved.entry.path);
-    const runtimeEnv = buildRuntimeEnvMap(resolved.meta, {
-      WEBMUX_WORKTREE_PATH: resolved.entry.path,
+    return await this.refreshManagedArtifactsFromMeta({
+      gitDir: resolved.gitDir,
+      meta: resolved.meta,
+      worktreePath: resolved.entry.path,
+    });
+  }
+
+  private async refreshManagedArtifactsFromMeta(input: {
+    gitDir: string;
+    meta: WorktreeMeta;
+    worktreePath: string;
+  }): Promise<InitializeManagedWorktreeResult> {
+    const dotenvValues = await loadDotenvLocal(input.worktreePath);
+    const runtimeEnv = buildRuntimeEnvMap(input.meta, {
+      WEBMUX_WORKTREE_PATH: input.worktreePath,
     }, dotenvValues);
-    await writeRuntimeEnv(resolved.gitDir, runtimeEnv);
+    await writeRuntimeEnv(input.gitDir, runtimeEnv);
 
     const controlEnv = buildControlEnvMap({
       controlUrl: this.controlUrl(),
       controlToken: await this.deps.getControlToken(),
-      worktreeId: resolved.meta.worktreeId,
-      branch: resolved.meta.branch,
+      worktreeId: input.meta.worktreeId,
+      branch: input.meta.branch,
     });
-    await writeControlEnv(resolved.gitDir, controlEnv);
+    await writeControlEnv(input.gitDir, controlEnv);
 
     return {
-      meta: resolved.meta,
-      paths: getWorktreeStoragePaths(resolved.gitDir),
+      meta: input.meta,
+      paths: getWorktreeStoragePaths(input.gitDir),
       runtimeEnv,
       controlEnv,
     };

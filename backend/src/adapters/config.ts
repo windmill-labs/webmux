@@ -218,6 +218,7 @@ function parseLinkedRepos(raw: unknown): LinkedRepoConfig[] {
     .map((entry) => ({
       repo: entry.repo as string,
       alias: typeof entry.alias === "string" ? entry.alias : (entry.repo as string).split("/").pop() ?? "repo",
+      ...(typeof entry.dir === "string" && entry.dir.trim() ? { dir: entry.dir.trim() } : {}),
     }));
 }
 

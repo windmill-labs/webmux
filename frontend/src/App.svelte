@@ -21,6 +21,7 @@
     profiles: [],
     defaultProfileName: "",
     autoName: false,
+    linkedRepos: [],
   });
   let worktrees = $state<WorktreeInfo[]>([]);
   let selectedBranch = $state<string | null>(null);
@@ -457,6 +458,7 @@
       name={selectedWorktree?.branch ?? null}
       worktree={selectedWorktree}
       {sshHost}
+      linkedRepos={config.linkedRepos ?? []}
       {isMobile}
       {notificationHistory}
       {unreadCount}

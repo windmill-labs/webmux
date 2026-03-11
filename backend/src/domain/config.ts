@@ -46,6 +46,7 @@ export interface ServiceSpec {
 export interface LinkedRepoConfig {
   repo: string;
   alias: string;
+  dir?: string;
 }
 
 export interface GitHubIntegrationConfig {

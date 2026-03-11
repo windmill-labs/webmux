@@ -50,6 +50,7 @@ function getFrontendConfig(): {
   defaultProfileName: string;
   autoName: boolean;
   startupEnvs: ProjectConfig["startupEnvs"];
+  linkedRepos: Array<{ alias: string; dir?: string }>;
 } {
   const defaultProfileName = getDefaultProfileName(config);
   const orderedProfileEntries = Object.entries(config.profiles).sort(([left], [right]) => {
@@ -68,6 +69,10 @@ function getFrontendConfig(): {
     defaultProfileName,
     autoName: config.autoName !== null,
     startupEnvs: config.startupEnvs,
+    linkedRepos: config.integrations.github.linkedRepos.map((lr) => ({
+      alias: lr.alias,
+      ...(lr.dir ? { dir: lr.dir } : {}),
+    })),
   };
 }
 

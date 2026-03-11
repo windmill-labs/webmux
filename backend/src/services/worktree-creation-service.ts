@@ -12,7 +12,7 @@ export interface WorktreeCreationProgress {
 export class WorktreeCreationTracker {
   private readonly worktrees = new Map<string, CreatingWorktreeState>();
 
-  set(progress: WorktreeCreationProgress): CreatingWorktreeState {
+  set(progress: WorktreeCreationProgress): void {
     const next: CreatingWorktreeState = {
       branch: progress.branch,
       path: progress.path,
@@ -21,7 +21,6 @@ export class WorktreeCreationTracker {
       phase: progress.phase,
     };
     this.worktrees.set(progress.branch, next);
-    return { ...next };
   }
 
   clear(branch: string): boolean {

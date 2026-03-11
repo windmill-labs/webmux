@@ -109,15 +109,15 @@ export class LifecycleService {
     const worktreePath = this.resolveWorktreePath(branch);
     let initialized: InitializeManagedWorktreeResult | null = null;
 
-    await this.reportCreateProgress({
-      branch,
-      path: worktreePath,
-      profile: profileName,
-      agent,
-      phase: "creating_worktree",
-    });
-
     try {
+      await this.reportCreateProgress({
+        branch,
+        path: worktreePath,
+        profile: profileName,
+        agent,
+        phase: "creating_worktree",
+      });
+
       await mkdir(dirname(worktreePath), { recursive: true });
 
       initialized = await createManagedWorktree(

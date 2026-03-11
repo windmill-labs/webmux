@@ -531,6 +531,38 @@ describe("LifecycleService", () => {
     expect(activeBranches.has("feature/progress")).toBe(false);
   });
 
+  it("clears creation progress when the first phase callback fails", async () => {
+    const repoRoot = await initRepo();
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const finishedBranches: string[] = [];
+    const lifecycle = makeLifecycleService(
+      repoRoot,
+      tmux,
+      runtime,
+      new FakeDockerGateway(),
+      new FakeHookRunner(),
+      TEST_CONFIG,
+      new BunGitGateway(),
+      new FakeAutoNameService(),
+      {
+        onProgress: (progress) => {
+          if (progress.phase === "creating_worktree") {
+            throw new Error("progress failed");
+          }
+        },
+        onFinished: (branch) => {
+          finishedBranches.push(branch);
+        },
+      },
+    );
+
+    await expect(
+      lifecycle.createWorktree({ branch: "feature/progress-failure" }),
+    ).rejects.toThrow("progress failed");
+    expect(finishedBranches).toEqual(["feature/progress-failure"]);
+  });
+
   it("uses auto_name to generate the branch when the prompt is present and no branch was provided", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();

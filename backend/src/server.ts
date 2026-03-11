@@ -337,6 +337,10 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
   const profile = typeof body.profile === "string" ? body.profile : undefined;
   const agent = body.agent === "claude" || body.agent === "codex" ? body.agent : undefined;
 
+  if (branch) {
+    ensureBranchNotCreating(branch);
+  }
+
   log.info(
     `[worktree:add]${branch ? ` branch=${branch}` : ""}${profile ? ` profile=${profile}` : ""}${agent ? ` agent=${agent}` : ""}${prompt ? ` prompt="${prompt.slice(0, 80)}"` : ""}`,
   );

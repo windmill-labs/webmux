@@ -238,4 +238,42 @@ describe("buildProjectSnapshot", () => {
       },
     ]);
   });
+
+  it("keeps merged runtime and creating worktrees sorted by branch", () => {
+    const runtime = new ProjectRuntime();
+    runtime.upsertWorktree({
+      worktreeId: "wt_zebra",
+      branch: "feature/zebra",
+      path: "/repo/__worktrees/feature-zebra",
+      runtime: "host",
+    });
+    runtime.upsertWorktree({
+      worktreeId: "wt_middle",
+      branch: "feature/middle",
+      path: "/repo/__worktrees/feature-middle",
+      runtime: "host",
+    });
+
+    const snapshot = buildProjectSnapshot({
+      projectName: "Project",
+      mainBranch: "main",
+      runtime,
+      notifications: [],
+      creatingWorktrees: [
+        {
+          branch: "feature/alpha",
+          path: "/repo/__worktrees/feature-alpha",
+          profile: "default",
+          agentName: "claude",
+          phase: "creating_worktree",
+        },
+      ],
+    });
+
+    expect(snapshot.worktrees.map((worktree) => worktree.branch)).toEqual([
+      "feature/alpha",
+      "feature/middle",
+      "feature/zebra",
+    ]);
+  });
 });

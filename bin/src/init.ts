@@ -292,4 +292,5 @@ p.outro("You're all set! Next steps:");
 console.log();
 console.log("  1. Review .webmux.yaml and adjust panes, ports, and profiles if needed");
 console.log("  2. Run: webmux");
+console.log('  3. Enable tab completion: eval "$(webmux completion zsh)"  (or bash)');
 console.log();

@@ -77,7 +77,18 @@ export function runCompletionCommand(args: string[]): number {
   const shell = args[0];
 
   if (!shell || shell === "--help" || shell === "-h") {
-    console.log("Usage:\n  webmux completion <bash|zsh>");
+    console.log([
+      "Usage:",
+      "  webmux completion <bash|zsh>",
+      "",
+      "Add this to your shell config to enable autocompletion:",
+      "",
+      "  # ~/.zshrc",
+      '  eval "$(webmux completion zsh)"',
+      "",
+      "  # ~/.bashrc",
+      '  eval "$(webmux completion bash)"',
+    ].join("\n"));
     return 0;
   }
 

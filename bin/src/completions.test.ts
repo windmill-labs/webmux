@@ -100,6 +100,7 @@ describe("runCompletionCommand", () => {
     const code = runCompletionCommand(["--help"]);
     expect(code).toBe(0);
     expect(spy).toHaveBeenCalledWith(expect.stringContaining("Usage:"));
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining('eval "$(webmux completion zsh)"'));
     spy.mockRestore();
   });
 

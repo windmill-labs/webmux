@@ -31,7 +31,8 @@
   let showSettingsDialog = $state(false);
   let ciDetailsPr = $state<PrEntry | null>(null);
   let commentReviewPr = $state<PrEntry | null>(null);
-  let creating = $state(false);
+  let creatingWorktrees = $state<{ id: number; name: string }[]>([]);
+  let nextCreatingId = 0;
   let sshHost = $state(localStorage.getItem(SSH_STORAGE_KEY) ?? "");
 
   // Linear integration
@@ -170,7 +171,11 @@
     prompt: string,
     envOverrides: Record<string, string>,
   ) {
-    creating = true;
+    const id = nextCreatingId++;
+    creatingWorktrees = [...creatingWorktrees, { id, name: name || "new worktree" }];
+    showCreateDialog = false;
+    assignIssue = null;
+
     try {
       const result = await api.createWorktree(
         name || undefined,
@@ -179,15 +184,13 @@
         prompt || undefined,
         Object.keys(envOverrides).length > 0 ? envOverrides : undefined,
       );
-      showCreateDialog = false;
-      assignIssue = null;
       await refresh();
       selectedBranch = result.branch;
       if (isMobile) sidebarOpen = false;
     } catch (err) {
       alert(`Failed to create: ${errorMessage(err)}`);
     } finally {
-      creating = false;
+      creatingWorktrees = creatingWorktrees.filter((c) => c.id !== id);
     }
   }
 
@@ -280,7 +283,7 @@
       selectNeighborWorktree(1);
     } else if (e.key === "k" || e.key === "K") {
       e.preventDefault();
-      if (!creating) showCreateDialog = true;
+      showCreateDialog = true;
     } else if (e.key === "m" || e.key === "M") {
       e.preventDefault();
       if (selectedBranch) mergeBranch = selectedBranch;
@@ -389,7 +392,6 @@
           <button
             class="h-8 px-2 gap-1.5 rounded-md border border-edge bg-surface text-accent text-xs flex items-center justify-center cursor-pointer hover:bg-hover disabled:opacity-50 disabled:cursor-not-allowed"
             onclick={() => (showCreateDialog = true)}
-            disabled={creating}
             title="New Worktree (Cmd+K)"
             ><span class="text-lg leading-none">+</span> New</button
           >
@@ -407,6 +409,7 @@
         selected={selectedBranch}
         removing={removingBranches}
         initializing={openingBranches}
+        creating={creatingWorktrees}
         {notifiedBranches}
         onselect={async (b) => {
           selectedBranch = b;
@@ -502,7 +505,6 @@
 
 {#if showCreateDialog}
   <CreateWorktreeDialog
-    loading={creating}
     profiles={config.profiles}
     defaultProfileName={config.defaultProfileName}
     autoNameEnabled={config.autoName}

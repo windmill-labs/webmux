@@ -22,6 +22,10 @@ function stubLifecycleService(calls: Array<{ method: string; value: unknown }>) 
     async mergeWorktree(branch: string): Promise<void> {
       calls.push({ method: "mergeWorktree", value: branch });
     },
+    async pruneWorktrees(): Promise<{ removedBranches: string[] }> {
+      calls.push({ method: "pruneWorktrees", value: null });
+      return { removedBranches: ["feature/search", "feature/api"] };
+    },
   };
 }
 
@@ -183,6 +187,66 @@ describe("runWorktreeCommand", () => {
     expect(stdout).toEqual(["Merged feature/search into develop"]);
   });
 
+  it("prunes all worktrees after confirmation", async () => {
+    const { runtime, calls } = makeRuntime();
+    runtime.git = stubGit([
+      { path: "/repo", branch: "main", bare: false },
+      { path: "/repo/.worktrees/feature-search", branch: "feature/search", bare: false },
+      { path: "/repo/.worktrees/feature-api", branch: "feature/api", bare: false },
+    ]);
+    const stdout: string[] = [];
+    const confirmCalls: number[] = [];
+
+    const exitCode = await runWorktreeCommand(
+      {
+        command: "prune",
+        args: [],
+        projectDir: "/repo",
+        port: 5111,
+      },
+      {
+        createRuntime: () => runtime,
+        confirmPrune: async (count) => {
+          confirmCalls.push(count);
+          return true;
+        },
+        stdout: (message) => stdout.push(message),
+      },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(confirmCalls).toEqual([2]);
+    expect(calls).toEqual([{ method: "pruneWorktrees", value: null }]);
+    expect(stdout).toEqual(["Pruned 2 worktrees: feature/search, feature/api"]);
+  });
+
+  it("aborts prune when confirmation is declined", async () => {
+    const { runtime, calls } = makeRuntime();
+    runtime.git = stubGit([
+      { path: "/repo", branch: "main", bare: false },
+      { path: "/repo/.worktrees/feature-search", branch: "feature/search", bare: false },
+    ]);
+    const stdout: string[] = [];
+
+    const exitCode = await runWorktreeCommand(
+      {
+        command: "prune",
+        args: [],
+        projectDir: "/repo",
+        port: 5111,
+      },
+      {
+        createRuntime: () => runtime,
+        confirmPrune: async () => false,
+        stdout: (message) => stdout.push(message),
+      },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(calls).toEqual([]);
+    expect(stdout).toEqual(["Aborted."]);
+  });
+
   it("returns a failing exit code when lifecycle execution fails", async () => {
     const stdout: string[] = [];
     const stderr: string[] = [];
@@ -218,6 +282,9 @@ describe("runWorktreeCommand", () => {
               throw new Error("Worktree has uncommitted changes: feature/search");
             },
             async mergeWorktree(): Promise<void> {
+              throw new Error("not used");
+            },
+            async pruneWorktrees(): Promise<{ removedBranches: string[] }> {
               throw new Error("not used");
             },
           },
@@ -328,5 +395,25 @@ describe("runWorktreeCommand", () => {
     expect(exitCode).toBe(0);
     expect(createRuntimeCalled).toBe(false);
     expect(stdout).toEqual(["Usage:\n  webmux list"]);
+  });
+
+  it("prints prune help without creating a runtime", async () => {
+    let createRuntimeCalled = false;
+    const stdout: string[] = [];
+
+    const exitCode = await runWorktreeCommand(
+      { command: "prune", args: ["--help"], projectDir: "/repo", port: 5111 },
+      {
+        createRuntime: () => {
+          createRuntimeCalled = true;
+          throw new Error("unexpected");
+        },
+        stdout: (msg) => stdout.push(msg),
+      },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(createRuntimeCalled).toBe(false);
+    expect(stdout).toEqual(["Usage:\n  webmux prune"]);
   });
 });

@@ -762,6 +762,36 @@ describe("LifecycleService", () => {
     expect(run(["git", "branch", "--list", "feature-ahead"], repoRoot)).toBe("");
   });
 
+  it("prunes all project worktrees", async () => {
+    const repoRoot = await initRepo();
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const docker = new FakeDockerGateway();
+    const hooks = new FakeHookRunner();
+    const lifecycle = makeLifecycleService(repoRoot, tmux, runtime, docker, hooks);
+
+    await lifecycle.createWorktree({ branch: "feature-prune-host" });
+    await lifecycle.createWorktree({ branch: "feature-prune-docker", profile: "sandbox" });
+    await lifecycle.closeWorktree("feature-prune-host");
+
+    const result = await lifecycle.pruneWorktrees();
+
+    expect(result.removedBranches).toEqual([
+      "feature-prune-docker",
+      "feature-prune-host",
+    ]);
+    expect(hooks.calls.filter((call) => call.name === "preRemove").map((call) => call.cwd).sort()).toEqual([
+      join(repoRoot, "__worktrees", "feature-prune-docker"),
+      join(repoRoot, "__worktrees", "feature-prune-host"),
+    ]);
+    expect(docker.removed).toEqual(["feature-prune-docker"]);
+    expect(new BunGitGateway().listWorktrees(repoRoot).filter((entry) => entry.path !== repoRoot)).toEqual([]);
+    expect(run(["git", "branch", "--list", "feature-prune-host"], repoRoot)).toBe("");
+    expect(run(["git", "branch", "--list", "feature-prune-docker"], repoRoot)).toBe("");
+    expect(tmux.listWindows()).toEqual([]);
+    expect(runtime.listWorktrees()).toEqual([]);
+  });
+
   it("removes the sandbox container before deleting a docker worktree", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();

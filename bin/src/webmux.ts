@@ -25,6 +25,7 @@ Usage:
   webmux close        Close a worktree session without removing it
   webmux remove       Remove a worktree
   webmux merge        Merge a worktree into the main branch and remove it
+  webmux prune        Remove all worktrees in the current project
   webmux completion   Generate shell completion script (bash, zsh)
 
 Options:
@@ -38,7 +39,7 @@ Environment:
 `);
 }
 
-type RootCommand = "serve" | "init" | "service" | "update" | "add" | "list" | "open" | "close" | "remove" | "merge" | "completion" | null;
+type RootCommand = "serve" | "init" | "service" | "update" | "add" | "list" | "open" | "close" | "remove" | "merge" | "prune" | "completion" | null;
 
 interface ParsedRootArgs {
   port: number;
@@ -58,6 +59,7 @@ function isRootCommand(value: string): value is NonNullable<RootCommand> {
     || value === "close"
     || value === "remove"
     || value === "merge"
+    || value === "prune"
     || value === "completion";
 }
 
@@ -121,13 +123,14 @@ export function parseRootArgs(args: string[]): ParsedRootArgs {
   };
 }
 
-function isWorktreeCommand(command: RootCommand): command is "add" | "list" | "open" | "close" | "remove" | "merge" {
+function isWorktreeCommand(command: RootCommand): command is "add" | "list" | "open" | "close" | "remove" | "merge" | "prune" {
   return command === "add"
     || command === "list"
     || command === "open"
     || command === "close"
     || command === "remove"
-    || command === "merge";
+    || command === "merge"
+    || command === "prune";
 }
 
 // ── Load env files from CWD (.env.local overrides .env) ─────────────────────

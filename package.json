@@ -1,6 +1,6 @@
 {
   "name": "webmux",
-  "version": "0.10.1",
+  "version": "0.11.0",
   "description": "Web dashboard for workmux — browser UI with embedded terminals, PR monitoring, and CI integration",
   "type": "module",
   "repository": {

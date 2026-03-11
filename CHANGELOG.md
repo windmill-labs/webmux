@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.11.0](https://github.com/windmill-labs/webmux/compare/v0.10.1...v0.11.0) (2026-03-11)
+
+
+### Features
+
+* add `webmux serve` command, bare `webmux` now shows help ([#90](https://github.com/windmill-labs/webmux/issues/90)) ([e1ca9f5](https://github.com/windmill-labs/webmux/commit/e1ca9f5a7d2a0dcec8f37264bd861c17160a0ff8))
+* add webmux update command ([#92](https://github.com/windmill-labs/webmux/issues/92)) ([3f64a25](https://github.com/windmill-labs/webmux/commit/3f64a258e641bd5ea25077c7d19593b12f22250c))
+* use claude/codex CLI for auto-name instead of direct API calls ([#94](https://github.com/windmill-labs/webmux/issues/94)) ([5d313e8](https://github.com/windmill-labs/webmux/commit/5d313e81d08758cc940fc3e6229b3ecbd9ce0982))
+
 ## [0.10.1](https://github.com/windmill-labs/webmux/compare/v0.10.0...v0.10.1) (2026-03-10)
 
 

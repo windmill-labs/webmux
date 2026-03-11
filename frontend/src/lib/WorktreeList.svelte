@@ -43,7 +43,8 @@
       </div>
     </li>
   {/each}
-  {#each worktrees as wt (wt.branch)}
+  {@const creatingNames = new Set(creating.map((c) => c.name))}
+  {#each worktrees.filter((wt) => !creatingNames.has(wt.branch)) as wt (wt.branch)}
     {@const isActive = wt.branch === selected}
     {@const isRemoving = removing.has(wt.branch)}
     {@const isClosed = wt.mux !== "✓"}

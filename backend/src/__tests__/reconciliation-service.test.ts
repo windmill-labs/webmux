@@ -32,6 +32,10 @@ class FakeGitGateway implements GitGateway {
     return this.worktrees;
   }
 
+  listLocalBranches(): string[] {
+    return [];
+  }
+
   readWorktreeStatus(cwd: string): GitWorktreeStatus {
     return this.statuses.get(cwd) ?? { dirty: false, aheadCount: 0, currentCommit: null };
   }

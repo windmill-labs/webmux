@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   BunGitGateway,
+  listLocalGitBranches,
   parseGitWorktreePorcelain,
   readGitWorktreeStatus,
   removeGitWorktree,
@@ -124,6 +125,7 @@ describe("BunGitGateway", () => {
       repoRoot,
       worktreePath,
       branch: "feature-a",
+      mode: "new",
       baseBranch: "main",
     });
 
@@ -136,6 +138,47 @@ describe("BunGitGateway", () => {
     });
 
     expect(gateway.listWorktrees(repoRoot).some((entry) => entry.path === worktreePath)).toBe(false);
+  });
+
+  it("creates a worktree for an existing branch", async () => {
+    repoRoot = await mkdtemp(join(tmpdir(), "webmux-gitgw-existing-"));
+    run(["git", "init", "-b", "main"], repoRoot);
+    run(["git", "config", "user.name", "Test User"], repoRoot);
+    run(["git", "config", "user.email", "test@example.com"], repoRoot);
+    await Bun.write(join(repoRoot, "README.md"), "# repo\n");
+    run(["git", "add", "README.md"], repoRoot);
+    run(["git", "commit", "-m", "init"], repoRoot);
+    run(["git", "checkout", "-b", "feature-existing"], repoRoot);
+    run(["git", "checkout", "main"], repoRoot);
+
+    const gateway = new BunGitGateway();
+    const worktreePath = join(repoRoot, "__worktrees", "feature-existing");
+    await mkdir(join(repoRoot, "__worktrees"), { recursive: true });
+
+    gateway.createWorktree({
+      repoRoot,
+      worktreePath,
+      branch: "feature-existing",
+      mode: "existing",
+    });
+
+    expect(gateway.listWorktrees(repoRoot).some((entry) => entry.path === worktreePath)).toBe(true);
+    expect(read(["git", "branch", "--show-current"], worktreePath)).toBe("feature-existing");
+  });
+
+  it("lists local branches", async () => {
+    repoRoot = await mkdtemp(join(tmpdir(), "webmux-gitgw-branches-"));
+    run(["git", "init", "-b", "main"], repoRoot);
+    run(["git", "config", "user.name", "Test User"], repoRoot);
+    run(["git", "config", "user.email", "test@example.com"], repoRoot);
+    await Bun.write(join(repoRoot, "README.md"), "# repo\n");
+    run(["git", "add", "README.md"], repoRoot);
+    run(["git", "commit", "-m", "init"], repoRoot);
+    run(["git", "checkout", "-b", "feature-a"], repoRoot);
+    run(["git", "checkout", "-b", "feature-b", "main"], repoRoot);
+    run(["git", "checkout", "main"], repoRoot);
+
+    expect(listLocalGitBranches(repoRoot)).toEqual(["feature-a", "feature-b", "main"]);
   });
 
   it("merges a source branch into a target branch", async () => {

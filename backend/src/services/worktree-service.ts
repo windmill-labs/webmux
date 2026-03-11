@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { BunGitGateway, type GitGateway } from "../adapters/git";
+import { BunGitGateway, type CreateWorktreeMode, type GitGateway } from "../adapters/git";
 import {
   buildControlEnvMap,
   buildRuntimeEnvMap,
@@ -46,6 +46,7 @@ export interface CreateManagedWorktreeOptions {
   repoRoot: string;
   worktreePath: string;
   branch: string;
+  mode: CreateWorktreeMode;
   baseBranch?: string;
   profile: string;
   agent: AgentKind;
@@ -57,6 +58,7 @@ export interface CreateManagedWorktreeOptions {
   controlToken?: string;
   now?: () => Date;
   worktreeId?: string;
+  deleteBranchOnRollback?: boolean;
   sessionLayoutPlan?: SessionLayoutPlan;
   sessionLayoutPlanBuilder?: (initialized: InitializeManagedWorktreeResult) => SessionLayoutPlan;
 }
@@ -104,7 +106,7 @@ function cleanupSessionLayout(
 }
 
 function rollbackManagedWorktreeCreation(
-  opts: Pick<CreateManagedWorktreeOptions, "repoRoot" | "worktreePath" | "branch">,
+  opts: Pick<CreateManagedWorktreeOptions, "repoRoot" | "worktreePath" | "branch" | "deleteBranchOnRollback">,
   sessionLayoutPlan: SessionLayoutPlan | undefined,
   git: GitGateway,
   deps: CreateManagedWorktreeDependencies,
@@ -123,10 +125,12 @@ function rollbackManagedWorktreeCreation(
     cleanupErrors.push(`worktree rollback failed: ${toErrorMessage(error)}`);
   }
 
-  try {
-    git.deleteBranch(opts.repoRoot, opts.branch, true);
-  } catch (error) {
-    cleanupErrors.push(`branch rollback failed: ${toErrorMessage(error)}`);
+  if (opts.deleteBranchOnRollback ?? true) {
+    try {
+      git.deleteBranch(opts.repoRoot, opts.branch, true);
+    } catch (error) {
+      cleanupErrors.push(`branch rollback failed: ${toErrorMessage(error)}`);
+    }
   }
 
   return cleanupErrors.length > 0 ? joinErrorMessages(cleanupErrors) : null;
@@ -190,6 +194,7 @@ export async function createManagedWorktree(
       repoRoot: opts.repoRoot,
       worktreePath: opts.worktreePath,
       branch: opts.branch,
+      mode: opts.mode,
       baseBranch: opts.baseBranch,
     });
     worktreeCreated = true;

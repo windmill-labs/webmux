@@ -453,6 +453,77 @@ describe("LifecycleService", () => {
     expect(await Bun.file(join(worktreePath, "README.md")).exists()).toBe(true);
   });
 
+  it("creates a managed worktree for an existing local branch", async () => {
+    const repoRoot = await initRepo();
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const lifecycle = makeLifecycleService(repoRoot, tmux, runtime);
+
+    run(["git", "checkout", "-b", "feature-follow"], repoRoot);
+    run(["git", "checkout", "main"], repoRoot);
+
+    const created = await lifecycle.createWorktree({
+      mode: "existing",
+      branch: "feature-follow",
+    });
+
+    const worktreePath = join(repoRoot, "__worktrees", "feature-follow");
+    const gitDir = new BunGitGateway().resolveWorktreeGitDir(worktreePath);
+
+    expect(created.branch).toBe("feature-follow");
+    expect(new BunGitGateway().listWorktrees(repoRoot).some((entry) =>
+      entry.branch === "feature-follow" && entry.path === worktreePath
+    )).toBe(true);
+    expect((await readWorktreeMeta(gitDir))?.branch).toBe("feature-follow");
+    expect(run(["git", "branch", "--show-current"], worktreePath)).toBe("feature-follow");
+  });
+
+  it("lists available branches excluding branches already checked out", async () => {
+    const repoRoot = await initRepo();
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const lifecycle = makeLifecycleService(repoRoot, tmux, runtime);
+    const git = new BunGitGateway();
+
+    run(["git", "branch", "feature-available", "main"], repoRoot);
+    run(["git", "branch", "feature-in-use", "main"], repoRoot);
+    git.createWorktree({
+      repoRoot,
+      worktreePath: join(repoRoot, "__worktrees", "feature-in-use"),
+      branch: "feature-in-use",
+      mode: "existing",
+    });
+
+    expect(lifecycle.listAvailableBranches()).toEqual([
+      { name: "feature-available" },
+    ]);
+  });
+
+  it("keeps an existing branch when creation fails after the worktree is created", async () => {
+    const repoRoot = await initRepo();
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const hooks = new FakeHookRunner(() => {
+      throw new Error("post-create failed");
+    });
+    const lifecycle = makeLifecycleService(repoRoot, tmux, runtime, new FakeDockerGateway(), hooks);
+
+    run(["git", "checkout", "-b", "feature-existing-rollback"], repoRoot);
+    run(["git", "checkout", "main"], repoRoot);
+
+    await expect(
+      lifecycle.createWorktree({
+        mode: "existing",
+        branch: "feature-existing-rollback",
+      }),
+    ).rejects.toThrow("post-create failed");
+
+    const worktreePath = join(repoRoot, "__worktrees", "feature-existing-rollback");
+
+    expect(new BunGitGateway().listWorktrees(repoRoot).some((entry) => entry.path === worktreePath)).toBe(false);
+    expect(run(["git", "branch", "--list", "feature-existing-rollback"], repoRoot)).toContain("feature-existing-rollback");
+  });
+
   it("opens an unmanaged worktree by initializing metadata and rebuilding tmux layout", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
@@ -465,6 +536,7 @@ describe("LifecycleService", () => {
       repoRoot,
       worktreePath,
       branch: "feature-open",
+      mode: "new",
       baseBranch: "main",
     });
 
@@ -726,6 +798,7 @@ describe("LifecycleService", () => {
       repoRoot,
       worktreePath: unmanagedPath,
       branch: "feature-no-default-open",
+      mode: "new",
       baseBranch: "main",
     });
 

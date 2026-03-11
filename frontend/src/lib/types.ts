@@ -68,6 +68,12 @@ export interface LinearIssue {
   project: string | null;
 }
 
+export type WorktreeCreateMode = "new" | "existing";
+
+export interface AvailableBranch {
+  name: string;
+}
+
 export type WorktreeCreationPhase =
   | "creating_worktree"
   | "preparing_runtime"

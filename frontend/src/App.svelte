@@ -12,7 +12,15 @@
   import NotificationToast from "./lib/NotificationToast.svelte";
   import LinearPanel from "./lib/LinearPanel.svelte";
   import LinearDetailDialog from "./lib/LinearDetailDialog.svelte";
-  import type { WorktreeInfo, AppConfig, AppNotification, PrEntry, LinearIssue } from "./lib/types";
+  import type {
+    AvailableBranch,
+    WorktreeCreateMode,
+    WorktreeInfo,
+    AppConfig,
+    AppNotification,
+    PrEntry,
+    LinearIssue,
+  } from "./lib/types";
   import { SSH_STORAGE_KEY, errorMessage, worktreeCreationPhaseLabel } from "./lib/utils";
   import * as api from "./lib/api";
 
@@ -35,9 +43,13 @@
   let pendingCreateCount = $state(0);
   let latestAutoSelectCreateId = -1;
   let nextCreateRequestId = 0;
+  let nextBranchFetchId = 0;
   let sshHost = $state(localStorage.getItem(SSH_STORAGE_KEY) ?? "");
   let applyPollInterval: ((intervalMs: number) => void) | null = null;
   let pendingCreateBranchHint = $state<string | null>(null);
+  let availableBranches = $state<AvailableBranch[]>([]);
+  let availableBranchesLoading = $state(false);
+  let availableBranchesError = $state<string | null>(null);
 
   // Linear integration
   let linearIssues = $state<LinearIssue[]>([]);
@@ -160,6 +172,29 @@
   });
 
   $effect(() => {
+    if (!showCreateDialog) return;
+
+    const fetchId = ++nextBranchFetchId;
+    availableBranches = [];
+    availableBranchesLoading = true;
+    availableBranchesError = null;
+
+    api.fetchAvailableBranches()
+      .then((branches) => {
+        if (fetchId !== nextBranchFetchId) return;
+        availableBranches = branches;
+      })
+      .catch((err: unknown) => {
+        if (fetchId !== nextBranchFetchId) return;
+        availableBranchesError = errorMessage(err);
+      })
+      .finally(() => {
+        if (fetchId !== nextBranchFetchId) return;
+        availableBranchesLoading = false;
+      });
+  });
+
+  $effect(() => {
     document.title = config.name ? `${config.name} - Dashboard` : "Dev Dashboard";
   });
 
@@ -197,6 +232,7 @@
   }
 
   async function handleCreate(
+    mode: WorktreeCreateMode,
     name: string,
     profile: string,
     agent: string,
@@ -212,6 +248,7 @@
 
     try {
       const createPromise = api.createWorktree(
+        mode,
         name || undefined,
         profile,
         agent,
@@ -589,6 +626,9 @@
     autoNameEnabled={config.autoName}
     initialBranch={assignIssue?.branchName ?? ""}
     initialPrompt={assignIssue ? `${assignIssue.title}${assignIssue.description ? '\n\n' + assignIssue.description : ''}` : ""}
+    {availableBranches}
+    {availableBranchesLoading}
+    {availableBranchesError}
     startupEnvs={config.startupEnvs ?? {}}
     oncreate={handleCreate}
     oncancel={() => { showCreateDialog = false; assignIssue = null; }}

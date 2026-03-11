@@ -9,12 +9,24 @@ export interface GitWorktreeEntry {
   bare: boolean;
 }
 
-export interface CreateGitWorktreeOptions {
+export type CreateWorktreeMode = "new" | "existing";
+
+interface BaseCreateGitWorktreeOptions {
   repoRoot: string;
   worktreePath: string;
   branch: string;
+}
+
+export interface CreateNewGitWorktreeOptions extends BaseCreateGitWorktreeOptions {
+  mode: "new";
   baseBranch?: string;
 }
+
+export interface CreateExistingGitWorktreeOptions extends BaseCreateGitWorktreeOptions {
+  mode: "existing";
+}
+
+export type CreateGitWorktreeOptions = CreateNewGitWorktreeOptions | CreateExistingGitWorktreeOptions;
 
 export interface RemoveGitWorktreeOptions {
   repoRoot: string;
@@ -48,6 +60,7 @@ export interface GitGateway {
   resolveWorktreeRoot(cwd: string): string;
   resolveWorktreeGitDir(cwd: string): string;
   listWorktrees(cwd: string): GitWorktreeEntry[];
+  listLocalBranches(cwd: string): string[];
   readWorktreeStatus(cwd: string): GitWorktreeStatus;
   createWorktree(opts: CreateGitWorktreeOptions): void;
   removeWorktree(opts: RemoveGitWorktreeOptions): void;
@@ -191,6 +204,14 @@ export function listGitWorktrees(cwd: string): GitWorktreeEntry[] {
   return parseGitWorktreePorcelain(output);
 }
 
+export function listLocalGitBranches(cwd: string): string[] {
+  const output = runGit(["for-each-ref", "--format=%(refname:short)", "refs/heads"], cwd);
+  return output
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+}
+
 export function readGitWorktreeStatus(cwd: string): GitWorktreeStatus {
   const dirtyOutput = runGit(["status", "--porcelain"], cwd);
   const commit = tryRunGit(["rev-parse", "HEAD"], cwd);
@@ -242,13 +263,22 @@ export class BunGitGateway implements GitGateway {
     return listGitWorktrees(cwd);
   }
 
+  listLocalBranches(cwd: string): string[] {
+    return listLocalGitBranches(cwd);
+  }
+
   readWorktreeStatus(cwd: string): GitWorktreeStatus {
     return readGitWorktreeStatus(cwd);
   }
 
   createWorktree(opts: CreateGitWorktreeOptions): void {
-    const args = ["worktree", "add", "-b", opts.branch, opts.worktreePath];
-    if (opts.baseBranch) args.push(opts.baseBranch);
+    const args = ["worktree", "add"];
+    if (opts.mode === "new") {
+      args.push("-b", opts.branch, opts.worktreePath);
+      if (opts.baseBranch) args.push(opts.baseBranch);
+    } else {
+      args.push(opts.worktreePath, opts.branch);
+    }
     runGit(args, opts.repoRoot);
   }
 

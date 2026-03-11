@@ -1,4 +1,5 @@
 import type {
+  AvailableBranch,
   WorktreeInfo,
   AppConfig,
   AppNotification,
@@ -6,6 +7,7 @@ import type {
   PrEntry,
   ProjectSnapshot,
   ProjectWorktreeSnapshot,
+  WorktreeCreateMode,
 } from "./types";
 
 async function api<T = unknown>(path: string, opts?: RequestInit): Promise<T> {
@@ -73,7 +75,13 @@ export async function fetchWorktrees(): Promise<WorktreeInfo[]> {
   return snapshot.worktrees.map((worktree) => mapWorktree(worktree));
 }
 
+export async function fetchAvailableBranches(): Promise<AvailableBranch[]> {
+  const data = await api<{ branches: AvailableBranch[] }>("branches");
+  return data.branches;
+}
+
 export function createWorktree(
+  mode: WorktreeCreateMode,
   branch: string | undefined,
   profile: string,
   agent: string,
@@ -83,6 +91,7 @@ export function createWorktree(
   return api<{ branch: string }>("worktrees", {
     method: "POST",
     body: JSON.stringify({
+      mode,
       ...(branch ? { branch } : {}),
       profile,
       agent,

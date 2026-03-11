@@ -314,6 +314,12 @@ async function apiRuntimeEvent(req: Request): Promise<Response> {
   });
 }
 
+async function apiListBranches(): Promise<Response> {
+  return jsonResponse({
+    branches: lifecycleService.listAvailableBranches(),
+  });
+}
+
 async function apiCreateWorktree(req: Request): Promise<Response> {
   const raw: unknown = await req.json();
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
@@ -336,15 +342,21 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
   const prompt = typeof body.prompt === "string" ? body.prompt : undefined;
   const profile = typeof body.profile === "string" ? body.profile : undefined;
   const agent = body.agent === "claude" || body.agent === "codex" ? body.agent : undefined;
+  const mode = body.mode;
+
+  if (mode !== undefined && mode !== "new" && mode !== "existing") {
+    return errorResponse("Invalid worktree create mode", 400);
+  }
 
   if (branch) {
     ensureBranchNotCreating(branch);
   }
 
   log.info(
-    `[worktree:add]${branch ? ` branch=${branch}` : ""}${profile ? ` profile=${profile}` : ""}${agent ? ` agent=${agent}` : ""}${prompt ? ` prompt="${prompt.slice(0, 80)}"` : ""}`,
+    `[worktree:add] mode=${mode ?? "new"}${branch ? ` branch=${branch}` : ""}${profile ? ` profile=${profile}` : ""}${agent ? ` agent=${agent}` : ""}${prompt ? ` prompt="${prompt.slice(0, 80)}"` : ""}`,
   );
   const result = await lifecycleService.createWorktree({
+    mode,
     branch,
     prompt,
     profile,
@@ -448,6 +460,10 @@ Bun.serve({
 
     "/api/config": {
       GET: () => jsonResponse(getFrontendConfig()),
+    },
+
+    "/api/branches": {
+      GET: () => catching("GET /api/branches", () => apiListBranches()),
     },
 
     "/api/project": {

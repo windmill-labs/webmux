@@ -47,6 +47,10 @@ class FakeGitGateway implements GitGateway {
     return [];
   }
 
+  listLocalBranches(): string[] {
+    return [];
+  }
+
   readWorktreeStatus() {
     return {
       dirty: false,
@@ -55,8 +59,16 @@ class FakeGitGateway implements GitGateway {
     };
   }
 
-  createWorktree(opts: { repoRoot: string; worktreePath: string; branch: string; baseBranch?: string }): void {
-    this.calls.push(`createWorktree:${opts.repoRoot}:${opts.worktreePath}:${opts.branch}:${opts.baseBranch ?? ""}`);
+  createWorktree(opts: {
+    repoRoot: string;
+    worktreePath: string;
+    branch: string;
+    mode: "new" | "existing";
+    baseBranch?: string;
+  }): void {
+    this.calls.push(
+      `createWorktree:${opts.repoRoot}:${opts.worktreePath}:${opts.branch}:${opts.mode}:${opts.baseBranch ?? ""}`,
+    );
   }
 
   removeWorktree(): void {
@@ -381,6 +393,7 @@ describe("initializeManagedWorktree", () => {
         repoRoot: "/repo/project",
         worktreePath,
         branch: "feature/search-panel",
+        mode: "new",
         baseBranch: "main",
         profile: "default",
         agent: "claude",
@@ -411,7 +424,7 @@ describe("initializeManagedWorktree", () => {
       { git, tmux },
     );
 
-    expect(calls[0]).toBe(`createWorktree:/repo/project:${worktreePath}:feature/search-panel:main`);
+    expect(calls[0]).toBe(`createWorktree:/repo/project:${worktreePath}:feature/search-panel:new:main`);
     expect(calls).toContain("ensureServer");
     expect(calls.some((call) => call.startsWith("createWindow:wm-project-12345678:wm-feature/search-panel"))).toBe(true);
 
@@ -437,6 +450,7 @@ describe("initializeManagedWorktree", () => {
           repoRoot,
           worktreePath,
           branch: "feature-rollback",
+          mode: "new",
           baseBranch: "main",
           profile: "default",
           agent: "claude",
@@ -473,6 +487,7 @@ describe("initializeManagedWorktree", () => {
           repoRoot,
           worktreePath,
           branch: "feature-tmux-rollback",
+          mode: "new",
           baseBranch: "main",
           profile: "default",
           agent: "claude",

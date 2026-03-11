@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { ensureAgentRuntimeArtifacts } from "../adapters/agent-runtime";
-import type { GitGateway, GitWorktreeEntry } from "../adapters/git";
+import type { CreateWorktreeMode, GitGateway, GitWorktreeEntry } from "../adapters/git";
 import type { LifecycleHookRunner, RunLifecycleHookInput } from "../adapters/hooks";
 import {
   buildControlEnvMap,
@@ -78,6 +78,7 @@ export interface LifecycleServiceDependencies {
 }
 
 export interface CreateLifecycleWorktreeInput {
+  mode?: CreateWorktreeMode;
   branch?: string;
   prompt?: string;
   profile?: string;
@@ -101,12 +102,14 @@ export class LifecycleService {
     branch: string;
     worktreeId: string;
   }> {
-    const branch = await this.resolveBranch(input.branch, input.prompt);
-    this.ensureBranchAvailable(branch);
+    const mode = input.mode ?? "new";
+    const branch = await this.resolveBranch(input.branch, input.prompt, mode);
+    this.ensureBranchAvailable(branch, mode);
 
     const { profileName, profile } = this.resolveProfile(input.profile);
     const agent = this.resolveAgent(input.agent);
     const worktreePath = this.resolveWorktreePath(branch);
+    const deleteBranchOnRollback = mode === "new";
     let initialized: InitializeManagedWorktreeResult | null = null;
 
     try {
@@ -125,7 +128,8 @@ export class LifecycleService {
           repoRoot: this.deps.projectRoot,
           worktreePath,
           branch,
-          baseBranch: this.deps.config.workspace.mainBranch,
+          mode,
+          ...(mode === "new" ? { baseBranch: this.deps.config.workspace.mainBranch } : {}),
           profile: profileName,
           agent,
           runtime: profile.runtime,
@@ -134,6 +138,7 @@ export class LifecycleService {
           runtimeEnvExtras: { WEBMUX_WORKTREE_PATH: worktreePath },
           controlUrl: this.controlUrl(),
           controlToken: await this.deps.getControlToken(),
+          deleteBranchOnRollback,
         },
         {
           git: this.deps.git,
@@ -201,7 +206,12 @@ export class LifecycleService {
       };
     } catch (error) {
       if (initialized) {
-        const cleanupError = await this.cleanupFailedCreate(branch, worktreePath, profile.runtime);
+        const cleanupError = await this.cleanupFailedCreate(
+          branch,
+          worktreePath,
+          profile.runtime,
+          deleteBranchOnRollback,
+        );
         if (cleanupError) {
           throw this.wrapOperationError(new Error(`${toErrorMessage(error)}; ${cleanupError}`));
         }
@@ -295,11 +305,28 @@ export class LifecycleService {
     }
   }
 
-  private async resolveBranch(rawBranch: string | undefined, prompt: string | undefined): Promise<string> {
+  listAvailableBranches(): Array<{ name: string }> {
+    const localBranches = this.listLocalBranches().filter((branch) => isValidBranchName(branch));
+    const checkedOutBranches = this.listCheckedOutBranches();
+
+    return localBranches
+      .filter((branch) => !checkedOutBranches.has(branch))
+      .sort((left, right) => left.localeCompare(right))
+      .map((name) => ({ name }));
+  }
+
+  private async resolveBranch(
+    rawBranch: string | undefined,
+    prompt: string | undefined,
+    mode: CreateWorktreeMode,
+  ): Promise<string> {
     const explicitBranch = rawBranch?.trim();
-    const branch = explicitBranch
-      || await this.generateAutoName(prompt)
-      || generateBranchName();
+    const branch = mode === "existing"
+      ? explicitBranch
+      : explicitBranch || await this.generateAutoName(prompt) || generateBranchName();
+    if (!branch) {
+      throw new LifecycleError("Existing branch is required", 400);
+    }
     if (!isValidBranchName(branch)) {
       throw new LifecycleError(`Invalid branch name: ${branch}`, 400);
     }
@@ -313,10 +340,21 @@ export class LifecycleService {
     return await this.deps.autoName.generateBranchName(this.deps.config.autoName, prompt);
   }
 
-  private ensureBranchAvailable(branch: string): void {
-    const exists = this.listProjectWorktrees().some((entry) => entry.branch === branch);
-    if (exists) {
-      throw new LifecycleError(`Worktree already exists: ${branch}`, 409);
+  private ensureBranchAvailable(branch: string, mode: CreateWorktreeMode): void {
+    const localBranches = new Set(this.listLocalBranches());
+    if (mode === "new") {
+      if (localBranches.has(branch)) {
+        throw new LifecycleError(`Branch already exists: ${branch}`, 409);
+      }
+      return;
+    }
+
+    if (!localBranches.has(branch)) {
+      throw new LifecycleError(`Branch not found: ${branch}`, 404);
+    }
+
+    if (this.listCheckedOutBranches().has(branch)) {
+      throw new LifecycleError(`Branch already has a worktree: ${branch}`, 409);
     }
   }
 
@@ -367,6 +405,18 @@ export class LifecycleService {
 
   private resolveWorktreePath(branch: string): string {
     return resolve(this.deps.projectRoot, this.deps.config.workspace.worktreeRoot, branch);
+  }
+
+  private listLocalBranches(): string[] {
+    return this.deps.git.listLocalBranches(resolve(this.deps.projectRoot));
+  }
+
+  private listCheckedOutBranches(): Set<string> {
+    return new Set(
+      this.deps.git.listWorktrees(resolve(this.deps.projectRoot))
+        .filter((entry): entry is GitWorktreeEntry & { branch: string } => !entry.bare && entry.branch !== null)
+        .map((entry) => entry.branch),
+    );
   }
 
   private listProjectWorktrees(): GitWorktreeEntry[] {
@@ -563,6 +613,7 @@ export class LifecycleService {
     branch: string,
     worktreePath: string,
     runtime: RuntimeKind,
+    deleteBranch: boolean,
   ): Promise<string | null> {
     const cleanupErrors: string[] = [];
 
@@ -590,8 +641,8 @@ export class LifecycleService {
           worktreePath,
           branch,
           force: true,
-          deleteBranch: true,
-          deleteBranchForce: true,
+          deleteBranch,
+          deleteBranchForce: deleteBranch,
         },
         this.deps.git,
       );

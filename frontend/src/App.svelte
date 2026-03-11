@@ -185,6 +185,9 @@
         prompt || undefined,
         Object.keys(envOverrides).length > 0 ? envOverrides : undefined,
       );
+      creatingWorktrees = creatingWorktrees.map((c) =>
+        c.id === id ? { ...c, name: result.branch } : c,
+      );
       await refresh();
       selectedBranch = result.branch;
       if (isMobile) sidebarOpen = false;

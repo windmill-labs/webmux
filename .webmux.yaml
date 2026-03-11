@@ -35,8 +35,6 @@ profiles:
         kind: agent
         focus: true
     yolo: true
-    systemPrompt: >
-      IMPORTANT: Read docs/autonomous-mode.md before starting any work.
   full:
     runtime: host
     envPassthrough: []
@@ -57,7 +55,6 @@ profiles:
       Backend port: ${PORT}. Frontend port: ${FRONTEND_PORT}.
       Start the backend with: source "$(git rev-parse --git-dir)/webmux/runtime.env" && cd backend && bun run dev
       Start the frontend with: source "$(git rev-parse --git-dir)/webmux/runtime.env" && cd frontend && bun run dev
-      IMPORTANT: Read docs/autonomous-mode.md before starting any work.
     yolo: true
   sandbox:
     runtime: docker

@@ -153,9 +153,5 @@ profiles:
           ![description]($(printenv R2_PUBLIC_URL)/<branch>/diagram.svg)
 
 integrations:
-  github:
-    linkedRepos:
-      - repo: centdix/workmux-test-linked
-        alias: linked
   linear:
     enabled: true

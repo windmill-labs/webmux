@@ -23,6 +23,8 @@
     onselect: (branch: string) => void;
     onremove: (branch: string) => void;
   } = $props();
+
+  let creatingNames = $derived(new Set(creating.map((c) => c.name)));
 </script>
 
 <ul class="list-none overflow-y-auto flex-1 p-2">
@@ -43,7 +45,7 @@
       </div>
     </li>
   {/each}
-  {#each worktrees as wt (wt.branch)}
+  {#each worktrees.filter((wt) => !creatingNames.has(wt.branch)) as wt (wt.branch)}
     {@const isActive = wt.branch === selected}
     {@const isRemoving = removing.has(wt.branch)}
     {@const isClosed = wt.mux !== "✓"}

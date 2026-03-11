@@ -127,6 +127,7 @@ _webmux() {
     'close:Close a worktree session'
     'remove:Remove a worktree'
     'merge:Merge a worktree into main'
+    'prune:Remove all worktrees in the current project'
     'completion:Generate shell completion script'
   )
 
@@ -176,7 +177,7 @@ const BASH_SCRIPT = `_webmux() {
   prev="\${COMP_WORDS[COMP_CWORD-1]}"
 
   if [[ \${COMP_CWORD} -eq 1 ]]; then
-    COMPREPLY=($(compgen -W "serve init service update add list open close remove merge completion" -- "\${cur}"))
+    COMPREPLY=($(compgen -W "serve init service update add list open close remove merge prune completion" -- "\${cur}"))
     return
   fi
 

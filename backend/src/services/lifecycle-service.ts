@@ -85,6 +85,10 @@ export interface CreateLifecycleWorktreeInput {
   envOverrides?: Record<string, string>;
 }
 
+export interface PruneWorktreesResult {
+  removedBranches: string[];
+}
+
 export class LifecycleError extends Error {
   constructor(
     message: string,
@@ -268,6 +272,23 @@ export class LifecycleService {
     }
   }
 
+  async pruneWorktrees(): Promise<PruneWorktreesResult> {
+    try {
+      const resolvedWorktrees = await this.resolveAllWorktrees();
+      const removedBranches: string[] = [];
+
+      for (const resolved of resolvedWorktrees) {
+        const branch = resolved.entry.branch ?? resolved.entry.path;
+        await this.removeResolvedWorktree(resolved);
+        removedBranches.push(branch);
+      }
+
+      return { removedBranches };
+    } catch (error) {
+      throw this.wrapOperationError(error);
+    }
+  }
+
   async mergeWorktree(branch: string): Promise<void> {
     try {
       const resolved = await this.resolveExistingWorktree(branch);
@@ -396,6 +417,18 @@ export class LifecycleService {
     const gitDir = this.deps.git.resolveWorktreeGitDir(entry.path);
     const meta = await readWorktreeMeta(gitDir);
     return { entry, gitDir, meta };
+  }
+
+  private async resolveAllWorktrees(): Promise<ResolvedLifecycleWorktree[]> {
+    const entries = this.listProjectWorktrees().sort((left, right) =>
+      (left.branch ?? left.path).localeCompare(right.branch ?? right.path)
+    );
+
+    return await Promise.all(entries.map(async (entry) => {
+      const gitDir = this.deps.git.resolveWorktreeGitDir(entry.path);
+      const meta = await readWorktreeMeta(gitDir);
+      return { entry, gitDir, meta };
+    }));
   }
 
   private async initializeUnmanagedWorktree(

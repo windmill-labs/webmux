@@ -1,12 +1,13 @@
+import * as p from "@clack/prompts";
 import { basename, resolve } from "node:path";
 import { readWorktreeMeta } from "../../backend/src/adapters/fs";
 import { buildProjectSessionName, buildWorktreeWindowName } from "../../backend/src/adapters/tmux";
 import type { AgentKind } from "../../backend/src/domain/config";
 import { isValidWorktreeName } from "../../backend/src/domain/policies";
 import { createWebmuxRuntime } from "../../backend/src/runtime";
-import type { CreateLifecycleWorktreeInput } from "../../backend/src/services/lifecycle-service";
+import type { CreateLifecycleWorktreeInput, PruneWorktreesResult } from "../../backend/src/services/lifecycle-service";
 
-export type WorktreeSubcommand = "add" | "list" | "open" | "close" | "remove" | "merge";
+export type WorktreeSubcommand = "add" | "list" | "open" | "close" | "remove" | "merge" | "prune";
 
 interface LifecycleServiceLike {
   createWorktree(input: CreateLifecycleWorktreeInput): Promise<{ branch: string; worktreeId: string }>;
@@ -14,6 +15,7 @@ interface LifecycleServiceLike {
   closeWorktree(branch: string): Promise<void>;
   removeWorktree(branch: string): Promise<void>;
   mergeWorktree(branch: string): Promise<void>;
+  pruneWorktrees(): Promise<PruneWorktreesResult>;
 }
 
 interface WorktreeRuntimeLike {
@@ -45,6 +47,7 @@ interface WorktreeCommandDependencies {
   stdout?: (message: string) => void;
   stderr?: (message: string) => void;
   switchToTmuxWindow?: (projectDir: string, branch: string) => void;
+  confirmPrune?: (worktreeCount: number) => Promise<boolean>;
 }
 
 class CommandUsageError extends Error {}
@@ -73,6 +76,8 @@ export function getWorktreeCommandUsage(command: WorktreeSubcommand): string {
       return "Usage:\n  webmux remove <branch>";
     case "merge":
       return "Usage:\n  webmux merge <branch>";
+    case "prune":
+      return "Usage:\n  webmux prune";
   }
 }
 
@@ -203,6 +208,38 @@ export function parseBranchCommandArgs(args: string[]): string | null {
   return branch;
 }
 
+function parsePruneCommandArgs(args: string[]): boolean {
+  for (const arg of args) {
+    if (arg === "--help" || arg === "-h") {
+      return false;
+    }
+
+    if (arg.startsWith("-")) {
+      throw new CommandUsageError(`Unknown option: ${arg}`);
+    }
+
+    throw new CommandUsageError(`Unexpected argument: ${arg}`);
+  }
+
+  return true;
+}
+
+function listProjectWorktrees(
+  runtime: WorktreeRuntimeLike,
+): Array<{ path: string; branch: string | null; bare: boolean }> {
+  const projectDir = resolve(runtime.projectDir);
+  return runtime.git.listWorktrees(projectDir)
+    .filter((entry) => !entry.bare && resolve(entry.path) !== projectDir);
+}
+
+async function defaultConfirmPrune(worktreeCount: number): Promise<boolean> {
+  const response = await p.confirm({
+    message: `Prune all ${worktreeCount} worktree${worktreeCount === 1 ? "" : "s"}? This action cannot be undone.`,
+    initialValue: false,
+  });
+  return !p.isCancel(response) && response;
+}
+
 function defaultSwitchToTmuxWindow(projectDir: string, branch: string): void {
   const sessionName = buildProjectSessionName(resolve(projectDir));
   const windowName = buildWorktreeWindowName(branch);
@@ -239,8 +276,7 @@ async function listWorktrees(
   stdout: (message: string) => void,
 ): Promise<void> {
   const projectDir = resolve(runtime.projectDir);
-  const entries = runtime.git.listWorktrees(projectDir)
-    .filter((entry) => !entry.bare && resolve(entry.path) !== projectDir);
+  const entries = listProjectWorktrees(runtime);
 
   if (entries.length === 0) {
     stdout("No worktrees found.");
@@ -287,6 +323,7 @@ export async function runWorktreeCommand(
   const stdout = deps.stdout ?? ((message: string) => console.log(message));
   const stderr = deps.stderr ?? ((message: string) => console.error(message));
   const switchToTmuxWindow = deps.switchToTmuxWindow ?? defaultSwitchToTmuxWindow;
+  const confirmPrune = deps.confirmPrune ?? defaultConfirmPrune;
 
   try {
     if (context.command === "add") {
@@ -320,7 +357,39 @@ export async function runWorktreeCommand(
       return 0;
     }
 
-    const command: Exclude<WorktreeSubcommand, "add" | "list"> = context.command;
+    if (context.command === "prune") {
+      if (!parsePruneCommandArgs(context.args)) {
+        stdout(getWorktreeCommandUsage("prune"));
+        return 0;
+      }
+
+      const runtime = createRuntime({
+        projectDir: context.projectDir,
+        port: context.port,
+      });
+      const worktrees = listProjectWorktrees(runtime);
+      if (worktrees.length === 0) {
+        stdout("No worktrees found.");
+        return 0;
+      }
+
+      if (!await confirmPrune(worktrees.length)) {
+        stdout("Aborted.");
+        return 0;
+      }
+
+      const result = await runtime.lifecycleService.pruneWorktrees();
+      if (result.removedBranches.length === 0) {
+        stdout("No worktrees found.");
+        return 0;
+      }
+      stdout(
+        `Pruned ${result.removedBranches.length} worktree${result.removedBranches.length === 1 ? "" : "s"}: ${result.removedBranches.join(", ")}`,
+      );
+      return 0;
+    }
+
+    const command: Exclude<WorktreeSubcommand, "add" | "list" | "prune"> = context.command;
     const branch = parseBranchCommandArgs(context.args);
     if (!branch) {
       stdout(getWorktreeCommandUsage(command));

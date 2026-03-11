@@ -119,6 +119,7 @@ describe("runCompletionCommand", () => {
     const output = spy.mock.calls[0]?.[0];
     expect(output).toContain("#compdef webmux");
     expect(output).toContain("compdef _webmux webmux");
+    expect(output).toContain("prune:Remove all worktrees in the current project");
     expect(output).not.toContain('_webmux "$@"');
     spy.mockRestore();
   });
@@ -128,6 +129,7 @@ describe("runCompletionCommand", () => {
     const code = runCompletionCommand(["bash"]);
     expect(code).toBe(0);
     expect(spy).toHaveBeenCalledWith(expect.stringContaining("complete -F _webmux webmux"));
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining("prune"));
     spy.mockRestore();
   });
 });

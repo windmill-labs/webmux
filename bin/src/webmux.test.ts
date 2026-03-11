@@ -65,6 +65,17 @@ describe("webmux entrypoint", () => {
     });
   });
 
+  it("parses prune as a worktree command", () => {
+    delete process.env.PORT;
+
+    expect(parseRootArgs(["prune"])).toEqual({
+      port: 5111,
+      debug: false,
+      command: "prune",
+      commandArgs: [],
+    });
+  });
+
   it("runs worktree commands from a project subdirectory", async () => {
     const repoRoot = await mkdtemp(join(tmpdir(), "webmux-cli-"));
     tempDirs.push(repoRoot);

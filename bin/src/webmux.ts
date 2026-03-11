@@ -24,6 +24,7 @@ Usage:
   webmux close        Close a worktree session without removing it
   webmux remove       Remove a worktree
   webmux merge        Merge a worktree into the main branch and remove it
+  webmux completion   Generate shell completion script (bash, zsh)
 
 Options:
   --port N            Set port (default: 5111)
@@ -35,7 +36,7 @@ Environment:
 `);
 }
 
-type RootCommand = "serve" | "init" | "service" | "update" | "add" | "list" | "open" | "close" | "remove" | "merge" | null;
+type RootCommand = "serve" | "init" | "service" | "update" | "add" | "list" | "open" | "close" | "remove" | "merge" | "completion" | null;
 
 interface ParsedRootArgs {
   port: number;
@@ -54,7 +55,8 @@ function isRootCommand(value: string): value is NonNullable<RootCommand> {
     || value === "open"
     || value === "close"
     || value === "remove"
-    || value === "merge";
+    || value === "merge"
+    || value === "completion";
 }
 
 function isServeRootOption(value: string): boolean {
@@ -164,6 +166,13 @@ function pipeWithPrefix(stream: ReadableStream<Uint8Array>, prefix: string) {
 }
 
 async function main(args: string[] = process.argv.slice(2)): Promise<void> {
+  // Internal: called by shell completion scripts
+  if (args[0] === "--completions") {
+    const { handleCompletions } = await import("./completions.ts");
+    handleCompletions(args.slice(1));
+    return;
+  }
+
   let parsed: ParsedRootArgs;
 
   try {
@@ -171,6 +180,11 @@ async function main(args: string[] = process.argv.slice(2)): Promise<void> {
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exit(1);
+  }
+
+  if (parsed.command === "completion") {
+    const { runCompletionCommand } = await import("./completions.ts");
+    process.exit(runCompletionCommand(parsed.commandArgs));
   }
 
   if (parsed.command === "init") {

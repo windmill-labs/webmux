@@ -1,9 +1,7 @@
 <script lang="ts">
-  import type { WorktreeInfo, AppNotification, PrEntry } from "./types";
-  import PrBadge from "./PrBadge.svelte";
+  import type { WorktreeInfo, AppNotification, PrEntry, LinkedRepoInfo } from "./types";
   import LinearBadge from "./LinearBadge.svelte";
-  import CiBadge from "./CiBadge.svelte";
-  import ReviewsBadge from "./ReviewsBadge.svelte";
+  import RepoGroup from "./RepoGroup.svelte";
   import Btn from "./Btn.svelte";
   import NotificationItem from "./NotificationItem.svelte";
 
@@ -11,6 +9,7 @@
     name,
     worktree,
     sshHost,
+    linkedRepos = [],
     isMobile = false,
     notificationHistory = [],
     unreadCount = 0,
@@ -27,6 +26,7 @@
     name: string | null;
     worktree: WorktreeInfo | undefined;
     sshHost: string;
+    linkedRepos?: LinkedRepoInfo[];
     isMobile?: boolean;
     notificationHistory?: AppNotification[];
     unreadCount?: number;
@@ -55,111 +55,88 @@
     }
   }
 
-  let cursorUrl = $derived.by(() => {
-    const dir = worktree?.dir;
+  function makeCursorUrl(dir: string | null | undefined): string | null {
     if (!dir) return null;
     if (sshHost) {
       return `cursor://vscode-remote/ssh-remote+${sshHost}${dir}`;
     }
     return `cursor://file${dir}`;
-  });
+  }
+
+  let cursorUrl = $derived(makeCursorUrl(worktree?.dir));
+
+  // Split PRs into main repo vs linked repo groups
+  let mainPrs = $derived(
+    (worktree?.prs ?? []).filter((pr) => !pr.repo || !linkedRepos.some((lr) => lr.alias === pr.repo)),
+  );
+
+  let linkedRepoGroups = $derived(
+    linkedRepos
+      .map((lr) => ({
+        alias: lr.alias,
+        dir: lr.dir,
+        cursorUrl: makeCursorUrl(lr.dir),
+        prs: (worktree?.prs ?? []).filter((pr) => pr.repo === lr.alias),
+      }))
+      .filter((g) => g.prs.length > 0 || g.cursorUrl),
+  );
 </script>
 
-<div
-  class="flex items-center justify-between px-4 py-2 bg-topbar border-b border-edge min-h-12"
->
-  <div class="flex items-center gap-3">
-    {#if isMobile && ontogglesidebar}
-      <button
-        type="button"
-        class="p-1 -ml-1 cursor-pointer bg-transparent border-none text-muted hover:text-primary"
-        onclick={ontogglesidebar}
-        title="Toggle sidebar"
-      >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="20"
-          height="20"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          ><line x1="3" y1="6" x2="21" y2="6" /><line
-            x1="3"
-            y1="12"
-            x2="21"
-            y2="12"
-          /><line x1="3" y1="18" x2="21" y2="18" /></svg
+<div class="flex items-stretch bg-topbar border-b border-edge min-h-12">
+  <!-- Left + middle: rows of repo groups -->
+  <div class="flex-1 min-w-0 flex flex-col justify-center px-4 py-2.5 gap-1.5">
+    <!-- Main row: branch name + worktree-level badges + main repo PR badges -->
+    <div class="flex items-center gap-3 min-w-0">
+      {#if isMobile && ontogglesidebar}
+        <button
+          type="button"
+          class="p-1 -ml-1 cursor-pointer bg-transparent border-none text-muted hover:text-primary"
+          onclick={ontogglesidebar}
+          title="Toggle sidebar"
         >
-      </button>
-    {/if}
-    <span class="text-sm font-semibold truncate"
-      >{name ?? "Select a worktree"}</span
-    >
-    {#if worktree?.dirty}
-      <span class="text-[10px] px-1.5 py-0.5 rounded border border-warning/40 text-warning">dirty</span>
-    {/if}
-    {#if worktree?.linearIssue}
-      <LinearBadge issue={worktree.linearIssue} />
-    {/if}
-    {#each worktree?.prs ?? [] as pr (pr.repo)}
-      <PrBadge {pr} clickable />
-      {#if pr.ciChecks && pr.ciChecks.length > 0}
-        <CiBadge {pr} onclick={onciclick} />
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="3" y1="6" x2="21" y2="6" />
+            <line x1="3" y1="12" x2="21" y2="12" />
+            <line x1="3" y1="18" x2="21" y2="18" />
+          </svg>
+        </button>
       {/if}
-      {#if pr.comments.length > 0}
-        <ReviewsBadge {pr} onclick={onreviewsclick} />
+      <span class="text-sm font-semibold truncate">{name ?? "Select a worktree"}</span>
+      {#if worktree?.dirty}
+        <span class="shrink-0 text-[10px] px-1.5 py-0.5 rounded border border-warning/40 text-warning">dirty</span>
       {/if}
-    {/each}
+      {#if worktree?.linearIssue}
+        <LinearBadge issue={worktree.linearIssue} />
+      {/if}
+      {#if !isMobile}
+        <RepoGroup
+          prs={mainPrs}
+          services={worktree?.services ?? []}
+          {cursorUrl}
+          showSettings
+          {onciclick}
+          {onreviewsclick}
+          {onsettings}
+        />
+      {/if}
+    </div>
+
+    <!-- Linked repo rows (desktop only) -->
     {#if !isMobile}
-      {#each worktree?.services ?? [] as svc}
-        {#if svc.port}
-          <a
-            href="{window.location.protocol}//{window.location
-              .hostname}:{svc.port}"
-            target="_blank"
-            rel="noopener"
-            class="text-[11px] px-1.5 py-0.5 rounded border font-mono no-underline hover:opacity-80 {svc.running
-              ? 'text-success border-success/40'
-              : 'text-muted border-edge pointer-events-none'}"
-            >{svc.name} :{svc.port}</a
-          >
-        {/if}
+      {#each linkedRepoGroups as group (group.alias)}
+        <RepoGroup
+          label={group.alias}
+          prs={group.prs}
+          cursorUrl={group.cursorUrl}
+          {onciclick}
+          {onreviewsclick}
+        />
       {/each}
-      {#if cursorUrl}
-        <div class="flex items-center gap-1">
-          <a
-            href={cursorUrl}
-            class="text-[11px] px-1.5 py-0.5 rounded border border-accent/40 text-accent font-mono no-underline hover:opacity-80"
-            title="Open in Cursor">Cursor</a
-          ><button
-            type="button"
-            class="text-[11px] px-1 py-0.5 rounded border border-accent/40 text-accent cursor-pointer bg-transparent hover:opacity-80 flex items-center"
-            title="Cursor SSH settings"
-            onclick={onsettings}
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="15"
-              height="15"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              ><path
-                d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"
-              /><circle cx="12" cy="12" r="3" /></svg
-            >
-          </button>
-        </div>
-      {/if}
     {/if}
   </div>
-  <div class="flex gap-2 items-center">
+
+  <!-- Right: action buttons (pinned, vertically centered) -->
+  <div class="shrink-0 flex gap-2 items-center px-4">
     {#if worktree}
       {#if worktree.mux === "✓"}
         <Btn

@@ -129,6 +129,11 @@ export interface ProjectSnapshot {
   notifications: AppNotification[];
 }
 
+export interface LinkedRepoInfo {
+  alias: string;
+  dir?: string;
+}
+
 export interface AppConfig {
   name?: string;
   services: ServiceConfig[];
@@ -136,4 +141,5 @@ export interface AppConfig {
   defaultProfileName: string;
   autoName: boolean;
   startupEnvs?: Record<string, string | boolean>;
+  linkedRepos?: LinkedRepoInfo[];
 }

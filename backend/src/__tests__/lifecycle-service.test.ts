@@ -555,8 +555,8 @@ describe("LifecycleService", () => {
 
     expect(phases).toEqual([
       "feature/progress:creating_worktree",
-      "feature/progress:preparing_runtime",
       "feature/progress:running_post_create_hook",
+      "feature/progress:preparing_runtime",
       "feature/progress:starting_session",
       "feature/progress:reconciling",
       "feature/progress:finished",

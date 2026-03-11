@@ -98,6 +98,7 @@ export function parseRootArgs(args: string[]): ParsedRootArgs {
       case "-V":
         console.log(pkg.version);
         process.exit(0);
+        break;
       case "--help":
       case "-h":
         usage();

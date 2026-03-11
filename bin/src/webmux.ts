@@ -4,6 +4,7 @@ import { resolve, dirname, join } from "node:path";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { Subprocess } from "bun";
+import pkg from "../../package.json";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -28,6 +29,7 @@ Usage:
 Options:
   --port N            Set port (default: 5111)
   --debug             Show debug-level logs
+  --version           Show version number
   --help              Show this help message
 
 Environment:
@@ -58,7 +60,7 @@ function isRootCommand(value: string): value is NonNullable<RootCommand> {
 }
 
 function isServeRootOption(value: string): boolean {
-  return value === "--port" || value === "--debug" || value === "--help" || value === "-h";
+  return value === "--port" || value === "--debug" || value === "--help" || value === "-h" || value === "--version" || value === "-V";
 }
 
 export function parseRootArgs(args: string[]): ParsedRootArgs {
@@ -92,6 +94,10 @@ export function parseRootArgs(args: string[]): ParsedRootArgs {
       case "--debug":
         debug = true;
         break;
+      case "--version":
+      case "-V":
+        console.log(pkg.version);
+        process.exit(0);
       case "--help":
       case "-h":
         usage();

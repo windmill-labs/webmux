@@ -3,10 +3,12 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseRootArgs } from "./webmux";
 
 const tempDirs: string[] = [];
 const decoder = new TextDecoder();
 const webmuxEntry = join(dirname(fileURLToPath(import.meta.url)), "webmux.ts");
+const originalBackendPort = process.env.BACKEND_PORT;
 
 function runOrThrow(cmd: string[], cwd: string): void {
   const result = Bun.spawnSync(cmd, {
@@ -33,7 +35,34 @@ async function initRepo(repoRoot: string): Promise<void> {
 
 describe("webmux entrypoint", () => {
   afterEach(async () => {
+    if (originalBackendPort === undefined) {
+      delete process.env.BACKEND_PORT;
+    } else {
+      process.env.BACKEND_PORT = originalBackendPort;
+    }
     await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+  });
+
+  it("parses serve flags after the subcommand", () => {
+    delete process.env.BACKEND_PORT;
+
+    expect(parseRootArgs(["serve", "--port", "8080", "--debug"])).toEqual({
+      port: 8080,
+      debug: true,
+      command: "serve",
+      commandArgs: [],
+    });
+  });
+
+  it("leaves service subcommand flags untouched", () => {
+    delete process.env.BACKEND_PORT;
+
+    expect(parseRootArgs(["service", "install", "--port", "8080"])).toEqual({
+      port: 5111,
+      debug: false,
+      command: "service",
+      commandArgs: ["install", "--port", "8080"],
+    });
   });
 
   it("runs worktree commands from a project subdirectory", async () => {

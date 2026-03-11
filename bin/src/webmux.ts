@@ -57,7 +57,11 @@ function isRootCommand(value: string): value is NonNullable<RootCommand> {
     || value === "merge";
 }
 
-function parseRootArgs(args: string[]): ParsedRootArgs {
+function isServeRootOption(value: string): boolean {
+  return value === "--port" || value === "--debug" || value === "--help" || value === "-h";
+}
+
+export function parseRootArgs(args: string[]): ParsedRootArgs {
   let port = parseInt(process.env.BACKEND_PORT || "5111", 10);
   let debug = false;
   let command: RootCommand = null;
@@ -67,7 +71,7 @@ function parseRootArgs(args: string[]): ParsedRootArgs {
     const arg = args[index];
     if (!arg) continue;
 
-    if (command) {
+    if (command && (command !== "serve" || !isServeRootOption(arg))) {
       commandArgs.push(arg);
       continue;
     }
@@ -117,40 +121,6 @@ function isWorktreeCommand(command: RootCommand): command is "add" | "list" | "o
     || command === "merge";
 }
 
-// ── Parse args ───────────────────────────────────────────────────────────────
-
-const args = process.argv.slice(2);
-let parsed: ParsedRootArgs;
-
-try {
-  parsed = parseRootArgs(args);
-} catch (error) {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
-}
-
-if (parsed.command === "init") {
-  await import("./init.ts");
-  process.exit(0);
-}
-
-if (parsed.command === "service") {
-  const { default: service } = await import("./service.ts");
-  await service(parsed.commandArgs);
-  process.exit(0);
-}
-
-if (parsed.command === "update") {
-  console.log("Updating webmux to the latest version...");
-  const proc = Bun.spawn(["bun", "install", "--global", "webmux@latest"], {
-    stdin: "inherit",
-    stdout: "inherit",
-    stderr: "inherit",
-  });
-  const code = await proc.exited;
-  process.exit(code);
-}
-
 // ── Load env files from CWD (.env.local overrides .env) ─────────────────────
 
 async function loadEnvFile(path: string) {
@@ -168,43 +138,6 @@ async function loadEnvFile(path: string) {
     }
   }
 }
-
-await loadEnvFile(resolve(process.cwd(), ".env.local"));
-await loadEnvFile(resolve(process.cwd(), ".env"));
-
-if (isWorktreeCommand(parsed.command)) {
-  const { runWorktreeCommand } = await import("./worktree-commands.ts");
-  const exitCode = await runWorktreeCommand({
-    command: parsed.command,
-    args: parsed.commandArgs,
-    projectDir: process.cwd(),
-    port: parsed.port,
-  });
-  process.exit(exitCode);
-}
-
-// ── No command → show help ───────────────────────────────────────────────────
-
-if (parsed.command === null) {
-  usage();
-  process.exit(0);
-}
-
-// ── serve: Check for .webmux.yaml ────────────────────────────────────────────
-
-if (!existsSync(resolve(process.cwd(), ".webmux.yaml"))) {
-  console.error("No .webmux.yaml found in this directory.\nRun `webmux init` to set up your project.");
-  process.exit(1);
-}
-
-// ── Shared env for child processes ───────────────────────────────────────────
-
-const baseEnv = {
-  ...process.env,
-  BACKEND_PORT: String(parsed.port),
-  WEBMUX_PROJECT_DIR: process.cwd(),
-  ...(parsed.debug ? { WEBMUX_DEBUG: "1" } : {}),
-};
 
 // ── Prefixed output ──────────────────────────────────────────────────────────
 
@@ -230,50 +163,113 @@ function pipeWithPrefix(stream: ReadableStream<Uint8Array>, prefix: string) {
   })();
 }
 
-// ── Process management ───────────────────────────────────────────────────────
+async function main(args: string[] = process.argv.slice(2)): Promise<void> {
+  let parsed: ParsedRootArgs;
 
-const children: Subprocess[] = [];
-let exiting = false;
-
-function cleanup() {
-  if (exiting) return;
-  exiting = true;
-  for (const child of children) {
-    try { child.kill("SIGTERM"); } catch {}
+  try {
+    parsed = parseRootArgs(args);
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
   }
-  // Force-kill stragglers after 1s, then exit
-  setTimeout(() => {
-    for (const child of children) {
-      try { child.kill("SIGKILL"); } catch {}
-    }
+
+  if (parsed.command === "init") {
+    await import("./init.ts");
     process.exit(0);
-  }, 1000).unref();
+  }
+
+  if (parsed.command === "service") {
+    const { default: service } = await import("./service.ts");
+    await service(parsed.commandArgs);
+    process.exit(0);
+  }
+
+  if (parsed.command === "update") {
+    console.log("Updating webmux to the latest version...");
+    const proc = Bun.spawn(["bun", "install", "--global", "webmux@latest"], {
+      stdin: "inherit",
+      stdout: "inherit",
+      stderr: "inherit",
+    });
+    const code = await proc.exited;
+    process.exit(code);
+  }
+
+  await loadEnvFile(resolve(process.cwd(), ".env.local"));
+  await loadEnvFile(resolve(process.cwd(), ".env"));
+
+  if (isWorktreeCommand(parsed.command)) {
+    const { runWorktreeCommand } = await import("./worktree-commands.ts");
+    const exitCode = await runWorktreeCommand({
+      command: parsed.command,
+      args: parsed.commandArgs,
+      projectDir: process.cwd(),
+      port: parsed.port,
+    });
+    process.exit(exitCode);
+  }
+
+  if (parsed.command === null) {
+    usage();
+    process.exit(0);
+  }
+
+  if (!existsSync(resolve(process.cwd(), ".webmux.yaml"))) {
+    console.error("No .webmux.yaml found in this directory.\nRun `webmux init` to set up your project.");
+    process.exit(1);
+  }
+
+  const baseEnv = {
+    ...process.env,
+    BACKEND_PORT: String(parsed.port),
+    WEBMUX_PROJECT_DIR: process.cwd(),
+    ...(parsed.debug ? { WEBMUX_DEBUG: "1" } : {}),
+  };
+
+  const children: Subprocess[] = [];
+  let exiting = false;
+
+  function cleanup() {
+    if (exiting) return;
+    exiting = true;
+    for (const child of children) {
+      try { child.kill("SIGTERM"); } catch {}
+    }
+    setTimeout(() => {
+      for (const child of children) {
+        try { child.kill("SIGKILL"); } catch {}
+      }
+      process.exit(0);
+    }, 1000).unref();
+  }
+
+  process.on("SIGINT", cleanup);
+  process.on("SIGTERM", cleanup);
+
+  const backendEntry = join(PKG_ROOT, "backend", "dist", "server.js");
+  const staticDir = join(PKG_ROOT, "frontend", "dist");
+
+  if (!existsSync(staticDir)) {
+    console.error(
+      `Error: frontend/dist/ not found. Run 'bun run build' first.`,
+    );
+    process.exit(1);
+  }
+
+  console.log(`Starting webmux on port ${parsed.port}...`);
+
+  const be = Bun.spawn(["bun", backendEntry], {
+    env: { ...baseEnv, WEBMUX_STATIC_DIR: staticDir },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  children.push(be);
+  pipeWithPrefix(be.stdout, "[BE]");
+  pipeWithPrefix(be.stderr, "[BE]");
+
+  await be.exited;
 }
 
-process.on("SIGINT", cleanup);
-process.on("SIGTERM", cleanup);
-
-// ── Start ────────────────────────────────────────────────────────────────────
-
-const backendEntry = join(PKG_ROOT, "backend", "dist", "server.js");
-const staticDir = join(PKG_ROOT, "frontend", "dist");
-
-if (!existsSync(staticDir)) {
-  console.error(
-    `Error: frontend/dist/ not found. Run 'bun run build' first.`,
-  );
-  process.exit(1);
+if (import.meta.main) {
+  await main();
 }
-
-console.log(`Starting webmux on port ${parsed.port}...`);
-
-const be = Bun.spawn(["bun", backendEntry], {
-  env: { ...baseEnv, WEBMUX_STATIC_DIR: staticDir },
-  stdout: "pipe",
-  stderr: "pipe",
-});
-children.push(be);
-pipeWithPrefix(be.stdout, "[BE]");
-pipeWithPrefix(be.stderr, "[BE]");
-
-await be.exited;

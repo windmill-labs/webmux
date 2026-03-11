@@ -116,7 +116,10 @@ describe("runCompletionCommand", () => {
     const spy = spyOn(console, "log").mockImplementation(() => {});
     const code = runCompletionCommand(["zsh"]);
     expect(code).toBe(0);
-    expect(spy).toHaveBeenCalledWith(expect.stringContaining("#compdef webmux"));
+    const output = spy.mock.calls[0]?.[0];
+    expect(output).toContain("#compdef webmux");
+    expect(output).toContain("compdef _webmux webmux");
+    expect(output).not.toContain('_webmux "$@"');
     spy.mockRestore();
   });
 

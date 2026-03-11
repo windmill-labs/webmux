@@ -167,7 +167,7 @@ _webmux() {
   esac
 }
 
-_webmux "$@"`;
+compdef _webmux webmux`;
 
 const BASH_SCRIPT = `_webmux() {
   local cur prev

@@ -390,6 +390,39 @@ describe("LifecycleService", () => {
     expect(agentCommand).toContain(`Database: ${databaseUrl}`);
   });
 
+  it("reinstalls Claude runtime hooks after postCreate rewrites settings.local.json", async () => {
+    const repoRoot = await initRepo();
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const additionalDirectory = "../windmill-ee-private__worktrees/hook-settings";
+    const hooks = new FakeHookRunner(async (input) => {
+      const claudeDir = join(input.cwd, ".claude");
+      await mkdir(claudeDir, { recursive: true });
+      await Bun.write(
+        join(claudeDir, "settings.local.json"),
+        `${JSON.stringify({
+          permissions: {
+            additionalDirectories: [additionalDirectory],
+          },
+        }, null, 2)}\n`,
+      );
+    });
+    const lifecycle = makeLifecycleService(repoRoot, tmux, runtime, new FakeDockerGateway(), hooks);
+
+    await lifecycle.createWorktree({
+      branch: "feature/hook-settings",
+    });
+
+    const settingsText = await Bun.file(
+      join(repoRoot, "__worktrees", "feature", "hook-settings", ".claude", "settings.local.json"),
+    ).text();
+
+    expect(settingsText).toContain(additionalDirectory);
+    expect(settingsText).toContain("webmux-agentctl");
+    expect(settingsText).toContain("claude-user-prompt-submit");
+    expect(settingsText).toContain("status-changed --lifecycle idle");
+  });
+
   it("creates a managed worktree under an absolute worktree root", async () => {
     const repoRoot = await initRepo();
     const absoluteWorktreeRoot = await mkdtemp(join(tmpdir(), "webmux-absolute-worktrees-"));
@@ -522,8 +555,8 @@ describe("LifecycleService", () => {
 
     expect(phases).toEqual([
       "feature/progress:creating_worktree",
-      "feature/progress:preparing_runtime",
       "feature/progress:running_post_create_hook",
+      "feature/progress:preparing_runtime",
       "feature/progress:starting_session",
       "feature/progress:reconciling",
       "feature/progress:finished",

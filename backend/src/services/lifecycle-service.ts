@@ -145,18 +145,6 @@ export class LifecycleService {
         path: worktreePath,
         profile: profileName,
         agent,
-        phase: "preparing_runtime",
-      });
-      await ensureAgentRuntimeArtifacts({
-        gitDir: initialized.paths.gitDir,
-        worktreePath,
-      });
-
-      await this.reportCreateProgress({
-        branch,
-        path: worktreePath,
-        profile: profileName,
-        agent,
         phase: "running_post_create_hook",
       });
       await this.runLifecycleHook({
@@ -169,6 +157,17 @@ export class LifecycleService {
       initialized = await this.refreshManagedArtifactsFromMeta({
         gitDir: initialized.paths.gitDir,
         meta: initialized.meta,
+        worktreePath,
+      });
+      await this.reportCreateProgress({
+        branch,
+        path: worktreePath,
+        profile: profileName,
+        agent,
+        phase: "preparing_runtime",
+      });
+      await ensureAgentRuntimeArtifacts({
+        gitDir: initialized.paths.gitDir,
         worktreePath,
       });
       await this.reportCreateProgress({

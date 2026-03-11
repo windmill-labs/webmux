@@ -1,0 +1,36 @@
+<script lang="ts">
+  const { href = "/" }: { href?: string } = $props();
+</script>
+
+<a href={href} class="flex items-center gap-2.5 text-primary no-underline">
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" class="h-8 w-8">
+    <rect width="32" height="32" rx="6" fill="#0d1117" />
+    <rect
+      x="7"
+      y="8"
+      width="18"
+      height="14"
+      rx="3"
+      fill="none"
+      stroke="#58a6ff"
+      stroke-width="1.8"
+    />
+    <circle cx="13" cy="15" r="1.8" fill="#58a6ff" />
+    <circle cx="19" cy="15" r="1.8" fill="#58a6ff" />
+    <line
+      x1="16"
+      y1="8"
+      x2="16"
+      y2="5"
+      stroke="#58a6ff"
+      stroke-width="1.5"
+      stroke-linecap="round"
+    />
+    <circle cx="16" cy="4" r="1.2" fill="#58a6ff" />
+    <polygon
+      points="18,22 14,27 16,27 14,31 20,25 17,25 19,22"
+      fill="#f0c000"
+    />
+  </svg>
+  <span class="text-lg font-semibold">webmux</span>
+</a>

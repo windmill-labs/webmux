@@ -49,12 +49,24 @@
   let prompt = $state(initialPrompt);
   let agent = $state(savedAgent ?? "claude");
   let profile = $state(savedProfile ?? "");
-  const hasSavedDefaults = savedProfile != null || savedAgent != null;
+  const hasSavedDefaults = savedProfile != null || savedAgent != null || savedEnvs != null;
   let saveDefault = $state(hasSavedDefaults);
+
+  function loadSavedEnvs(): Record<string, string | boolean> {
+    if (!savedEnvs) return { ...startupEnvs };
+    try {
+      const parsed = JSON.parse(savedEnvs) as Record<string, string | boolean>;
+      const filtered = Object.fromEntries(
+        Object.entries(parsed).filter(([k]) => k in startupEnvs),
+      );
+      return { ...startupEnvs, ...filtered };
+    } catch {
+      return { ...startupEnvs };
+    }
+  }
+
   // svelte-ignore state_referenced_locally
-  let envValues = $state<Record<string, string | boolean>>(
-    savedEnvs ? { ...startupEnvs, ...JSON.parse(savedEnvs) } : { ...startupEnvs },
-  );
+  let envValues = $state<Record<string, string | boolean>>(loadSavedEnvs());
 
   function focus(node: HTMLElement) {
     node.focus();

@@ -1,31 +1,80 @@
-import { afterEach, describe, expect, it } from "bun:test";
-import { chmod, mkdir, mkdtemp, rm } from "node:fs/promises";
+import { describe, expect, it } from "bun:test";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  BunTmuxGateway,
   buildProjectSessionName,
   buildWorktreeWindowName,
   parseWindowSummaries,
   sanitizeTmuxNameSegment,
 } from "../adapters/tmux";
 
-function run(args: string[]): void {
-  const result = Bun.spawnSync(args, { stdout: "pipe", stderr: "pipe" });
+function buildEnv(overrides: Record<string, string>): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value !== undefined) env[key] = value;
+  }
+  return {
+    ...env,
+    ...overrides,
+  };
+}
+
+function run(args: string[], env?: Record<string, string>): void {
+  const result = Bun.spawnSync(args, { env, stdout: "pipe", stderr: "pipe" });
   if (result.exitCode !== 0) {
     const stderr = new TextDecoder().decode(result.stderr).trim();
     throw new Error(`${args.join(" ")} failed: ${stderr || `exit ${result.exitCode}`}`);
   }
 }
 
-function read(args: string[]): string {
-  const result = Bun.spawnSync(args, { stdout: "pipe", stderr: "pipe" });
+function read(args: string[], env?: Record<string, string>): string {
+  const result = Bun.spawnSync(args, { env, stdout: "pipe", stderr: "pipe" });
   if (result.exitCode !== 0) {
     const stderr = new TextDecoder().decode(result.stderr).trim();
     throw new Error(`${args.join(" ")} failed: ${stderr || `exit ${result.exitCode}`}`);
   }
 
   return new TextDecoder().decode(result.stdout).trim();
+}
+
+interface LayoutResult {
+  globalPaneBaseIndex: string;
+  relatedPaneIndexes: string[];
+  unrelatedPaneIndexes: string[];
+}
+
+function parseLayoutResult(output: string): LayoutResult {
+  const value: unknown = JSON.parse(output);
+  if (!value || typeof value !== "object") {
+    throw new Error("layout result must be an object");
+  }
+
+  const {
+    globalPaneBaseIndex,
+    relatedPaneIndexes,
+    unrelatedPaneIndexes,
+  } = value as {
+    globalPaneBaseIndex?: unknown;
+    relatedPaneIndexes?: unknown;
+    unrelatedPaneIndexes?: unknown;
+  };
+
+  if (typeof globalPaneBaseIndex !== "string") {
+    throw new Error("layout result globalPaneBaseIndex must be a string");
+  }
+  if (!Array.isArray(relatedPaneIndexes) || !relatedPaneIndexes.every((entry) => typeof entry === "string")) {
+    throw new Error("layout result relatedPaneIndexes must be a string array");
+  }
+  if (!Array.isArray(unrelatedPaneIndexes) || !unrelatedPaneIndexes.every((entry) => typeof entry === "string")) {
+    throw new Error("layout result unrelatedPaneIndexes must be a string array");
+  }
+
+  return {
+    globalPaneBaseIndex,
+    relatedPaneIndexes,
+    unrelatedPaneIndexes,
+  };
 }
 
 describe("sanitizeTmuxNameSegment", () => {
@@ -78,67 +127,93 @@ describe("parseWindowSummaries", () => {
   });
 });
 
-describe("BunTmuxGateway", () => {
-  let testRoot = "";
-  let originalPath: string | null = null;
-
-  afterEach(async () => {
-    if (testRoot) {
-      try {
-        run(["tmux", "kill-server"]);
-      } catch {}
-
-      await rm(testRoot, { recursive: true, force: true });
-      testRoot = "";
-    }
-
-    if (originalPath !== null) {
-      process.env.PATH = originalPath;
-      originalPath = null;
-    }
-  });
-
-  it("forces 0-based pane indices for new windows when the user config starts at 1", async () => {
-    testRoot = await mkdtemp(join(tmpdir(), "webmux-tmux-"));
-
+describe("ensureSessionLayout", () => {
+  it("keeps the tmux global default at 1 while forcing the workmux window to 0-based panes", async () => {
+    const testRoot = await mkdtemp(join(tmpdir(), "webmux-tmux-"));
     const homeDir = join(testRoot, "home");
-    const binDir = join(testRoot, "bin");
+    const projectRoot = join(testRoot, "repo");
+    const worktreePath = join(projectRoot, "__worktrees", "feature-search");
     await mkdir(homeDir, { recursive: true });
-    await mkdir(binDir, { recursive: true });
+    await mkdir(worktreePath, { recursive: true });
 
     await Bun.write(join(homeDir, ".tmux.conf"), "set -g base-index 1\nsetw -g pane-base-index 1\n");
+    const env = buildEnv({
+      HOME: homeDir,
+      TMUX: "",
+      TMUX_TMPDIR: testRoot,
+    });
+    const runnerPath = join(testRoot, "run-layout.ts");
+    const tmuxModuleUrl = new URL("../adapters/tmux.ts", import.meta.url).href;
+    const sessionServiceModuleUrl = new URL("../services/session-service.ts", import.meta.url).href;
 
-    const realTmux = read(["which", "tmux"]);
-    const wrapperPath = join(binDir, "tmux");
     await Bun.write(
-      wrapperPath,
+      runnerPath,
       [
-        "#!/bin/sh",
-        "unset TMUX",
-        `export HOME="${homeDir}"`,
-        `export TMUX_TMPDIR="${testRoot}"`,
-        `exec "${realTmux}" "$@"`,
+        `import { ensureSessionLayout, planSessionLayout } from ${JSON.stringify(sessionServiceModuleUrl)};`,
+        `import { buildProjectSessionName, buildWorktreeWindowName, BunTmuxGateway } from ${JSON.stringify(tmuxModuleUrl)};`,
+        "",
+        "function run(args: string[]): void {",
+        '  const result = Bun.spawnSync(args, { stdout: "pipe", stderr: "pipe" });',
+        "  if (result.exitCode !== 0) {",
+        "    const stderr = new TextDecoder().decode(result.stderr).trim();",
+        '    throw new Error(`${args.join(" ")} failed: ${stderr || `exit ${result.exitCode}`}`);',
+        "  }",
+        "}",
+        "",
+        "function read(args: string[]): string {",
+        '  const result = Bun.spawnSync(args, { stdout: "pipe", stderr: "pipe" });',
+        "  if (result.exitCode !== 0) {",
+        "    const stderr = new TextDecoder().decode(result.stderr).trim();",
+        '    throw new Error(`${args.join(" ")} failed: ${stderr || `exit ${result.exitCode}`}`);',
+        "  }",
+        '  return new TextDecoder().decode(result.stdout).trim();',
+        "}",
+        "",
+        "const projectRoot = process.argv[2];",
+        "const worktreePath = process.argv[3];",
+        'if (!projectRoot || !worktreePath) throw new Error("expected projectRoot and worktreePath");',
+        "",
+        "const gateway = new BunTmuxGateway();",
+        "const plan = planSessionLayout(",
+        "  projectRoot,",
+        '  "feature/search",',
+        "  [",
+        '    { id: "agent", kind: "agent", focus: true },',
+        '    { id: "shell", kind: "shell", split: "right", sizePct: 25 },',
+        "  ],",
+        "  {",
+        "    repoRoot: projectRoot,",
+        "    worktreePath,",
+        "    paneCommands: {",
+        '      agent: "printf agent-started",',
+        '      shell: "sh",',
+        "    },",
+        "  },",
+        ");",
+        "",
+        "ensureSessionLayout(gateway, plan);",
+        'run(["tmux", "new-session", "-d", "-s", "unrelated", "-c", projectRoot]);',
+        'run(["tmux", "new-window", "-d", "-t", "unrelated", "-n", "plain", "-c", projectRoot]);',
+        "",
+        "console.log(JSON.stringify({",
+        '  globalPaneBaseIndex: read(["tmux", "show-options", "-g", "-w", "-v", "pane-base-index"]),',
+        '  relatedPaneIndexes: read(["tmux", "list-panes", "-t", `${buildProjectSessionName(projectRoot)}:${buildWorktreeWindowName("feature/search")}`, "-F", "#{pane_index}"]).split("\\n").filter(Boolean),',
+        '  unrelatedPaneIndexes: read(["tmux", "list-panes", "-t", "unrelated:plain", "-F", "#{pane_index}"]).split("\\n").filter(Boolean),',
+        "}));",
         "",
       ].join("\n"),
     );
-    await chmod(wrapperPath, 0o755);
 
-    originalPath = process.env.PATH ?? "";
-    process.env.PATH = `${binDir}:${originalPath}`;
-
-    const gateway = new BunTmuxGateway();
-    const sessionName = "wm-test-pane-index";
-    const windowName = "wm-window";
-
-    gateway.ensureServer();
-    gateway.ensureSession(sessionName, testRoot);
-    gateway.createWindow({
-      sessionName,
-      windowName,
-      cwd: testRoot,
-    });
-
-    expect(read(["tmux", "show-options", "-g", "-w", "-v", "pane-base-index"])).toBe("1");
-    expect(read(["tmux", "list-panes", "-t", `${sessionName}:${windowName}`, "-F", "#{pane_index}"])).toBe("0");
+    try {
+      const result = parseLayoutResult(read(["bun", runnerPath, projectRoot, worktreePath], env));
+      expect(result.globalPaneBaseIndex).toBe("1");
+      expect(result.relatedPaneIndexes).toEqual(["0", "1"]);
+      expect(result.unrelatedPaneIndexes).toEqual(["1"]);
+    } finally {
+      try {
+        run(["tmux", "kill-server"], env);
+      } catch {}
+      await rm(testRoot, { recursive: true, force: true });
+    }
   });
 });

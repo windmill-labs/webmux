@@ -15,14 +15,6 @@ const BRANCH_SUBCOMMANDS = new Set(["open", "close", "remove", "merge"]);
 
 // ── Pure logic ─────────────────────────────────────────────────────────────
 
-export function filterBranches(
-  branches: string[],
-  partial: string,
-): string[] {
-  if (!partial) return branches;
-  return branches.filter((b) => b.startsWith(partial));
-}
-
 export function extractBranches(
   porcelainOutput: string,
   mainWorktreePath: string | null,

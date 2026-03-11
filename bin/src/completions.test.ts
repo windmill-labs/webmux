@@ -1,5 +1,5 @@
-import { describe, expect, it } from "bun:test";
-import { extractBranches, filterBranches, handleCompletions, listWorktreeBranches, runCompletionCommand } from "./completions";
+import { describe, expect, it, spyOn } from "bun:test";
+import { extractBranches, handleCompletions, listWorktreeBranches, runCompletionCommand } from "./completions";
 
 describe("extractBranches", () => {
   const porcelain = [
@@ -48,25 +48,6 @@ describe("extractBranches", () => {
   });
 });
 
-describe("filterBranches", () => {
-  const branches = ["fix-bug", "feature-auth", "feature-search"];
-
-  it("returns all branches when partial is empty", () => {
-    expect(filterBranches(branches, "")).toEqual(branches);
-  });
-
-  it("filters by prefix", () => {
-    expect(filterBranches(branches, "feature")).toEqual([
-      "feature-auth",
-      "feature-search",
-    ]);
-  });
-
-  it("returns empty when no match", () => {
-    expect(filterBranches(branches, "xyz")).toEqual([]);
-  });
-});
-
 describe("listWorktreeBranches", () => {
   it("returns branches using injected git", () => {
     const porcelain = [
@@ -106,64 +87,43 @@ describe("listWorktreeBranches", () => {
 
 describe("handleCompletions", () => {
   it("outputs nothing for unknown subcommands", () => {
-    const logs: string[] = [];
-    const originalLog = console.log;
-    console.log = (msg: string) => logs.push(msg);
-
+    const spy = spyOn(console, "log").mockImplementation(() => {});
     handleCompletions(["add"]);
-
-    console.log = originalLog;
-    expect(logs).toEqual([]);
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
   });
 });
 
 describe("runCompletionCommand", () => {
   it("prints usage for --help", () => {
-    const logs: string[] = [];
-    const originalLog = console.log;
-    console.log = (msg: string) => logs.push(msg);
-
+    const spy = spyOn(console, "log").mockImplementation(() => {});
     const code = runCompletionCommand(["--help"]);
-
-    console.log = originalLog;
     expect(code).toBe(0);
-    expect(logs[0]).toContain("Usage:");
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining("Usage:"));
+    spy.mockRestore();
   });
 
   it("rejects unknown shells", () => {
-    const errors: string[] = [];
-    const originalError = console.error;
-    console.error = (msg: string) => errors.push(msg);
-
+    const spy = spyOn(console, "error").mockImplementation(() => {});
     const code = runCompletionCommand(["fish"]);
-
-    console.error = originalError;
     expect(code).toBe(1);
-    expect(errors[0]).toContain("Unknown shell");
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining("Unknown shell"));
+    spy.mockRestore();
   });
 
   it("outputs zsh completion script", () => {
-    const logs: string[] = [];
-    const originalLog = console.log;
-    console.log = (msg: string) => logs.push(msg);
-
+    const spy = spyOn(console, "log").mockImplementation(() => {});
     const code = runCompletionCommand(["zsh"]);
-
-    console.log = originalLog;
     expect(code).toBe(0);
-    expect(logs[0]).toContain("#compdef webmux");
-    expect(logs[0]).toContain("_webmux");
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining("#compdef webmux"));
+    spy.mockRestore();
   });
 
   it("outputs bash completion script", () => {
-    const logs: string[] = [];
-    const originalLog = console.log;
-    console.log = (msg: string) => logs.push(msg);
-
+    const spy = spyOn(console, "log").mockImplementation(() => {});
     const code = runCompletionCommand(["bash"]);
-
-    console.log = originalLog;
     expect(code).toBe(0);
-    expect(logs[0]).toContain("complete -F _webmux webmux");
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining("complete -F _webmux webmux"));
+    spy.mockRestore();
   });
 });

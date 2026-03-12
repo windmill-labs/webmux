@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.15.0](https://github.com/windmill-labs/webmux/compare/v0.14.0...v0.15.0) (2026-03-12)
+
+
+### Features
+
+* add mobile more button for PR badges, CI, and comments ([#122](https://github.com/windmill-labs/webmux/issues/122)) ([f9a8c37](https://github.com/windmill-labs/webmux/commit/f9a8c37f3e15cd93779cbd8bfdf57b9ac5de489e))
+* add settings icon with theme selection ([#130](https://github.com/windmill-labs/webmux/issues/130)) ([972e38e](https://github.com/windmill-labs/webmux/commit/972e38eff5581466429f2f850bbcb9bf0ee56e25))
+* add webmux local yaml overlays ([#129](https://github.com/windmill-labs/webmux/issues/129)) ([37b005d](https://github.com/windmill-labs/webmux/commit/37b005d0aa9299523a18d2847222e12cb7827af8))
+* group pr ci and comment badges ([#132](https://github.com/windmill-labs/webmux/issues/132)) ([f173bbf](https://github.com/windmill-labs/webmux/commit/f173bbf2148f9b365ce348ccf9d8b8e141068102))
+
+
+### Bug Fixes
+
+* harden tmux closed-session handling ([#128](https://github.com/windmill-labs/webmux/issues/128)) ([a9b941f](https://github.com/windmill-labs/webmux/commit/a9b941f385146cc0ca15df246553ee713ccf0289))
+* reconnect terminal after idle disconnect ([#127](https://github.com/windmill-labs/webmux/issues/127)) ([9f107d0](https://github.com/windmill-labs/webmux/commit/9f107d071a5232eba1c903d80610b9d95ec431e6))
+* resolve remove from linked worktree ([#125](https://github.com/windmill-labs/webmux/issues/125)) ([b0b1c70](https://github.com/windmill-labs/webmux/commit/b0b1c70d4b41aa75abfee4ff5cafc8c36e2319df))
+* restore mobile agent pane scrolling ([#123](https://github.com/windmill-labs/webmux/issues/123)) ([d62f062](https://github.com/windmill-labs/webmux/commit/d62f0627c36ed25ecea8972ba57e34d0f8231c4b))
+* switch to tmux window after webmux open ([#121](https://github.com/windmill-labs/webmux/issues/121)) ([6f6d0fa](https://github.com/windmill-labs/webmux/commit/6f6d0faa9023ebc672977190726c43bb353fb254))
+* widen creation dialog and prompt input ([#126](https://github.com/windmill-labs/webmux/issues/126)) ([98ea7b1](https://github.com/windmill-labs/webmux/commit/98ea7b1d8e94bcb3fd3d0eafe1922fd8534f29ec))
+
 ## [0.14.0](https://github.com/windmill-labs/webmux/compare/v0.13.0...v0.14.0) (2026-03-11)
 
 

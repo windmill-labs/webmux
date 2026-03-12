@@ -1,8 +1,6 @@
 <script lang="ts">
   import type { PrEntry, ServiceStatus } from "./types";
-  import PrBadge from "./PrBadge.svelte";
-  import CiBadge from "./CiBadge.svelte";
-  import ReviewsBadge from "./ReviewsBadge.svelte";
+  import PrStatusGroup from "./PrStatusGroup.svelte";
 
   let {
     label,
@@ -30,13 +28,7 @@
     <span class="shrink-0 text-[10px] font-medium text-muted">{label}:</span>
   {/if}
   {#each prs as pr (`${pr.repo}#${pr.number}`)}
-    <PrBadge {pr} clickable />
-    {#if pr.ciChecks && pr.ciChecks.length > 0}
-      <CiBadge {pr} onclick={onciclick} />
-    {/if}
-    {#if pr.comments.length > 0}
-      <ReviewsBadge {pr} onclick={onreviewsclick} />
-    {/if}
+    <PrStatusGroup {pr} {onciclick} {onreviewsclick} />
   {/each}
   {#each services as svc}
     {#if svc.port}

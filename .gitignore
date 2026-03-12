@@ -11,3 +11,4 @@ frontend/.vite/
 public/
 .env
 .env.local
+.webmux.local.yaml

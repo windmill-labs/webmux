@@ -72,9 +72,10 @@ webmux                          # opens on http://localhost:5111
 
 ## Configuration
 
-webmux uses a single config file in the project root:
+webmux uses a project config file in the project root, plus an optional local overlay:
 
 - **`.webmux.yaml`** — Worktree root, pane layout, service ports, profiles, linked repos, and Docker sandbox settings.
+- **`.webmux.local.yaml`** — Optional local-only overlay for additional `profiles` and `lifecycleHooks`. Profiles are additive, conflicting profile names are replaced by the local definition, and local lifecycle hook commands run after the project-level command for the same hook.
 
 <details>
 <summary><strong>.webmux.yaml example</strong></summary>
@@ -185,6 +186,21 @@ lifecycleHooks:
 Lifecycle hooks run with the worktree as `cwd` and receive the same computed runtime env that the managed panes will use, including `startupEnvs`, allocated service ports, and `WEBMUX_*` metadata.
 
 When `auto_name` is enabled, `webmux` calls the provider API directly with structured output and uses `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, or `OPENAI_API_KEY` based on the configured model.
+
+## Safe Tmux Debugging
+
+When you need to reproduce tmux behavior, run it against an isolated tmux server instead of your live one:
+
+```bash
+bash scripts/run-with-isolated-tmux.sh bun test backend/src/__tests__/tmux-adapter.test.ts -t BunTmuxGateway
+
+cfg="$(mktemp)"
+printf '%s\n' 'set-option -g destroy-unattached on' > "$cfg"
+WEBMUX_ISOLATED_TMUX_CONFIG="$cfg" bash scripts/run-with-isolated-tmux.sh bun test backend/src/__tests__/tmux-adapter.test.ts -t BunTmuxGateway
+rm -f "$cfg"
+```
+
+The helper unsets `TMUX`, injects a wrapper `tmux` binary that always uses a unique `-L` socket name, defaults to `-f /dev/null`, and kills only that isolated server on exit.
 
 ## Keyboard Shortcuts
 

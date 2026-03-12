@@ -146,7 +146,7 @@
   }
 </script>
 
-<BaseDialog onclose={oncancel}>
+<BaseDialog onclose={oncancel} className="md:max-w-[440px]">
   <form
     onsubmit={(e) => {
       e.preventDefault();
@@ -178,7 +178,7 @@
       >
       <textarea
         id="wt-prompt"
-        rows="3"
+        rows="4"
         use:focus
         class="w-full px-2.5 py-1.5 rounded-md border border-edge bg-surface text-primary text-[13px] placeholder:text-muted/50 outline-none focus:border-accent resize-y"
         placeholder="Describe the task for the agent..."

@@ -72,9 +72,10 @@ webmux                          # opens on http://localhost:5111
 
 ## Configuration
 
-webmux uses a single config file in the project root:
+webmux uses a project config file in the project root, plus an optional local overlay:
 
 - **`.webmux.yaml`** — Worktree root, pane layout, service ports, profiles, linked repos, and Docker sandbox settings.
+- **`.webmux.local.yaml`** — Optional local-only overlay for additional `profiles` and `lifecycleHooks`. Profiles are additive, conflicting profile names are replaced by the local definition, and local lifecycle hook commands run after the project-level command for the same hook.
 
 <details>
 <summary><strong>.webmux.yaml example</strong></summary>

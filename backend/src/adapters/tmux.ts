@@ -53,6 +53,13 @@ function assertTmuxOk(args: string[], action: string): string {
   return result.stdout;
 }
 
+function isIgnorableKillWindowError(stderr: string): boolean {
+  return stderr.includes("can't find window")
+    || stderr.includes("can't find session")
+    || stderr.includes("no server running")
+    || (stderr.includes("error connecting to") && stderr.includes("No such file or directory"));
+}
+
 export function sanitizeTmuxNameSegment(value: string, maxLength = 24): string {
   const sanitized = value
     .toLowerCase()
@@ -98,8 +105,17 @@ export class BunTmuxGateway implements TmuxGateway {
   ensureSession(sessionName: string, cwd: string): void {
     const check = runTmux(["has-session", "-t", sessionName]);
     if (check.exitCode !== 0) {
-      assertTmuxOk(["new-session", "-d", "-s", sessionName, "-c", cwd], `create tmux session ${sessionName}`);
+      assertTmuxOk(
+        ["new-session", "-d", "-s", sessionName, "-c", cwd, ";", "set-option", "-t", sessionName, "destroy-unattached", "off"],
+        `create tmux session ${sessionName}`,
+      );
+      return;
     }
+
+    assertTmuxOk(
+      ["set-option", "-t", sessionName, "destroy-unattached", "off"],
+      `set tmux session option destroy-unattached on ${sessionName}`,
+    );
   }
 
   hasWindow(sessionName: string, windowName: string): boolean {
@@ -110,7 +126,7 @@ export class BunTmuxGateway implements TmuxGateway {
 
   killWindow(sessionName: string, windowName: string): void {
     const result = runTmux(["kill-window", "-t", `${sessionName}:${windowName}`]);
-    if (result.exitCode !== 0 && !result.stderr.includes("can't find window")) {
+    if (result.exitCode !== 0 && !isIgnorableKillWindowError(result.stderr)) {
       throw new Error(`kill tmux window ${sessionName}:${windowName} failed: ${result.stderr}`);
     }
   }

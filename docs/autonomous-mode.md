@@ -15,6 +15,15 @@ Even in autonomous mode, **enter plan mode before starting non-trivial work**:
 
 After code changes compile and type-check, verify the feature works:
 
+When testing tmux or webmux behavior that touches a real tmux server, do not use the live local tmux instance directly.
+Run those commands through `scripts/run-with-isolated-tmux.sh` so tmux uses a disposable isolated socket and `/dev/null` config by default.
+
+Examples:
+
+- `bash scripts/run-with-isolated-tmux.sh bun test backend/src/__tests__/tmux-adapter.test.ts -t BunTmuxGateway`
+- `bash scripts/run-with-isolated-tmux.sh bun bin/webmux.js serve --port 6121`
+- `cfg="$(mktemp)" && printf '%s\n' 'set-option -g destroy-unattached on' > "$cfg" && WEBMUX_ISOLATED_TMUX_CONFIG="$cfg" bash scripts/run-with-isolated-tmux.sh bun test backend/src/__tests__/tmux-adapter.test.ts -t BunTmuxGateway; rm -f "$cfg"`
+
 When done, open a PR directly, then provide:
 
 - What was changed and why (files modified, approach taken)

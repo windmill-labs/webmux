@@ -1,14 +1,16 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
   import { Terminal } from "@xterm/xterm";
+  import type { ITheme } from "@xterm/xterm";
   import { FitAddon } from "@xterm/addon-fit";
   import { WebLinksAddon } from "@xterm/addon-web-links";
   import "@xterm/xterm/css/xterm.css";
 
-  let { worktree, isMobile = false, initialPane }: {
+  let { worktree, isMobile = false, initialPane, terminalTheme }: {
     worktree: string;
     isMobile?: boolean;
     initialPane?: number;
+    terminalTheme?: ITheme;
   } = $props();
 
   let containerEl: HTMLDivElement;
@@ -134,7 +136,7 @@
   onMount(() => {
     term = new Terminal({
       cursorBlink: true,
-      theme: {
+      theme: terminalTheme ?? {
         background: "#0d1117",
         foreground: "#e6edf3",
         cursor: "#58a6ff",
@@ -269,6 +271,12 @@
       }, 150);
     });
     resizeObs.observe(containerEl);
+  });
+
+  $effect(() => {
+    if (terminalTheme && term) {
+      term.options.theme = terminalTheme;
+    }
   });
 
   onDestroy(() => {

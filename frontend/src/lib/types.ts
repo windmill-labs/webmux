@@ -163,3 +163,5 @@ export interface AppConfig {
   startupEnvs?: Record<string, string | boolean>;
   linkedRepos?: LinkedRepoInfo[];
 }
+
+export type ThemeKey = "github-dark" | "dracula" | "nord" | "solarized-dark" | "one-dark";

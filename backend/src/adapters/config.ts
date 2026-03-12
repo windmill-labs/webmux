@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
 import type {
   AgentKind,
@@ -247,10 +247,19 @@ export function gitRoot(dir: string): string {
   return root || dir;
 }
 
-/** Load `.webmux.yaml` from the git root into the final project config shape. */
+/** Resolve the shared project root for a repository, even from a linked worktree. */
+export function projectRoot(dir: string): string {
+  const result = Bun.spawnSync(["git", "rev-parse", "--git-common-dir"], { stdout: "pipe", stderr: "pipe", cwd: dir });
+  if (result.exitCode !== 0) return gitRoot(dir);
+
+  const commonDir = new TextDecoder().decode(result.stdout).trim();
+  return commonDir ? dirname(resolve(dir, commonDir)) : gitRoot(dir);
+}
+
+/** Load `.webmux.yaml` from the shared project root into the final project config shape. */
 export function loadConfig(dir: string): ProjectConfig {
   try {
-    const root = gitRoot(dir);
+    const root = projectRoot(dir);
     const text = readConfigFile(root).trim();
     if (!text) return DEFAULT_CONFIG;
 

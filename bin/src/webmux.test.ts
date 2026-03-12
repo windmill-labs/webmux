@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -31,6 +31,23 @@ async function initRepo(repoRoot: string): Promise<void> {
   await Bun.write(join(repoRoot, "README.md"), "# test\n");
   runOrThrow(["git", "add", "README.md"], repoRoot);
   runOrThrow(["git", "commit", "-m", "init"], repoRoot);
+}
+
+async function installFakeTmux(binDir: string): Promise<void> {
+  const tmuxPath = join(binDir, "tmux");
+  await Bun.write(
+    tmuxPath,
+    [
+      "#!/usr/bin/env bash",
+      "command=\"$1\"",
+      'if [ \"$command\" = \"kill-window\" ] || [ \"$command\" = \"list-windows\" ]; then',
+      "  exit 0",
+      "fi",
+      "exit 0",
+      "",
+    ].join("\n"),
+  );
+  await chmod(tmuxPath, 0o755);
 }
 
 describe("webmux entrypoint", () => {
@@ -96,5 +113,53 @@ describe("webmux entrypoint", () => {
     expect(result.exitCode).toBe(1);
     expect(stderr).not.toContain("No .webmux.yaml found in this directory.");
     expect(stderr).toContain("Worktree not found: missing-branch");
+  });
+
+  it("removes the current linked worktree when invoked from inside it", async () => {
+    const repoRoot = await mkdtemp(join(tmpdir(), "webmux-cli-"));
+    tempDirs.push(repoRoot);
+
+    await initRepo(repoRoot);
+    await Bun.write(
+      join(repoRoot, ".webmux.yaml"),
+      [
+        "name: Test",
+        "workspace:",
+        "  mainBranch: main",
+        "  worktreeRoot: __worktrees",
+        "",
+      ].join("\n"),
+    );
+
+    const worktreesRoot = join(repoRoot, "__worktrees");
+    await mkdir(worktreesRoot, { recursive: true });
+    const fakeBin = join(repoRoot, ".test-bin");
+    await mkdir(fakeBin, { recursive: true });
+    await installFakeTmux(fakeBin);
+
+    const worktreePath = join(worktreesRoot, "feature-self-remove");
+    runOrThrow(["git", "worktree", "add", "-b", "feature-self-remove", worktreePath], repoRoot);
+
+    const result = Bun.spawnSync(["bun", webmuxEntry, "remove", "feature-self-remove"], {
+      cwd: worktreePath,
+      stdout: "pipe",
+      stderr: "pipe",
+      env: {
+        ...process.env,
+        PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
+      },
+    });
+    const stdout = decoder.decode(result.stdout).trim();
+    const stderr = decoder.decode(result.stderr).trim();
+    const worktreeList = Bun.spawnSync(["git", "worktree", "list", "--porcelain"], {
+      cwd: repoRoot,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(stdout).toContain("Removed worktree feature-self-remove");
+    expect(stderr).toBe("");
+    expect(decoder.decode(worktreeList.stdout)).not.toContain(worktreePath);
   });
 });

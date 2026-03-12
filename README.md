@@ -187,21 +187,6 @@ Lifecycle hooks run with the worktree as `cwd` and receive the same computed run
 
 When `auto_name` is enabled, `webmux` calls the provider API directly with structured output and uses `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, or `OPENAI_API_KEY` based on the configured model.
 
-## Safe Tmux Debugging
-
-When you need to reproduce tmux behavior, run it against an isolated tmux server instead of your live one:
-
-```bash
-bash scripts/run-with-isolated-tmux.sh bun test backend/src/__tests__/tmux-adapter.test.ts -t BunTmuxGateway
-
-cfg="$(mktemp)"
-printf '%s\n' 'set-option -g destroy-unattached on' > "$cfg"
-WEBMUX_ISOLATED_TMUX_CONFIG="$cfg" bash scripts/run-with-isolated-tmux.sh bun test backend/src/__tests__/tmux-adapter.test.ts -t BunTmuxGateway
-rm -f "$cfg"
-```
-
-The helper unsets `TMUX`, injects a wrapper `tmux` binary that always uses a unique `-L` socket name, defaults to `-f /dev/null`, and kills only that isolated server on exit.
-
 ## Keyboard Shortcuts
 
 | Shortcut | Action |

@@ -1,14 +1,16 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
   import { Terminal } from "@xterm/xterm";
+  import type { ITheme } from "@xterm/xterm";
   import { FitAddon } from "@xterm/addon-fit";
   import { WebLinksAddon } from "@xterm/addon-web-links";
   import "@xterm/xterm/css/xterm.css";
 
-  let { worktree, isMobile = false, initialPane }: {
+  let { worktree, isMobile = false, initialPane, terminalTheme }: {
     worktree: string;
     isMobile?: boolean;
     initialPane?: number;
+    terminalTheme: ITheme;
   } = $props();
 
   const DISCONNECTED_NOTICE = "\r\n\x1b[90m[Disconnected]\x1b[0m";
@@ -209,12 +211,7 @@
   onMount(() => {
     term = new Terminal({
       cursorBlink: true,
-      theme: {
-        background: "#0d1117",
-        foreground: "#e6edf3",
-        cursor: "#58a6ff",
-        selectionBackground: "#264f78",
-      },
+      theme: terminalTheme,
       fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', Menlo, monospace",
       fontSize: isMobile ? 13 : 11,
       scrollback: 10000,
@@ -310,6 +307,12 @@
     document.addEventListener("visibilitychange", reconnectIfNeeded);
     window.addEventListener("focus", reconnectIfNeeded);
     window.addEventListener("online", reconnectIfNeeded);
+  });
+
+  $effect(() => {
+    if (terminalTheme && term) {
+      term.options.theme = terminalTheme;
+    }
   });
 
   onDestroy(() => {

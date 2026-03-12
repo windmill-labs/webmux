@@ -114,7 +114,7 @@ export class BunTmuxGateway implements TmuxGateway {
 
     assertTmuxOk(
       ["set-option", "-t", sessionName, "destroy-unattached", "off"],
-      `set tmux session option destroy-unattached on ${sessionName}`,
+      `set destroy-unattached off for ${sessionName}`,
     );
   }
 

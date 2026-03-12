@@ -17,6 +17,7 @@
   let ws: WebSocket;
   let resizeObs: ResizeObserver;
   let resizeTimer: ReturnType<typeof setTimeout>;
+  let xtermEl: HTMLElement | null = null;
   let viewportEl: HTMLElement | null = null;
   let manualTouchCleanup: (() => void) | null = null;
   let lastTouchX = 0;
@@ -51,7 +52,7 @@
     }
   }
 
-  function resetTouchGesture(): void {
+  function handleTouchGestureEnd(): void {
     touchScrollLocked = false;
   }
 
@@ -69,9 +70,8 @@
   }
 
   function handleManualTouchMove(event: TouchEvent): void {
-    if (!shouldUseManualTouchScroll() || !viewportEl) return;
     const touch = event.touches[0];
-    if (!touch) return;
+    if (!shouldUseManualTouchScroll() || !viewportEl || !touch) return;
 
     const deltaX = lastTouchX - touch.pageX;
     const deltaY = lastTouchY - touch.pageY;
@@ -85,28 +85,48 @@
     if (deltaY === 0) return;
 
     const canScrollViewport = viewportEl.scrollHeight > viewportEl.clientHeight;
-    if (!canScrollViewport) return;
+    if (!canScrollViewport) {
+      dispatchSyntheticWheel(deltaY, touch);
+      event.preventDefault();
+      return;
+    }
 
     viewportEl.scrollTop += deltaY;
     // Keep the swipe owned by the terminal so the app shell never steals it at the top/bottom edge.
     event.preventDefault();
   }
 
-  function attachManualTouchScroll(): void {
-    const xtermEl = containerEl.querySelector(".xterm");
-    const nextViewportEl = containerEl.querySelector(".xterm-viewport");
-    if (!(xtermEl instanceof HTMLElement) || !(nextViewportEl instanceof HTMLElement)) return;
+  function dispatchSyntheticWheel(deltaY: number, touch: Touch): void {
+    if (!xtermEl) return;
 
+    const wheelEvent = new WheelEvent("wheel", {
+      bubbles: true,
+      cancelable: true,
+      clientX: touch.clientX,
+      clientY: touch.clientY,
+      deltaMode: WheelEvent.DOM_DELTA_PIXEL,
+      deltaY,
+    });
+    xtermEl.dispatchEvent(wheelEvent);
+  }
+
+  function attachManualTouchScroll(): void {
+    const nextXtermEl = containerEl.querySelector(".xterm");
+    const nextViewportEl = containerEl.querySelector(".xterm-viewport");
+    if (!(nextXtermEl instanceof HTMLElement) || !(nextViewportEl instanceof HTMLElement)) return;
+
+    xtermEl = nextXtermEl;
     viewportEl = nextViewportEl;
-    xtermEl.addEventListener("touchstart", handleManualTouchStart, { passive: true });
-    xtermEl.addEventListener("touchmove", handleManualTouchMove, { passive: false });
-    xtermEl.addEventListener("touchend", resetTouchGesture);
-    xtermEl.addEventListener("touchcancel", resetTouchGesture);
+    nextXtermEl.addEventListener("touchstart", handleManualTouchStart, { passive: true });
+    nextXtermEl.addEventListener("touchmove", handleManualTouchMove, { passive: false });
+    nextXtermEl.addEventListener("touchend", handleTouchGestureEnd);
+    nextXtermEl.addEventListener("touchcancel", handleTouchGestureEnd);
     manualTouchCleanup = () => {
-      xtermEl.removeEventListener("touchstart", handleManualTouchStart);
-      xtermEl.removeEventListener("touchmove", handleManualTouchMove);
-      xtermEl.removeEventListener("touchend", resetTouchGesture);
-      xtermEl.removeEventListener("touchcancel", resetTouchGesture);
+      nextXtermEl.removeEventListener("touchstart", handleManualTouchStart);
+      nextXtermEl.removeEventListener("touchmove", handleManualTouchMove);
+      nextXtermEl.removeEventListener("touchend", handleTouchGestureEnd);
+      nextXtermEl.removeEventListener("touchcancel", handleTouchGestureEnd);
+      xtermEl = null;
       viewportEl = null;
     };
   }

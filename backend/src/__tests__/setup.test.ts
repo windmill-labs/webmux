@@ -140,4 +140,88 @@ describe("loadConfig", () => {
 
     expect(getDefaultProfileName(config)).toBe("slim");
   });
+
+  it("adds local profiles and appends local lifecycle hooks after project hooks", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "webmux-config-"));
+    tempDirs.push(dir);
+    Bun.spawnSync(["git", "init"], { cwd: dir });
+
+    await Bun.write(
+      join(dir, ".webmux.yaml"),
+      [
+        "profiles:",
+        "  default:",
+        "    runtime: host",
+        "    envPassthrough: []",
+        "    panes:",
+        "      - id: agent",
+        "        kind: agent",
+        "        focus: true",
+        "  shared:",
+        "    runtime: host",
+        "    envPassthrough: [GITHUB_TOKEN]",
+        "    panes:",
+        "      - id: agent",
+        "        kind: agent",
+        "        focus: true",
+        "lifecycleHooks:",
+        "  postCreate: scripts/project-post-create.sh",
+        "  preRemove: scripts/project-pre-remove.sh",
+        "",
+      ].join("\n"),
+    );
+
+    await Bun.write(
+      join(dir, ".webmux.local.yaml"),
+      [
+        "profiles:",
+        "  shared:",
+        "    runtime: docker",
+        "    image: local-sandbox",
+        "    envPassthrough: [AWS_ACCESS_KEY_ID]",
+        "    panes:",
+        "      - id: agent",
+        "        kind: agent",
+        "        focus: true",
+        "  local:",
+        "    runtime: host",
+        "    envPassthrough: []",
+        "    panes:",
+        "      - id: local-agent",
+        "        kind: agent",
+        "        focus: true",
+        "lifecycleHooks:",
+        "  postCreate: scripts/local-post-create.sh",
+        "  preRemove: scripts/local-pre-remove.sh",
+        "",
+      ].join("\n"),
+    );
+
+    const config = loadConfig(dir);
+
+    expect(Object.keys(config.profiles).sort()).toEqual(["default", "local", "shared"]);
+    expect(config.profiles.default.runtime).toBe("host");
+    expect(config.profiles.shared.runtime).toBe("docker");
+    expect(config.profiles.shared.image).toBe("local-sandbox");
+    expect(config.profiles.shared.envPassthrough).toEqual(["AWS_ACCESS_KEY_ID"]);
+    expect(config.profiles.local.panes).toEqual([{ id: "local-agent", kind: "agent", focus: true }]);
+    expect(config.lifecycleHooks).toEqual({
+      postCreate: [
+        "scripts/project-post-create.sh",
+        "__webmux_hook_exit_code=$?",
+        "if [ \"$__webmux_hook_exit_code\" -ne 0 ]; then",
+        "  exit \"$__webmux_hook_exit_code\"",
+        "fi",
+        "scripts/local-post-create.sh",
+      ].join("\n"),
+      preRemove: [
+        "scripts/project-pre-remove.sh",
+        "__webmux_hook_exit_code=$?",
+        "if [ \"$__webmux_hook_exit_code\" -ne 0 ]; then",
+        "  exit \"$__webmux_hook_exit_code\"",
+        "fi",
+        "scripts/local-pre-remove.sh",
+      ].join("\n"),
+    });
+  });
 });

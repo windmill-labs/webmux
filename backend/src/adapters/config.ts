@@ -21,6 +21,11 @@ interface LoadConfigOptions {
   resolvedRoot?: boolean;
 }
 
+interface LocalProjectConfigOverlay {
+  profiles: Record<string, ProfileConfig>;
+  lifecycleHooks: LifecycleHooksConfig;
+}
+
 const DEFAULT_PANES: PaneTemplate[] = [
   { id: "agent", kind: "agent", focus: true },
   { id: "shell", kind: "shell", split: "right", sizePct: 25 },
@@ -52,6 +57,23 @@ const DEFAULT_CONFIG: ProjectConfig = {
 
 function clonePanes(panes: PaneTemplate[]): PaneTemplate[] {
   return panes.map((pane) => ({ ...pane }));
+}
+
+function cloneMounts(mounts: MountSpec[] | undefined): MountSpec[] | undefined {
+  return mounts?.map((mount) => ({ ...mount }));
+}
+
+function cloneProfile(profile: ProfileConfig): ProfileConfig {
+  return {
+    ...profile,
+    envPassthrough: [...profile.envPassthrough],
+    panes: clonePanes(profile.panes),
+    ...(profile.mounts ? { mounts: cloneMounts(profile.mounts) } : {}),
+  };
+}
+
+function defaultProfiles(): Record<string, ProfileConfig> {
+  return { default: cloneProfile(DEFAULT_CONFIG.profiles.default) };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -139,8 +161,8 @@ function parseProfile(raw: unknown, fallbackRuntime: "host" | "docker"): Profile
   };
 }
 
-function parseProfiles(raw: unknown): Record<string, ProfileConfig> {
-  if (!isRecord(raw)) return { default: { ...DEFAULT_CONFIG.profiles.default, panes: clonePanes(DEFAULT_CONFIG.profiles.default.panes) } };
+function parseProfiles(raw: unknown, includeDefaultProfile: boolean): Record<string, ProfileConfig> {
+  if (!isRecord(raw)) return includeDefaultProfile ? defaultProfiles() : {};
 
   const profiles = Object.entries(raw).reduce<Record<string, ProfileConfig>>((acc, [name, value]) => {
     const fallbackRuntime = name === "sandbox" ? "docker" : "host";
@@ -149,7 +171,7 @@ function parseProfiles(raw: unknown): Record<string, ProfileConfig> {
   }, {});
 
   if (Object.keys(profiles).length === 0) {
-    return { default: { ...DEFAULT_CONFIG.profiles.default, panes: clonePanes(DEFAULT_CONFIG.profiles.default.panes) } };
+    return includeDefaultProfile ? defaultProfiles() : {};
   }
 
   return profiles;
@@ -243,6 +265,96 @@ function readConfigFile(root: string): string {
   return readFileSync(join(root, ".webmux.yaml"), "utf8");
 }
 
+function readNamedConfigFile(root: string, filename: string): string {
+  return readFileSync(join(root, filename), "utf8");
+}
+
+function parseConfigDocument(text: string): Record<string, unknown> {
+  const parsed = parseYaml(text);
+  return isRecord(parsed) ? parsed : {};
+}
+
+function parseProjectConfig(parsed: Record<string, unknown>): ProjectConfig {
+  return {
+    name: typeof parsed.name === "string" && parsed.name.trim() ? parsed.name.trim() : DEFAULT_CONFIG.name,
+    workspace: {
+      mainBranch: isRecord(parsed.workspace) && typeof parsed.workspace.mainBranch === "string"
+        ? parsed.workspace.mainBranch
+        : DEFAULT_CONFIG.workspace.mainBranch,
+      worktreeRoot: isRecord(parsed.workspace) && typeof parsed.workspace.worktreeRoot === "string"
+        ? parsed.workspace.worktreeRoot
+        : DEFAULT_CONFIG.workspace.worktreeRoot,
+      defaultAgent: isRecord(parsed.workspace)
+        ? parseAgentKind(parsed.workspace.defaultAgent)
+        : DEFAULT_CONFIG.workspace.defaultAgent,
+    },
+    profiles: parseProfiles(parsed.profiles, true),
+    services: parseServices(parsed.services),
+    startupEnvs: parseStartupEnvs(parsed.startupEnvs),
+    integrations: {
+      github: {
+        linkedRepos: isRecord(parsed.integrations) && isRecord(parsed.integrations.github)
+          ? parseLinkedRepos(parsed.integrations.github.linkedRepos)
+          : isRecord(parsed.integrations) && Array.isArray(parsed.integrations.github)
+            ? parseLinkedRepos(parsed.integrations.github)
+            : [],
+      },
+      linear: {
+        enabled: isRecord(parsed.integrations) && isRecord(parsed.integrations.linear) && typeof parsed.integrations.linear.enabled === "boolean"
+          ? parsed.integrations.linear.enabled
+          : DEFAULT_CONFIG.integrations.linear.enabled,
+      },
+    },
+    lifecycleHooks: parseLifecycleHooks(parsed.lifecycleHooks),
+    autoName: parseAutoName(parsed.auto_name),
+  };
+}
+
+function loadLocalProjectConfigOverlay(root: string): LocalProjectConfigOverlay {
+  try {
+    const text = readNamedConfigFile(root, ".webmux.local.yaml").trim();
+    if (!text) {
+      return { profiles: {}, lifecycleHooks: {} };
+    }
+
+    const parsed = parseConfigDocument(text);
+    return {
+      profiles: parseProfiles(parsed.profiles, false),
+      lifecycleHooks: parseLifecycleHooks(parsed.lifecycleHooks),
+    };
+  } catch {
+    return { profiles: {}, lifecycleHooks: {} };
+  }
+}
+
+function mergeHookCommand(projectCommand: string | undefined, localCommand: string | undefined): string | undefined {
+  if (projectCommand && localCommand) {
+    return [
+      projectCommand,
+      "__webmux_hook_exit_code=$?",
+      "if [ \"$__webmux_hook_exit_code\" -ne 0 ]; then",
+      "  exit \"$__webmux_hook_exit_code\"",
+      "fi",
+      localCommand,
+    ].join("\n");
+  }
+
+  return localCommand ?? projectCommand;
+}
+
+function mergeLifecycleHooks(
+  projectHooks: LifecycleHooksConfig,
+  localHooks: LifecycleHooksConfig,
+): LifecycleHooksConfig {
+  const postCreate = mergeHookCommand(projectHooks.postCreate, localHooks.postCreate);
+  const preRemove = mergeHookCommand(projectHooks.preRemove, localHooks.preRemove);
+
+  return {
+    ...(postCreate ? { postCreate } : {}),
+    ...(preRemove ? { preRemove } : {}),
+  };
+}
+
 /** Resolve the git repository root from a directory. */
 export function gitRoot(dir: string): string {
   const result = Bun.spawnSync(["git", "rev-parse", "--show-toplevel"], { stdout: "pipe", stderr: "pipe", cwd: dir });
@@ -262,49 +374,26 @@ export function projectRoot(dir: string): string {
 
 /** Load `.webmux.yaml` from the shared project root into the final project config shape. */
 export function loadConfig(dir: string, options: LoadConfigOptions = {}): ProjectConfig {
+  const root = options.resolvedRoot ? dir : projectRoot(dir);
+
+  let projectConfig: ProjectConfig;
   try {
-    const root = options.resolvedRoot ? dir : projectRoot(dir);
     const text = readConfigFile(root).trim();
-    if (!text) return DEFAULT_CONFIG;
-
-    const parsed = parseYaml(text) as Record<string, unknown>;
-
-    return {
-      name: typeof parsed.name === "string" && parsed.name.trim() ? parsed.name.trim() : DEFAULT_CONFIG.name,
-      workspace: {
-        mainBranch: isRecord(parsed.workspace) && typeof parsed.workspace.mainBranch === "string"
-          ? parsed.workspace.mainBranch
-          : DEFAULT_CONFIG.workspace.mainBranch,
-        worktreeRoot: isRecord(parsed.workspace) && typeof parsed.workspace.worktreeRoot === "string"
-          ? parsed.workspace.worktreeRoot
-          : DEFAULT_CONFIG.workspace.worktreeRoot,
-        defaultAgent: isRecord(parsed.workspace)
-          ? parseAgentKind(parsed.workspace.defaultAgent)
-          : DEFAULT_CONFIG.workspace.defaultAgent,
-      },
-      profiles: parseProfiles(parsed.profiles),
-      services: parseServices(parsed.services),
-      startupEnvs: parseStartupEnvs(parsed.startupEnvs),
-      integrations: {
-        github: {
-          linkedRepos: isRecord(parsed.integrations) && isRecord(parsed.integrations.github)
-            ? parseLinkedRepos(parsed.integrations.github.linkedRepos)
-            : isRecord(parsed.integrations) && Array.isArray(parsed.integrations.github)
-              ? parseLinkedRepos(parsed.integrations.github)
-              : [],
-        },
-        linear: {
-          enabled: isRecord(parsed.integrations) && isRecord(parsed.integrations.linear) && typeof parsed.integrations.linear.enabled === "boolean"
-            ? parsed.integrations.linear.enabled
-            : DEFAULT_CONFIG.integrations.linear.enabled,
-        },
-      },
-      lifecycleHooks: parseLifecycleHooks(parsed.lifecycleHooks),
-      autoName: parseAutoName(parsed.auto_name),
-    };
+    projectConfig = text ? parseProjectConfig(parseConfigDocument(text)) : DEFAULT_CONFIG;
   } catch {
-    return DEFAULT_CONFIG;
+    projectConfig = DEFAULT_CONFIG;
   }
+
+  const localOverlay = loadLocalProjectConfigOverlay(root);
+
+  return {
+    ...projectConfig,
+    profiles: {
+      ...projectConfig.profiles,
+      ...localOverlay.profiles,
+    },
+    lifecycleHooks: mergeLifecycleHooks(projectConfig.lifecycleHooks, localOverlay.lifecycleHooks),
+  };
 }
 
 /** Expand ${VAR} placeholders in a template string using an env map. */

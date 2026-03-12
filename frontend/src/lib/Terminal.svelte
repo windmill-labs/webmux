@@ -26,6 +26,7 @@
   let lastTouchY = 0;
   let touchScrollLocked = false;
   let destroyed = false;
+  let canRetryVisibleClose = true;
 
   function copyToClipboard(text: string): void {
     if (navigator.clipboard?.writeText) {
@@ -135,10 +136,12 @@
   }
 
   function buildResizeMessage(): string {
-    const msg: Record<string, unknown> = { type: "resize", cols: term.cols, rows: term.rows };
-    if (isMobile && initialPane !== undefined) {
-      msg.initialPane = initialPane;
-    }
+    const msg = {
+      type: "resize" as const,
+      cols: term.cols,
+      rows: term.rows,
+      ...(isMobile && initialPane !== undefined ? { initialPane } : {}),
+    };
     return JSON.stringify(msg);
   }
 
@@ -170,8 +173,11 @@
       }
     };
 
+    nextWs.onerror = () => {};
+
     nextWs.onopen = () => {
       if (ws !== nextWs) return;
+      canRetryVisibleClose = true;
       fitAddon.fit();
       if (announceReconnect) {
         term.writeln(RECONNECTED_NOTICE);
@@ -188,6 +194,10 @@
       ws = null;
       if (destroyed) return;
       term.writeln(DISCONNECTED_NOTICE);
+      if (!document.hidden && canRetryVisibleClose) {
+        canRetryVisibleClose = false;
+        connect(true);
+      }
     };
   }
 

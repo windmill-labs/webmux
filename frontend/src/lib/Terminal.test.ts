@@ -113,7 +113,6 @@ describe("Terminal reconnect", () => {
   let documentHidden = false;
 
   beforeEach(() => {
-    vi.useFakeTimers();
     MockTerminal.instances = [];
     MockFitAddon.instances = [];
     MockWebSocket.instances = [];
@@ -133,12 +132,10 @@ describe("Terminal reconnect", () => {
 
   afterEach(() => {
     cleanup();
-    vi.clearAllTimers();
-    vi.useRealTimers();
     documentHidden = false;
   });
 
-  it("reconnects when the tab becomes visible after a socket close", () => {
+  it("reconnects immediately after a visible-tab socket close", () => {
     render(Terminal, { props: { worktree: "feature/reconnect" } });
 
     expect(MockWebSocket.instances).toHaveLength(1);
@@ -147,6 +144,38 @@ describe("Terminal reconnect", () => {
 
     expect(firstSocket.sent).toContain('{"type":"resize","cols":80,"rows":24}');
 
+    firstSocket.emitClose();
+
+    expect(MockWebSocket.instances).toHaveLength(2);
+    const secondSocket = MockWebSocket.instances[1]!;
+    secondSocket.emitOpen();
+
+    const terminal = MockTerminal.instances[0]!;
+    expect(terminal.writeln).toHaveBeenCalledWith("\r\n\x1b[90m[Disconnected]\x1b[0m");
+    expect(terminal.writeln).toHaveBeenCalledWith("\r\n\x1b[32m[Reconnected]\x1b[0m");
+  });
+
+  it("only retries once automatically for a visible-tab close", () => {
+    render(Terminal, { props: { worktree: "feature/retry-once" } });
+
+    const firstSocket = MockWebSocket.instances[0]!;
+    firstSocket.emitOpen();
+    firstSocket.emitClose();
+
+    expect(MockWebSocket.instances).toHaveLength(2);
+
+    const secondSocket = MockWebSocket.instances[1]!;
+    secondSocket.emitClose();
+
+    expect(MockWebSocket.instances).toHaveLength(2);
+  });
+
+  it("waits for the tab to become visible before reconnecting hidden closes", () => {
+    render(Terminal, { props: { worktree: "feature/visible" } });
+
+    const firstSocket = MockWebSocket.instances[0]!;
+    firstSocket.emitOpen();
+
     documentHidden = true;
     firstSocket.emitClose();
 
@@ -154,26 +183,6 @@ describe("Terminal reconnect", () => {
 
     documentHidden = false;
     document.dispatchEvent(new Event("visibilitychange"));
-
-    const terminal = MockTerminal.instances[0]!;
-    expect(MockWebSocket.instances).toHaveLength(2);
-    const secondSocket = MockWebSocket.instances[1]!;
-    secondSocket.emitOpen();
-    expect(terminal.writeln).toHaveBeenCalledWith("\r\n\x1b[90m[Disconnected]\x1b[0m");
-    expect(terminal.writeln).toHaveBeenCalledWith("\r\n\x1b[32m[Reconnected]\x1b[0m");
-  });
-
-  it("reconnects when the window regains focus", () => {
-    render(Terminal, { props: { worktree: "feature/visible" } });
-
-    const firstSocket = MockWebSocket.instances[0]!;
-    firstSocket.emitOpen();
-
-    firstSocket.emitClose();
-
-    expect(MockWebSocket.instances).toHaveLength(1);
-
-    window.dispatchEvent(new Event("focus"));
 
     expect(MockWebSocket.instances).toHaveLength(2);
   });

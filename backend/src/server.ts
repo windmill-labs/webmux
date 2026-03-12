@@ -568,6 +568,7 @@ Bun.serve({
   },
 
   websocket: {
+    // WebSocket-specific timeout; keepalive pings prevent idle tab disconnects.
     idleTimeout: 255,
     sendPings: true,
     // Type ws.data via the data property (Bun.serve<T> generic is deprecated)

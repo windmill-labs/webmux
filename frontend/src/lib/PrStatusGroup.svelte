@@ -2,7 +2,6 @@
   import type { PrEntry } from "./types";
   import {
     ciStatusDotClass,
-    ciStatusLabel,
     ciStatusTextClass,
     prLabel,
     prStateTextClass,

@@ -26,13 +26,6 @@ export function ciStatusDotClass(ciStatus: PrEntry["ciStatus"]): string {
   return "bg-muted";
 }
 
-export function ciStatusLabel(ciStatus: PrEntry["ciStatus"]): string {
-  if (ciStatus === "failed") return "Failing";
-  if (ciStatus === "success") return "Passing";
-  if (ciStatus === "pending") return "Running";
-  return "Checks";
-}
-
 export function prStatusShellClass(pr: Pick<PrEntry, "ciChecks" | "ciStatus" | "state">): string {
   if (pr.ciChecks.length > 0) {
     if (pr.ciStatus === "failed") return "border-danger/40 bg-danger/5";

@@ -87,8 +87,6 @@
 
   let hasMoreContent = $derived(
     mainPrs.length > 0 ||
-    (worktree?.services ?? []).length > 0 ||
-    cursorUrl !== null ||
     linkedRepoGroups.length > 0,
   );
 </script>
@@ -189,18 +187,13 @@
             <div class="flex flex-col gap-2 p-3">
               <RepoGroup
                 prs={mainPrs}
-                services={worktree.services}
-                {cursorUrl}
-                showSettings
                 {onciclick}
                 {onreviewsclick}
-                {onsettings}
               />
               {#each linkedRepoGroups as group (group.alias)}
                 <RepoGroup
                   label={group.alias}
                   prs={group.prs}
-                  cursorUrl={group.cursorUrl}
                   {onciclick}
                   {onreviewsclick}
                 />

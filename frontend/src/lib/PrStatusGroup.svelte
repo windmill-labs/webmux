@@ -22,7 +22,6 @@
   let label = $derived(prLabel(pr));
   let hasCi = $derived(pr.ciChecks.length > 0);
   let hasComments = $derived(pr.comments.length > 0);
-  let commentLabel = $derived(pr.comments.length === 1 ? "comment" : "comments");
 
   const segmentClass =
     "relative flex items-center gap-1.5 bg-transparent px-2.5 py-1.5 transition-colors cursor-pointer hover:bg-hover active:bg-active focus-visible:z-10 focus-visible:bg-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent";
@@ -69,8 +68,7 @@
       aria-label={`View CI checks for ${label}`}
     >
       <span class="inline-block h-1.5 w-1.5 rounded-full {ciStatusDotClass(pr.ciStatus)}"></span>
-      <span class="uppercase tracking-[0.08em] text-[9px] opacity-80">CI</span>
-      <span class="hidden md:inline">{ciStatusLabel(pr.ciStatus)}</span>
+      <span class="uppercase tracking-[0.08em] text-[9px]">CI</span>
     </button>
   {/if}
 
@@ -83,7 +81,7 @@
         onreviewsclick(pr);
       }}
       title="Review PR comments"
-      aria-label={`Review ${pr.comments.length} ${commentLabel} for ${label}`}
+      aria-label={`Review ${pr.comments.length} comments for ${label}`}
     >
       <svg
         xmlns="http://www.w3.org/2000/svg"
@@ -100,7 +98,6 @@
         <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
       </svg>
       <span>{pr.comments.length}</span>
-      <span class="hidden md:inline">{commentLabel}</span>
     </button>
   {/if}
 </div>

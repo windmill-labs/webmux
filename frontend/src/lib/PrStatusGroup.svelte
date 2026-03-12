@@ -22,6 +22,11 @@
   let label = $derived(prLabel(pr));
   let hasCi = $derived(pr.ciChecks.length > 0);
   let hasComments = $derived(pr.comments.length > 0);
+  let commentLabel = $derived(pr.comments.length === 1 ? "comment" : "comments");
+
+  const segmentClass =
+    "relative flex items-center gap-1.5 bg-transparent px-2.5 py-1.5 transition-colors cursor-pointer hover:bg-hover active:bg-active focus-visible:z-10 focus-visible:bg-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent";
+  const dividedSegmentClass = `${segmentClass} border-l border-edge`;
 </script>
 
 <div
@@ -31,36 +36,54 @@
     href={pr.url}
     target="_blank"
     rel="noopener"
-    class="flex min-w-0 items-center gap-1.5 px-2.5 py-1.5 no-underline transition-colors hover:bg-hover/80 {prStateTextClass(pr.state)}"
+    class="{segmentClass} min-w-0 no-underline {prStateTextClass(pr.state)}"
     title="Open PR"
   >
     <span class="truncate">{label}</span>
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="11"
+      height="11"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M7 17 17 7" />
+      <path d="M7 7h10v10" />
+    </svg>
   </a>
 
   {#if hasCi}
     <button
       type="button"
-      class="flex items-center gap-1.5 border-l border-edge/80 bg-transparent px-2 py-1.5 transition-colors hover:bg-hover/80 {ciStatusTextClass(pr.ciStatus)}"
+      class="{dividedSegmentClass} {ciStatusTextClass(pr.ciStatus)}"
       onclick={(e) => {
         e.stopPropagation();
         onciclick(pr);
       }}
       title="View CI checks"
+      aria-label={`View CI checks for ${label}`}
     >
       <span class="inline-block h-1.5 w-1.5 rounded-full {ciStatusDotClass(pr.ciStatus)}"></span>
-      <span>{ciStatusLabel(pr.ciStatus)}</span>
+      <span class="uppercase tracking-[0.08em] text-[9px] opacity-80">CI</span>
+      <span class="hidden md:inline">{ciStatusLabel(pr.ciStatus)}</span>
     </button>
   {/if}
 
   {#if hasComments}
     <button
       type="button"
-      class="flex items-center gap-1.5 border-l border-edge/80 bg-transparent px-2 py-1.5 text-accent transition-colors hover:bg-hover/80"
+      class="{dividedSegmentClass} text-accent"
       onclick={(e) => {
         e.stopPropagation();
         onreviewsclick(pr);
       }}
       title="Review PR comments"
+      aria-label={`Review ${pr.comments.length} ${commentLabel} for ${label}`}
     >
       <svg
         xmlns="http://www.w3.org/2000/svg"
@@ -77,6 +100,7 @@
         <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
       </svg>
       <span>{pr.comments.length}</span>
+      <span class="hidden md:inline">{commentLabel}</span>
     </button>
   {/if}
 </div>

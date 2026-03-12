@@ -568,6 +568,8 @@ Bun.serve({
   },
 
   websocket: {
+    idleTimeout: 255,
+    sendPings: true,
     // Type ws.data via the data property (Bun.serve<T> generic is deprecated)
     data: {} as WsData,
 
@@ -648,8 +650,10 @@ Bun.serve({
       }
     },
 
-    async close(ws) {
-      log.debug(`[ws] close branch=${ws.data.branch} attached=${ws.data.attached} worktreeId=${ws.data.worktreeId}`);
+    async close(ws, code, reason) {
+      log.debug(
+        `[ws] close branch=${ws.data.branch} code=${code} reason=${reason} attached=${ws.data.attached} worktreeId=${ws.data.worktreeId}`,
+      );
       if (ws.data.worktreeId) {
         clearCallbacks(ws.data.worktreeId);
         await detach(ws.data.worktreeId);

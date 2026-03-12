@@ -11,18 +11,28 @@
     initialPane?: number;
   } = $props();
 
+  const DISCONNECTED_NOTICE = "\r\n\x1b[90m[Disconnected]\x1b[0m";
+  const RECONNECTED_NOTICE = "\r\n\x1b[32m[Reconnected]\x1b[0m";
+  const RECONNECT_BASE_DELAY_MS = 1_000;
+  const RECONNECT_MAX_DELAY_MS = 8_000;
+  const MAX_RECONNECT_ATTEMPTS = 5;
+
   let containerEl: HTMLDivElement;
   let term: Terminal;
   let fitAddon: FitAddon;
-  let ws: WebSocket;
+  let ws: WebSocket | null = null;
   let resizeObs: ResizeObserver;
   let resizeTimer: ReturnType<typeof setTimeout>;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let xtermEl: HTMLElement | null = null;
   let viewportEl: HTMLElement | null = null;
   let manualTouchCleanup: (() => void) | null = null;
   let lastTouchX = 0;
   let lastTouchY = 0;
   let touchScrollLocked = false;
+  let reconnectAttempts = 0;
+  let destroyed = false;
+  let shouldAnnounceReconnect = false;
 
   function copyToClipboard(text: string): void {
     if (navigator.clipboard?.writeText) {
@@ -131,6 +141,104 @@
     };
   }
 
+  function clearReconnectTimer(): void {
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+  }
+
+  function buildResizeMessage(): string {
+    const msg: Record<string, unknown> = { type: "resize", cols: term.cols, rows: term.rows };
+    if (isMobile && initialPane !== undefined) {
+      msg.initialPane = initialPane;
+    }
+    return JSON.stringify(msg);
+  }
+
+  function connect(): void {
+    clearReconnectTimer();
+    if (destroyed) return;
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+
+    const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+    const nextWs = new WebSocket(`${protocol}//${location.host}/ws/${encodeURIComponent(worktree)}`);
+    ws = nextWs;
+
+    nextWs.onmessage = (event) => {
+      const raw = event.data as string;
+      const prefix = raw[0];
+      if (prefix === "o" || prefix === "s") {
+        term.write(raw.slice(1));
+        return;
+      }
+      try {
+        const msg = JSON.parse(raw);
+        switch (msg.type) {
+          case "exit":
+            term.writeln(`\r\n\x1b[33m[Process exited with code ${msg.exitCode}]\x1b[0m`);
+            break;
+          case "error":
+            term.writeln(`\r\n\x1b[31m[Error: ${msg.message}]\x1b[0m`);
+            break;
+        }
+      } catch {
+        // Ignore malformed messages
+      }
+    };
+
+    nextWs.onopen = () => {
+      if (ws !== nextWs) return;
+      reconnectAttempts = 0;
+      fitAddon.fit();
+      if (shouldAnnounceReconnect) {
+        term.writeln(RECONNECTED_NOTICE);
+        shouldAnnounceReconnect = false;
+      }
+      requestAnimationFrame(() => {
+        fitAddon.fit();
+        term.focus();
+      });
+      nextWs.send(buildResizeMessage());
+    };
+
+    nextWs.onclose = () => {
+      if (ws !== nextWs) return;
+      ws = null;
+      if (destroyed) return;
+
+      if (!shouldAnnounceReconnect) {
+        term.writeln(DISCONNECTED_NOTICE);
+      }
+      shouldAnnounceReconnect = true;
+      scheduleReconnect();
+    };
+  }
+
+  function scheduleReconnect(immediate = false): void {
+    clearReconnectTimer();
+    if (destroyed || document.hidden || reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+      return;
+    }
+
+    const delay = immediate
+      ? 0
+      : Math.min(RECONNECT_BASE_DELAY_MS * 2 ** reconnectAttempts, RECONNECT_MAX_DELAY_MS);
+    reconnectAttempts += 1;
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      connect();
+    }, delay);
+  }
+
+  function reconnectIfNeeded(): void {
+    if (document.hidden || ws?.readyState === WebSocket.OPEN || ws?.readyState === WebSocket.CONNECTING) {
+      return;
+    }
+    reconnectAttempts = 0;
+    scheduleReconnect(true);
+  }
+
   onMount(() => {
     term = new Terminal({
       cursorBlink: true,
@@ -182,7 +290,7 @@
       // Block all event types (keydown, keypress, keyup) to prevent xterm
       // from also emitting \r on the keypress phase.
       if (e.key === "Enter" && e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
-        if (e.type === "keydown" && ws.readyState === WebSocket.OPEN) {
+        if (e.type === "keydown" && ws?.readyState === WebSocket.OPEN) {
           // CSI u for Shift+Enter: \x1b[13;2u = hex 1b 5b 31 33 3b 32 75
           // Use sendKeys (tmux send-keys -H) to bypass tmux's input parser
           ws.send(JSON.stringify({ type: "sendKeys", hexBytes: ["1b", "5b", "31", "33", "3b", "32", "75"] }));
@@ -213,48 +321,10 @@
       term.focus();
     });
 
-    const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-    ws = new WebSocket(`${protocol}//${location.host}/ws/${encodeURIComponent(worktree)}`);
-
-    ws.onmessage = (event) => {
-      const raw = event.data as string;
-      // Hot-path: prefix-based protocol for output ("o") and scrollback ("s")
-      const prefix = raw[0];
-      if (prefix === "o" || prefix === "s") {
-        term.write(raw.slice(1));
-        return;
-      }
-      // Infrequent control messages use JSON
-      try {
-        const msg = JSON.parse(raw);
-        switch (msg.type) {
-          case "exit":
-            term.writeln(`\r\n\x1b[33m[Process exited with code ${msg.exitCode}]\x1b[0m`);
-            break;
-          case "error":
-            term.writeln(`\r\n\x1b[31m[Error: ${msg.message}]\x1b[0m`);
-            break;
-        }
-      } catch {
-        // Ignore malformed messages
-      }
-    };
-
-    ws.onopen = () => {
-      fitAddon.fit();
-      const msg: Record<string, unknown> = { type: "resize", cols: term.cols, rows: term.rows };
-      if (isMobile && initialPane !== undefined) {
-        msg.initialPane = initialPane;
-      }
-      ws.send(JSON.stringify(msg));
-    };
-
-    ws.onclose = () => {
-      term.writeln("\r\n\x1b[90m[Disconnected]\x1b[0m");
-    };
+    connect();
 
     term.onData((data) => {
-      if (ws.readyState === WebSocket.OPEN) {
+      if (ws?.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: "input", data }));
       }
     });
@@ -263,18 +333,27 @@
       clearTimeout(resizeTimer);
       resizeTimer = setTimeout(() => {
         fitAddon.fit();
-        if (ws.readyState === WebSocket.OPEN) {
+        if (ws?.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
         }
       }, 150);
     });
     resizeObs.observe(containerEl);
+
+    document.addEventListener("visibilitychange", reconnectIfNeeded);
+    window.addEventListener("focus", reconnectIfNeeded);
+    window.addEventListener("online", reconnectIfNeeded);
   });
 
   onDestroy(() => {
+    destroyed = true;
     clearTimeout(resizeTimer);
+    clearReconnectTimer();
     manualTouchCleanup?.();
     resizeObs?.disconnect();
+    document.removeEventListener("visibilitychange", reconnectIfNeeded);
+    window.removeEventListener("focus", reconnectIfNeeded);
+    window.removeEventListener("online", reconnectIfNeeded);
     ws?.close();
     term?.dispose();
   });

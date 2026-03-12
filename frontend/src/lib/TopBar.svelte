@@ -42,6 +42,7 @@
   } = $props();
 
   let bellOpen = $state(false);
+  let moreOpen = $state(false);
 
   function toggleBell(): void {
     bellOpen = !bellOpen;
@@ -52,6 +53,9 @@
     const target = e.target as HTMLElement;
     if (!target.closest(".bell-container")) {
       bellOpen = false;
+    }
+    if (!target.closest(".more-container")) {
+      moreOpen = false;
     }
   }
 
@@ -79,6 +83,13 @@
         prs: (worktree?.prs ?? []).filter((pr) => pr.repo === lr.alias),
       }))
       .filter((g) => g.prs.length > 0 || g.cursorUrl),
+  );
+
+  let hasMoreContent = $derived(
+    mainPrs.length > 0 ||
+    (worktree?.services ?? []).length > 0 ||
+    cursorUrl !== null ||
+    linkedRepoGroups.length > 0,
   );
 </script>
 
@@ -157,6 +168,49 @@
       >
     {/if}
 
+    {#if isMobile && worktree && hasMoreContent}
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class="more-container relative" onkeydown={() => {}}>
+        <button
+          type="button"
+          class="p-1.5 rounded-md cursor-pointer bg-transparent border border-transparent text-muted hover:text-primary hover:border-edge"
+          title="More info"
+          onclick={() => { moreOpen = !moreOpen; }}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="5" r="1" />
+            <circle cx="12" cy="12" r="1" />
+            <circle cx="12" cy="19" r="1" />
+          </svg>
+        </button>
+
+        {#if moreOpen}
+          <div class="more-dropdown">
+            <div class="flex flex-col gap-2 p-3">
+              <RepoGroup
+                prs={mainPrs}
+                services={worktree.services}
+                {cursorUrl}
+                showSettings
+                {onciclick}
+                {onreviewsclick}
+                {onsettings}
+              />
+              {#each linkedRepoGroups as group (group.alias)}
+                <RepoGroup
+                  label={group.alias}
+                  prs={group.prs}
+                  cursorUrl={group.cursorUrl}
+                  {onciclick}
+                  {onreviewsclick}
+                />
+              {/each}
+            </div>
+          </div>
+        {/if}
+      </div>
+    {/if}
+
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div class="bell-container relative ml-3" onkeydown={() => {}}>
       <button
@@ -206,6 +260,20 @@
 <svelte:window onclick={handleClickOutside} />
 
 <style>
+  .more-dropdown {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 0.25rem;
+    width: max-content;
+    max-width: 80vw;
+    border-radius: 0.5rem;
+    border: 1px solid var(--color-edge);
+    background: var(--color-topbar);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    z-index: 50;
+  }
+
   .bell-dropdown {
     position: absolute;
     top: 100%;

@@ -140,6 +140,31 @@ describe("runWorktreeCommand", () => {
     expect(switchCalls).toEqual([{ projectDir: "/repo", branch: "feature/search" }]);
   });
 
+  it("dispatches open through the lifecycle service and switches to tmux", async () => {
+    const { runtime, calls } = makeRuntime();
+    const stdout: string[] = [];
+    const switchCalls: Array<{ projectDir: string; branch: string }> = [];
+
+    const exitCode = await runWorktreeCommand(
+      {
+        command: "open",
+        args: ["feature/search"],
+        projectDir: "/repo",
+        port: 5111,
+      },
+      {
+        createRuntime: () => runtime,
+        stdout: (message) => stdout.push(message),
+        switchToTmuxWindow: (projectDir, branch) => switchCalls.push({ projectDir, branch }),
+      },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(calls).toEqual([{ method: "openWorktree", value: "feature/search" }]);
+    expect(stdout).toEqual(["Opened worktree feature/search"]);
+    expect(switchCalls).toEqual([{ projectDir: "/repo", branch: "feature/search" }]);
+  });
+
   it("prints subcommand help without creating a runtime", async () => {
     let createRuntimeCalled = false;
     const stdout: string[] = [];

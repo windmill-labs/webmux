@@ -405,6 +405,7 @@ export async function runWorktreeCommand(
       case "open":
         await runtime.lifecycleService.openWorktree(branch);
         stdout(`Opened worktree ${branch}`);
+        switchToTmuxWindow(runtime.projectDir, branch);
         return 0;
       case "close":
         await runtime.lifecycleService.closeWorktree(branch);

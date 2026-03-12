@@ -67,7 +67,13 @@
     return `cursor://file${dir}`;
   }
 
+  function truncateWorktreeName(value: string | null, maxLength: number): string | null {
+    if (!value || value.length <= maxLength) return value;
+    return `${value.slice(0, maxLength - 3)}...`;
+  }
+
   let cursorUrl = $derived(makeCursorUrl(worktree?.dir));
+  let displayName = $derived(truncateWorktreeName(name, 40));
 
   // Split PRs into main repo vs linked repo groups
   let mainPrs = $derived(
@@ -110,7 +116,7 @@
           </svg>
         </button>
       {/if}
-      <span class="text-sm font-semibold truncate">{name ?? "Select a worktree"}</span>
+      <span class="text-sm font-semibold truncate" title={name ?? undefined}>{displayName ?? "Select a worktree"}</span>
       {#if worktree?.dirty}
         <span class="shrink-0 text-[10px] px-1.5 py-0.5 rounded border border-warning/40 text-warning">dirty</span>
       {/if}

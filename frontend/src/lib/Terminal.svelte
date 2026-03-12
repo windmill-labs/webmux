@@ -85,10 +85,11 @@
     if (deltaY === 0) return;
 
     const canScrollViewport = viewportEl.scrollHeight > viewportEl.clientHeight;
+    if (!canScrollViewport) return;
+
     viewportEl.scrollTop += deltaY;
-    if (canScrollViewport) {
-      event.preventDefault();
-    }
+    // Keep the swipe owned by the terminal so the app shell never steals it at the top/bottom edge.
+    event.preventDefault();
   }
 
   function attachManualTouchScroll(): void {

@@ -21,7 +21,9 @@
     PrEntry,
     LinearIssue,
   } from "./lib/types";
-  import { SSH_STORAGE_KEY, errorMessage, worktreeCreationPhaseLabel } from "./lib/utils";
+  import { SSH_STORAGE_KEY, errorMessage, worktreeCreationPhaseLabel, loadSavedTheme, applyTheme } from "./lib/utils";
+  import { getTheme } from "./lib/themes";
+  import type { ThemeKey } from "./lib/themes";
   import * as api from "./lib/api";
 
   let config = $state<AppConfig>({
@@ -45,6 +47,8 @@
   let nextCreateRequestId = 0;
   let nextBranchFetchId = 0;
   let sshHost = $state(localStorage.getItem(SSH_STORAGE_KEY) ?? "");
+  let currentTheme = $state<ThemeKey>(loadSavedTheme());
+  let terminalTheme = $derived(getTheme(currentTheme).terminal);
   let applyPollInterval: ((intervalMs: number) => void) | null = null;
   let pendingCreateBranchHint = $state<string | null>(null);
   let availableBranches = $state<AvailableBranch[]>([]);
@@ -383,6 +387,7 @@
   }
 
   onMount(() => {
+    applyTheme(currentTheme);
     api
       .fetchConfig()
       .then((c) => {
@@ -596,6 +601,7 @@
           worktree={selectedBranch!}
           {isMobile}
           initialPane={isMobile ? activePane : undefined}
+          {terminalTheme}
           bind:this={terminalRef}
         />
       {/key}
@@ -655,6 +661,8 @@
 
 {#if showSettingsDialog}
   <SettingsDialog
+    {currentTheme}
+    onthemechange={(key) => (currentTheme = key)}
     onsave={(host) => {
       sshHost = host;
       showSettingsDialog = false;

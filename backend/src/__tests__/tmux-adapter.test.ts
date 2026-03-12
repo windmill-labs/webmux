@@ -9,6 +9,8 @@ import {
   sanitizeTmuxNameSegment,
 } from "../adapters/tmux";
 
+const isolatedTmuxScriptPath = new URL("../../../scripts/run-with-isolated-tmux.sh", import.meta.url).pathname;
+
 function buildEnv(overrides: Record<string, string>): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {
@@ -38,10 +40,19 @@ function read(args: string[], env?: Record<string, string>): string {
   return new TextDecoder().decode(result.stdout).trim();
 }
 
+function readWithIsolatedTmux(args: string[], env?: Record<string, string>): string {
+  return read(["bash", isolatedTmuxScriptPath, ...args], env);
+}
+
 interface LayoutResult {
   globalPaneBaseIndex: string;
   relatedPaneIndexes: string[];
   unrelatedPaneIndexes: string[];
+}
+
+interface ManagedSessionResult {
+  sessions: string[];
+  destroyUnattached: string;
 }
 
 function parseLayoutResult(output: string): LayoutResult {
@@ -74,6 +85,33 @@ function parseLayoutResult(output: string): LayoutResult {
     globalPaneBaseIndex,
     relatedPaneIndexes,
     unrelatedPaneIndexes,
+  };
+}
+
+function parseManagedSessionResult(output: string): ManagedSessionResult {
+  const value: unknown = JSON.parse(output);
+  if (!value || typeof value !== "object") {
+    throw new Error("managed session result must be an object");
+  }
+
+  const {
+    sessions,
+    destroyUnattached,
+  } = value as {
+    sessions?: unknown;
+    destroyUnattached?: unknown;
+  };
+
+  if (!Array.isArray(sessions) || !sessions.every((entry) => typeof entry === "string")) {
+    throw new Error("managed session result sessions must be a string array");
+  }
+  if (typeof destroyUnattached !== "string") {
+    throw new Error("managed session result destroyUnattached must be a string");
+  }
+
+  return {
+    sessions,
+    destroyUnattached,
   };
 }
 
@@ -213,6 +251,85 @@ describe("ensureSessionLayout", () => {
       try {
         run(["tmux", "kill-server"], env);
       } catch {}
+      await rm(testRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("BunTmuxGateway", () => {
+  it("keeps managed sessions alive when the user tmux config enables destroy-unattached", async () => {
+    const testRoot = await mkdtemp(join(tmpdir(), "webmux-tmux-destroy-unattached-"));
+    const projectRoot = join(testRoot, "repo");
+    const configPath = join(testRoot, "tmux.conf");
+    const runnerPath = join(testRoot, "ensure-session.ts");
+    const tmuxModuleUrl = new URL("../adapters/tmux.ts", import.meta.url).href;
+    await mkdir(projectRoot, { recursive: true });
+    await Bun.write(configPath, "set-option -g destroy-unattached on\n");
+    await Bun.write(
+      runnerPath,
+      [
+        `import { BunTmuxGateway } from ${JSON.stringify(tmuxModuleUrl)};`,
+        "",
+        "function read(args: string[]): string {",
+        '  const result = Bun.spawnSync(args, { stdout: "pipe", stderr: "pipe" });',
+        "  if (result.exitCode !== 0) {",
+        "    const stderr = new TextDecoder().decode(result.stderr).trim();",
+        '    throw new Error(`${args.join(" ")} failed: ${stderr || `exit ${result.exitCode}`}`);',
+        "  }",
+        '  return new TextDecoder().decode(result.stdout).trim();',
+        "}",
+        "",
+        "const projectRoot = process.argv[2];",
+        'if (!projectRoot) throw new Error("expected projectRoot");',
+        'const sessionName = "wm-managed";',
+        "const gateway = new BunTmuxGateway();",
+        "gateway.ensureServer();",
+        "gateway.ensureSession(sessionName, projectRoot);",
+        "console.log(JSON.stringify({",
+        '  sessions: read(["tmux", "list-sessions", "-F", "#{session_name}"]).split("\\n").filter(Boolean),',
+        '  destroyUnattached: read(["tmux", "show-options", "-t", sessionName, "-v", "destroy-unattached"]),',
+        "}));",
+      ].join("\n"),
+    );
+
+    try {
+      const result = parseManagedSessionResult(readWithIsolatedTmux(
+        ["bun", runnerPath, projectRoot],
+        buildEnv({ WEBMUX_ISOLATED_TMUX_CONFIG: configPath }),
+      ));
+      expect(result.sessions).toEqual(["wm-managed"]);
+      expect(result.destroyUnattached).toBe("off");
+    } finally {
+      await rm(testRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("treats missing windows, sessions, and servers as already closed", async () => {
+    const testRoot = await mkdtemp(join(tmpdir(), "webmux-tmux-kill-window-"));
+    const projectRoot = join(testRoot, "repo");
+    const runnerPath = join(testRoot, "kill-window.ts");
+    const tmuxModuleUrl = new URL("../adapters/tmux.ts", import.meta.url).href;
+    await mkdir(projectRoot, { recursive: true });
+    await Bun.write(
+      runnerPath,
+      [
+        `import { BunTmuxGateway } from ${JSON.stringify(tmuxModuleUrl)};`,
+        "",
+        "const projectRoot = process.argv[2];",
+        'if (!projectRoot) throw new Error("expected projectRoot");',
+        "const gateway = new BunTmuxGateway();",
+        'gateway.killWindow("wm-missing-server", "wm-testing");',
+        'gateway.ensureSession("wm-existing", projectRoot);',
+        'gateway.killWindow("wm-existing", "wm-missing-window");',
+        'gateway.killWindow("wm-missing-session", "wm-testing");',
+        'console.log("ok");',
+      ].join("\n"),
+    );
+
+    try {
+      const result = readWithIsolatedTmux(["bun", runnerPath, projectRoot]);
+      expect(result).toBe("ok");
+    } finally {
       await rm(testRoot, { recursive: true, force: true });
     }
   });

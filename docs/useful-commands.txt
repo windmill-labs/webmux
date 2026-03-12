@@ -23,6 +23,8 @@ tmux list-panes -a -F "#{session_name}:#{window_name}.#{pane_index} #{pane_pid} 
 tmux display-message -p "#{session_name}"                                                   # print the name of the current session
 tmux show-environment                                                                       # show environment variables set in tmux
 tmux show-options -g                                                                        # show all global tmux options
+bash scripts/run-with-isolated-tmux.sh bun test backend/src/__tests__/tmux-adapter.test.ts -t BunTmuxGateway  # run isolated tmux adapter regressions
+cfg=$(mktemp) && printf 'set-option -g destroy-unattached on\n' > "$cfg" && WEBMUX_ISOLATED_TMUX_CONFIG="$cfg" bash scripts/run-with-isolated-tmux.sh bun test backend/src/__tests__/tmux-adapter.test.ts -t BunTmuxGateway; rm -f "$cfg"  # reproduce hostile tmux config safely
 
 # Docker (workmux containers use the wm-* prefix)
 

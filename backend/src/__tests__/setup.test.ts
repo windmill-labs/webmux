@@ -140,4 +140,163 @@ describe("loadConfig", () => {
 
     expect(getDefaultProfileName(config)).toBe("slim");
   });
+
+  it("adds local profiles and appends local lifecycle hooks after project hooks", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "webmux-config-"));
+    tempDirs.push(dir);
+    Bun.spawnSync(["git", "init"], { cwd: dir });
+
+    await Bun.write(
+      join(dir, ".webmux.yaml"),
+      [
+        "profiles:",
+        "  default:",
+        "    runtime: host",
+        "    envPassthrough: []",
+        "    panes:",
+        "      - id: agent",
+        "        kind: agent",
+        "        focus: true",
+        "  shared:",
+        "    runtime: host",
+        "    envPassthrough: [GITHUB_TOKEN]",
+        "    panes:",
+        "      - id: agent",
+        "        kind: agent",
+        "        focus: true",
+        "lifecycleHooks:",
+        "  postCreate: scripts/project-post-create.sh",
+        "  preRemove: scripts/project-pre-remove.sh",
+        "",
+      ].join("\n"),
+    );
+
+    await Bun.write(
+      join(dir, ".webmux.local.yaml"),
+      [
+        "profiles:",
+        "  shared:",
+        "    runtime: docker",
+        "    image: local-sandbox",
+        "    envPassthrough: [AWS_ACCESS_KEY_ID]",
+        "    panes:",
+        "      - id: agent",
+        "        kind: agent",
+        "        focus: true",
+        "  local:",
+        "    runtime: host",
+        "    envPassthrough: []",
+        "    panes:",
+        "      - id: local-agent",
+        "        kind: agent",
+        "        focus: true",
+        "lifecycleHooks:",
+        "  postCreate: scripts/local-post-create.sh",
+        "  preRemove: scripts/local-pre-remove.sh",
+        "",
+      ].join("\n"),
+    );
+
+    const config = loadConfig(dir);
+
+    expect(Object.keys(config.profiles).sort()).toEqual(["default", "local", "shared"]);
+    expect(config.profiles.default.runtime).toBe("host");
+    expect(config.profiles.shared.runtime).toBe("docker");
+    expect(config.profiles.shared.image).toBe("local-sandbox");
+    expect(config.profiles.shared.envPassthrough).toEqual(["AWS_ACCESS_KEY_ID"]);
+    expect(config.profiles.local.panes).toEqual([{ id: "local-agent", kind: "agent", focus: true }]);
+    expect(config.lifecycleHooks).toEqual({
+      postCreate: [
+        "set -e",
+        "scripts/project-post-create.sh",
+        "scripts/local-post-create.sh",
+      ].join("\n"),
+      preRemove: [
+        "set -e",
+        "scripts/project-pre-remove.sh",
+        "scripts/local-pre-remove.sh",
+      ].join("\n"),
+    });
+  });
+
+  it("loads local profiles without a project config", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "webmux-config-"));
+    tempDirs.push(dir);
+    Bun.spawnSync(["git", "init"], { cwd: dir });
+
+    await Bun.write(
+      join(dir, ".webmux.local.yaml"),
+      [
+        "profiles:",
+        "  local:",
+        "    runtime: docker",
+        "    image: local-image",
+        "    envPassthrough: [OPENAI_API_KEY]",
+        "    panes:",
+        "      - id: local-agent",
+        "        kind: agent",
+        "        focus: true",
+        "",
+      ].join("\n"),
+    );
+
+    const config = loadConfig(dir);
+
+    expect(config.name).toBe("Webmux");
+    expect(Object.keys(config.profiles).sort()).toEqual(["default", "local"]);
+    expect(config.profiles.local.runtime).toBe("docker");
+    expect(config.profiles.local.image).toBe("local-image");
+    expect(config.profiles.local.envPassthrough).toEqual(["OPENAI_API_KEY"]);
+    expect(config.lifecycleHooks).toEqual({});
+
+    config.profiles.default.envPassthrough.push("MUTATED");
+    expect(loadConfig(dir).profiles.default.envPassthrough).toEqual([]);
+  });
+
+  it("merges hook-only local overlays and fails fast before running the local hook", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "webmux-config-"));
+    tempDirs.push(dir);
+    Bun.spawnSync(["git", "init"], { cwd: dir });
+
+    await Bun.write(
+      join(dir, ".webmux.yaml"),
+      [
+        "lifecycleHooks:",
+        "  postCreate: |",
+        "    printf 'project-start\\n' >> trace.log",
+        "    false",
+        "    printf 'project-after-fail\\n' >> trace.log",
+        "",
+      ].join("\n"),
+    );
+
+    await Bun.write(
+      join(dir, ".webmux.local.yaml"),
+      [
+        "lifecycleHooks:",
+        "  postCreate: |",
+        "    printf 'local-ran\\n' >> trace.log",
+        "",
+      ].join("\n"),
+    );
+
+    const config = loadConfig(dir);
+    const command = config.lifecycleHooks.postCreate;
+
+    expect(Object.keys(config.profiles)).toEqual(["default"]);
+    expect(command).toBe([
+      "set -e",
+      "printf 'project-start\\n' >> trace.log\nfalse\nprintf 'project-after-fail\\n' >> trace.log",
+      "printf 'local-ran\\n' >> trace.log",
+    ].join("\n"));
+
+    const result = Bun.spawnSync(["bash", "-c", command ?? ""], {
+      cwd: dir,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(await Bun.file(join(dir, "trace.log")).text()).toBe("project-start\n");
+  });
 });

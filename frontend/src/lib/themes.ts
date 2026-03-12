@@ -1,5 +1,7 @@
-import type { ThemeKey } from "./types";
 import type { ITheme } from "@xterm/xterm";
+
+export const THEME_KEYS = ["github-dark", "dracula", "nord", "solarized-dark", "one-dark"] as const;
+export type ThemeKey = (typeof THEME_KEYS)[number];
 
 export interface ThemeDefinition {
   key: ThemeKey;

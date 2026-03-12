@@ -14,7 +14,6 @@
   import LinearDetailDialog from "./lib/LinearDetailDialog.svelte";
   import type {
     AvailableBranch,
-    ThemeKey,
     WorktreeCreateMode,
     WorktreeInfo,
     AppConfig,
@@ -24,6 +23,7 @@
   } from "./lib/types";
   import { SSH_STORAGE_KEY, errorMessage, worktreeCreationPhaseLabel, loadSavedTheme, applyTheme } from "./lib/utils";
   import { getTheme } from "./lib/themes";
+  import type { ThemeKey } from "./lib/themes";
   import * as api from "./lib/api";
 
   let config = $state<AppConfig>({

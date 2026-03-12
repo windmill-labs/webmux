@@ -10,7 +10,7 @@
     worktree: string;
     isMobile?: boolean;
     initialPane?: number;
-    terminalTheme?: ITheme;
+    terminalTheme: ITheme;
   } = $props();
 
   let containerEl: HTMLDivElement;
@@ -136,12 +136,7 @@
   onMount(() => {
     term = new Terminal({
       cursorBlink: true,
-      theme: terminalTheme ?? {
-        background: "#0d1117",
-        foreground: "#e6edf3",
-        cursor: "#58a6ff",
-        selectionBackground: "#264f78",
-      },
+      theme: terminalTheme,
       fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', Menlo, monospace",
       fontSize: isMobile ? 13 : 11,
       scrollback: 10000,

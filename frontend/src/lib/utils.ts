@@ -1,5 +1,6 @@
-import type { PrEntry, ThemeKey, WorktreeCreationPhase } from "./types";
-import { getTheme } from "./themes";
+import type { PrEntry, WorktreeCreationPhase } from "./types";
+import { THEME_KEYS, getTheme } from "./themes";
+import type { ThemeKey } from "./themes";
 
 export const SSH_STORAGE_KEY = "wt-ssh-host";
 export const THEME_STORAGE_KEY = "wt-theme";
@@ -17,7 +18,9 @@ export function searchMatch(needle: string, haystack: string): boolean {
 }
 
 export function loadSavedTheme(): ThemeKey {
-  return (localStorage.getItem(THEME_STORAGE_KEY) as ThemeKey | null) ?? "github-dark";
+  const stored = localStorage.getItem(THEME_STORAGE_KEY);
+  if (stored && (THEME_KEYS as readonly string[]).includes(stored)) return stored as ThemeKey;
+  return "github-dark";
 }
 
 export function applyTheme(key: ThemeKey): void {

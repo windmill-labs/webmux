@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { ThemeKey } from "./types";
+  import type { ThemeKey } from "./themes";
   import { SSH_STORAGE_KEY, applyTheme } from "./utils";
   import { THEMES } from "./themes";
   import BaseDialog from "./BaseDialog.svelte";

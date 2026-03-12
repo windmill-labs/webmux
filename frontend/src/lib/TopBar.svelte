@@ -18,8 +18,8 @@
     onmerge,
     onremove,
     onsettings,
-    onciclick,
-    onreviewsclick,
+    onCiClick,
+    onReviewsClick,
     onbellopen,
     onnotificationselect,
   }: {
@@ -35,8 +35,8 @@
     onmerge: () => void;
     onremove: () => void;
     onsettings: () => void;
-    onciclick: (pr: PrEntry) => void;
-    onreviewsclick: (pr: PrEntry) => void;
+    onCiClick: (pr: PrEntry) => void;
+    onReviewsClick: (pr: PrEntry) => void;
     onbellopen?: () => void;
     onnotificationselect?: (branch: string) => void;
   } = $props();
@@ -123,8 +123,8 @@
           services={worktree?.services ?? []}
           {cursorUrl}
           showSettings
-          {onciclick}
-          {onreviewsclick}
+          {onCiClick}
+          {onReviewsClick}
           {onsettings}
         />
       {/if}
@@ -137,8 +137,8 @@
           label={group.alias}
           prs={group.prs}
           cursorUrl={group.cursorUrl}
-          {onciclick}
-          {onreviewsclick}
+          {onCiClick}
+          {onReviewsClick}
         />
       {/each}
     {/if}
@@ -187,15 +187,15 @@
             <div class="flex flex-col gap-2 p-3">
               <RepoGroup
                 prs={mainPrs}
-                {onciclick}
-                {onreviewsclick}
+                {onCiClick}
+                {onReviewsClick}
               />
               {#each linkedRepoGroups as group (group.alias)}
                 <RepoGroup
                   label={group.alias}
                   prs={group.prs}
-                  {onciclick}
-                  {onreviewsclick}
+                  {onCiClick}
+                  {onReviewsClick}
                 />
               {/each}
             </div>

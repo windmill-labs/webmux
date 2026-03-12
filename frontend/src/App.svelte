@@ -580,8 +580,8 @@
         if (selectedBranch) removeBranch = selectedBranch;
       }}
       onsettings={() => (showSettingsDialog = true)}
-      onciclick={(pr) => (ciDetailsPr = pr)}
-      onreviewsclick={(pr) => (commentReviewPr = pr)}
+      onCiClick={(pr) => (ciDetailsPr = pr)}
+      onReviewsClick={(pr) => (commentReviewPr = pr)}
       onbellopen={handleBellOpen}
       onnotificationselect={(branch) => {
         selectedBranch = branch;

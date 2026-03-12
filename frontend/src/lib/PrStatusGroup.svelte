@@ -10,12 +10,12 @@
 
   let {
     pr,
-    onciclick,
-    onreviewsclick,
+    onCiClick,
+    onReviewsClick,
   }: {
     pr: PrEntry;
-    onciclick: (pr: PrEntry) => void;
-    onreviewsclick: (pr: PrEntry) => void;
+    onCiClick: (pr: PrEntry) => void;
+    onReviewsClick: (pr: PrEntry) => void;
   } = $props();
 
   let label = $derived(prLabel(pr));
@@ -61,7 +61,7 @@
       class="{dividedSegmentClass} {ciStatusTextClass(pr.ciStatus)}"
       onclick={(e) => {
         e.stopPropagation();
-        onciclick(pr);
+        onCiClick(pr);
       }}
       title="View CI checks"
       aria-label={`View CI checks for ${label}`}
@@ -77,7 +77,7 @@
       class="{dividedSegmentClass} text-accent"
       onclick={(e) => {
         e.stopPropagation();
-        onreviewsclick(pr);
+        onReviewsClick(pr);
       }}
       title="Review PR comments"
       aria-label={`Review ${pr.comments.length} comments for ${label}`}

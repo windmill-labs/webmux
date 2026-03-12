@@ -7,9 +7,16 @@ export function prLabel(pr: Pick<PrEntry, "repo" | "number">): string {
 }
 
 export function prStateTextClass(state: PrEntry["state"]): string {
-  if (state === "merged") return "text-[#a78bfa]";
+  if (state === "merged") return "text-merged";
   if (state === "closed") return "text-danger";
   return "text-primary";
+}
+
+export function prBadgeClass(state: PrEntry["state"]): string {
+  if (state === "merged") return "bg-merged/20 text-merged";
+  if (state === "closed") return "bg-danger/20 text-danger";
+  if (state === "open") return "bg-success/20 text-success";
+  return "bg-muted/20 text-muted";
 }
 
 export function ciStatusTextClass(ciStatus: PrEntry["ciStatus"]): string {
@@ -32,7 +39,7 @@ export function prStatusShellClass(pr: Pick<PrEntry, "ciChecks" | "ciStatus" | "
     if (pr.ciStatus === "pending") return "border-warning/40 bg-warning/5";
     if (pr.ciStatus === "success") return "border-success/30 bg-success/5";
   }
-  if (pr.state === "merged") return "border-[#a78bfa]/35 bg-[#a78bfa]/8";
+  if (pr.state === "merged") return "border-merged/35 bg-merged/8";
   if (pr.state === "closed") return "border-danger/35 bg-danger/5";
   return "border-edge bg-surface";
 }

@@ -8,8 +8,8 @@
     services = [],
     cursorUrl = null,
     showSettings = false,
-    onciclick,
-    onreviewsclick,
+    onCiClick,
+    onReviewsClick,
     onsettings,
   }: {
     label?: string;
@@ -17,8 +17,8 @@
     services?: ServiceStatus[];
     cursorUrl?: string | null;
     showSettings?: boolean;
-    onciclick: (pr: PrEntry) => void;
-    onreviewsclick: (pr: PrEntry) => void;
+    onCiClick: (pr: PrEntry) => void;
+    onReviewsClick: (pr: PrEntry) => void;
     onsettings?: () => void;
   } = $props();
 </script>
@@ -28,7 +28,7 @@
     <span class="shrink-0 text-[10px] font-medium text-muted">{label}:</span>
   {/if}
   {#each prs as pr (`${pr.repo}#${pr.number}`)}
-    <PrStatusGroup {pr} {onciclick} {onreviewsclick} />
+    <PrStatusGroup {pr} {onCiClick} {onReviewsClick} />
   {/each}
   {#each services as svc}
     {#if svc.port}

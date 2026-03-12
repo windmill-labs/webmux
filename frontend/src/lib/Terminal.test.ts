@@ -1,5 +1,6 @@
 import { cleanup, render } from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { getTheme } from "./themes";
 
 const { MockFitAddon, MockTerminal } = vi.hoisted(() => {
   class MockFitAddon {
@@ -136,7 +137,7 @@ describe("Terminal reconnect", () => {
   });
 
   it("reconnects immediately after a visible-tab socket close", () => {
-    render(Terminal, { props: { worktree: "feature/reconnect" } });
+    render(Terminal, { props: { worktree: "feature/reconnect", terminalTheme: getTheme("github-dark").terminal } });
 
     expect(MockWebSocket.instances).toHaveLength(1);
     const firstSocket = MockWebSocket.instances[0]!;
@@ -156,7 +157,7 @@ describe("Terminal reconnect", () => {
   });
 
   it("only retries once automatically for a visible-tab close", () => {
-    render(Terminal, { props: { worktree: "feature/retry-once" } });
+    render(Terminal, { props: { worktree: "feature/retry-once", terminalTheme: getTheme("github-dark").terminal } });
 
     const firstSocket = MockWebSocket.instances[0]!;
     firstSocket.emitOpen();
@@ -171,7 +172,7 @@ describe("Terminal reconnect", () => {
   });
 
   it("waits for the tab to become visible before reconnecting hidden closes", () => {
-    render(Terminal, { props: { worktree: "feature/visible" } });
+    render(Terminal, { props: { worktree: "feature/visible", terminalTheme: getTheme("github-dark").terminal } });
 
     const firstSocket = MockWebSocket.instances[0]!;
     firstSocket.emitOpen();

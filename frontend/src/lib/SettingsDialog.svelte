@@ -35,7 +35,7 @@
     <h2 class="text-base mb-4">Settings</h2>
 
     <div class="mb-5">
-      <label class="block text-xs text-muted mb-2">Theme</label>
+      <span class="block text-xs text-muted mb-2">Theme</span>
       <div class="grid grid-cols-2 gap-2">
         {#each THEMES as theme (theme.key)}
           <button

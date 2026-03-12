@@ -72,6 +72,12 @@ function cloneProfile(profile: ProfileConfig): ProfileConfig {
   };
 }
 
+function cloneProfiles(profiles: Record<string, ProfileConfig>): Record<string, ProfileConfig> {
+  return Object.fromEntries(
+    Object.entries(profiles).map(([name, profile]) => [name, cloneProfile(profile)]),
+  );
+}
+
 function defaultProfiles(): Record<string, ProfileConfig> {
   return { default: cloneProfile(DEFAULT_CONFIG.profiles.default) };
 }
@@ -265,8 +271,8 @@ function readConfigFile(root: string): string {
   return readFileSync(join(root, ".webmux.yaml"), "utf8");
 }
 
-function readNamedConfigFile(root: string, filename: string): string {
-  return readFileSync(join(root, filename), "utf8");
+function readLocalConfigFile(root: string): string {
+  return readFileSync(join(root, ".webmux.local.yaml"), "utf8");
 }
 
 function parseConfigDocument(text: string): Record<string, unknown> {
@@ -310,9 +316,13 @@ function parseProjectConfig(parsed: Record<string, unknown>): ProjectConfig {
   };
 }
 
+function defaultConfig(): ProjectConfig {
+  return parseProjectConfig({});
+}
+
 function loadLocalProjectConfigOverlay(root: string): LocalProjectConfigOverlay {
   try {
-    const text = readNamedConfigFile(root, ".webmux.local.yaml").trim();
+    const text = readLocalConfigFile(root).trim();
     if (!text) {
       return { profiles: {}, lifecycleHooks: {} };
     }
@@ -329,14 +339,7 @@ function loadLocalProjectConfigOverlay(root: string): LocalProjectConfigOverlay 
 
 function mergeHookCommand(projectCommand: string | undefined, localCommand: string | undefined): string | undefined {
   if (projectCommand && localCommand) {
-    return [
-      projectCommand,
-      "__webmux_hook_exit_code=$?",
-      "if [ \"$__webmux_hook_exit_code\" -ne 0 ]; then",
-      "  exit \"$__webmux_hook_exit_code\"",
-      "fi",
-      localCommand,
-    ].join("\n");
+    return ["set -e", projectCommand, localCommand].join("\n");
   }
 
   return localCommand ?? projectCommand;
@@ -379,9 +382,9 @@ export function loadConfig(dir: string, options: LoadConfigOptions = {}): Projec
   let projectConfig: ProjectConfig;
   try {
     const text = readConfigFile(root).trim();
-    projectConfig = text ? parseProjectConfig(parseConfigDocument(text)) : DEFAULT_CONFIG;
+    projectConfig = text ? parseProjectConfig(parseConfigDocument(text)) : defaultConfig();
   } catch {
-    projectConfig = DEFAULT_CONFIG;
+    projectConfig = defaultConfig();
   }
 
   const localOverlay = loadLocalProjectConfigOverlay(root);
@@ -389,8 +392,8 @@ export function loadConfig(dir: string, options: LoadConfigOptions = {}): Projec
   return {
     ...projectConfig,
     profiles: {
-      ...projectConfig.profiles,
-      ...localOverlay.profiles,
+      ...cloneProfiles(projectConfig.profiles),
+      ...cloneProfiles(localOverlay.profiles),
     },
     lifecycleHooks: mergeLifecycleHooks(projectConfig.lifecycleHooks, localOverlay.lifecycleHooks),
   };

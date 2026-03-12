@@ -17,6 +17,10 @@ export type { LinkedRepoConfig, MountSpec, PaneTemplate, ProfileConfig, ProjectC
 export type ServiceConfig = ServiceSpec;
 export type DockerProfileConfig = ProfileConfig & { runtime: "docker"; image: string };
 
+interface LoadConfigOptions {
+  resolvedRoot?: boolean;
+}
+
 const DEFAULT_PANES: PaneTemplate[] = [
   { id: "agent", kind: "agent", focus: true },
   { id: "shell", kind: "shell", split: "right", sizePct: 25 },
@@ -257,9 +261,9 @@ export function projectRoot(dir: string): string {
 }
 
 /** Load `.webmux.yaml` from the shared project root into the final project config shape. */
-export function loadConfig(dir: string): ProjectConfig {
+export function loadConfig(dir: string, options: LoadConfigOptions = {}): ProjectConfig {
   try {
-    const root = projectRoot(dir);
+    const root = options.resolvedRoot ? dir : projectRoot(dir);
     const text = readConfigFile(root).trim();
     if (!text) return DEFAULT_CONFIG;
 

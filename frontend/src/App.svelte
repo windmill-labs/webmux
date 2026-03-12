@@ -21,7 +21,16 @@
     PrEntry,
     LinearIssue,
   } from "./lib/types";
-  import { SSH_STORAGE_KEY, errorMessage, worktreeCreationPhaseLabel, loadSavedTheme, applyTheme } from "./lib/utils";
+  import {
+    SSH_STORAGE_KEY,
+    errorMessage,
+    worktreeCreationPhaseLabel,
+    loadSavedTheme,
+    loadSavedSelectedWorktree,
+    saveSelectedWorktree,
+    resolveSelectedBranch,
+    applyTheme,
+  } from "./lib/utils";
   import { getTheme } from "./lib/themes";
   import type { ThemeKey } from "./lib/themes";
   import * as api from "./lib/api";
@@ -34,7 +43,8 @@
     linkedRepos: [],
   });
   let worktrees = $state<WorktreeInfo[]>([]);
-  let selectedBranch = $state<string | null>(null);
+  let selectedBranch = $state<string | null>(loadSavedSelectedWorktree());
+  let hasLoadedWorktrees = $state(false);
   let removeBranch = $state<string | null>(null);
   let mergeBranch = $state<string | null>(null);
   let removingBranches = $state<Set<string>>(new Set());
@@ -145,18 +155,15 @@
   );
 
   $effect(() => {
-    if (selectedBranch && selectedWorktree) {
-      return;
+    const nextSelectedBranch = resolveSelectedBranch(
+      selectedBranch,
+      selectedWorktree,
+      selectableWorktrees,
+      hasLoadedWorktrees,
+    );
+    if (nextSelectedBranch !== selectedBranch) {
+      selectedBranch = nextSelectedBranch;
     }
-
-    if (selectableWorktrees.length === 0) {
-      selectedBranch = null;
-      return;
-    }
-
-    // Prefer an open worktree, fall back to the first one.
-    const open = selectableWorktrees.find((w) => w.mux === "✓");
-    selectedBranch = (open ?? selectableWorktrees[0]).branch;
   });
 
   $effect(() => {
@@ -173,6 +180,17 @@
 
   $effect(() => {
     applyPollInterval?.(pollIntervalMs);
+  });
+
+  $effect(() => {
+    if (!hasLoadedWorktrees) return;
+    if (selectedWorktree) {
+      saveSelectedWorktree(selectedWorktree.branch);
+      return;
+    }
+    if (selectableWorktrees.length === 0) {
+      saveSelectedWorktree(null);
+    }
   });
 
   $effect(() => {
@@ -224,6 +242,7 @@
   async function refresh() {
     try {
       worktrees = await api.fetchWorktrees();
+      hasLoadedWorktrees = true;
     } catch (err) {
       console.error("Failed to refresh:", err);
     }

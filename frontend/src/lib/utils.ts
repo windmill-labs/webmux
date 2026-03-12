@@ -1,9 +1,10 @@
-import type { PrEntry, WorktreeCreationPhase } from "./types";
+import type { PrEntry, WorktreeCreationPhase, WorktreeInfo } from "./types";
 import { THEME_KEYS, getTheme } from "./themes";
 import type { ThemeKey } from "./themes";
 
 export const SSH_STORAGE_KEY = "wt-ssh-host";
 export const THEME_STORAGE_KEY = "wt-theme";
+export const LAST_SELECTED_WORKTREE_STORAGE_KEY = "wt-last-selected-worktree";
 
 export function prLabel(pr: Pick<PrEntry, "repo" | "number">): string {
   return pr.repo ? `${pr.repo} #${pr.number}` : `PR #${pr.number}`;
@@ -61,6 +62,19 @@ export function loadSavedTheme(): ThemeKey {
   return "github-dark";
 }
 
+export function loadSavedSelectedWorktree(): string | null {
+  const stored = localStorage.getItem(LAST_SELECTED_WORKTREE_STORAGE_KEY)?.trim();
+  return stored ? stored : null;
+}
+
+export function saveSelectedWorktree(branch: string | null): void {
+  if (branch) {
+    localStorage.setItem(LAST_SELECTED_WORKTREE_STORAGE_KEY, branch);
+    return;
+  }
+  localStorage.removeItem(LAST_SELECTED_WORKTREE_STORAGE_KEY);
+}
+
 export function applyTheme(key: ThemeKey): void {
   const theme = getTheme(key);
   const root = document.documentElement;
@@ -85,4 +99,18 @@ export function worktreeCreationPhaseLabel(phase: WorktreeCreationPhase | null):
     default:
       return "Creating";
   }
+}
+
+export function resolveSelectedBranch(
+  selectedBranch: string | null,
+  selectedWorktree: Pick<WorktreeInfo, "branch"> | undefined,
+  selectableWorktrees: Array<Pick<WorktreeInfo, "branch" | "mux">>,
+  hasLoadedWorktrees: boolean,
+): string | null {
+  if (selectedBranch && selectedWorktree) return selectedBranch;
+  if (!hasLoadedWorktrees) return selectedBranch;
+  if (selectableWorktrees.length === 0) return null;
+
+  const open = selectableWorktrees.find((worktree) => worktree.mux === "✓");
+  return (open ?? selectableWorktrees[0]).branch;
 }

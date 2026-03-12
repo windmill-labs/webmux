@@ -13,26 +13,19 @@
 
   const DISCONNECTED_NOTICE = "\r\n\x1b[90m[Disconnected]\x1b[0m";
   const RECONNECTED_NOTICE = "\r\n\x1b[32m[Reconnected]\x1b[0m";
-  const RECONNECT_BASE_DELAY_MS = 1_000;
-  const RECONNECT_MAX_DELAY_MS = 8_000;
-  const MAX_RECONNECT_ATTEMPTS = 5;
-
   let containerEl: HTMLDivElement;
   let term: Terminal;
   let fitAddon: FitAddon;
   let ws: WebSocket | null = null;
   let resizeObs: ResizeObserver;
   let resizeTimer: ReturnType<typeof setTimeout>;
-  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let xtermEl: HTMLElement | null = null;
   let viewportEl: HTMLElement | null = null;
   let manualTouchCleanup: (() => void) | null = null;
   let lastTouchX = 0;
   let lastTouchY = 0;
   let touchScrollLocked = false;
-  let reconnectAttempts = 0;
   let destroyed = false;
-  let shouldAnnounceReconnect = false;
 
   function copyToClipboard(text: string): void {
     if (navigator.clipboard?.writeText) {
@@ -141,13 +134,6 @@
     };
   }
 
-  function clearReconnectTimer(): void {
-    if (reconnectTimer) {
-      clearTimeout(reconnectTimer);
-      reconnectTimer = null;
-    }
-  }
-
   function buildResizeMessage(): string {
     const msg: Record<string, unknown> = { type: "resize", cols: term.cols, rows: term.rows };
     if (isMobile && initialPane !== undefined) {
@@ -156,11 +142,8 @@
     return JSON.stringify(msg);
   }
 
-  function connect(): void {
-    clearReconnectTimer();
-    if (destroyed) return;
-    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
-
+  function connect(announceReconnect = false): void {
+    if (destroyed || ws?.readyState === WebSocket.OPEN || ws?.readyState === WebSocket.CONNECTING) return;
     const protocol = location.protocol === "https:" ? "wss:" : "ws:";
     const nextWs = new WebSocket(`${protocol}//${location.host}/ws/${encodeURIComponent(worktree)}`);
     ws = nextWs;
@@ -189,11 +172,9 @@
 
     nextWs.onopen = () => {
       if (ws !== nextWs) return;
-      reconnectAttempts = 0;
       fitAddon.fit();
-      if (shouldAnnounceReconnect) {
+      if (announceReconnect) {
         term.writeln(RECONNECTED_NOTICE);
-        shouldAnnounceReconnect = false;
       }
       requestAnimationFrame(() => {
         fitAddon.fit();
@@ -206,37 +187,13 @@
       if (ws !== nextWs) return;
       ws = null;
       if (destroyed) return;
-
-      if (!shouldAnnounceReconnect) {
-        term.writeln(DISCONNECTED_NOTICE);
-      }
-      shouldAnnounceReconnect = true;
-      scheduleReconnect();
+      term.writeln(DISCONNECTED_NOTICE);
     };
   }
 
-  function scheduleReconnect(immediate = false): void {
-    clearReconnectTimer();
-    if (destroyed || document.hidden || reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-      return;
-    }
-
-    const delay = immediate
-      ? 0
-      : Math.min(RECONNECT_BASE_DELAY_MS * 2 ** reconnectAttempts, RECONNECT_MAX_DELAY_MS);
-    reconnectAttempts += 1;
-    reconnectTimer = setTimeout(() => {
-      reconnectTimer = null;
-      connect();
-    }, delay);
-  }
-
   function reconnectIfNeeded(): void {
-    if (document.hidden || ws?.readyState === WebSocket.OPEN || ws?.readyState === WebSocket.CONNECTING) {
-      return;
-    }
-    reconnectAttempts = 0;
-    scheduleReconnect(true);
+    if (document.hidden) return;
+    connect(true);
   }
 
   onMount(() => {
@@ -348,7 +305,6 @@
   onDestroy(() => {
     destroyed = true;
     clearTimeout(resizeTimer);
-    clearReconnectTimer();
     manualTouchCleanup?.();
     resizeObs?.disconnect();
     document.removeEventListener("visibilitychange", reconnectIfNeeded);

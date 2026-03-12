@@ -138,7 +138,7 @@ describe("Terminal reconnect", () => {
     documentHidden = false;
   });
 
-  it("reconnects after an unexpected socket close", async () => {
+  it("reconnects when the tab becomes visible after a socket close", () => {
     render(Terminal, { props: { worktree: "feature/reconnect" } });
 
     expect(MockWebSocket.instances).toHaveLength(1);
@@ -147,33 +147,33 @@ describe("Terminal reconnect", () => {
 
     expect(firstSocket.sent).toContain('{"type":"resize","cols":80,"rows":24}');
 
-    firstSocket.emitClose();
-    await vi.advanceTimersByTimeAsync(1_000);
-
-    expect(MockWebSocket.instances).toHaveLength(2);
-    const secondSocket = MockWebSocket.instances[1]!;
-    secondSocket.emitOpen();
-
-    const terminal = MockTerminal.instances[0]!;
-    expect(terminal.writeln).toHaveBeenCalledWith("\r\n\x1b[90m[Disconnected]\x1b[0m");
-    expect(terminal.writeln).toHaveBeenCalledWith("\r\n\x1b[32m[Reconnected]\x1b[0m");
-  });
-
-  it("waits for the tab to become visible before reconnecting", async () => {
-    render(Terminal, { props: { worktree: "feature/visible" } });
-
-    const firstSocket = MockWebSocket.instances[0]!;
-    firstSocket.emitOpen();
-
     documentHidden = true;
     firstSocket.emitClose();
-    await vi.advanceTimersByTimeAsync(10_000);
 
     expect(MockWebSocket.instances).toHaveLength(1);
 
     documentHidden = false;
     document.dispatchEvent(new Event("visibilitychange"));
-    await vi.advanceTimersByTimeAsync(0);
+
+    const terminal = MockTerminal.instances[0]!;
+    expect(MockWebSocket.instances).toHaveLength(2);
+    const secondSocket = MockWebSocket.instances[1]!;
+    secondSocket.emitOpen();
+    expect(terminal.writeln).toHaveBeenCalledWith("\r\n\x1b[90m[Disconnected]\x1b[0m");
+    expect(terminal.writeln).toHaveBeenCalledWith("\r\n\x1b[32m[Reconnected]\x1b[0m");
+  });
+
+  it("reconnects when the window regains focus", () => {
+    render(Terminal, { props: { worktree: "feature/visible" } });
+
+    const firstSocket = MockWebSocket.instances[0]!;
+    firstSocket.emitOpen();
+
+    firstSocket.emitClose();
+
+    expect(MockWebSocket.instances).toHaveLength(1);
+
+    window.dispatchEvent(new Event("focus"));
 
     expect(MockWebSocket.instances).toHaveLength(2);
   });

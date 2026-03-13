@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.16.1](https://github.com/windmill-labs/webmux/compare/v0.16.0...v0.16.1) (2026-03-13)
+
+
+### Bug Fixes
+
+* add missing static/.assetsignore for cloudflare pages build ([dcf51ea](https://github.com/windmill-labs/webmux/commit/dcf51ea62eb5ae449722c1218ffd885e30c90749))
+* add wrangler.toml for cloudflare pages deploy ([be35397](https://github.com/windmill-labs/webmux/commit/be35397fb5b9e7ab9ba4e23a1a2f7ca7141d99c2))
+
 ## [0.16.0](https://github.com/windmill-labs/webmux/compare/v0.15.0...v0.16.0) (2026-03-13)
 
 

@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.16.0](https://github.com/windmill-labs/webmux/compare/v0.15.0...v0.16.0) (2026-03-13)
+
+
+### Features
+
+* persist last selected worktree ([#135](https://github.com/windmill-labs/webmux/issues/135)) ([62d82b9](https://github.com/windmill-labs/webmux/commit/62d82b9a367d787a5614beaf95ab42d8b7d87ea5))
+
+
+### Bug Fixes
+
+* keep selected worktree on create ([#136](https://github.com/windmill-labs/webmux/issues/136)) ([224c3a6](https://github.com/windmill-labs/webmux/commit/224c3a60e7a4fa16841f35c7a04599a32c3a7e72))
+* truncate long worktree names in header ([#133](https://github.com/windmill-labs/webmux/issues/133)) ([8cec301](https://github.com/windmill-labs/webmux/commit/8cec30143ec9fc1ecb74573d5cba4c01821129e6))
+
 ## [0.15.0](https://github.com/windmill-labs/webmux/compare/v0.14.0...v0.15.0) (2026-03-12)
 
 

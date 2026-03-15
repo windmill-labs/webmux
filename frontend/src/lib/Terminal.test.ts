@@ -16,6 +16,7 @@ const { MockFitAddon, MockTerminal } = vi.hoisted(() => {
   class MockTerminal {
     static instances: MockTerminal[] = [];
 
+    options: { theme?: unknown } = {};
     cols = 80;
     rows = 24;
     modes = { mouseTrackingMode: "none" };
@@ -186,5 +187,26 @@ describe("Terminal reconnect", () => {
     document.dispatchEvent(new Event("visibilitychange"));
 
     expect(MockWebSocket.instances).toHaveLength(2);
+  });
+
+  it("applies theme updates to the terminal instance", async () => {
+    const initialTheme = getTheme("github-dark").terminal;
+    const nextTheme = getTheme("github-light").terminal;
+    const rendered = render(Terminal, {
+      props: {
+        worktree: "feature/theme",
+        terminalTheme: initialTheme,
+      },
+    });
+
+    const terminal = MockTerminal.instances[0]!;
+    expect(terminal.options.theme).toBe(initialTheme);
+
+    await rendered.rerender({
+      worktree: "feature/theme",
+      terminalTheme: nextTheme,
+    });
+
+    expect(terminal.options.theme).toBe(nextTheme);
   });
 });

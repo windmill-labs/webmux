@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { join, resolve } from "node:path";
 import { networkInterfaces } from "node:os";
 import { log } from "./lib/log";
@@ -82,6 +83,7 @@ function getFrontendConfig(): {
 interface WsData {
   branch: string;
   worktreeId: string | null;
+  attachId: string | null;
   attached: boolean;
 }
 
@@ -191,8 +193,11 @@ async function resolveTerminalWorktree(branch: string): Promise<{
   attachTarget: TerminalAttachTarget;
 }> {
   ensureBranchNotBusy(branch);
-  await reconciliationService.reconcile(PROJECT_DIR);
-  const state = projectRuntime.getWorktreeByBranch(branch);
+  let state = projectRuntime.getWorktreeByBranch(branch);
+  if (!state || !state.session.exists || !state.session.sessionName) {
+    await reconciliationService.reconcile(PROJECT_DIR);
+    state = projectRuntime.getWorktreeByBranch(branch);
+  }
   if (!state) {
     throw new Error(`Worktree not found: ${branch}`);
   }
@@ -209,9 +214,9 @@ async function resolveTerminalWorktree(branch: string): Promise<{
   };
 }
 
-function getAttachedWorktreeId(ws: { data: WsData; readyState: number; send: (data: string) => void }): string | null {
-  if (ws.data.attached && ws.data.worktreeId) {
-    return ws.data.worktreeId;
+function getAttachedSessionId(ws: { data: WsData; readyState: number; send: (data: string) => void }): string | null {
+  if (ws.data.attached && ws.data.attachId) {
+    return ws.data.attachId;
   }
 
   sendWs(ws, { type: "error", message: "Terminal not attached" });
@@ -295,16 +300,24 @@ async function apiRuntimeEvent(req: Request): Promise<Response> {
   const event = parseRuntimeEvent(raw);
   if (!event) return errorResponse("Invalid runtime event body", 400);
 
-  await reconciliationService.reconcile(PROJECT_DIR);
-
   try {
     projectRuntime.applyEvent(event);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (message.includes("Unknown worktree id")) {
-      return errorResponse(message, 404);
+      await reconciliationService.reconcile(PROJECT_DIR);
+      try {
+        projectRuntime.applyEvent(event);
+      } catch (retryError) {
+        const retryMessage = retryError instanceof Error ? retryError.message : String(retryError);
+        if (retryMessage.includes("Unknown worktree id")) {
+          return errorResponse(retryMessage, 404);
+        }
+        throw retryError;
+      }
+    } else {
+      throw error;
     }
-    throw error;
   }
 
   const notification = runtimeNotifications.recordEvent(event);
@@ -453,7 +466,7 @@ Bun.serve({
   routes: {
     "/ws/:worktree": (req, server) => {
       const branch = decodeURIComponent(req.params.worktree);
-      return server.upgrade(req, { data: { branch, worktreeId: null, attached: false } })
+      return server.upgrade(req, { data: { branch, worktreeId: null, attachId: null, attached: false } })
         ? undefined
         : new Response("WebSocket upgrade failed", { status: 400 });
     },
@@ -588,23 +601,23 @@ Bun.serve({
 
       switch (msg.type) {
         case "input": {
-          const worktreeId = getAttachedWorktreeId(ws);
-          if (!worktreeId) return;
-          write(worktreeId, msg.data);
+          const attachId = getAttachedSessionId(ws);
+          if (!attachId) return;
+          write(attachId, msg.data);
           break;
         }
         case "sendKeys": {
-          const worktreeId = getAttachedWorktreeId(ws);
-          if (!worktreeId) return;
-          await sendKeys(worktreeId, msg.hexBytes);
+          const attachId = getAttachedSessionId(ws);
+          if (!attachId) return;
+          await sendKeys(attachId, msg.hexBytes);
           break;
         }
         case "selectPane":
           {
-            const worktreeId = getAttachedWorktreeId(ws);
-            if (!worktreeId) return;
-            log.debug(`[ws] selectPane pane=${msg.pane} branch=${branch} worktreeId=${worktreeId}`);
-            await selectPane(worktreeId, msg.pane);
+            const attachId = getAttachedSessionId(ws);
+            if (!attachId) return;
+            log.debug(`[ws] selectPane pane=${msg.pane} branch=${branch} attachId=${attachId}`);
+            await selectPane(attachId, msg.pane);
           }
           break;
         case "resize":
@@ -617,19 +630,21 @@ Bun.serve({
                 log.debug(`[ws] initialPane=${msg.initialPane} branch=${branch}`);
               }
               const terminalWorktree = await resolveTerminalWorktree(branch);
+              const attachId = `${terminalWorktree.worktreeId}:${randomUUID()}`;
               ws.data.worktreeId = terminalWorktree.worktreeId;
+              ws.data.attachId = attachId;
               await attach(
-                terminalWorktree.worktreeId,
+                attachId,
                 terminalWorktree.attachTarget,
                 msg.cols,
                 msg.rows,
                 msg.initialPane,
               );
               const { onData, onExit } = makeCallbacks(ws);
-              setCallbacks(terminalWorktree.worktreeId, onData, onExit);
-              const scrollback = getScrollback(terminalWorktree.worktreeId);
+              setCallbacks(attachId, onData, onExit);
+              const scrollback = getScrollback(attachId);
               log.debug(
-                `[ws] attached branch=${branch} worktreeId=${terminalWorktree.worktreeId} scrollback=${scrollback.length} bytes`,
+                `[ws] attached branch=${branch} worktreeId=${terminalWorktree.worktreeId} attachId=${attachId} scrollback=${scrollback.length} bytes`,
               );
               if (scrollback.length > 0) {
                 sendWs(ws, { type: "scrollback", data: scrollback });
@@ -638,14 +653,15 @@ Bun.serve({
               const errMsg = err instanceof Error ? err.message : String(err);
               ws.data.attached = false;
               ws.data.worktreeId = null;
+              ws.data.attachId = null;
               log.error(`[ws] attach failed branch=${branch}: ${errMsg}`);
               sendWs(ws, { type: "error", message: errMsg });
               ws.close(1011, errMsg.slice(0, 123)); // 1011 = Internal Error
             }
           } else {
-            const worktreeId = getAttachedWorktreeId(ws);
-            if (!worktreeId) return;
-            await resize(worktreeId, msg.cols, msg.rows);
+            const attachId = getAttachedSessionId(ws);
+            if (!attachId) return;
+            await resize(attachId, msg.cols, msg.rows);
           }
           break;
       }
@@ -653,11 +669,11 @@ Bun.serve({
 
     async close(ws, code, reason) {
       log.debug(
-        `[ws] close branch=${ws.data.branch} code=${code} reason=${reason} attached=${ws.data.attached} worktreeId=${ws.data.worktreeId}`,
+        `[ws] close branch=${ws.data.branch} code=${code} reason=${reason} attached=${ws.data.attached} worktreeId=${ws.data.worktreeId} attachId=${ws.data.attachId}`,
       );
-      if (ws.data.worktreeId) {
-        clearCallbacks(ws.data.worktreeId);
-        await detach(ws.data.worktreeId);
+      if (ws.data.attachId) {
+        clearCallbacks(ws.data.attachId);
+        await detach(ws.data.attachId);
       }
     },
   },

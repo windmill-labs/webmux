@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { log } from "../lib/log";
 
 export interface RunLifecycleHookInput {
   command: string;
@@ -52,8 +53,8 @@ export class BunLifecycleHookRunner implements LifecycleHookRunner {
 
   async run(input: RunLifecycleHookInput): Promise<void> {
     const cmd = await this.buildCommand(input.cwd, input.command);
-    console.debug(`[hook-runner] Spawning: ${cmd.join(" ")} cwd=${input.cwd}`);
-    console.debug(`[hook-runner] Env keys: ${Object.keys(input.env).join(", ")}`);
+    log.debug(`[hook-runner] Spawning: ${cmd.join(" ")} cwd=${input.cwd}`);
+    log.debug(`[hook-runner] envKeys=${Object.keys(input.env).length}`);
     const proc = Bun.spawn(cmd, {
       cwd: input.cwd,
       env: {
@@ -70,9 +71,9 @@ export class BunLifecycleHookRunner implements LifecycleHookRunner {
       new Response(proc.stderr).text(),
     ]);
 
-    console.debug(`[hook-runner] ${input.name} exitCode=${exitCode}`);
-    if (stdout.trim()) console.debug(`[hook-runner] stdout: ${stdout.trim()}`);
-    if (stderr.trim()) console.debug(`[hook-runner] stderr: ${stderr.trim()}`);
+    log.debug(`[hook-runner] ${input.name} exitCode=${exitCode}`);
+    if (stdout.trim()) log.debug(`[hook-runner] stdout: ${stdout.trim()}`);
+    if (stderr.trim()) log.debug(`[hook-runner] stderr: ${stderr.trim()}`);
 
     if (exitCode !== 0) {
       throw new Error(buildErrorMessage(input.name, exitCode, stdout, stderr));

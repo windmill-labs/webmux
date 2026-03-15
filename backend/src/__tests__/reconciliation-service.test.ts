@@ -106,11 +106,25 @@ class FakeTmuxGateway implements TmuxGateway {
 }
 
 class FakePortProbe implements PortProbe {
-  constructor(private readonly listening = new Set<number>()) {}
+  readonly calls: number[] = [];
+
+  constructor(
+    private readonly listening = new Set<number>(),
+    private readonly onProbe?: (port: number) => Promise<void> | void,
+  ) {}
 
   async isListening(port: number): Promise<boolean> {
+    this.calls.push(port);
+    await this.onProbe?.(port);
     return this.listening.has(port);
   }
+}
+
+function resolveProbe(fn: (() => void) | undefined, label: string): void {
+  if (!fn) {
+    throw new Error(`expected ${label} to be available`);
+  }
+  fn();
 }
 
 const TEST_CONFIG: ProjectConfig = {
@@ -277,5 +291,78 @@ describe("ReconciliationService", () => {
     expect(state?.profile).toBeNull();
     expect(state?.agentName).toBeNull();
     expect(state?.services).toEqual([]);
+  });
+
+  it("coalesces concurrent reconcile calls and skips fresh repeats", async () => {
+    const repoRoot = "/repo/project";
+    const managedPath = "/repo/project/__worktrees/feature-fresh";
+    const managedGitDir = await mkdtemp(join(tmpdir(), "webmux-reconcile-fresh-"));
+    tempDirs.push(managedGitDir);
+
+    await writeWorktreeMeta(managedGitDir, {
+      schemaVersion: 1,
+      worktreeId: "wt_fresh",
+      branch: "feature/fresh",
+      createdAt: "2026-03-06T00:00:00.000Z",
+      profile: "default",
+      agent: "claude",
+      runtime: "host",
+      startupEnvValues: {},
+      allocatedPorts: { FRONTEND_PORT: 3010 },
+    });
+
+    const probeState: { release?: () => void } = {};
+    let nowMs = 10_000;
+    const portProbe = new FakePortProbe(new Set([3010]), async () => {
+      await new Promise<void>((resolve) => {
+        probeState.release = resolve;
+      });
+    });
+    const runtime = new ProjectRuntime();
+    const git = new FakeGitGateway(
+      [
+        { path: repoRoot, branch: "main", head: "aaa111", detached: false, bare: false },
+        { path: managedPath, branch: "feature/fresh", head: "bbb222", detached: false, bare: false },
+      ],
+      new Map([[managedPath, managedGitDir]]),
+      new Map([[managedPath, { dirty: false, aheadCount: 0, currentCommit: "bbb222" }]]),
+    );
+    const service = new ReconciliationService(
+      {
+        config: TEST_CONFIG,
+        git,
+        tmux: new FakeTmuxGateway([]),
+        portProbe,
+        runtime,
+      },
+      {
+        freshnessMs: 1000,
+        now: () => nowMs,
+      },
+    );
+
+    const first = service.reconcile(repoRoot);
+    const second = service.reconcile(repoRoot);
+    while (probeState.release === undefined) {
+      await Promise.resolve();
+    }
+
+    expect(portProbe.calls).toEqual([3010]);
+    resolveProbe(probeState.release, "the first probe release");
+    await Promise.all([first, second]);
+    expect(portProbe.calls).toEqual([3010]);
+
+    await service.reconcile(repoRoot);
+    expect(portProbe.calls).toEqual([3010]);
+
+    nowMs += 1001;
+    probeState.release = undefined;
+    const third = service.reconcile(repoRoot);
+    while (probeState.release === undefined) {
+      await Promise.resolve();
+    }
+    expect(portProbe.calls).toEqual([3010, 3010]);
+    resolveProbe(probeState.release, "the second probe release");
+    await third;
   });
 });

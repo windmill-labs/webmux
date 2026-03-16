@@ -66,6 +66,7 @@ describe("webmux entrypoint", () => {
     expect(parseRootArgs(["serve", "--port", "8080", "--debug"])).toEqual({
       port: 8080,
       debug: true,
+      app: false,
       command: "serve",
       commandArgs: [],
     });
@@ -77,6 +78,7 @@ describe("webmux entrypoint", () => {
     expect(parseRootArgs(["service", "install", "--port", "8080"])).toEqual({
       port: 5111,
       debug: false,
+      app: false,
       command: "service",
       commandArgs: ["install", "--port", "8080"],
     });
@@ -88,6 +90,7 @@ describe("webmux entrypoint", () => {
     expect(parseRootArgs(["prune"])).toEqual({
       port: 5111,
       debug: false,
+      app: false,
       command: "prune",
       commandArgs: [],
     });

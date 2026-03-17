@@ -19,29 +19,29 @@
     onfixsuccess: () => void;
   } = $props();
 
-  let expandedRunId = $state<number | null>(null);
+  let expandedCheck = $state<string | null>(null);
   let logs = $state("");
   let logsLoading = $state(false);
   let logsError = $state("");
   let copied = $state(false);
-  let fixLoading = $state<number | null>(null);
+  let fixLoading = $state<string | null>(null);
   let fixError = $state("");
 
   let label = $derived(prLabel(pr));
 
-  async function handleViewLogs(runId: number): Promise<void> {
-    if (expandedRunId === runId) {
-      expandedRunId = null;
+  async function handleViewLogs(check: { runId: number; name: string }): Promise<void> {
+    if (expandedCheck === check.name) {
+      expandedCheck = null;
       return;
     }
-    expandedRunId = runId;
+    expandedCheck = check.name;
     logs = "";
     logsError = "";
     logsLoading = true;
     copied = false;
     fixError = "";
     try {
-      logs = await fetchCiLogs(runId);
+      logs = await fetchCiLogs(check.runId, check.name);
     } catch (err) {
       logsError = errorMessage(err);
     } finally {
@@ -52,7 +52,7 @@
   async function handleFix(checkName: string): Promise<void> {
     if (!branch) return;
     fixError = "";
-    fixLoading = expandedRunId ?? -1;
+    fixLoading = expandedCheck;
     const preamble =
       [
         "Fix the failing CI check.",
@@ -115,8 +115,8 @@
         <div class="flex items-center gap-2 mt-1.5">
           {#if check.status === "failed" && check.runId !== null}
             <LinkBtn
-              onclick={() => handleViewLogs(check.runId ?? -1)}
-              >{expandedRunId === check.runId
+              onclick={() => handleViewLogs({ runId: check.runId!, name: check.name })}
+              >{expandedCheck === check.name
                 ? "Hide logs"
                 : "View logs"}</LinkBtn
             >
@@ -132,7 +132,7 @@
           {/if}
         </div>
 
-        {#if expandedRunId === check.runId}
+        {#if expandedCheck === check.name}
           <div class="mt-2">
             {#if logsLoading}
               <div class="text-[12px] text-muted py-2">Loading logs...</div>

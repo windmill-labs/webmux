@@ -121,8 +121,8 @@ export function fetchLinearIssues(): Promise<LinearIssue[]> {
   return api<LinearIssue[]>("linear/issues");
 }
 
-export async function fetchCiLogs(runId: number): Promise<string> {
-  const data = await api<{ logs: string }>(`ci-logs/${runId}`);
+export async function fetchCiLogs(runId: number, job: string): Promise<string> {
+  const data = await api<{ logs: string }>(`ci-logs/${runId}?job=${encodeURIComponent(job)}`);
   return data.logs;
 }
 

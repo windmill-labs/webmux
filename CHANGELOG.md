@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.17.0](https://github.com/windmill-labs/webmux/compare/v0.16.0...v0.17.0) (2026-03-17)
+
+
+### Features
+
+* allow worktreeRoot override from webmux.local.yaml ([#146](https://github.com/windmill-labs/webmux/issues/146)) ([241f39d](https://github.com/windmill-labs/webmux/commit/241f39d5916e34a118083987020a5188ba7a607e))
+* dirty badge diff dialog ([#148](https://github.com/windmill-labs/webmux/issues/148)) ([4cd95dd](https://github.com/windmill-labs/webmux/commit/4cd95ddcc577e7a08c13563f05cb31dae5f61af1))
+* show preview panel for closed worktrees instead of auto-opening ([#144](https://github.com/windmill-labs/webmux/issues/144)) ([9132c95](https://github.com/windmill-labs/webmux/commit/9132c95be6c92ebf15128554adb46b03cb5dda37))
+* terminal drag-and-drop image upload ([#147](https://github.com/windmill-labs/webmux/issues/147)) ([3c78567](https://github.com/windmill-labs/webmux/commit/3c7856744e36a627b02f39bbfa9c197a6dadae6f))
+
+
+### Bug Fixes
+
+* add missing static/.assetsignore for cloudflare pages build ([dcf51ea](https://github.com/windmill-labs/webmux/commit/dcf51ea62eb5ae449722c1218ffd885e30c90749))
+* add wrangler.toml for cloudflare pages deploy ([be35397](https://github.com/windmill-labs/webmux/commit/be35397fb5b9e7ab9ba4e23a1a2f7ca7141d99c2))
+* filter ci logs to show only the selected check's job ([#145](https://github.com/windmill-labs/webmux/issues/145)) ([1114094](https://github.com/windmill-labs/webmux/commit/111409425701fd0ddefb59773e51e96fc80b57af))
+
 ## [0.16.0](https://github.com/windmill-labs/webmux/compare/v0.15.0...v0.16.0) (2026-03-13)
 
 

@@ -42,7 +42,7 @@
 
   const diffOpts = {
     outputFormat: "line-by-line" as const,
-    colorScheme: ColorSchemeType.DARK,
+    colorScheme: ColorSchemeType.AUTO,
     drawFileList: false,
   };
 
@@ -51,7 +51,7 @@
   let hasContent = $derived(!!uncommitted || !!unpushed);
 </script>
 
-<BaseDialog {onclose} wide className="diff-dialog">
+<BaseDialog {onclose} wide maxWidth="90vw" className="diff-dialog">
   <h2 class="text-base mb-4">Changes &mdash; <span class="font-mono text-sm">{branch}</span></h2>
 
   {#if loading}
@@ -85,11 +85,6 @@
 </BaseDialog>
 
 <style>
-  :global(.diff-dialog) {
-    max-width: 90vw !important;
-    width: 90% !important;
-  }
-
   @media (max-width: 768px) {
     :global(.diff-dialog) {
       max-width: 100vw !important;

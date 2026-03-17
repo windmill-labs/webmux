@@ -150,6 +150,7 @@
       : undefined,
   );
   let canConnect = $derived(!!selectedBranch && selectedWorktree?.mux === "✓" && !selectedWorktree?.creating);
+  let isSelectedOpening = $derived(selectedBranch ? openingBranches.has(selectedBranch) : false);
   let pollIntervalMs = $derived(
     hasCreatingWorktrees ? ACTIVE_CREATE_POLL_INTERVAL_MS : DEFAULT_POLL_INTERVAL_MS,
   );
@@ -354,6 +355,20 @@
     }
   }
 
+  async function openSelectedWorktree(): Promise<void> {
+    const branch = selectedBranch;
+    if (!branch) return;
+    openingBranches = new Set([...openingBranches, branch]);
+    try {
+      await api.openWorktree(branch);
+      await refresh();
+    } catch (err) {
+      alert(`Failed to open worktree: ${errorMessage(err)}`);
+    } finally {
+      openingBranches = new Set([...openingBranches].filter((x) => x !== branch));
+    }
+  }
+
   async function handleClose() {
     const branch = selectedBranch;
     if (!branch) return;
@@ -405,6 +420,11 @@
     } else if (e.key === "d" || e.key === "D") {
       e.preventDefault();
       if (selectedBranch) removeBranch = selectedBranch;
+    } else if (e.key === "Enter") {
+      if (selectedWorktree && selectedWorktree.mux !== "✓" && !selectedWorktree.creating && !isSelectedOpening) {
+        e.preventDefault();
+        openSelectedWorktree();
+      }
     }
   }
 
@@ -549,24 +569,10 @@
         removing={removingBranches}
         initializing={openingBranches}
         {notifiedBranches}
-        onselect={async (b) => {
-          const wt = worktrees.find((w) => w.branch === b);
+        onselect={(b) => {
           selectedBranch = b;
           notifiedBranches = new Set([...notifiedBranches].filter((x) => x !== b));
           if (isMobile) sidebarOpen = false;
-          if (wt?.creating) return;
-          // Open closed worktrees on click
-          if (wt && wt.mux !== "✓") {
-            openingBranches = new Set([...openingBranches, b]);
-            try {
-              await api.openWorktree(b);
-              await refresh();
-            } catch (err) {
-              alert(`Failed to open worktree: ${errorMessage(err)}`);
-            } finally {
-              openingBranches = new Set([...openingBranches].filter((x) => x !== b));
-            }
-          }
         }}
         onremove={(b) => (removeBranch = b)}
       />
@@ -638,6 +644,32 @@
           <span class="spinner" style="width: 24px; height: 24px; border-width: 2px;"></span>
           <p class="text-sm text-primary font-medium">{selectedWorktree.branch}</p>
           <p class="text-xs text-muted">{worktreeCreationPhaseLabel(selectedWorktree.creationPhase)}</p>
+        </div>
+      </div>
+    {:else if selectedWorktree}
+      <div class="flex-1 flex items-center justify-center px-6">
+        <div class="flex flex-col items-center gap-4 text-center">
+          <p class="text-sm text-primary font-medium">{selectedWorktree.branch}</p>
+          <div class="flex flex-col items-center gap-1">
+            {#if selectedWorktree.profile}
+              <span class="text-xs text-muted">Profile: {selectedWorktree.profile}</span>
+            {/if}
+            {#if selectedWorktree.agentName}
+              <span class="text-xs text-muted">Agent: {selectedWorktree.agentName}</span>
+            {/if}
+          </div>
+          <button
+            class="mt-2 px-5 py-2 rounded-md bg-accent text-white text-sm font-medium cursor-pointer border-none hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            onclick={openSelectedWorktree}
+            disabled={isSelectedOpening}
+          >
+            {#if isSelectedOpening}
+              <span class="spinner" style="width: 14px; height: 14px; border-width: 1.5px;"></span>
+              Opening...
+            {:else}
+              Open Session
+            {/if}
+          </button>
         </div>
       </div>
     {:else}

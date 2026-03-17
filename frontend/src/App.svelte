@@ -31,6 +31,8 @@
     saveSelectedWorktree,
     resolveSelectedBranch,
     applyTheme,
+    loadSavedSidebarWidth,
+    saveSidebarWidth,
   } from "./lib/utils";
   import { getTheme } from "./lib/themes";
   import type { ThemeKey } from "./lib/themes";
@@ -116,6 +118,36 @@
 
   function handleBellOpen(): void {
     unreadCount = 0;
+  }
+
+  // Sidebar resize
+  const MIN_SIDEBAR_WIDTH = 140;
+  const MAX_SIDEBAR_WIDTH = 500;
+  let sidebarWidth = $state(loadSavedSidebarWidth());
+  let isResizingSidebar = $state(false);
+
+  function handleResizeStart(e: MouseEvent) {
+    e.preventDefault();
+    isResizingSidebar = true;
+    const startX = e.clientX;
+    const startWidth = sidebarWidth;
+
+    function onMouseMove(ev: MouseEvent) {
+      sidebarWidth = Math.min(
+        MAX_SIDEBAR_WIDTH,
+        Math.max(MIN_SIDEBAR_WIDTH, startWidth + ev.clientX - startX),
+      );
+    }
+
+    function onMouseUp() {
+      isResizingSidebar = false;
+      saveSidebarWidth(sidebarWidth);
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    }
+
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
   }
 
   // Mobile state
@@ -521,7 +553,7 @@
   });
 </script>
 
-<div class="flex h-dvh bg-surface text-primary">
+<div class="flex h-dvh bg-surface text-primary {isResizingSidebar ? 'select-none' : ''}" style={isResizingSidebar ? 'cursor: col-resize' : ''}>
   <!-- Sidebar: fixed overlay on mobile, static on desktop -->
   {#if !isMobile || sidebarOpen}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -537,7 +569,8 @@
     <aside
       class="{isMobile
         ? 'fixed inset-0 z-50 w-full'
-        : 'w-[220px] min-w-[220px]'} bg-sidebar border-r border-edge flex flex-col overflow-hidden"
+        : ''} bg-sidebar border-r border-edge flex flex-col overflow-hidden shrink-0"
+      style={isMobile ? '' : `width: ${sidebarWidth}px`}
     >
       <div class="p-4 border-b border-edge">
         <div class="flex items-center justify-between">
@@ -600,6 +633,16 @@
         </div>
       {/if}
     </aside>
+    {#if !isMobile}
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div
+        class="w-1 shrink-0 cursor-col-resize hover:bg-accent/50 transition-colors"
+        class:bg-accent={isResizingSidebar}
+        onmousedown={handleResizeStart}
+        role="separator"
+        aria-orientation="vertical"
+      ></div>
+    {/if}
   {/if}
 
   <main class="flex-1 min-w-0 flex flex-col overflow-hidden">

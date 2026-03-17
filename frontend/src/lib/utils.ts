@@ -5,6 +5,8 @@ import type { ThemeKey } from "./themes";
 export const SSH_STORAGE_KEY = "wt-ssh-host";
 export const THEME_STORAGE_KEY = "wt-theme";
 export const LAST_SELECTED_WORKTREE_STORAGE_KEY = "wt-last-selected-worktree";
+export const SIDEBAR_WIDTH_STORAGE_KEY = "wt-sidebar-width";
+const DEFAULT_SIDEBAR_WIDTH = 220;
 
 export function prLabel(pr: Pick<PrEntry, "repo" | "number">): string {
   return pr.repo ? `${pr.repo} #${pr.number}` : `PR #${pr.number}`;
@@ -82,6 +84,19 @@ export function applyTheme(key: ThemeKey): void {
     root.style.setProperty(`--color-${name}`, value);
   }
   localStorage.setItem(THEME_STORAGE_KEY, key);
+}
+
+export function loadSavedSidebarWidth(): number {
+  const stored = localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY);
+  if (stored) {
+    const n = parseInt(stored, 10);
+    if (!Number.isNaN(n) && n > 0) return n;
+  }
+  return DEFAULT_SIDEBAR_WIDTH;
+}
+
+export function saveSidebarWidth(width: number): void {
+  localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(Math.round(width)));
 }
 
 export function worktreeCreationPhaseLabel(phase: WorktreeCreationPhase | null): string {

@@ -490,7 +490,6 @@ async function apiUploadFiles(name: string, req: Request): Promise<Response> {
     }
     const safeName = sanitizeFilename(entry.name);
     const destPath = join(uploadDir, safeName);
-    // Guard against path traversal
     if (!resolve(destPath).startsWith(uploadDir + "/")) {
       return errorResponse("Invalid filename", 400);
     }

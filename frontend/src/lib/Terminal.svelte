@@ -140,16 +140,16 @@
     };
   }
 
-  function hasImageFiles(dt: DataTransfer | null): boolean {
+  function hasDragFiles(dt: DataTransfer | null): boolean {
     if (!dt) return false;
-    for (const item of dt.items) {
-      if (item.kind === "file" && item.type.startsWith("image/")) return true;
-    }
-    return false;
+    // During dragenter/dragover, browsers hide file details for security.
+    // We can only check if "Files" is among the drag types.
+    // For cross-browser images dragged from webpages, also accept uri-list.
+    return dt.types.includes("Files") || dt.types.includes("text/uri-list");
   }
 
   function handleDragEnter(e: DragEvent): void {
-    if (!hasImageFiles(e.dataTransfer)) return;
+    if (!hasDragFiles(e.dataTransfer)) return;
     e.preventDefault();
     dragCounter++;
     isDraggingOver = true;
@@ -169,14 +169,50 @@
     }
   }
 
+  function extractImageUrlFromHtml(html: string): string | null {
+    const match = html.match(/<img[^>]+src=["']([^"']+)["']/i);
+    return match ? match[1] : null;
+  }
+
   async function handleDrop(e: DragEvent): Promise<void> {
     e.preventDefault();
+    e.stopPropagation();
     dragCounter = 0;
     isDraggingOver = false;
 
-    const files = Array.from(e.dataTransfer?.files ?? []).filter((f) =>
-      f.type.startsWith("image/"),
-    );
+    const dt = e.dataTransfer;
+    if (!dt) return;
+
+    let files: File[] = Array.from(dt.files).filter((f) => f.type.startsWith("image/"));
+
+    // If no direct files, try to extract an image from dropped HTML (browser image drag)
+    if (files.length === 0) {
+      const html = dt.getData("text/html");
+      const uri = dt.getData("text/uri-list");
+      const imageUrl = (html ? extractImageUrlFromHtml(html) : null) ?? uri;
+
+      if (imageUrl) {
+        try {
+          const dataMatch = imageUrl.match(/^data:(image\/[^;]+);base64,(.+)/);
+          if (dataMatch) {
+            const byteString = atob(dataMatch[2]);
+            const bytes = new Uint8Array(byteString.length);
+            for (let i = 0; i < byteString.length; i++) bytes[i] = byteString.charCodeAt(i);
+            const ext = dataMatch[1].split("/")[1]?.replace("+xml", "") || "png";
+            files = [new File([bytes], `image.${ext}`, { type: dataMatch[1] })];
+          } else if (/^https?:\/\//i.test(imageUrl)) {
+            const resp = await fetch(imageUrl);
+            const contentType = resp.headers.get("content-type") ?? "";
+            if (contentType.startsWith("image/")) {
+              const blob = await resp.blob();
+              const name = imageUrl.split("/").pop()?.split("?")[0]?.split("#")[0] || "image.png";
+              files = [new File([blob], name, { type: blob.type })];
+            }
+          }
+        } catch { /* ignore fetch/decode errors for browser drags */ }
+      }
+    }
+
     if (files.length === 0) return;
 
     try {

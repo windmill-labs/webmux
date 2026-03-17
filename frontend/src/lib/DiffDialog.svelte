@@ -2,6 +2,7 @@
   import { html as diff2html } from "diff2html";
   import { ColorSchemeType } from "diff2html/lib/types";
   import "diff2html/bundles/css/diff2html.min.css";
+  import type { UnpushedCommit } from "./types";
   import { fetchWorktreeDiff } from "./api";
   import { errorMessage } from "./utils";
   import BaseDialog from "./BaseDialog.svelte";
@@ -17,8 +18,7 @@
 
   let uncommitted = $state("");
   let uncommittedTruncated = $state(false);
-  let unpushed = $state("");
-  let unpushedTruncated = $state(false);
+  let unpushedCommits = $state<UnpushedCommit[]>([]);
   let loading = $state(true);
   let error = $state("");
 
@@ -29,8 +29,7 @@
       .then((res) => {
         uncommitted = res.uncommitted;
         uncommittedTruncated = res.uncommittedTruncated;
-        unpushed = res.unpushed;
-        unpushedTruncated = res.unpushedTruncated;
+        unpushedCommits = res.unpushedCommits;
       })
       .catch((err: unknown) => {
         error = errorMessage(err);
@@ -47,8 +46,7 @@
   };
 
   let renderedUncommitted = $derived(uncommitted ? diff2html(uncommitted, diffOpts) : "");
-  let renderedUnpushed = $derived(unpushed ? diff2html(unpushed, diffOpts) : "");
-  let hasContent = $derived(!!uncommitted || !!unpushed);
+  let hasContent = $derived(!!uncommitted || unpushedCommits.length > 0);
 
   type DiffTab = "diff" | "unpushed";
   let activeTab = $state<DiffTab>("diff");
@@ -71,7 +69,7 @@
   {:else if !hasContent}
     <div class="text-sm text-muted py-8 text-center">No changes</div>
   {:else}
-    {#if uncommitted && unpushed}
+    {#if uncommitted && unpushedCommits.length > 0}
       <div class="flex gap-1 mb-3">
         <button
           type="button"
@@ -84,23 +82,27 @@
           class="tab-btn"
           class:active={activeTab === "unpushed"}
           onclick={() => (activeTab = "unpushed")}
-        >Unpushed commits</button>
+        >Unpushed commits ({unpushedCommits.length})</button>
       </div>
     {/if}
 
-    <div class="diff-container overflow-auto max-h-[60vh] md:max-h-[70vh] rounded-md border border-edge">
-      {#if activeTab === "diff" && uncommitted}
+    {#if activeTab === "diff" && uncommitted}
+      <div class="diff-container overflow-auto max-h-[60vh] md:max-h-[70vh] rounded-md border border-edge">
         {#if uncommittedTruncated}
           <div class="text-[11px] text-warning px-3 py-1">Truncated (exceeded 200KB)</div>
         {/if}
         {@html renderedUncommitted}
-      {:else if activeTab === "unpushed" && unpushed}
-        {#if unpushedTruncated}
-          <div class="text-[11px] text-warning px-3 py-1">Truncated (exceeded 200KB)</div>
-        {/if}
-        {@html renderedUnpushed}
-      {/if}
-    </div>
+      </div>
+    {:else if activeTab === "unpushed" && unpushedCommits.length > 0}
+      <ul class="commit-list overflow-auto max-h-[60vh] md:max-h-[70vh] rounded-md border border-edge list-none m-0 p-0">
+        {#each unpushedCommits as commit (commit.hash)}
+          <li class="flex items-baseline gap-2 px-3 py-1.5 border-b border-edge last:border-b-0">
+            <code class="text-[11px] text-accent shrink-0">{commit.hash}</code>
+            <span class="text-[12px] text-primary">{commit.message}</span>
+          </li>
+        {/each}
+      </ul>
+    {/if}
   {/if}
 
   <div class="flex justify-end mt-4">

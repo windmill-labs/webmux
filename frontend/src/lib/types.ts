@@ -160,11 +160,15 @@ export interface LinkedRepoInfo {
   dir?: string;
 }
 
+export interface UnpushedCommit {
+  hash: string;
+  message: string;
+}
+
 export interface WorktreeDiffResponse {
   uncommitted: string;
   uncommittedTruncated: boolean;
-  unpushed: string;
-  unpushedTruncated: boolean;
+  unpushedCommits: UnpushedCommit[];
 }
 
 export interface AppConfig {

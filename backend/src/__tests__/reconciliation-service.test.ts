@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ProjectConfig } from "../domain/config";
-import type { GitGateway, GitWorktreeEntry, GitWorktreeStatus } from "../adapters/git";
+import type { GitGateway, GitWorktreeEntry, GitWorktreeStatus, UnpushedCommit } from "../adapters/git";
 import type { PortProbe } from "../adapters/port-probe";
 import type { TmuxGateway, TmuxWindowSummary } from "../adapters/tmux";
 import { buildProjectSessionName, buildWorktreeWindowName } from "../adapters/tmux";
@@ -64,8 +64,8 @@ class FakeGitGateway implements GitGateway {
     return "";
   }
 
-  readUnpushedDiff(): string {
-    return "";
+  listUnpushedCommits(): UnpushedCommit[] {
+    return [];
   }
 }
 

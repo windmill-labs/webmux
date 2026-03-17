@@ -46,6 +46,11 @@ export interface GitWorktreeStatus {
   currentCommit: string | null;
 }
 
+export interface UnpushedCommit {
+  hash: string;
+  message: string;
+}
+
 export type TryGitCommandResult =
   | { ok: true; stdout: string }
   | { ok: false; stderr: string };
@@ -68,7 +73,7 @@ export interface GitGateway {
   mergeBranch(opts: MergeGitBranchOptions): void;
   currentBranch(repoRoot: string): string;
   readDiff(cwd: string): string;
-  readUnpushedDiff(cwd: string): string;
+  listUnpushedCommits(cwd: string): UnpushedCommit[];
 }
 
 function runGit(args: string[], cwd: string): string {
@@ -341,8 +346,21 @@ export class BunGitGateway implements GitGateway {
     return result.ok ? result.stdout : "";
   }
 
-  readUnpushedDiff(cwd: string): string {
-    const result = tryRunGit(["diff", "@{upstream}..HEAD", "--no-color"], cwd);
-    return result.ok ? result.stdout : "";
+  listUnpushedCommits(cwd: string): UnpushedCommit[] {
+    let result = tryRunGit(["log", "--oneline", "@{upstream}..HEAD"], cwd);
+    if (!result.ok) {
+      result = tryRunGit(["log", "--oneline", "HEAD", "--not", "--remotes=origin"], cwd);
+    }
+    if (!result.ok || !result.stdout) return [];
+    return result.stdout
+      .split("\n")
+      .filter((line) => line.length > 0)
+      .map((line) => {
+        const spaceIdx = line.indexOf(" ");
+        return {
+          hash: line.slice(0, spaceIdx),
+          message: line.slice(spaceIdx + 1),
+        };
+      });
   }
 }

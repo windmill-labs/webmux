@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { BunGitGateway, type GitGateway } from "../adapters/git";
+import { BunGitGateway, type GitGateway, type UnpushedCommit } from "../adapters/git";
 import type { TmuxGateway } from "../adapters/tmux";
 import {
   buildRuntimeEnvMap,
@@ -91,8 +91,8 @@ class FakeGitGateway implements GitGateway {
     return "";
   }
 
-  readUnpushedDiff(): string {
-    return "";
+  listUnpushedCommits(): UnpushedCommit[] {
+    return [];
   }
 }
 

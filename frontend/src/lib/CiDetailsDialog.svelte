@@ -20,6 +20,7 @@
   } = $props();
 
   let logsByRunId = $state(new Map<number, string>());
+  let expandedChecks = $state(new Set<string>());
   let loadingRunId = $state<number | null>(null);
   let logsError = $state("");
   let copied = $state(false);
@@ -27,6 +28,10 @@
   let fixError = $state("");
 
   let label = $derived(prLabel(pr));
+
+  function checkKey(check: { name: string; runId: number | null }): string {
+    return `${check.name}:${check.runId}`;
+  }
 
   function logsForCheck(check: { name: string; runId: number | null }): string {
     if (check.runId === null) return "";
@@ -40,16 +45,33 @@
       .join("\n");
   }
 
-  async function handleViewLogs(runId: number): Promise<void> {
-    if (logsByRunId.has(runId)) return;
+  function toggleCheck(key: string): void {
+    if (expandedChecks.has(key)) {
+      expandedChecks.delete(key);
+    } else {
+      expandedChecks.add(key);
+    }
+    expandedChecks = new Set(expandedChecks);
+  }
+
+  async function handleViewLogs(check: { runId: number; name: string }): Promise<void> {
+    const key = checkKey(check);
+    if (logsByRunId.has(check.runId)) {
+      toggleCheck(key);
+      return;
+    }
+    expandedChecks.add(key);
+    expandedChecks = new Set(expandedChecks);
     logsError = "";
-    loadingRunId = runId;
+    loadingRunId = check.runId;
     try {
-      const logs = await fetchCiLogs(runId);
-      logsByRunId.set(runId, logs);
+      const logs = await fetchCiLogs(check.runId);
+      logsByRunId.set(check.runId, logs);
       logsByRunId = new Map(logsByRunId);
     } catch (err) {
       logsError = errorMessage(err);
+      expandedChecks.delete(key);
+      expandedChecks = new Set(expandedChecks);
     } finally {
       loadingRunId = null;
     }
@@ -106,7 +128,10 @@
 
   <ul class="list-none p-0 m-0 flex flex-col gap-2 mb-4">
     {#each pr.ciChecks as check (check.name + check.runId)}
-      {@const filtered = logsForCheck(check)}
+      {@const key = checkKey(check)}
+      {@const cached = check.runId !== null && logsByRunId.has(check.runId)}
+      {@const expanded = expandedChecks.has(key)}
+      {@const filtered = expanded ? logsForCheck(check) : ""}
       <li class="rounded-md border border-edge bg-surface p-3">
         <div class="flex items-center gap-2">
           <span class="text-sm font-bold {statusColor(check.status)}"
@@ -120,11 +145,16 @@
           >
         </div>
         <div class="flex items-center gap-2 mt-1.5">
-          {#if check.status === "failed" && check.runId !== null && !logsByRunId.has(check.runId)}
-            <LinkBtn
-              onclick={() => handleViewLogs(check.runId!)}
-              >View logs</LinkBtn
-            >
+          {#if check.status === "failed" && check.runId !== null}
+            {#if cached}
+              <LinkBtn onclick={() => toggleCheck(key)}
+                >{expanded ? "Hide logs" : "Show logs"}</LinkBtn
+              >
+            {:else}
+              <LinkBtn onclick={() => handleViewLogs({ runId: check.runId!, name: check.name })}
+                >View logs</LinkBtn
+              >
+            {/if}
           {/if}
           {#if check.url}
             <a
@@ -137,9 +167,9 @@
           {/if}
         </div>
 
-        {#if check.runId !== null && loadingRunId === check.runId}
+        {#if check.runId !== null && loadingRunId === check.runId && expanded}
           <div class="text-[12px] text-muted py-2 mt-2">Loading logs...</div>
-        {:else if filtered}
+        {:else if expanded && filtered}
           <div class="mt-2">
             <pre
               class="bg-surface border border-edge rounded-md p-3 text-[11px] font-mono overflow-x-auto max-h-[300px] overflow-y-auto whitespace-pre-wrap m-0">{filtered}</pre>

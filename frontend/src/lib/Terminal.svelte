@@ -241,7 +241,6 @@
     }
     if (imageFiles.length === 0) return;
 
-    // Prevent xterm from handling the paste as text
     e.preventDefault();
     e.stopPropagation();
     uploadAndTypeFiles(imageFiles);
@@ -336,8 +335,8 @@
     // Prevent browser context menu so tmux right-click works unobstructed
     containerEl.addEventListener("contextmenu", (e) => e.preventDefault());
 
-    // Upload pasted images instead of inserting clipboard text
-    containerEl.addEventListener("paste", handlePaste);
+    // Upload pasted images — use capture phase since xterm's textarea consumes the event
+    containerEl.addEventListener("paste", handlePaste, true);
 
     // Handle OSC 52 sequences from tmux → write to system clipboard
     term.parser.registerOscHandler(52, (data) => {
@@ -433,7 +432,7 @@
     clearTimeout(resizeTimer);
     manualTouchCleanup?.();
     resizeObs?.disconnect();
-    containerEl?.removeEventListener("paste", handlePaste);
+    containerEl?.removeEventListener("paste", handlePaste, true);
     document.removeEventListener("visibilitychange", reconnectIfNeeded);
     window.removeEventListener("focus", reconnectIfNeeded);
     window.removeEventListener("online", reconnectIfNeeded);

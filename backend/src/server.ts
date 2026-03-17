@@ -436,10 +436,23 @@ async function apiGetWorktreeDiff(name: string): Promise<Response> {
   await reconciliationService.reconcile(PROJECT_DIR);
   const state = projectRuntime.getWorktreeByBranch(name);
   if (!state) return errorResponse(`Worktree not found: ${name}`, 404);
-  const raw = git.readDiff(state.path);
-  const truncated = raw.length > MAX_DIFF_BYTES;
-  const diff = truncated ? raw.slice(0, MAX_DIFF_BYTES) : raw;
-  return jsonResponse({ diff, truncated });
+
+  const uncommitted = git.readDiff(state.path);
+  const unpushed = git.readUnpushedDiff(state.path);
+
+  function cap(raw: string): { diff: string; truncated: boolean } {
+    const truncated = raw.length > MAX_DIFF_BYTES;
+    return { diff: truncated ? raw.slice(0, MAX_DIFF_BYTES) : raw, truncated };
+  }
+
+  const u = cap(uncommitted);
+  const p = cap(unpushed);
+  return jsonResponse({
+    uncommitted: u.diff,
+    uncommittedTruncated: u.truncated,
+    unpushed: p.diff,
+    unpushedTruncated: p.truncated,
+  });
 }
 
 async function apiCiLogs(runId: string): Promise<Response> {

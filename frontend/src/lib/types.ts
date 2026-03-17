@@ -159,8 +159,10 @@ export interface LinkedRepoInfo {
 }
 
 export interface WorktreeDiffResponse {
-  diff: string;
-  truncated: boolean;
+  uncommitted: string;
+  uncommittedTruncated: boolean;
+  unpushed: string;
+  unpushedTruncated: boolean;
 }
 
 export interface AppConfig {

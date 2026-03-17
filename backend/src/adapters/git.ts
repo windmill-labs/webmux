@@ -68,6 +68,7 @@ export interface GitGateway {
   mergeBranch(opts: MergeGitBranchOptions): void;
   currentBranch(repoRoot: string): string;
   readDiff(cwd: string): string;
+  readUnpushedDiff(cwd: string): string;
 }
 
 function runGit(args: string[], cwd: string): string {
@@ -334,6 +335,11 @@ export class BunGitGateway implements GitGateway {
 
   readDiff(cwd: string): string {
     const result = tryRunGit(["diff", "HEAD", "--no-color"], cwd);
+    return result.ok ? result.stdout : "";
+  }
+
+  readUnpushedDiff(cwd: string): string {
+    const result = tryRunGit(["diff", "@{upstream}..HEAD", "--no-color"], cwd);
     return result.ok ? result.stdout : "";
   }
 }

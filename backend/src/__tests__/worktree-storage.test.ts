@@ -90,6 +90,10 @@ class FakeGitGateway implements GitGateway {
   readDiff(): string {
     return "";
   }
+
+  readUnpushedDiff(): string {
+    return "";
+  }
 }
 
 class FakeTmuxGateway implements TmuxGateway {

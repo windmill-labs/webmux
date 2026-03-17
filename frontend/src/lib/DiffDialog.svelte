@@ -15,8 +15,10 @@
     onclose: () => void;
   } = $props();
 
-  let diff = $state("");
-  let truncated = $state(false);
+  let uncommitted = $state("");
+  let uncommittedTruncated = $state(false);
+  let unpushed = $state("");
+  let unpushedTruncated = $state(false);
   let loading = $state(true);
   let error = $state("");
 
@@ -25,8 +27,10 @@
     error = "";
     fetchWorktreeDiff(branch)
       .then((res) => {
-        diff = res.diff;
-        truncated = res.truncated;
+        uncommitted = res.uncommitted;
+        uncommittedTruncated = res.uncommittedTruncated;
+        unpushed = res.unpushed;
+        unpushedTruncated = res.unpushedTruncated;
       })
       .catch((err: unknown) => {
         error = errorMessage(err);
@@ -36,32 +40,42 @@
       });
   });
 
-  let rendered = $derived(
-    diff
-      ? diff2html(diff, {
-          outputFormat: "line-by-line",
-          colorScheme: ColorSchemeType.DARK,
-          drawFileList: false,
-        })
-      : "",
-  );
+  const diffOpts = {
+    outputFormat: "line-by-line" as const,
+    colorScheme: ColorSchemeType.DARK,
+    drawFileList: false,
+  };
+
+  let renderedUncommitted = $derived(uncommitted ? diff2html(uncommitted, diffOpts) : "");
+  let renderedUnpushed = $derived(unpushed ? diff2html(unpushed, diffOpts) : "");
+  let hasContent = $derived(!!uncommitted || !!unpushed);
 </script>
 
 <BaseDialog {onclose} wide className="diff-dialog">
-  <h2 class="text-base mb-4">Uncommitted Changes &mdash; <span class="font-mono text-sm">{branch}</span></h2>
+  <h2 class="text-base mb-4">Changes &mdash; <span class="font-mono text-sm">{branch}</span></h2>
 
   {#if loading}
     <div class="text-sm text-muted py-8 text-center">Loading diff...</div>
   {:else if error}
     <div class="text-sm text-danger py-8 text-center">{error}</div>
-  {:else if !diff}
-    <div class="text-sm text-muted py-8 text-center">No uncommitted changes</div>
+  {:else if !hasContent}
+    <div class="text-sm text-muted py-8 text-center">No changes</div>
   {:else}
-    {#if truncated}
-      <div class="text-[11px] text-warning mb-2">Diff truncated (exceeded 200KB limit)</div>
-    {/if}
     <div class="diff-container overflow-auto max-h-[60vh] md:max-h-[70vh] rounded-md border border-edge">
-      {@html rendered}
+      {#if uncommitted}
+        <div class="section-header">Uncommitted changes</div>
+        {#if uncommittedTruncated}
+          <div class="text-[11px] text-warning px-3 py-1">Truncated (exceeded 200KB)</div>
+        {/if}
+        {@html renderedUncommitted}
+      {/if}
+      {#if unpushed}
+        <div class="section-header" class:border-t={!!uncommitted}>Unpushed commits</div>
+        {#if unpushedTruncated}
+          <div class="text-[11px] text-warning px-3 py-1">Truncated (exceeded 200KB)</div>
+        {/if}
+        {@html renderedUnpushed}
+      {/if}
     </div>
   {/if}
 
@@ -86,6 +100,18 @@
       border-radius: 0 !important;
       font-size: 11px;
     }
+  }
+
+  .section-header {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding: 6px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--color-muted);
+    background: var(--color-surface);
+    border-color: var(--color-edge);
   }
 
   .diff-container :global(.d2h-wrapper) {

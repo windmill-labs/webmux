@@ -2,6 +2,7 @@
   import { html as diff2html } from "diff2html";
   import { ColorSchemeType } from "diff2html/lib/types";
   import "diff2html/bundles/css/diff2html.min.css";
+  // TODO: remove this test comment
   import { fetchWorktreeDiff } from "./api";
   import { errorMessage } from "./utils";
   import BaseDialog from "./BaseDialog.svelte";

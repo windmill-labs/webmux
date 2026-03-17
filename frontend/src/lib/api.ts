@@ -59,6 +59,7 @@ function mapWorktree(snapshot: ProjectWorktreeSnapshot): WorktreeInfo {
     path: snapshot.path,
     dir: snapshot.dir,
     dirty: snapshot.dirty,
+    unpushed: snapshot.unpushed,
     status: snapshot.status,
     elapsed: snapshot.elapsed,
     profile: snapshot.profile,

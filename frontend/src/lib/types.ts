@@ -96,6 +96,7 @@ export interface WorktreeInfo {
   path: string;
   dir: string | null;
   dirty: boolean;
+  unpushed: boolean;
   status: string;
   elapsed: string;
   profile: string | null;
@@ -135,6 +136,7 @@ export interface ProjectWorktreeSnapshot {
   agentName: string | null;
   mux: boolean;
   dirty: boolean;
+  unpushed: boolean;
   paneCount: number;
   status: string;
   elapsed: string;

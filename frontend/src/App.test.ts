@@ -72,6 +72,7 @@ function createWorktree(
     path: `/repo/__worktrees/${branch}`,
     dir: `/repo/__worktrees/${branch}`,
     dirty: false,
+    unpushed: false,
     status: "idle",
     elapsed: "1m",
     profile: null,

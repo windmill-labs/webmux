@@ -140,12 +140,12 @@
       <span class="text-sm font-semibold truncate" title={name ?? undefined}
         >{displayName ?? "Select a worktree"}</span
       >
-      {#if worktree?.dirty}
+      {#if worktree?.dirty || worktree?.unpushed}
         <button
           type="button"
           class="shrink-0 text-[10px] px-1.5 py-0.5 rounded border border-warning/40 text-warning bg-transparent cursor-pointer hover:bg-warning/10"
           onclick={ondirtyclick}
-        >dirty</button>
+        >{worktree.dirty ? "dirty" : "unpushed"}</button>
       {/if}
       {#if worktree?.linearIssue}
         <LinearBadge issue={worktree.linearIssue} />

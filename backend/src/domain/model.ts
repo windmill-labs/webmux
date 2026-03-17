@@ -152,6 +152,7 @@ export interface WorktreeSnapshot {
   agentName: AgentKind | null;
   mux: boolean;
   dirty: boolean;
+  unpushed: boolean;
   paneCount: number;
   status: string;
   elapsed: string;

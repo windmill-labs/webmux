@@ -35,6 +35,11 @@
   });
 
   let label = $derived(prLabel(pr));
+  let sortedComments = $derived(
+    pr.comments
+      .map((comment, i) => ({ comment, originalIndex: i }))
+      .sort((a, b) => b.comment.createdAt.localeCompare(a.comment.createdAt)),
+  );
   let allSelected = $derived(selected.size === pr.comments.length);
   let noneSelected = $derived(selected.size === 0);
 
@@ -106,13 +111,13 @@
   </div>
 
   <ul class="list-none p-0 m-0 flex flex-col gap-2 mb-4 max-h-[400px] overflow-y-auto">
-    {#each pr.comments as comment, i (i)}
+    {#each sortedComments as { comment, originalIndex } (originalIndex)}
       <li class="rounded-md border border-edge bg-surface p-3">
         <label class="flex items-start gap-2 cursor-pointer">
           <input
             type="checkbox"
-            checked={selected.has(i)}
-            onchange={() => toggleOne(i)}
+            checked={selected.has(originalIndex)}
+            onchange={() => toggleOne(originalIndex)}
             class="mt-0.5 accent-accent"
           />
           <div class="flex-1 min-w-0">

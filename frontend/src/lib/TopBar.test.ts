@@ -11,6 +11,7 @@ function createWorktree(branch: string): WorktreeInfo {
     path: `/tmp/${branch}`,
     dir: `/tmp/${branch}`,
     dirty: false,
+    unpushed: false,
     status: "running",
     elapsed: "1m",
     profile: null,

@@ -69,22 +69,22 @@
   {:else if !hasContent}
     <div class="text-sm text-muted py-8 text-center">No changes</div>
   {:else}
-    {#if uncommitted && unpushedCommits.length > 0}
-      <div class="flex gap-1 mb-3">
-        <button
-          type="button"
-          class="tab-btn"
-          class:active={activeTab === "diff"}
-          onclick={() => (activeTab = "diff")}
-        >Current diff</button>
-        <button
-          type="button"
-          class="tab-btn"
-          class:active={activeTab === "unpushed"}
-          onclick={() => (activeTab = "unpushed")}
-        >Unpushed commits ({unpushedCommits.length})</button>
-      </div>
-    {/if}
+    <div class="flex gap-1 mb-3">
+      <button
+        type="button"
+        class="tab-btn"
+        class:active={activeTab === "diff"}
+        disabled={!uncommitted}
+        onclick={() => (activeTab = "diff")}
+      >Current diff</button>
+      <button
+        type="button"
+        class="tab-btn"
+        class:active={activeTab === "unpushed"}
+        disabled={unpushedCommits.length === 0}
+        onclick={() => (activeTab = "unpushed")}
+      >Unpushed commits ({unpushedCommits.length})</button>
+    </div>
 
     {#if activeTab === "diff" && uncommitted}
       <div class="diff-container overflow-auto max-h-[60vh] md:max-h-[70vh] rounded-md border border-edge">
@@ -140,6 +140,10 @@
     background: var(--color-surface);
     color: var(--color-primary);
     border-color: var(--color-accent);
+  }
+  .tab-btn:disabled {
+    opacity: 0.4;
+    cursor: default;
   }
 
   .diff-container {

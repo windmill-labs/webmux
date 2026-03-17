@@ -214,7 +214,10 @@
     }
 
     if (files.length === 0) return;
+    await uploadAndTypeFiles(files);
+  }
 
+  async function uploadAndTypeFiles(files: File[]): Promise<void> {
     try {
       const result = await uploadFiles(worktree, files);
       const paths = result.files.map((f) => f.path).join(" ");
@@ -223,6 +226,25 @@
       const msg = err instanceof Error ? err.message : String(err);
       term.writeln(`\r\n\x1b[31m[Upload error: ${msg}]\x1b[0m`);
     }
+  }
+
+  function handlePaste(e: Event): void {
+    const clipboard = (e as ClipboardEvent).clipboardData;
+    if (!clipboard) return;
+
+    const imageFiles: File[] = [];
+    for (const item of clipboard.items) {
+      if (item.kind === "file" && item.type.startsWith("image/")) {
+        const file = item.getAsFile();
+        if (file) imageFiles.push(file);
+      }
+    }
+    if (imageFiles.length === 0) return;
+
+    // Prevent xterm from handling the paste as text
+    e.preventDefault();
+    e.stopPropagation();
+    uploadAndTypeFiles(imageFiles);
   }
 
   function buildResizeMessage(): string {
@@ -313,6 +335,9 @@
 
     // Prevent browser context menu so tmux right-click works unobstructed
     containerEl.addEventListener("contextmenu", (e) => e.preventDefault());
+
+    // Upload pasted images instead of inserting clipboard text
+    containerEl.addEventListener("paste", handlePaste);
 
     // Handle OSC 52 sequences from tmux → write to system clipboard
     term.parser.registerOscHandler(52, (data) => {
@@ -408,6 +433,7 @@
     clearTimeout(resizeTimer);
     manualTouchCleanup?.();
     resizeObs?.disconnect();
+    containerEl?.removeEventListener("paste", handlePaste);
     document.removeEventListener("visibilitychange", reconnectIfNeeded);
     window.removeEventListener("focus", reconnectIfNeeded);
     window.removeEventListener("online", reconnectIfNeeded);

@@ -28,12 +28,14 @@
   onclick={(e: MouseEvent) => {
     if (e.target === dialogEl) dialogEl.close();
   }}
-  class="bg-sidebar text-primary border border-edge rounded-xl p-6 w-[90%] {maxWidth
+  class="bg-sidebar text-primary border border-edge rounded-xl w-[90%] {maxWidth
     ? ''
     : wide
       ? 'max-w-[560px]'
       : 'max-w-[380px]'} {className}"
   style:max-width={maxWidth || undefined}
 >
-  {@render children()}
+  <div class="p-6">
+    {@render children()}
+  </div>
 </dialog>

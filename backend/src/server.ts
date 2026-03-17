@@ -429,7 +429,7 @@ async function apiGetLinearIssues(): Promise<Response> {
   return jsonResponse(result.data);
 }
 
-async function apiCiLogs(runId: string, job: string | null): Promise<Response> {
+async function apiCiLogs(runId: string): Promise<Response> {
   if (!/^\d+$/.test(runId)) return errorResponse("Invalid run ID", 400);
   const proc = Bun.spawn(["gh", "run", "view", runId, "--log-failed"], {
     stdout: "pipe",
@@ -437,15 +437,7 @@ async function apiCiLogs(runId: string, job: string | null): Promise<Response> {
   });
   const exitCode = await proc.exited;
   if (exitCode === 0) {
-    let logs = await new Response(proc.stdout).text();
-    if (job) {
-      const prefix = job + "\t";
-      logs = logs
-        .split("\n")
-        .filter((line) => line.startsWith(prefix))
-        .map((line) => line.slice(prefix.length))
-        .join("\n");
-    }
+    const logs = await new Response(proc.stdout).text();
     return jsonResponse({ logs });
   }
   const stderr = (await new Response(proc.stderr).text()).trim();
@@ -531,10 +523,7 @@ Bun.serve({
     },
 
     "/api/ci-logs/:runId": {
-      GET: (req) => catching(`GET /api/ci-logs/${req.params.runId}`, () => {
-        const job = new URL(req.url).searchParams.get("job");
-        return apiCiLogs(req.params.runId, job);
-      }),
+      GET: (req) => catching(`GET /api/ci-logs/${req.params.runId}`, () => apiCiLogs(req.params.runId)),
     },
 
     "/api/notifications/stream": {

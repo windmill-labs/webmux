@@ -253,6 +253,35 @@ describe("loadConfig", () => {
     expect(loadConfig(dir).profiles.default.envPassthrough).toEqual([]);
   });
 
+  it("overrides worktreeRoot from local yaml", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "webmux-config-"));
+    tempDirs.push(dir);
+    Bun.spawnSync(["git", "init"], { cwd: dir });
+
+    await Bun.write(
+      join(dir, ".webmux.yaml"),
+      [
+        "workspace:",
+        "  worktreeRoot: ../worktrees",
+        "",
+      ].join("\n"),
+    );
+
+    await Bun.write(
+      join(dir, ".webmux.local.yaml"),
+      [
+        "workspace:",
+        "  worktreeRoot: /tmp/my-worktrees",
+        "",
+      ].join("\n"),
+    );
+
+    const config = loadConfig(dir);
+
+    expect(config.workspace.worktreeRoot).toBe("/tmp/my-worktrees");
+    expect(config.workspace.mainBranch).toBe("main");
+  });
+
   it("merges hook-only local overlays and fails fast before running the local hook", async () => {
     const dir = await mkdtemp(join(tmpdir(), "webmux-config-"));
     tempDirs.push(dir);

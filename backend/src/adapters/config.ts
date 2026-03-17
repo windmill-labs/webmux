@@ -22,6 +22,7 @@ interface LoadConfigOptions {
 }
 
 interface LocalProjectConfigOverlay {
+  worktreeRoot: string | null;
   profiles: Record<string, ProfileConfig>;
   lifecycleHooks: LifecycleHooksConfig;
 }
@@ -324,16 +325,18 @@ function loadLocalProjectConfigOverlay(root: string): LocalProjectConfigOverlay 
   try {
     const text = readLocalConfigFile(root).trim();
     if (!text) {
-      return { profiles: {}, lifecycleHooks: {} };
+      return { worktreeRoot: null, profiles: {}, lifecycleHooks: {} };
     }
 
     const parsed = parseConfigDocument(text);
+    const ws = isRecord(parsed.workspace) ? parsed.workspace : null;
     return {
+      worktreeRoot: ws && typeof ws.worktreeRoot === "string" ? ws.worktreeRoot : null,
       profiles: parseProfiles(parsed.profiles, false),
       lifecycleHooks: parseLifecycleHooks(parsed.lifecycleHooks),
     };
   } catch {
-    return { profiles: {}, lifecycleHooks: {} };
+    return { worktreeRoot: null, profiles: {}, lifecycleHooks: {} };
   }
 }
 
@@ -391,6 +394,9 @@ export function loadConfig(dir: string, options: LoadConfigOptions = {}): Projec
 
   return {
     ...projectConfig,
+    ...(localOverlay.worktreeRoot !== null ? {
+      workspace: { ...projectConfig.workspace, worktreeRoot: localOverlay.worktreeRoot },
+    } : {}),
     profiles: {
       ...cloneProfiles(projectConfig.profiles),
       ...cloneProfiles(localOverlay.profiles),

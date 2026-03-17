@@ -217,7 +217,10 @@ export function listLocalGitBranches(cwd: string): string[] {
 export function readGitWorktreeStatus(cwd: string): GitWorktreeStatus {
   const dirtyOutput = runGit(["status", "--porcelain"], cwd);
   const commit = tryRunGit(["rev-parse", "HEAD"], cwd);
-  const ahead = tryRunGit(["rev-list", "--count", "@{upstream}..HEAD"], cwd);
+  let ahead = tryRunGit(["rev-list", "--count", "@{upstream}..HEAD"], cwd);
+  if (!ahead.ok) {
+    ahead = tryRunGit(["rev-list", "--count", "HEAD", "--not", "--remotes=origin"], cwd);
+  }
 
   return {
     dirty: dirtyOutput.length > 0,

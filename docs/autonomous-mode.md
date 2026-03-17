@@ -24,10 +24,14 @@ Examples:
 - `bash scripts/run-with-isolated-tmux.sh bun bin/webmux.js serve --port 6121`
 - `cfg="$(mktemp)" && printf '%s\n' 'set-option -g destroy-unattached on' > "$cfg" && WEBMUX_ISOLATED_TMUX_CONFIG="$cfg" bash scripts/run-with-isolated-tmux.sh bun test backend/src/__tests__/tmux-adapter.test.ts -t BunTmuxGateway; rm -f "$cfg"`
 
-When done, open a PR directly, then provide:
+## Push & Open a Draft PR
 
-- What was changed and why (files modified, approach taken)
-- What checks passed (`bun run check` in frontend, etc.)
-- What was manually tested and the results
-- **Screenshots** of UI changes (if tools are available)
-- Any known limitations or follow-up work needed
+When all changes are committed and tests pass, push the branch and open a **draft** pull request:
+
+1. Push the current branch to `origin` (use `git push -u origin HEAD`)
+2. Use the `/pr` skill to create a draft PR — include in the description:
+   - What was changed and why (files modified, approach taken)
+   - What checks passed (`bun run check` in frontend, etc.)
+   - What was manually tested and the results
+   - **Screenshots** of UI changes (if tools are available)
+   - Any known limitations or follow-up work needed

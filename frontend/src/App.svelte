@@ -393,6 +393,11 @@
     } else if (e.key === "d" || e.key === "D") {
       e.preventDefault();
       if (selectedBranch) removeBranch = selectedBranch;
+    } else if (e.key === "Enter") {
+      if (selectedWorktree && selectedWorktree.mux !== "✓" && !selectedWorktree.creating && !isSelectedOpening) {
+        e.preventDefault();
+        openSelectedWorktree();
+      }
     }
   }
 
@@ -617,6 +622,7 @@
     {:else if selectedWorktree}
       <div class="flex-1 flex items-center justify-center px-6">
         <div class="flex flex-col items-center gap-4 text-center">
+          <p class="text-sm text-primary font-medium">{selectedWorktree.branch}</p>
           <div class="text-muted text-xs uppercase tracking-wide">Session closed</div>
           <div class="flex flex-col items-center gap-1">
             {#if selectedWorktree.profile}

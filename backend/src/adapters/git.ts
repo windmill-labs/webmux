@@ -67,6 +67,7 @@ export interface GitGateway {
   deleteBranch(repoRoot: string, branch: string, force?: boolean): void;
   mergeBranch(opts: MergeGitBranchOptions): void;
   currentBranch(repoRoot: string): string;
+  readDiff(cwd: string): string;
 }
 
 function runGit(args: string[], cwd: string): string {
@@ -329,5 +330,10 @@ export class BunGitGateway implements GitGateway {
 
   currentBranch(repoRoot: string): string {
     return runGit(["branch", "--show-current"], repoRoot);
+  }
+
+  readDiff(cwd: string): string {
+    const result = tryRunGit(["diff", "HEAD", "--no-color"], cwd);
+    return result.ok ? result.stdout : "";
   }
 }

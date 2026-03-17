@@ -158,6 +158,11 @@ export interface LinkedRepoInfo {
   dir?: string;
 }
 
+export interface WorktreeDiffResponse {
+  diff: string;
+  truncated: boolean;
+}
+
 export interface AppConfig {
   name?: string;
   services: ServiceConfig[];

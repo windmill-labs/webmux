@@ -9,6 +9,7 @@ import type {
   ProjectSnapshot,
   ProjectWorktreeSnapshot,
   WorktreeCreateMode,
+  WorktreeDiffResponse,
 } from "./types";
 
 async function api<T = unknown>(path: string, opts?: RequestInit): Promise<T> {
@@ -181,4 +182,8 @@ export async function uploadFiles(worktree: string, files: File[]): Promise<File
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
   return data as FileUploadResult;
+}
+
+export function fetchWorktreeDiff(branch: string): Promise<WorktreeDiffResponse> {
+  return api<WorktreeDiffResponse>(`worktrees/${encodeURIComponent(branch)}/diff`);
 }

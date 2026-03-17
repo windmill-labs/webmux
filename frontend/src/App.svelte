@@ -8,6 +8,7 @@
   import SettingsDialog from "./lib/SettingsDialog.svelte";
   import CiDetailsDialog from "./lib/CiDetailsDialog.svelte";
   import CommentReviewDialog from "./lib/CommentReviewDialog.svelte";
+  import DiffDialog from "./lib/DiffDialog.svelte";
   import PaneBar from "./lib/PaneBar.svelte";
   import NotificationToast from "./lib/NotificationToast.svelte";
   import LinearPanel from "./lib/LinearPanel.svelte";
@@ -52,6 +53,7 @@
   let showSettingsDialog = $state(false);
   let ciDetailsPr = $state<PrEntry | null>(null);
   let commentReviewPr = $state<PrEntry | null>(null);
+  let showDiffDialog = $state(false);
   let pendingCreateCount = $state(0);
   let latestAutoSelectCreateId = -1;
   let nextCreateRequestId = 0;
@@ -618,6 +620,7 @@
         if (selectedBranch) removeBranch = selectedBranch;
       }}
       onsettings={() => (showSettingsDialog = true)}
+      ondirtyclick={() => (showDiffDialog = true)}
       onCiClick={(pr) => (ciDetailsPr = pr)}
       onReviewsClick={(pr) => (commentReviewPr = pr)}
       onbellopen={handleBellOpen}
@@ -751,6 +754,13 @@
       commentReviewPr = null;
       setTimeout(() => terminalRef?.sendInput("\r"), ENTER_DELAY_MS);
     }}
+  />
+{/if}
+
+{#if showDiffDialog && selectedBranch}
+  <DiffDialog
+    branch={selectedBranch}
+    onclose={() => (showDiffDialog = false)}
   />
 {/if}
 

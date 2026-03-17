@@ -25,6 +25,7 @@
     onsettings,
     onCiClick,
     onReviewsClick,
+    ondirtyclick,
     onbellopen,
     onnotificationselect,
   }: {
@@ -42,6 +43,7 @@
     onsettings: () => void;
     onCiClick: (pr: PrEntry) => void;
     onReviewsClick: (pr: PrEntry) => void;
+    ondirtyclick?: () => void;
     onbellopen?: () => void;
     onnotificationselect?: (branch: string) => void;
   } = $props();
@@ -139,10 +141,11 @@
         >{displayName ?? "Select a worktree"}</span
       >
       {#if worktree?.dirty}
-        <span
-          class="shrink-0 text-[10px] px-1.5 py-0.5 rounded border border-warning/40 text-warning"
-          >dirty</span
-        >
+        <button
+          type="button"
+          class="shrink-0 text-[10px] px-1.5 py-0.5 rounded border border-warning/40 text-warning bg-transparent cursor-pointer hover:bg-warning/10"
+          onclick={ondirtyclick}
+        >dirty</button>
       {/if}
       {#if worktree?.linearIssue}
         <LinearBadge issue={worktree.linearIssue} />

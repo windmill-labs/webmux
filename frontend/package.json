@@ -27,5 +27,8 @@
     "typescript": "^5.0.0",
     "vite": "^6.0.0",
     "vitest": "^4.0.18"
+  },
+  "dependencies": {
+    "diff2html": "^3.4.56"
   }
 }

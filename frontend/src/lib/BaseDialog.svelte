@@ -25,6 +25,9 @@
 <dialog
   bind:this={dialogEl}
   {onclose}
+  onclick={(e: MouseEvent) => {
+    if (e.target === dialogEl) dialogEl.close();
+  }}
   class="bg-sidebar text-primary border border-edge rounded-xl p-6 w-[90%] {maxWidth
     ? ''
     : wide

@@ -203,7 +203,8 @@
           } else if (/^https?:\/\//i.test(imageUrl)) {
             const resp = await fetch(imageUrl);
             const contentType = resp.headers.get("content-type") ?? "";
-            if (contentType.startsWith("image/")) {
+            const contentLength = parseInt(resp.headers.get("content-length") ?? "0", 10);
+            if (resp.ok && contentType.startsWith("image/") && contentLength <= 10 * 1024 * 1024) {
               const blob = await resp.blob();
               const name = imageUrl.split("/").pop()?.split("?")[0]?.split("#")[0] || "image.png";
               files = [new File([blob], name, { type: blob.type })];

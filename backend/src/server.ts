@@ -450,7 +450,6 @@ const ALLOWED_IMAGE_TYPES = new Set([
   "image/jpeg",
   "image/gif",
   "image/webp",
-  "image/svg+xml",
 ]);
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
@@ -461,8 +460,6 @@ function sanitizeFilename(name: string): string {
 }
 
 async function apiUploadFiles(name: string, req: Request): Promise<Response> {
-  ensureBranchNotBusy(name);
-  await reconciliationService.reconcile(PROJECT_DIR);
   const state = projectRuntime.getWorktreeByBranch(name);
   if (!state) return errorResponse(`Worktree not found: ${name}`, 404);
 
@@ -488,7 +485,7 @@ async function apiUploadFiles(name: string, req: Request): Promise<Response> {
     if (entry.size > MAX_FILE_SIZE) {
       return errorResponse(`File too large: ${entry.name} (max 10MB)`, 400);
     }
-    const safeName = sanitizeFilename(entry.name);
+    const safeName = `${Date.now()}_${sanitizeFilename(entry.name)}`;
     const destPath = join(uploadDir, safeName);
     if (!resolve(destPath).startsWith(uploadDir + "/")) {
       return errorResponse("Invalid filename", 400);

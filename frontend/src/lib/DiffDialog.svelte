@@ -51,9 +51,10 @@
   type DiffTab = "diff" | "unpushed";
   let activeTab = $state<DiffTab>("diff");
 
-  // Default to "diff" if there's uncommitted content, otherwise "unpushed"
+  let initialTabSet = false;
   $effect(() => {
-    if (!loading && !error) {
+    if (!loading && !error && !initialTabSet) {
+      initialTabSet = true;
       activeTab = uncommitted ? "diff" : "unpushed";
     }
   });
@@ -144,6 +145,10 @@
   .tab-btn:disabled {
     opacity: 0.4;
     cursor: default;
+  }
+  .tab-btn:disabled:hover {
+    color: var(--color-muted);
+    background: transparent;
   }
 
   .diff-container {

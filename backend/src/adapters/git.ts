@@ -224,6 +224,8 @@ export function readGitWorktreeStatus(cwd: string): GitWorktreeStatus {
   const commit = tryRunGit(["rev-parse", "HEAD"], cwd);
   let ahead = tryRunGit(["rev-list", "--count", "@{upstream}..HEAD"], cwd);
   if (!ahead.ok) {
+    // Fallback: counts commits not on any origin/* branch. May slightly over-count
+    // on repos with many branches, but is a reasonable default when no upstream is set.
     ahead = tryRunGit(["rev-list", "--count", "HEAD", "--not", "--remotes=origin"], cwd);
   }
 
@@ -349,6 +351,7 @@ export class BunGitGateway implements GitGateway {
   listUnpushedCommits(cwd: string): UnpushedCommit[] {
     let result = tryRunGit(["log", "--oneline", "@{upstream}..HEAD"], cwd);
     if (!result.ok) {
+      // Fallback: see comment in readGitWorktreeStatus for trade-off
       result = tryRunGit(["log", "--oneline", "HEAD", "--not", "--remotes=origin"], cwd);
     }
     if (!result.ok || !result.stdout) return [];

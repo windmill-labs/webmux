@@ -3,6 +3,7 @@ import type {
   WorktreeInfo,
   AppConfig,
   AppNotification,
+  FileUploadResult,
   LinearIssue,
   PrEntry,
   ProjectSnapshot,
@@ -166,4 +167,18 @@ export function subscribeNotifications(
 
 export async function dismissNotification(id: number): Promise<void> {
   await api(`notifications/${id}/dismiss`, { method: "POST" });
+}
+
+export async function uploadFiles(worktree: string, files: File[]): Promise<FileUploadResult> {
+  const form = new FormData();
+  for (const file of files) {
+    form.append("files", file);
+  }
+  const res = await fetch(`/api/worktrees/${encodeURIComponent(worktree)}/upload`, {
+    method: "POST",
+    body: form,
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data as FileUploadResult;
 }

@@ -4,6 +4,7 @@
   import type { ITheme } from "@xterm/xterm";
   import { FitAddon } from "@xterm/addon-fit";
   import { WebLinksAddon } from "@xterm/addon-web-links";
+  import { uploadFiles } from "./api";
   import "@xterm/xterm/css/xterm.css";
 
   let { worktree, isMobile = false, initialPane, terminalTheme }: {
@@ -29,6 +30,8 @@
   let touchScrollLocked = false;
   let destroyed = false;
   let canRetryVisibleClose = true;
+  let isDraggingOver = $state(false);
+  let dragCounter = 0;
 
   function copyToClipboard(text: string): void {
     if (navigator.clipboard?.writeText) {
@@ -135,6 +138,55 @@
       xtermEl = null;
       viewportEl = null;
     };
+  }
+
+  function hasImageFiles(dt: DataTransfer | null): boolean {
+    if (!dt) return false;
+    for (const item of dt.items) {
+      if (item.kind === "file" && item.type.startsWith("image/")) return true;
+    }
+    return false;
+  }
+
+  function handleDragEnter(e: DragEvent): void {
+    if (!hasImageFiles(e.dataTransfer)) return;
+    e.preventDefault();
+    dragCounter++;
+    isDraggingOver = true;
+  }
+
+  function handleDragOver(e: DragEvent): void {
+    if (!isDraggingOver) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+  }
+
+  function handleDragLeave(_e: DragEvent): void {
+    dragCounter--;
+    if (dragCounter <= 0) {
+      dragCounter = 0;
+      isDraggingOver = false;
+    }
+  }
+
+  async function handleDrop(e: DragEvent): Promise<void> {
+    e.preventDefault();
+    dragCounter = 0;
+    isDraggingOver = false;
+
+    const files = Array.from(e.dataTransfer?.files ?? []).filter((f) =>
+      f.type.startsWith("image/"),
+    );
+    if (files.length === 0) return;
+
+    try {
+      const result = await uploadFiles(worktree, files);
+      const paths = result.files.map((f) => f.path).join(" ");
+      sendInput(paths);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      term.writeln(`\r\n\x1b[31m[Upload error: ${msg}]\x1b[0m`);
+    }
   }
 
   function buildResizeMessage(): string {
@@ -328,4 +380,18 @@
   });
 </script>
 
-<div class="flex-1 min-h-0 w-full p-1 overflow-hidden" bind:this={containerEl}></div>
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div
+  class="flex-1 min-h-0 w-full p-1 overflow-hidden relative"
+  bind:this={containerEl}
+  ondragenter={handleDragEnter}
+  ondragover={handleDragOver}
+  ondragleave={handleDragLeave}
+  ondrop={handleDrop}
+>
+  {#if isDraggingOver}
+    <div class="absolute inset-0 z-10 flex items-center justify-center bg-black/50 border-2 border-dashed border-[var(--color-accent)] rounded pointer-events-none">
+      <span class="text-white text-sm font-medium">Drop image(s) to upload</span>
+    </div>
+  {/if}
+</div>

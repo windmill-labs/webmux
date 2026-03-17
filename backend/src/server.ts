@@ -1,4 +1,5 @@
 import { join, resolve } from "node:path";
+import { mkdirSync } from "node:fs";
 import { networkInterfaces } from "node:os";
 import { log } from "./lib/log";
 import {
@@ -444,6 +445,63 @@ async function apiCiLogs(runId: string): Promise<Response> {
   return errorResponse(`Failed to fetch logs: ${stderr || "unknown error"}`, 502);
 }
 
+const ALLOWED_IMAGE_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+  "image/svg+xml",
+]);
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+
+function sanitizeFilename(name: string): string {
+  // Strip directory components, replace unsafe chars
+  const base = name.split("/").pop()?.split("\\").pop() ?? "upload";
+  return base.replace(/[^a-zA-Z0-9._-]/g, "_") || "upload";
+}
+
+async function apiUploadFiles(name: string, req: Request): Promise<Response> {
+  ensureBranchNotBusy(name);
+  await reconciliationService.reconcile(PROJECT_DIR);
+  const state = projectRuntime.getWorktreeByBranch(name);
+  if (!state) return errorResponse(`Worktree not found: ${name}`, 404);
+
+  let formData: FormData;
+  try {
+    formData = await req.formData();
+  } catch {
+    return errorResponse("Invalid multipart form data", 400);
+  }
+
+  const entries = formData.getAll("files");
+  if (entries.length === 0) return errorResponse("No files provided", 400);
+
+  const uploadDir = `/tmp/webmux-uploads/${sanitizeFilename(name)}`;
+  mkdirSync(uploadDir, { recursive: true });
+
+  const results: Array<{ path: string }> = [];
+  for (const entry of entries) {
+    if (!(entry instanceof File)) continue;
+    if (!ALLOWED_IMAGE_TYPES.has(entry.type)) {
+      return errorResponse(`Unsupported file type: ${entry.type}`, 400);
+    }
+    if (entry.size > MAX_FILE_SIZE) {
+      return errorResponse(`File too large: ${entry.name} (max 10MB)`, 400);
+    }
+    const safeName = sanitizeFilename(entry.name);
+    const destPath = join(uploadDir, safeName);
+    // Guard against path traversal
+    if (!resolve(destPath).startsWith(uploadDir + "/")) {
+      return errorResponse("Invalid filename", 400);
+    }
+    await Bun.write(destPath, entry);
+    results.push({ path: destPath });
+  }
+
+  log.info(`[upload] branch=${name} files=${results.length}`);
+  return jsonResponse({ files: results });
+}
+
 // --- Server ---
 
 Bun.serve({
@@ -507,6 +565,14 @@ Bun.serve({
         const name = decodeURIComponent(req.params.name);
         if (!isValidWorktreeName(name)) return errorResponse("Invalid worktree name", 400);
         return catching(`POST /api/worktrees/${name}/send`, () => apiSendPrompt(name, req));
+      },
+    },
+
+    "/api/worktrees/:name/upload": {
+      POST: (req) => {
+        const name = decodeURIComponent(req.params.name);
+        if (!isValidWorktreeName(name)) return errorResponse("Invalid worktree name", 400);
+        return catching(`POST /api/worktrees/${name}/upload`, () => apiUploadFiles(name, req));
       },
     },
 

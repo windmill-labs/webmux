@@ -68,6 +68,10 @@ export interface LinearIssue {
   project: string | null;
 }
 
+export interface FileUploadResult {
+  files: Array<{ path: string }>;
+}
+
 export type WorktreeCreateMode = "new" | "existing";
 
 export interface AvailableBranch {

@@ -29,12 +29,17 @@
 
   let label = $derived(prLabel(pr));
 
+  function checkKey(check: { name: string; runId: number | null }): string {
+    return `${check.name}:${check.runId}`;
+  }
+
   async function handleViewLogs(check: { runId: number; name: string }): Promise<void> {
-    if (expandedCheck === check.name) {
+    const key = checkKey(check);
+    if (expandedCheck === key) {
       expandedCheck = null;
       return;
     }
-    expandedCheck = check.name;
+    expandedCheck = key;
     logs = "";
     logsError = "";
     logsLoading = true;
@@ -116,7 +121,7 @@
           {#if check.status === "failed" && check.runId !== null}
             <LinkBtn
               onclick={() => handleViewLogs({ runId: check.runId!, name: check.name })}
-              >{expandedCheck === check.name
+              >{expandedCheck === checkKey(check)
                 ? "Hide logs"
                 : "View logs"}</LinkBtn
             >
@@ -132,7 +137,7 @@
           {/if}
         </div>
 
-        {#if expandedCheck === check.name}
+        {#if expandedCheck === checkKey(check)}
           <div class="mt-2">
             {#if logsLoading}
               <div class="text-[12px] text-muted py-2">Loading logs...</div>

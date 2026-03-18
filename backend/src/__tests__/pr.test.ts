@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { parseReviewComments, mapWithConcurrency } from "../services/pr-service";
+import { mapWithConcurrency, startSerializedInterval } from "../lib/async";
+import { parseReviewComments } from "../services/pr-service";
 
 describe("parseReviewComments", () => {
   it("parses normal review comments", () => {
@@ -105,5 +106,82 @@ describe("mapWithConcurrency", () => {
   it("handles empty input", async () => {
     const result = await mapWithConcurrency([], 5, async (n: number) => n);
     expect(result).toEqual([]);
+  });
+});
+
+describe("startSerializedInterval", () => {
+  it("coalesces overlapping ticks into a single rerun", async () => {
+    const ticks: Array<() => void> = [];
+    const completions: Array<() => void> = [];
+    let runs = 0;
+    const stop = startSerializedInterval(
+      async () => {
+        runs += 1;
+        await new Promise<void>((resolve) => {
+          completions.push(resolve);
+        });
+      },
+      1000,
+      {
+        scheduleEvery: (handler) => {
+          ticks.push(handler);
+          return ticks.length;
+        },
+        cancelSchedule: () => {},
+      },
+    );
+
+    await Promise.resolve();
+    expect(runs).toBe(1);
+
+    ticks[0]!();
+    ticks[0]!();
+    expect(runs).toBe(1);
+
+    completions.shift()?.();
+    for (let i = 0; i < 10 && runs < 2; i += 1) {
+      await Promise.resolve();
+    }
+    expect(runs).toBe(2);
+
+    completions.shift()?.();
+    await Promise.resolve();
+    stop();
+  });
+
+  it("stops scheduling reruns after disposal", async () => {
+    const ticks: Array<() => void> = [];
+    const completions: Array<() => void> = [];
+    let runs = 0;
+    let cancelledHandle: number | null = null;
+    const stop = startSerializedInterval(
+      async () => {
+        runs += 1;
+        await new Promise<void>((resolve) => {
+          completions.push(resolve);
+        });
+      },
+      1000,
+      {
+        scheduleEvery: (handler) => {
+          ticks.push(handler);
+          return 42;
+        },
+        cancelSchedule: (handle) => {
+          cancelledHandle = handle;
+        },
+      },
+    );
+
+    await Promise.resolve();
+    expect(runs).toBe(1);
+    ticks[0]!();
+    stop();
+    completions.shift()?.();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(cancelledHandle === 42).toBe(true);
+    expect(runs).toBe(1);
   });
 });

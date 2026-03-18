@@ -17,7 +17,8 @@
   const DISCONNECTED_NOTICE = "\r\n\x1b[90m[Disconnected]\x1b[0m";
   const RECONNECTED_NOTICE = "\r\n\x1b[32m[Reconnected]\x1b[0m";
   let containerEl: HTMLDivElement;
-  let term: Terminal;
+  let term!: Terminal;
+  let termReady = false;
   let fitAddon: FitAddon;
   let ws: WebSocket | null = null;
   let resizeObs: ResizeObserver;
@@ -420,10 +421,11 @@
     document.addEventListener("visibilitychange", reconnectIfNeeded);
     window.addEventListener("focus", reconnectIfNeeded);
     window.addEventListener("online", reconnectIfNeeded);
+    termReady = true;
   });
 
   $effect(() => {
-    if (terminalTheme && term) {
+    if (termReady && terminalTheme && term.options) {
       term.options.theme = terminalTheme;
     }
   });

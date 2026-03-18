@@ -36,6 +36,7 @@ import {
   removeManagedWorktree,
   type InitializeManagedWorktreeResult,
 } from "./worktree-service";
+import { log } from "../lib/log";
 
 function generateBranchName(): string {
   return `change-${randomUUID().slice(0, 8)}`;
@@ -204,7 +205,7 @@ export class LifecycleService {
         agent,
         phase: "reconciling",
       });
-      await this.deps.reconciliation.reconcile(this.deps.projectRoot);
+      await this.deps.reconciliation.reconcile(this.deps.projectRoot, { force: true });
 
       return {
         branch,
@@ -253,7 +254,7 @@ export class LifecycleService {
         launchMode,
       });
 
-      await this.deps.reconciliation.reconcile(this.deps.projectRoot);
+      await this.deps.reconciliation.reconcile(this.deps.projectRoot, { force: true });
 
       return {
         branch,
@@ -271,7 +272,7 @@ export class LifecycleService {
         buildProjectSessionName(this.deps.projectRoot),
         buildWorktreeWindowName(branch),
       );
-      await this.deps.reconciliation.reconcile(this.deps.projectRoot);
+      await this.deps.reconciliation.reconcile(this.deps.projectRoot, { force: true });
     } catch (error) {
       throw this.wrapOperationError(error);
     }
@@ -738,7 +739,7 @@ export class LifecycleService {
       this.deps.git,
     );
 
-    await this.deps.reconciliation.reconcile(this.deps.projectRoot);
+    await this.deps.reconciliation.reconcile(this.deps.projectRoot, { force: true });
   }
 
   private async runLifecycleHook(input: {
@@ -747,13 +748,13 @@ export class LifecycleService {
     meta: WorktreeMeta | null;
     worktreePath: string;
   }): Promise<void> {
-    console.debug(`[lifecycle-hook] name=${input.name} command=${input.command ?? "UNDEFINED"} meta=${input.meta ? "present" : "NULL"} cwd=${input.worktreePath}`);
+    log.debug(`[lifecycle-hook] name=${input.name} command=${input.command ?? "UNDEFINED"} meta=${input.meta ? "present" : "NULL"} cwd=${input.worktreePath}`);
     if (!input.command || !input.meta) {
-      console.debug(`[lifecycle-hook] SKIPPING ${input.name}: command=${!!input.command} meta=${!!input.meta}`);
+      log.debug(`[lifecycle-hook] SKIPPING ${input.name}: command=${!!input.command} meta=${!!input.meta}`);
       return;
     }
 
-    console.debug(`[lifecycle-hook] RUNNING ${input.name}: ${input.command} in ${input.worktreePath}`);
+    log.debug(`[lifecycle-hook] RUNNING ${input.name}: ${input.command} in ${input.worktreePath}`);
     const dotenvValues = await loadDotenvLocal(input.worktreePath);
     await this.deps.hooks.run({
       name: input.name,
@@ -763,7 +764,7 @@ export class LifecycleService {
         WEBMUX_WORKTREE_PATH: input.worktreePath,
       }, dotenvValues),
     });
-    console.debug(`[lifecycle-hook] COMPLETED ${input.name}`);
+    log.debug(`[lifecycle-hook] COMPLETED ${input.name}`);
   }
 
   private async reportCreateProgress(progress: CreateWorktreeProgress): Promise<void> {

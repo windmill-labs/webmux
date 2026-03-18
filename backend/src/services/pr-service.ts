@@ -1,6 +1,7 @@
 import { readWorktreePrs, writeWorktreePrs } from "../adapters/fs";
 import type { LinkedRepoConfig } from "../domain/config";
 import type { CiCheck, PrComment, PrEntry } from "../domain/model";
+import { mapWithConcurrency, startSerializedInterval } from "../lib/async";
 import { log } from "../lib/log";
 
 const PR_FETCH_LIMIT = 50;
@@ -220,26 +221,6 @@ export async function fetchAllPrs(
   } catch (err) {
     return { ok: false, error: `failed to parse gh output for ${label}: ${err}` };
   }
-}
-
-/** Run async mapper over items with bounded concurrency. */
-export async function mapWithConcurrency<T, R>(
-  items: T[],
-  limit: number,
-  fn: (item: T) => Promise<R>,
-): Promise<R[]> {
-  const results: R[] = new Array(items.length);
-  let next = 0;
-
-  async function worker(): Promise<void> {
-    while (next < items.length) {
-      const idx = next++;
-      results[idx] = await fn(items[idx]);
-    }
-  }
-
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker()));
-  return results;
 }
 
 /** Fetch inline review comments for a single PR via `gh api` with ETag caching.
@@ -487,24 +468,17 @@ export function startPrMonitor(
   intervalMs: number = 20_000,
   isActive?: () => boolean,
 ): () => void {
-  const run = (): void => {
+  const run = async (): Promise<void> => {
     if (isActive && !isActive()) {
       log.debug("[pr] skipping PR sync: no active clients");
       return;
     }
-    syncPrStatus(getWorktreeGitDirs, linkedRepos, projectDir).catch(
+    await syncPrStatus(getWorktreeGitDirs, linkedRepos, projectDir).catch(
       (err: unknown) => {
         log.error(`[pr] sync error: ${err}`);
       },
     );
   };
 
-  // Run once immediately (non-blocking).
-  run();
-
-  const timer = setInterval(run, intervalMs);
-
-  return (): void => {
-    clearInterval(timer);
-  };
+  return startSerializedInterval(run, intervalMs);
 }

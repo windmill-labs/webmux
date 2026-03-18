@@ -114,20 +114,20 @@ function killTmuxSession(name: string): void {
 }
 
 export async function attach(
-  worktreeId: string,
+  attachId: string,
   target: TerminalAttachTarget,
   cols: number,
   rows: number,
   initialPane?: number
 ): Promise<void> {
-  log.debug(`[term] attach(${worktreeId}) cols=${cols} rows=${rows} existing=${sessions.has(worktreeId)}`);
-  if (sessions.has(worktreeId)) {
-    await detach(worktreeId);
+  log.debug(`[term] attach(${attachId}) cols=${cols} rows=${rows} existing=${sessions.has(attachId)}`);
+  if (sessions.has(attachId)) {
+    await detach(attachId);
   }
 
   const gName = groupedName();
   log.debug(
-    `[term] attach(${worktreeId}) ownerSession=${target.ownerSessionName} gName=${gName} window=${target.windowName}`,
+    `[term] attach(${attachId}) ownerSession=${target.ownerSessionName} gName=${gName} window=${target.windowName}`,
   );
 
   // Kill stale session with same name if it exists (leftover from previous server run)
@@ -167,8 +167,8 @@ export async function attach(
     cancelled: false,
   };
 
-  sessions.set(worktreeId, session);
-  log.debug(`[term] attach(${worktreeId}) spawned pid=${proc.pid}`);
+  sessions.set(attachId, session);
+  log.debug(`[term] attach(${attachId}) spawned pid=${proc.pid}`);
 
   // Read stdout → push to scrollback + callback
   (async () => {
@@ -191,7 +191,7 @@ export async function attach(
       // Stream closed normally — no action needed.
       // Log anything unexpected so it surfaces during debugging.
       if (!session.cancelled) {
-        log.error(`[term] stdout reader error(${worktreeId})`, err);
+        log.error(`[term] stdout reader error(${attachId})`, err);
       }
     }
   })();
@@ -203,103 +203,103 @@ export async function attach(
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        log.debug(`[term] stderr(${worktreeId}): ${textDecoder.decode(value).trimEnd()}`);
+        log.debug(`[term] stderr(${attachId}): ${textDecoder.decode(value).trimEnd()}`);
       }
     } catch { /* stream closed */ }
   })();
 
   proc.exited.then((exitCode) => {
-    log.debug(`[term] proc exited(${worktreeId}) pid=${proc.pid} code=${exitCode}`);
+    log.debug(`[term] proc exited(${attachId}) pid=${proc.pid} code=${exitCode}`);
     // Only clean up if this session is still the active one (not replaced by a new attach)
-    if (sessions.get(worktreeId) === session) {
+    if (sessions.get(attachId) === session) {
       session.onExit?.(exitCode);
-      sessions.delete(worktreeId);
+      sessions.delete(attachId);
     } else {
-      log.debug(`[term] proc exited(${worktreeId}) stale session, skipping cleanup`);
+      log.debug(`[term] proc exited(${attachId}) stale session, skipping cleanup`);
     }
     killTmuxSession(gName);
   });
 }
 
-export async function detach(worktreeId: string): Promise<void> {
-  const session = sessions.get(worktreeId);
+export async function detach(attachId: string): Promise<void> {
+  const session = sessions.get(attachId);
   if (!session) {
-    log.debug(`[term] detach(${worktreeId}) no session found`);
+    log.debug(`[term] detach(${attachId}) no session found`);
     return;
   }
 
-  log.debug(`[term] detach(${worktreeId}) killing pid=${session.proc.pid} tmux=${session.groupedSessionName}`);
+  log.debug(`[term] detach(${attachId}) killing pid=${session.proc.pid} tmux=${session.groupedSessionName}`);
   session.cancelled = true;
   session.proc.kill();
-  sessions.delete(worktreeId);
+  sessions.delete(attachId);
 
   killTmuxSession(session.groupedSessionName);
 }
 
-export function write(worktreeId: string, data: string): void {
-  const session = sessions.get(worktreeId);
+export function write(attachId: string, data: string): void {
+  const session = sessions.get(attachId);
   if (!session) {
-    log.warn(`[term] write(${worktreeId}) NO SESSION - input dropped (${data.length} bytes)`);
+    log.warn(`[term] write(${attachId}) NO SESSION - input dropped (${data.length} bytes)`);
     return;
   }
   try {
     session.proc.stdin.write(textEncoder.encode(data));
     session.proc.stdin.flush();
   } catch (err) {
-    log.error(`[term] write(${worktreeId}) stdin closed`, err);
+    log.error(`[term] write(${attachId}) stdin closed`, err);
   }
 }
 
 /** Send raw hex bytes to the active tmux pane via `tmux send-keys -H`,
  *  bypassing tmux's input parser (needed for CSI u sequences). */
-export async function sendKeys(worktreeId: string, hexBytes: string[]): Promise<void> {
-  const session = sessions.get(worktreeId);
+export async function sendKeys(attachId: string, hexBytes: string[]): Promise<void> {
+  const session = sessions.get(attachId);
   if (!session) return;
   const windowTarget = `${session.groupedSessionName}:${session.windowName}`;
   await tmuxExec(["tmux", "send-keys", "-t", windowTarget, "-H", ...hexBytes]);
 }
 
-export async function resize(worktreeId: string, cols: number, rows: number): Promise<void> {
-  const session = sessions.get(worktreeId);
+export async function resize(attachId: string, cols: number, rows: number): Promise<void> {
+  const session = sessions.get(attachId);
   if (!session) return;
   const windowTarget = `${session.groupedSessionName}:${session.windowName}`;
   const result = await tmuxExec(["tmux", "resize-window", "-t", windowTarget, "-x", String(cols), "-y", String(rows)]);
   if (result.exitCode !== 0) log.warn(`[term] resize failed: ${result.stderr}`);
 }
 
-export function getScrollback(worktreeId: string): string {
-  return sessions.get(worktreeId)?.scrollback.join("") ?? "";
+export function getScrollback(attachId: string): string {
+  return sessions.get(attachId)?.scrollback.join("") ?? "";
 }
 
 export function setCallbacks(
-  worktreeId: string,
+  attachId: string,
   onData: (data: string) => void,
   onExit: (exitCode: number) => void
 ): void {
-  const session = sessions.get(worktreeId);
+  const session = sessions.get(attachId);
   if (session) {
     session.onData = onData;
     session.onExit = onExit;
   }
 }
 
-export async function selectPane(worktreeId: string, paneIndex: number): Promise<void> {
-  const session = sessions.get(worktreeId);
+export async function selectPane(attachId: string, paneIndex: number): Promise<void> {
+  const session = sessions.get(attachId);
   if (!session) {
-    log.debug(`[term] selectPane(${worktreeId}) no session found`);
+    log.debug(`[term] selectPane(${attachId}) no session found`);
     return;
   }
   const target = `${session.groupedSessionName}:${session.windowName}.${paneIndex}`;
-  log.debug(`[term] selectPane(${worktreeId}) pane=${paneIndex} target=${target}`);
+  log.debug(`[term] selectPane(${attachId}) pane=${paneIndex} target=${target}`);
   const [r1, r2] = await Promise.all([
     tmuxExec(["tmux", "select-pane", "-t", target]),
     tmuxExec(["tmux", "resize-pane", "-Z", "-t", target]),
   ]);
-  log.debug(`[term] selectPane(${worktreeId}) select=${r1.exitCode} zoom=${r2.exitCode}`);
+  log.debug(`[term] selectPane(${attachId}) select=${r1.exitCode} zoom=${r2.exitCode}`);
 }
 
-export function clearCallbacks(worktreeId: string): void {
-  const session = sessions.get(worktreeId);
+export function clearCallbacks(attachId: string): void {
+  const session = sessions.get(attachId);
   if (session) {
     session.onData = null;
     session.onExit = null;

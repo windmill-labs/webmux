@@ -61,6 +61,11 @@
     transition: transform 0.15s;
   }
 
+  .toggle:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
   .toggle.on .knob {
     transform: translateX(14px);
   }

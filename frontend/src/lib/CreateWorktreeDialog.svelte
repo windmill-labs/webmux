@@ -14,7 +14,7 @@
     availableBranches = [],
     availableBranchesLoading = false,
     availableBranchesError = null,
-    startupEnvs = { ENABLE_DEBUG: true, USE_CACHE: false, VERBOSE: true },
+    startupEnvs = {},
     oncreate,
     oncancel,
   }: {

@@ -20,12 +20,12 @@
         {#if typeof startupEnvs[key] === "boolean"}
           <div class="mb-3">
             <label class="flex items-center gap-2 text-xs text-muted cursor-pointer" for="wt-env-{key}">
-              {key}
               <Toggle
                 id="wt-env-{key}"
                 aria-label={key}
                 bind:checked={() => envValues[key] as boolean, (v) => envValues[key] = v}
               />
+              {key}
             </label>
           </div>
         {:else}

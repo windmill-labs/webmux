@@ -123,31 +123,44 @@
   // Sidebar resize
   const MIN_SIDEBAR_WIDTH = 140;
   const MAX_SIDEBAR_WIDTH = 500;
-  let sidebarWidth = $state(loadSavedSidebarWidth());
+  const SIDEBAR_KEYBOARD_STEP = 10;
+  let sidebarWidth = $state(
+    Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, loadSavedSidebarWidth())),
+  );
   let isResizingSidebar = $state(false);
 
-  function handleResizeStart(e: MouseEvent) {
+  function clampSidebarWidth(w: number): number {
+    return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, w));
+  }
+
+  function handleResizeStart(e: PointerEvent) {
     e.preventDefault();
     isResizingSidebar = true;
     const startX = e.clientX;
     const startWidth = sidebarWidth;
 
-    function onMouseMove(ev: MouseEvent) {
-      sidebarWidth = Math.min(
-        MAX_SIDEBAR_WIDTH,
-        Math.max(MIN_SIDEBAR_WIDTH, startWidth + ev.clientX - startX),
-      );
+    function onPointerMove(ev: PointerEvent) {
+      sidebarWidth = clampSidebarWidth(startWidth + ev.clientX - startX);
     }
 
-    function onMouseUp() {
+    function onPointerUp() {
       isResizingSidebar = false;
       saveSidebarWidth(sidebarWidth);
-      window.removeEventListener("mousemove", onMouseMove);
-      window.removeEventListener("mouseup", onMouseUp);
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
     }
 
-    window.addEventListener("mousemove", onMouseMove);
-    window.addEventListener("mouseup", onMouseUp);
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+  }
+
+  function handleResizeKeydown(e: KeyboardEvent) {
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      e.preventDefault();
+      const delta = e.key === "ArrowRight" ? SIDEBAR_KEYBOARD_STEP : -SIDEBAR_KEYBOARD_STEP;
+      sidebarWidth = clampSidebarWidth(sidebarWidth + delta);
+      saveSidebarWidth(sidebarWidth);
+    }
   }
 
   // Mobile state
@@ -634,13 +647,17 @@
       {/if}
     </aside>
     {#if !isMobile}
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
         class="w-1 shrink-0 cursor-col-resize hover:bg-accent/50 transition-colors"
         class:bg-accent={isResizingSidebar}
-        onmousedown={handleResizeStart}
+        onpointerdown={handleResizeStart}
+        onkeydown={handleResizeKeydown}
         role="separator"
         aria-orientation="vertical"
+        aria-valuenow={sidebarWidth}
+        aria-valuemin={MIN_SIDEBAR_WIDTH}
+        aria-valuemax={MAX_SIDEBAR_WIDTH}
+        tabindex="0"
       ></div>
     {/if}
   {/if}

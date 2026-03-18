@@ -5,12 +5,18 @@
   import { FitAddon } from "@xterm/addon-fit";
   import { WebLinksAddon } from "@xterm/addon-web-links";
   import { uploadFiles } from "./api";
+  import type {
+    TerminalInteractionMode,
+    TerminalResizeMessage,
+    TerminalSetInteractionModeMessage,
+  } from "./types";
   import "@xterm/xterm/css/xterm.css";
 
-  let { worktree, isMobile = false, initialPane, terminalTheme }: {
+  let { worktree, isMobile = false, initialPane, interactionMode = "interact", terminalTheme }: {
     worktree: string;
     isMobile?: boolean;
     initialPane?: number;
+    interactionMode?: TerminalInteractionMode;
     terminalTheme: ITheme;
   } = $props();
 
@@ -23,12 +29,9 @@
   let ws: WebSocket | null = null;
   let resizeObs: ResizeObserver;
   let resizeTimer: ReturnType<typeof setTimeout>;
-  let xtermEl: HTMLElement | null = null;
   let viewportEl: HTMLElement | null = null;
   let manualTouchCleanup: (() => void) | null = null;
-  let lastTouchX = 0;
   let lastTouchY = 0;
-  let touchScrollLocked = false;
   let destroyed = false;
   let canRetryVisibleClose = true;
   let isDraggingOver = $state(false);
@@ -62,62 +65,27 @@
     }
   }
 
-  function handleTouchGestureEnd(): void {
-    touchScrollLocked = false;
-  }
-
   function shouldUseManualTouchScroll(): boolean {
-    return isMobile && !!viewportEl && term.modes.mouseTrackingMode !== "none";
+    return isMobile && interactionMode === "scroll" && !!viewportEl && term.modes.mouseTrackingMode !== "none";
   }
 
   function handleManualTouchStart(event: TouchEvent): void {
-    if (!shouldUseManualTouchScroll()) return;
     const touch = event.touches[0];
     if (!touch) return;
-    lastTouchX = touch.pageX;
+    if (!shouldUseManualTouchScroll()) return;
     lastTouchY = touch.pageY;
-    touchScrollLocked = false;
   }
 
   function handleManualTouchMove(event: TouchEvent): void {
     const touch = event.touches[0];
     if (!shouldUseManualTouchScroll() || !viewportEl || !touch) return;
 
-    const deltaX = lastTouchX - touch.pageX;
     const deltaY = lastTouchY - touch.pageY;
-    lastTouchX = touch.pageX;
     lastTouchY = touch.pageY;
-
-    if (!touchScrollLocked) {
-      if (Math.abs(deltaY) <= Math.abs(deltaX)) return;
-      touchScrollLocked = true;
-    }
     if (deltaY === 0) return;
 
-    const canScrollViewport = viewportEl.scrollHeight > viewportEl.clientHeight;
-    if (!canScrollViewport) {
-      dispatchSyntheticWheel(deltaY, touch);
-      event.preventDefault();
-      return;
-    }
-
     viewportEl.scrollTop += deltaY;
-    // Keep the swipe owned by the terminal so the app shell never steals it at the top/bottom edge.
     event.preventDefault();
-  }
-
-  function dispatchSyntheticWheel(deltaY: number, touch: Touch): void {
-    if (!xtermEl) return;
-
-    const wheelEvent = new WheelEvent("wheel", {
-      bubbles: true,
-      cancelable: true,
-      clientX: touch.clientX,
-      clientY: touch.clientY,
-      deltaMode: WheelEvent.DOM_DELTA_PIXEL,
-      deltaY,
-    });
-    xtermEl.dispatchEvent(wheelEvent);
   }
 
   function attachManualTouchScroll(): void {
@@ -125,18 +93,12 @@
     const nextViewportEl = containerEl.querySelector(".xterm-viewport");
     if (!(nextXtermEl instanceof HTMLElement) || !(nextViewportEl instanceof HTMLElement)) return;
 
-    xtermEl = nextXtermEl;
     viewportEl = nextViewportEl;
     nextXtermEl.addEventListener("touchstart", handleManualTouchStart, { passive: true });
     nextXtermEl.addEventListener("touchmove", handleManualTouchMove, { passive: false });
-    nextXtermEl.addEventListener("touchend", handleTouchGestureEnd);
-    nextXtermEl.addEventListener("touchcancel", handleTouchGestureEnd);
     manualTouchCleanup = () => {
       nextXtermEl.removeEventListener("touchstart", handleManualTouchStart);
       nextXtermEl.removeEventListener("touchmove", handleManualTouchMove);
-      nextXtermEl.removeEventListener("touchend", handleTouchGestureEnd);
-      nextXtermEl.removeEventListener("touchcancel", handleTouchGestureEnd);
-      xtermEl = null;
       viewportEl = null;
     };
   }
@@ -248,14 +210,32 @@
     uploadAndTypeFiles(imageFiles);
   }
 
-  function buildResizeMessage(): string {
-    const msg = {
-      type: "resize" as const,
+  function buildResizeMessage(includeInitialState = false): string {
+    const msg: TerminalResizeMessage = {
+      type: "resize",
       cols: term.cols,
       rows: term.rows,
-      ...(isMobile && initialPane !== undefined ? { initialPane } : {}),
+      ...(includeInitialState && isMobile && initialPane !== undefined ? { initialPane } : {}),
+      ...(includeInitialState && isMobile ? { interactionMode } : {}),
     };
     return JSON.stringify(msg);
+  }
+
+  function buildInteractionModeMessage(mode: TerminalInteractionMode): string {
+    const msg: TerminalSetInteractionModeMessage = {
+      type: "setInteractionMode",
+      mode,
+    };
+    return JSON.stringify(msg);
+  }
+
+  function shouldAutoFocus(): boolean {
+    return !isMobile || interactionMode === "interact";
+  }
+
+  function syncInteractionMode(mode: TerminalInteractionMode): void {
+    if (ws?.readyState !== WebSocket.OPEN) return;
+    ws.send(buildInteractionModeMessage(mode));
   }
 
   function connect(announceReconnect = false): void {
@@ -297,9 +277,11 @@
       }
       requestAnimationFrame(() => {
         fitAddon.fit();
-        term.focus();
+        if (shouldAutoFocus()) {
+          term.focus();
+        }
       });
-      nextWs.send(buildResizeMessage());
+      nextWs.send(buildResizeMessage(true));
     };
 
     nextWs.onclose = () => {
@@ -396,7 +378,9 @@
 
     requestAnimationFrame(() => {
       fitAddon.fit();
-      term.focus();
+      if (shouldAutoFocus()) {
+        term.focus();
+      }
     });
 
     connect();
@@ -412,7 +396,7 @@
       resizeTimer = setTimeout(() => {
         fitAddon.fit();
         if (ws?.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
+          ws.send(buildResizeMessage());
         }
       }, 150);
     });
@@ -427,6 +411,22 @@
   $effect(() => {
     if (termReady && terminalTheme && term.options) {
       term.options.theme = terminalTheme;
+    }
+  });
+
+  $effect(() => {
+    if (!term) return;
+    term.options.disableStdin = interactionMode === "scroll";
+    syncInteractionMode(interactionMode);
+    if (interactionMode === "scroll" && document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+    if (shouldAutoFocus()) {
+      requestAnimationFrame(() => {
+        if (!destroyed) {
+          term.focus();
+        }
+      });
     }
   });
 
@@ -446,7 +446,8 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-  class="flex-1 min-h-0 w-full p-1 overflow-hidden relative"
+  class="terminal-shell relative flex-1 min-h-0 w-full overflow-hidden p-1"
+  data-interaction-mode={interactionMode}
   bind:this={containerEl}
   ondragenter={handleDragEnter}
   ondragover={handleDragOver}
@@ -459,3 +460,14 @@
     </div>
   {/if}
 </div>
+
+<style>
+  .terminal-shell :global(.xterm-viewport) {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: contain;
+  }
+
+  .terminal-shell[data-interaction-mode="scroll"] :global(.xterm-viewport) {
+    touch-action: pan-y;
+  }
+</style>

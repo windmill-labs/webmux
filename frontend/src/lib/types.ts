@@ -73,9 +73,36 @@ export interface FileUploadResult {
 }
 
 export type WorktreeCreateMode = "new" | "existing";
+export type MobileAppScreen = "worktrees" | "session";
+export type TerminalInteractionMode = "interact" | "scroll";
+export type MobileScrollSource = "history" | "alternate";
 
 export interface AvailableBranch {
   name: string;
+}
+
+export interface TerminalController {
+  sendSelectPane(pane: number): void;
+  sendInput(data: string): void;
+}
+
+export interface TerminalResizeMessage {
+  type: "resize";
+  cols: number;
+  rows: number;
+  initialPane?: number;
+  interactionMode?: TerminalInteractionMode;
+}
+
+export interface TerminalSetInteractionModeMessage {
+  type: "setInteractionMode";
+  mode: TerminalInteractionMode;
+}
+
+export interface MobileScrollSnapshot {
+  pane: number;
+  source: MobileScrollSource;
+  content: string;
 }
 
 export type WorktreeCreationPhase =

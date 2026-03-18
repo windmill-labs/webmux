@@ -1,36 +1,35 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import WorktreeList from "./lib/WorktreeList.svelte";
-  import TopBar from "./lib/TopBar.svelte";
-  import Terminal from "./lib/Terminal.svelte";
   import ConfirmDialog from "./lib/ConfirmDialog.svelte";
   import CreateWorktreeDialog from "./lib/CreateWorktreeDialog.svelte";
   import SettingsDialog from "./lib/SettingsDialog.svelte";
   import CiDetailsDialog from "./lib/CiDetailsDialog.svelte";
   import CommentReviewDialog from "./lib/CommentReviewDialog.svelte";
   import DiffDialog from "./lib/DiffDialog.svelte";
-  import PaneBar from "./lib/PaneBar.svelte";
+  import SessionPanel from "./lib/SessionPanel.svelte";
   import NotificationToast from "./lib/NotificationToast.svelte";
-  import LinearPanel from "./lib/LinearPanel.svelte";
   import LinearDetailDialog from "./lib/LinearDetailDialog.svelte";
+  import WorktreeSidebar from "./lib/WorktreeSidebar.svelte";
   import type {
     AvailableBranch,
-    WorktreeCreateMode,
-    WorktreeInfo,
     AppConfig,
     AppNotification,
-    PrEntry,
     LinearIssue,
+    MobileAppScreen,
+    PrEntry,
+    TerminalController,
+    TerminalInteractionMode,
+    WorktreeCreateMode,
+    WorktreeInfo,
   } from "./lib/types";
   import {
     SSH_STORAGE_KEY,
-    errorMessage,
-    worktreeCreationPhaseLabel,
-    loadSavedTheme,
-    loadSavedSelectedWorktree,
-    saveSelectedWorktree,
-    resolveSelectedBranch,
     applyTheme,
+    errorMessage,
+    loadSavedSelectedWorktree,
+    loadSavedTheme,
+    resolveSelectedBranch,
+    saveSelectedWorktree,
     loadSavedSidebarWidth,
     saveSidebarWidth,
   } from "./lib/utils";
@@ -165,14 +164,10 @@
 
   // Mobile state
   let isMobile = $state(false);
-  let sidebarOpen = $state(false);
+  let mobileScreen = $state<MobileAppScreen>("session");
+  let terminalInteractionMode = $state<TerminalInteractionMode>("interact");
   let activePane = $state(0);
-  let terminalRef:
-    | {
-        sendSelectPane: (pane: number) => void;
-        sendInput: (data: string) => void;
-      }
-    | undefined = $state();
+  let terminalRef = $state<TerminalController | undefined>();
 
   // Safety buffer after backend confirms paste-buffer completion.
   // paste-buffer exits once tmux has queued the data, but the PTY write
@@ -223,7 +218,7 @@
         : undefined;
     if (!target) return;
     selectedBranch = target.branch;
-    if (isMobile) sidebarOpen = false;
+    if (isMobile) mobileScreen = "session";
   });
 
   $effect(() => {
@@ -268,6 +263,23 @@
     document.title = config.name ? `${config.name} - Dashboard` : "Dev Dashboard";
   });
 
+  $effect(() => {
+    const paneCount = selectedWorktree?.paneCount ?? 0;
+    if (paneCount === 0) {
+      if (activePane !== 0) activePane = 0;
+      return;
+    }
+    if (activePane > paneCount - 1) {
+      activePane = 0;
+    }
+  });
+
+  $effect(() => {
+    if (isMobile && mobileScreen === "session" && !selectedWorktree) {
+      mobileScreen = "worktrees";
+    }
+  });
+
   let paneBarPanes = $derived.by(() => {
     const count = selectedWorktree?.paneCount ?? 0;
     if (count < 2) return [];
@@ -276,7 +288,24 @@
       label: String(i + 1),
     }));
   });
-  let showPaneBar = $derived(isMobile && canConnect && paneBarPanes.length > 0);
+
+  function showMobileSession(): void {
+    if (isMobile) mobileScreen = "session";
+  }
+
+  function showMobileWorktrees(): void {
+    if (isMobile) mobileScreen = "worktrees";
+  }
+
+  function markBranchRead(branch: string): void {
+    notifiedBranches = new Set([...notifiedBranches].filter((x) => x !== branch));
+  }
+
+  function selectWorktree(branch: string): void {
+    selectedBranch = branch;
+    markBranchRead(branch);
+    showMobileSession();
+  }
 
   function refreshLinear(): void {
     const now = Date.now();
@@ -339,7 +368,7 @@
       await refresh();
       if (shouldAutoSelectCreatedWorktree && requestId === latestAutoSelectCreateId) {
         selectedBranch = result.branch;
-        if (isMobile) sidebarOpen = false;
+        showMobileSession();
       }
     } catch (err) {
       alert(`Failed to create: ${errorMessage(err)}`);
@@ -436,12 +465,14 @@
     if (!selectedBranch) {
       selectedBranch =
         selectable[direction === 1 ? 0 : selectable.length - 1].branch;
+      showMobileSession();
       return;
     }
     const idx = selectable.findIndex((w) => w.branch === selectedBranch);
     const next = idx + direction;
     if (next >= 0 && next < selectable.length) {
       selectedBranch = selectable[next].branch;
+      showMobileSession();
     }
   }
 
@@ -478,6 +509,10 @@
   function handlePaneSelect(pane: number) {
     activePane = pane;
     terminalRef?.sendSelectPane(pane);
+  }
+
+  function handleTerminalInteractionModeChange(mode: TerminalInteractionMode): void {
+    terminalInteractionMode = mode;
   }
 
   onMount(() => {
@@ -546,9 +581,12 @@
 
     const mq = window.matchMedia("(max-width: 768px)");
     isMobile = mq.matches;
-    if (isMobile) sidebarOpen = true;
+    mobileScreen = mq.matches && selectedBranch ? "session" : "worktrees";
+    terminalInteractionMode = mq.matches ? "scroll" : "interact";
     function onMqChange(e: MediaQueryListEvent): void {
       isMobile = e.matches;
+      mobileScreen = e.matches && selectedBranch ? "session" : "worktrees";
+      terminalInteractionMode = e.matches ? "scroll" : "interact";
     }
     mq.addEventListener("change", onMqChange);
 
@@ -566,186 +604,153 @@
   });
 </script>
 
-<div class="flex h-dvh bg-surface text-primary {isResizingSidebar ? 'select-none' : ''}" style={isResizingSidebar ? 'cursor: col-resize' : ''}>
-  <!-- Sidebar: fixed overlay on mobile, static on desktop -->
-  {#if !isMobile || sidebarOpen}
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    {#if isMobile}
-      <div
-        class="fixed inset-0 bg-black/50 z-40"
-        onclick={() => (sidebarOpen = false)}
-        onkeydown={(e) => {
-          if (e.key === "Escape") sidebarOpen = false;
-        }}
-      ></div>
-    {/if}
-    <aside
-      class="{isMobile
-        ? 'fixed inset-0 z-50 w-full'
-        : ''} bg-sidebar border-r border-edge flex flex-col overflow-hidden shrink-0"
-      style={isMobile ? '' : `width: ${sidebarWidth}px`}
-    >
-      <div class="p-4 border-b border-edge">
-        <div class="flex items-center justify-between">
-          <h1 class="text-base font-semibold">{config.name ?? "Dashboard"}</h1>
-          <div class="flex items-center gap-2">
-            <button
-              class="h-8 px-2 gap-1.5 rounded-md border border-edge bg-surface text-accent text-xs flex items-center justify-center cursor-pointer hover:bg-hover disabled:opacity-50 disabled:cursor-not-allowed"
-              onclick={() => (showCreateDialog = true)}
-              title="New Worktree (Cmd+K)"
-              ><span class="text-lg leading-none">+</span> New</button
-            >
-            {#if isMobile}
-              <button
-                class="h-8 w-8 rounded-md border border-edge bg-surface text-muted text-sm flex items-center justify-center cursor-pointer hover:bg-hover"
-                onclick={() => (sidebarOpen = false)}
-                title="Close sidebar">&times;</button
-              >
-            {/if}
-          </div>
-        </div>
-        {#if activeCreateCount > 0}
-          <div class="mt-2 flex items-center gap-1 text-[10px] text-muted">
-            <span class="spinner"></span>
-            {createIndicatorLabel}
-          </div>
-        {/if}
+{#if isMobile}
+  <div class="flex h-dvh flex-col bg-surface text-primary">
+    <div class="flex flex-1 min-h-0 overflow-hidden">
+      {#if mobileScreen === "worktrees"}
+        <WorktreeSidebar
+          appName={config.name}
+          {activeCreateCount}
+          {createIndicatorLabel}
+          worktrees={visibleWorktrees}
+          selected={selectedBranch}
+          removing={removingBranches}
+          initializing={openingBranches}
+          {notifiedBranches}
+          {linearIssues}
+          isMobile={true}
+          oncreate={() => (showCreateDialog = true)}
+          onselect={selectWorktree}
+          onremove={(branch) => (removeBranch = branch)}
+          onassignissue={handleAssignIssue}
+          onselectissue={(issue) => (detailIssue = issue)}
+        />
+      {:else}
+        <SessionPanel
+          bind:terminalRef
+          {selectedBranch}
+          {selectedWorktree}
+          {canConnect}
+          {isSelectedOpening}
+          isMobile={true}
+          {sshHost}
+          linkedRepos={config.linkedRepos ?? []}
+          {notificationHistory}
+          {unreadCount}
+          {terminalTheme}
+          {activePane}
+          {paneBarPanes}
+          {terminalInteractionMode}
+          onshowworktrees={showMobileWorktrees}
+          onclose={handleClose}
+          onmerge={() => {
+            if (selectedBranch) mergeBranch = selectedBranch;
+          }}
+          onremove={() => {
+            if (selectedBranch) removeBranch = selectedBranch;
+          }}
+          onsettings={() => (showSettingsDialog = true)}
+          ondirtyclick={() => (showDiffDialog = true)}
+          onCiClick={(pr) => (ciDetailsPr = pr)}
+          onReviewsClick={(pr) => (commentReviewPr = pr)}
+          onbellopen={handleBellOpen}
+          onnotificationselect={selectWorktree}
+          onopensession={openSelectedWorktree}
+          onselectpane={handlePaneSelect}
+          oninteractionmodechange={handleTerminalInteractionModeChange}
+        />
+      {/if}
+    </div>
+
+    <nav class="shrink-0 border-t border-edge bg-topbar px-3 pt-2" style="padding-bottom: env(safe-area-inset-bottom, 0px);">
+      <div class="flex gap-2">
+        <button
+          type="button"
+          class="flex-1 rounded-md px-3 py-2 text-sm font-medium {mobileScreen === 'worktrees'
+            ? 'bg-surface text-primary'
+            : 'text-muted hover:text-primary'}"
+          onclick={showMobileWorktrees}
+        >
+          Worktrees
+        </button>
+        <button
+          type="button"
+          class="flex-1 rounded-md px-3 py-2 text-sm font-medium {mobileScreen === 'session'
+            ? 'bg-surface text-primary'
+            : 'text-muted hover:text-primary'} disabled:cursor-not-allowed disabled:opacity-50"
+          onclick={showMobileSession}
+          disabled={!selectedWorktree}
+        >
+          Session
+        </button>
       </div>
-      <WorktreeList
+    </nav>
+  </div>
+{:else}
+  <div class="flex h-dvh bg-surface text-primary {isResizingSidebar ? 'select-none' : ''}" style={isResizingSidebar ? 'cursor: col-resize' : ''}>
+    <aside class="flex shrink-0 overflow-hidden border-r border-edge" style={`width: ${sidebarWidth}px`}>
+      <WorktreeSidebar
+        appName={config.name}
+        {activeCreateCount}
+        {createIndicatorLabel}
         worktrees={visibleWorktrees}
         selected={selectedBranch}
         removing={removingBranches}
         initializing={openingBranches}
         {notifiedBranches}
-        onselect={(b) => {
-          selectedBranch = b;
-          notifiedBranches = new Set([...notifiedBranches].filter((x) => x !== b));
-          if (isMobile) sidebarOpen = false;
-        }}
-        onremove={(b) => (removeBranch = b)}
+        {linearIssues}
+        oncreate={() => (showCreateDialog = true)}
+        onselect={selectWorktree}
+        onremove={(branch) => (removeBranch = branch)}
+        onassignissue={handleAssignIssue}
+        onselectissue={(issue) => (detailIssue = issue)}
       />
-      {#if linearIssues.length > 0}
-        <LinearPanel issues={linearIssues} onassign={handleAssignIssue} onselect={(issue) => (detailIssue = issue)} />
-      {/if}
-      {#if !isMobile}
-        <div
-          class="shrink-0 border-t border-edge px-4 py-3 text-[11px] text-muted flex flex-col gap-1"
-        >
-          <div class="flex justify-between">
-            <span>Navigate</span><kbd class="opacity-60">Cmd+Up/Down</kbd>
-          </div>
-          <div class="flex justify-between">
-            <span>New worktree</span><kbd class="opacity-60">Cmd+K</kbd>
-          </div>
-          <div class="flex justify-between">
-            <span>Merge</span><kbd class="opacity-60">Cmd+M</kbd>
-          </div>
-          <div class="flex justify-between">
-            <span>Remove</span><kbd class="opacity-60">Cmd+D</kbd>
-          </div>
-        </div>
-      {/if}
     </aside>
-    {#if !isMobile}
-      <div
-        class="w-1 shrink-0 cursor-col-resize hover:bg-accent/50 transition-colors"
-        class:bg-accent={isResizingSidebar}
-        onpointerdown={handleResizeStart}
-        onkeydown={handleResizeKeydown}
-        role="separator"
-        aria-orientation="vertical"
-        aria-valuenow={sidebarWidth}
-        aria-valuemin={MIN_SIDEBAR_WIDTH}
-        aria-valuemax={MAX_SIDEBAR_WIDTH}
-        tabindex="0"
-      ></div>
-    {/if}
-  {/if}
 
-  <main class="flex-1 min-w-0 flex flex-col overflow-hidden">
-    <TopBar
-      name={selectedWorktree?.branch ?? null}
-      worktree={selectedWorktree}
-      {sshHost}
-      linkedRepos={config.linkedRepos ?? []}
-      {isMobile}
-      {notificationHistory}
-      {unreadCount}
-      ontogglesidebar={() => (sidebarOpen = !sidebarOpen)}
-      onclose={handleClose}
-      onmerge={() => {
-        if (selectedBranch) mergeBranch = selectedBranch;
-      }}
-      onremove={() => {
-        if (selectedBranch) removeBranch = selectedBranch;
-      }}
-      onsettings={() => (showSettingsDialog = true)}
-      ondirtyclick={() => (showDiffDialog = true)}
-      onCiClick={(pr) => (ciDetailsPr = pr)}
-      onReviewsClick={(pr) => (commentReviewPr = pr)}
-      onbellopen={handleBellOpen}
-      onnotificationselect={(branch) => {
-        selectedBranch = branch;
-        notifiedBranches = new Set([...notifiedBranches].filter((x) => x !== branch));
-        if (isMobile) sidebarOpen = false;
-      }}
-    />
+    <button
+      type="button"
+      class="w-1 shrink-0 cursor-col-resize border-none bg-transparent p-0 transition-colors hover:bg-accent/50"
+      class:bg-accent={isResizingSidebar}
+      onpointerdown={handleResizeStart}
+      onkeydown={handleResizeKeydown}
+      aria-label="Resize worktree sidebar"
+    ></button>
 
-    {#if canConnect}
-      {#key selectedBranch}
-        <Terminal
-          worktree={selectedBranch!}
-          {isMobile}
-          initialPane={isMobile ? activePane : undefined}
-          {terminalTheme}
-          bind:this={terminalRef}
-        />
-      {/key}
-    {:else if selectedWorktree?.creating}
-      <div class="flex-1 flex items-center justify-center px-6">
-        <div class="flex flex-col items-center gap-3 text-center">
-          <span class="spinner" style="width: 24px; height: 24px; border-width: 2px;"></span>
-          <p class="text-sm text-primary font-medium">{selectedWorktree.branch}</p>
-          <p class="text-xs text-muted">{worktreeCreationPhaseLabel(selectedWorktree.creationPhase)}</p>
-        </div>
-      </div>
-    {:else if selectedWorktree}
-      <div class="flex-1 flex items-center justify-center px-6">
-        <div class="flex flex-col items-center gap-4 text-center">
-          <p class="text-sm text-primary font-medium">{selectedWorktree.branch}</p>
-          <div class="flex flex-col items-center gap-1">
-            {#if selectedWorktree.profile}
-              <span class="text-xs text-muted">Profile: {selectedWorktree.profile}</span>
-            {/if}
-            {#if selectedWorktree.agentName}
-              <span class="text-xs text-muted">Agent: {selectedWorktree.agentName}</span>
-            {/if}
-          </div>
-          <button
-            class="mt-2 px-5 py-2 rounded-md bg-accent text-white text-sm font-medium cursor-pointer border-none hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-            onclick={openSelectedWorktree}
-            disabled={isSelectedOpening}
-          >
-            {#if isSelectedOpening}
-              <span class="spinner" style="width: 14px; height: 14px; border-width: 1.5px;"></span>
-              Opening...
-            {:else}
-              Open Session
-            {/if}
-          </button>
-        </div>
-      </div>
-    {:else}
-      <div class="flex-1 flex items-center justify-center text-muted text-sm">
-        <p>Select a worktree from the sidebar to connect</p>
-      </div>
-    {/if}
-
-    {#if showPaneBar}
-      <PaneBar {activePane} panes={paneBarPanes} onselect={handlePaneSelect} />
-    {/if}
-  </main>
-</div>
+    <main class="flex flex-1 min-w-0 overflow-hidden">
+      <SessionPanel
+        bind:terminalRef
+        {selectedBranch}
+        {selectedWorktree}
+        {canConnect}
+        {isSelectedOpening}
+        {sshHost}
+        linkedRepos={config.linkedRepos ?? []}
+        {notificationHistory}
+        {unreadCount}
+        {terminalTheme}
+        {activePane}
+        {paneBarPanes}
+        terminalInteractionMode="interact"
+        onclose={handleClose}
+        onmerge={() => {
+          if (selectedBranch) mergeBranch = selectedBranch;
+        }}
+        onremove={() => {
+          if (selectedBranch) removeBranch = selectedBranch;
+        }}
+        onsettings={() => (showSettingsDialog = true)}
+        ondirtyclick={() => (showDiffDialog = true)}
+        onCiClick={(pr) => (ciDetailsPr = pr)}
+        onReviewsClick={(pr) => (commentReviewPr = pr)}
+        onbellopen={handleBellOpen}
+        onnotificationselect={selectWorktree}
+        onopensession={openSelectedWorktree}
+        onselectpane={handlePaneSelect}
+        oninteractionmodechange={handleTerminalInteractionModeChange}
+      />
+    </main>
+  </div>
+{/if}
 
 {#if showCreateDialog}
   <CreateWorktreeDialog
@@ -835,9 +840,5 @@
 <NotificationToast
   {notifications}
   ondismiss={handleDismissNotification}
-  onselect={(branch) => {
-    selectedBranch = branch;
-    notifiedBranches = new Set([...notifiedBranches].filter((x) => x !== branch));
-    if (isMobile) sidebarOpen = false;
-  }}
+  onselect={selectWorktree}
 />

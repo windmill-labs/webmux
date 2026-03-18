@@ -5,16 +5,19 @@ import { networkInterfaces } from "node:os";
 import { log } from "./lib/log";
 import {
   attach,
+  capturePaneSnapshot,
   detach,
   write,
   resize,
   selectPane,
   sendKeys,
+  setInteractionMode,
   getScrollback,
   setCallbacks,
   clearCallbacks,
   cleanupStaleSessions,
   sendPrompt as sendTerminalPrompt,
+  type TerminalInteractionMode,
   type TerminalAttachTarget,
 } from "./adapters/terminal";
 import { loadControlToken } from "./adapters/control-token";
@@ -92,13 +95,18 @@ type WsInboundMessage =
   | { type: "input"; data: string }
   | { type: "sendKeys"; hexBytes: string[] }
   | { type: "selectPane"; pane: number }
-  | { type: "resize"; cols: number; rows: number; initialPane?: number };
+  | { type: "resize"; cols: number; rows: number; initialPane?: number; interactionMode?: TerminalInteractionMode }
+  | { type: "setInteractionMode"; mode: TerminalInteractionMode };
 
 type WsOutboundMessage =
   | { type: "output"; data: string }
   | { type: "exit"; exitCode: number }
   | { type: "error"; message: string }
   | { type: "scrollback"; data: string };
+
+function isTerminalInteractionMode(value: unknown): value is TerminalInteractionMode {
+  return value === "interact" || value === "scroll";
+}
 
 function parseWsMessage(raw: string | Buffer): WsInboundMessage | null {
   try {
@@ -122,8 +130,11 @@ function parseWsMessage(raw: string | Buffer): WsInboundMessage | null {
             cols: m.cols,
             rows: m.rows,
             initialPane: typeof m.initialPane === "number" ? m.initialPane : undefined,
+            interactionMode: isTerminalInteractionMode(m.interactionMode) ? m.interactionMode : undefined,
           }
           : null;
+      case "setInteractionMode":
+        return isTerminalInteractionMode(m.mode) ? { type: "setInteractionMode", mode: m.mode } : null;
       default:
         return null;
     }
@@ -461,6 +472,26 @@ async function apiGetWorktreeDiff(name: string): Promise<Response> {
   });
 }
 
+async function apiGetMobileScrollSnapshot(name: string, req: Request): Promise<Response> {
+  const paneParam = new URL(req.url).searchParams.get("pane");
+  const pane = paneParam === null ? 0 : Number.parseInt(paneParam, 10);
+  if (!Number.isInteger(pane) || pane < 0) {
+    return errorResponse("Invalid pane index", 400);
+  }
+
+  const terminalWorktree = await resolveTerminalWorktree(name);
+  log.debug(`[worktree:mobile-scroll] name=${name} pane=${pane} worktreeId=${terminalWorktree.worktreeId}`);
+  try {
+    return jsonResponse(await capturePaneSnapshot(terminalWorktree.worktreeId, pane));
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg === "Terminal session is not attached") {
+      return errorResponse(msg, 409);
+    }
+    throw err;
+  }
+}
+
 async function apiCiLogs(runId: string): Promise<Response> {
   if (!/^\d+$/.test(runId)) return errorResponse("Invalid run ID", 400);
   const proc = Bun.spawn(["gh", "run", "view", runId, "--log-failed"], {
@@ -619,6 +650,17 @@ Bun.serve({
       },
     },
 
+    "/api/worktrees/:name/mobile-scroll": {
+      GET: (req) => {
+        const name = decodeURIComponent(req.params.name);
+        if (!isValidWorktreeName(name)) return errorResponse("Invalid worktree name", 400);
+        return catching(
+          `GET /api/worktrees/${name}/mobile-scroll`,
+          () => apiGetMobileScrollSnapshot(name, req),
+        );
+      },
+    },
+
     "/api/linear/issues": {
       GET: () => catching("GET /api/linear/issues", () => apiGetLinearIssues()),
     },
@@ -708,6 +750,13 @@ Bun.serve({
             await selectPane(attachId, msg.pane);
           }
           break;
+        case "setInteractionMode": {
+          const attachId = getAttachedSessionId(ws);
+          if (!attachId) return;
+          log.debug(`[ws] setInteractionMode mode=${msg.mode} branch=${branch} attachId=${attachId}`);
+          await setInteractionMode(attachId, msg.mode);
+          break;
+        }
         case "resize":
           if (!ws.data.attached) {
             // First resize = client reporting actual dimensions. Attach now.
@@ -716,6 +765,9 @@ Bun.serve({
             try {
               if (msg.initialPane !== undefined) {
                 log.debug(`[ws] initialPane=${msg.initialPane} branch=${branch}`);
+              }
+              if (msg.interactionMode !== undefined) {
+                log.debug(`[ws] interactionMode=${msg.interactionMode} branch=${branch}`);
               }
               const terminalWorktree = await resolveTerminalWorktree(branch);
               const attachId = `${terminalWorktree.worktreeId}:${randomUUID()}`;
@@ -727,6 +779,7 @@ Bun.serve({
                 msg.cols,
                 msg.rows,
                 msg.initialPane,
+                msg.interactionMode,
               );
               const { onData, onExit } = makeCallbacks(ws);
               setCallbacks(attachId, onData, onExit);

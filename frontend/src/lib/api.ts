@@ -5,6 +5,7 @@ import type {
   AppNotification,
   FileUploadResult,
   LinearIssue,
+  MobileScrollSnapshot,
   PrEntry,
   ProjectSnapshot,
   ProjectWorktreeSnapshot,
@@ -187,4 +188,8 @@ export async function uploadFiles(worktree: string, files: File[]): Promise<File
 
 export function fetchWorktreeDiff(branch: string): Promise<WorktreeDiffResponse> {
   return api<WorktreeDiffResponse>(`worktrees/${encodeURIComponent(branch)}/diff`);
+}
+
+export function fetchMobileScrollSnapshot(branch: string, pane: number): Promise<MobileScrollSnapshot> {
+  return api<MobileScrollSnapshot>(`worktrees/${encodeURIComponent(branch)}/mobile-scroll?pane=${pane}`);
 }

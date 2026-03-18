@@ -6,7 +6,7 @@
   } = $props();
 </script>
 
-<nav class="flex items-stretch bg-topbar border-t border-edge pane-bar">
+<nav class="flex items-stretch bg-topbar border-t border-edge">
   {#each panes as p (p.index)}
     <button
       type="button"
@@ -19,9 +19,6 @@
 </nav>
 
 <style>
-  .pane-bar {
-    padding-bottom: env(safe-area-inset-bottom, 0px);
-  }
   .pane-active {
     box-shadow: inset 0 2px 0 0 var(--color-accent);
   }

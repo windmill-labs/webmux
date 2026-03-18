@@ -45,15 +45,15 @@ function renderTopBar(branch: string): void {
 }
 
 describe("TopBar", () => {
-  it("truncates worktree names longer than 40 characters in the header", () => {
+  it("truncates worktree names longer than 30 characters in the header", () => {
     const branch = "feature/abcdefghijklmnopqrstuvwxyz-1234567890";
 
     renderTopBar(branch);
 
-    const truncated = `${branch.slice(0, 37)}...`;
+    const truncated = `${branch.slice(0, 27)}...`;
     const header = screen.getByText(truncated);
 
-    expect(truncated).toHaveLength(40);
+    expect(truncated).toHaveLength(30);
     expect(header).toHaveAttribute("title", branch);
   });
 

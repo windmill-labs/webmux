@@ -63,15 +63,3 @@ dialog textarea:focus {
 .xterm .xterm-viewport {
   overscroll-behavior-y: contain;
 }
-
-/* Mobile layout */
-@media (max-width: 768px) {
-  /* Prevent overscroll/bounce on iOS */
-  html,
-  body {
-    overflow: hidden;
-    position: fixed;
-    width: 100%;
-    height: 100dvh;
-  }
-}

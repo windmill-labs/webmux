@@ -118,7 +118,7 @@
           type="button"
           class="p-1 -ml-1 cursor-pointer bg-transparent border-none text-muted hover:text-primary"
           onclick={ontogglesidebar}
-          title="Toggle sidebar"
+          title="Show worktrees"
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"

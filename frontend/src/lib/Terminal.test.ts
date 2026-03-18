@@ -16,9 +16,17 @@ const { MockFitAddon, MockTerminal } = vi.hoisted(() => {
   class MockTerminal {
     static instances: MockTerminal[] = [];
 
-    options: { theme?: unknown } = {};
     cols = 80;
     rows = 24;
+    options: { theme?: unknown; disableStdin?: boolean } = {};
+    buffer = {
+      active: {
+        type: "normal",
+        length: 24,
+        baseY: 0,
+        viewportY: 0,
+      },
+    };
     modes = { mouseTrackingMode: "none" };
     parser = { registerOscHandler: vi.fn(() => true) };
     loadAddon = vi.fn();
@@ -208,5 +216,47 @@ describe("Terminal reconnect", () => {
     });
 
     expect(terminal.options.theme).toBe(nextTheme);
+  });
+
+  it("includes the mobile interaction mode in the initial attach resize", () => {
+    render(Terminal, {
+      props: {
+        worktree: "feature/mobile",
+        isMobile: true,
+        initialPane: 1,
+        interactionMode: "scroll",
+        terminalTheme: getTheme("github-dark").terminal,
+      },
+    });
+
+    const socket = MockWebSocket.instances[0]!;
+    socket.emitOpen();
+
+    expect(socket.sent).toContain('{"type":"resize","cols":80,"rows":24,"initialPane":1,"interactionMode":"scroll"}');
+    expect(MockTerminal.instances[0]!.options.disableStdin).toBe(true);
+  });
+
+  it("syncs interaction mode changes after connect", async () => {
+    const view = render(Terminal, {
+      props: {
+        worktree: "feature/mode",
+        isMobile: true,
+        interactionMode: "scroll",
+        terminalTheme: getTheme("github-dark").terminal,
+      },
+    });
+
+    const socket = MockWebSocket.instances[0]!;
+    socket.emitOpen();
+
+    await view.rerender({
+      worktree: "feature/mode",
+      isMobile: true,
+      interactionMode: "interact",
+      terminalTheme: getTheme("github-dark").terminal,
+    });
+
+    expect(socket.sent).toContain('{"type":"setInteractionMode","mode":"interact"}');
+    expect(MockTerminal.instances[0]!.options.disableStdin).toBe(false);
   });
 });

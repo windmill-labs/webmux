@@ -9,6 +9,7 @@ vi.mock("./lib/api", () => ({
   fetchAvailableBranches: vi.fn(),
   fetchCiLogs: vi.fn(),
   fetchConfig: vi.fn(),
+  fetchMobileScrollSnapshot: vi.fn(),
   fetchLinearIssues: vi.fn(),
   fetchWorktrees: vi.fn(),
   mergeWorktree: vi.fn(),
@@ -40,6 +41,7 @@ const originalNotification = globalThis.Notification;
 const originalAlert = window.alert;
 const originalDialogShowModal = HTMLDialogElement.prototype.showModal;
 const originalDialogClose = HTMLDialogElement.prototype.close;
+let matchMediaMatches = false;
 
 function deferred<T>(): Deferred<T> {
   let resolve!: (value: T) => void;
@@ -92,7 +94,7 @@ function setupBrowserMocks(): void {
     configurable: true,
     writable: true,
     value: vi.fn().mockImplementation((query: string) => ({
-      matches: false,
+      matches: matchMediaMatches,
       media: query,
       onchange: null,
       addEventListener: vi.fn(),
@@ -154,11 +156,17 @@ describe("App create selection", () => {
     vi.clearAllMocks();
     cleanup();
     localStorage.clear();
+    matchMediaMatches = false;
     setupBrowserMocks();
 
     vi.mocked(api.fetchConfig).mockResolvedValue(createConfig());
     vi.mocked(api.fetchAvailableBranches).mockResolvedValue([]);
     vi.mocked(api.fetchLinearIssues).mockResolvedValue([]);
+    vi.mocked(api.fetchMobileScrollSnapshot).mockResolvedValue({
+      pane: 0,
+      source: "history",
+      content: "",
+    });
     vi.mocked(api.subscribeNotifications).mockReturnValue(() => {});
     vi.mocked(api.openWorktree).mockResolvedValue(undefined);
     vi.mocked(api.closeWorktree).mockResolvedValue(undefined);
@@ -238,5 +246,18 @@ describe("App create selection", () => {
       expect(api.fetchWorktrees).toHaveBeenCalledTimes(3);
     });
     expect(screen.getByTitle("feature/new")).toBeInTheDocument();
+  });
+
+  it("uses screen-based navigation on mobile when selecting a worktree", async () => {
+    matchMediaMatches = true;
+    vi.mocked(api.fetchWorktrees).mockResolvedValue([createWorktree("mobile/main")]);
+
+    render(App);
+
+    const branchButton = await screen.findByRole("button", { name: /mobile\/main/i });
+    await fireEvent.click(branchButton);
+
+    expect(screen.getByRole("button", { name: "Open Session" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Session" })).toHaveClass("bg-surface");
   });
 });

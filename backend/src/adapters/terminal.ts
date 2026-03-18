@@ -18,11 +18,21 @@ interface AttachCmdOptions {
   cols: number;
   rows: number;
   initialPane?: number;
+  interactionMode?: TerminalInteractionMode;
 }
 
 export interface TerminalAttachTarget {
   ownerSessionName: string;
   windowName: string;
+}
+
+export type TerminalInteractionMode = "interact" | "scroll";
+export type MobileScrollSource = "history" | "alternate";
+
+export interface MobileScrollSnapshot {
+  pane: number;
+  source: MobileScrollSource;
+  content: string;
 }
 
 const textDecoder = new TextDecoder();
@@ -43,10 +53,11 @@ function groupedName(): string {
 
 function buildAttachCmd(opts: AttachCmdOptions): string {
   const paneTarget = `${opts.gName}:${opts.windowName}.${opts.initialPane ?? 0}`;
+  const mouseMode = opts.interactionMode === "scroll" ? "off" : "on";
   return [
     `tmux new-session -d -s "${opts.gName}" -t "${opts.ownerSessionName}"`,
     `tmux set-option -t "${opts.ownerSessionName}" window-size latest`,
-    `tmux set-option -t "${opts.gName}" mouse on`,
+    `tmux set-option -t "${opts.gName}" mouse ${mouseMode}`,
     `tmux set-option -t "${opts.gName}" set-clipboard on`,
     `tmux select-window -t "${opts.gName}:${opts.windowName}"`,
     // Unzoom if a previous session left a pane zoomed (zoom state is shared across grouped sessions)
@@ -62,10 +73,10 @@ function buildAttachCmd(opts: AttachCmdOptions): string {
 async function tmuxExec(
   args: string[],
   opts: { stdin?: Uint8Array } = {},
-): Promise<{ exitCode: number; stderr: string }> {
+): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   const proc = Bun.spawn(args, {
     stdin: opts.stdin ?? "ignore",
-    stdout: "ignore",
+    stdout: "pipe",
     stderr: "pipe",
   });
 
@@ -76,11 +87,14 @@ async function tmuxExec(
 
   const result = await Promise.race([proc.exited, timeout]);
   if (result === "timeout") {
-    return { exitCode: -1, stderr: `timed out after ${TMUX_TIMEOUT_MS}ms` };
+    return { exitCode: -1, stdout: "", stderr: `timed out after ${TMUX_TIMEOUT_MS}ms` };
   }
 
-  const stderr = (await new Response(proc.stderr).text()).trim();
-  return { exitCode: result, stderr };
+  const [stdout, stderr] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+  ]);
+  return { exitCode: result, stdout, stderr: stderr.trim() };
 }
 
 /** Kill any orphaned wm-dash-* tmux sessions left from previous server runs. */
@@ -118,7 +132,8 @@ export async function attach(
   target: TerminalAttachTarget,
   cols: number,
   rows: number,
-  initialPane?: number
+  initialPane?: number,
+  interactionMode?: TerminalInteractionMode
 ): Promise<void> {
   log.debug(`[term] attach(${attachId}) cols=${cols} rows=${rows} existing=${sessions.has(attachId)}`);
   if (sessions.has(attachId)) {
@@ -140,6 +155,7 @@ export async function attach(
     cols,
     rows,
     initialPane,
+    interactionMode,
   });
 
   // macOS `script` fails with "tcgetattr: Operation not supported on socket"
@@ -265,6 +281,55 @@ export async function resize(attachId: string, cols: number, rows: number): Prom
   const windowTarget = `${session.groupedSessionName}:${session.windowName}`;
   const result = await tmuxExec(["tmux", "resize-window", "-t", windowTarget, "-x", String(cols), "-y", String(rows)]);
   if (result.exitCode !== 0) log.warn(`[term] resize failed: ${result.stderr}`);
+}
+
+export async function setInteractionMode(
+  attachId: string,
+  mode: TerminalInteractionMode,
+): Promise<void> {
+  const session = sessions.get(attachId);
+  if (!session) {
+    log.debug(`[term] setInteractionMode(${attachId}) no session found`);
+    return;
+  }
+  const mouseMode = mode === "scroll" ? "off" : "on";
+  const result = await tmuxExec(["tmux", "set-option", "-t", session.groupedSessionName, "mouse", mouseMode]);
+  log.debug(`[term] setInteractionMode(${attachId}) mode=${mode} exit=${result.exitCode}`);
+  if (result.exitCode !== 0) {
+    log.warn(`[term] setInteractionMode failed: ${result.stderr}`);
+  }
+}
+
+export async function capturePaneSnapshot(
+  attachId: string,
+  paneIndex: number,
+): Promise<MobileScrollSnapshot> {
+  const session = sessions.get(attachId);
+  if (!session) {
+    throw new Error("Terminal session is not attached");
+  }
+
+  const target = `${session.groupedSessionName}:${session.windowName}.${paneIndex}`;
+  const altResult = await tmuxExec(["tmux", "display-message", "-p", "-t", target, "#{alternate_on}"]);
+  if (altResult.exitCode !== 0) {
+    throw new Error(`display-message failed${altResult.stderr ? `: ${altResult.stderr}` : ""}`);
+  }
+
+  const source: MobileScrollSource = altResult.stdout.trim() === "1" ? "alternate" : "history";
+
+  const captureArgs = source === "alternate"
+    ? ["tmux", "capture-pane", "-p", "-a", "-J", "-t", target]
+    : ["tmux", "capture-pane", "-p", "-J", "-S", "-2000", "-t", target];
+  const captureResult = await tmuxExec(captureArgs);
+  if (captureResult.exitCode !== 0) {
+    throw new Error(`capture-pane failed${captureResult.stderr ? `: ${captureResult.stderr}` : ""}`);
+  }
+
+  return {
+    pane: paneIndex,
+    source,
+    content: captureResult.stdout,
+  };
 }
 
 export function getScrollback(attachId: string): string {

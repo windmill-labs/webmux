@@ -179,9 +179,10 @@ function findBrowserBinary(): string | null {
         ];
 
   for (const candidate of candidates) {
-    if (existsSync(candidate) || Bun.spawnSync(["which", candidate], { stdout: "pipe", stderr: "pipe" }).success) {
-      return candidate;
-    }
+    const found = candidate.startsWith("/")
+      ? existsSync(candidate)
+      : Bun.spawnSync(["which", candidate], { stdout: "pipe", stderr: "pipe" }).success;
+    if (found) return candidate;
   }
   return null;
 }
@@ -201,11 +202,10 @@ function openAppMode(url: string): void {
 
 // ── Prefixed output ──────────────────────────────────────────────────────────
 
-function pipeWithPrefixAndCallback(
+function pipeWithPrefix(
   stream: ReadableStream<Uint8Array>,
   prefix: string,
-  trigger: string,
-  callback: () => void,
+  onTrigger?: { text: string; callback: () => void },
 ): void {
   const reader = stream.getReader();
   const decoder = new TextDecoder();
@@ -221,32 +221,10 @@ function pipeWithPrefixAndCallback(
       buffer = lines.pop()!;
       for (const line of lines) {
         console.log(`${prefix} ${line}`);
-        if (!fired && line.includes(trigger)) {
+        if (onTrigger && !fired && line.includes(onTrigger.text)) {
           fired = true;
-          callback();
+          onTrigger.callback();
         }
-      }
-    }
-    if (buffer) {
-      console.log(`${prefix} ${buffer}`);
-    }
-  })();
-}
-
-function pipeWithPrefix(stream: ReadableStream<Uint8Array>, prefix: string) {
-  const reader = stream.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  (async () => {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop()!;
-      for (const line of lines) {
-        console.log(`${prefix} ${line}`);
       }
     }
     if (buffer) {
@@ -370,8 +348,9 @@ async function main(args: string[] = process.argv.slice(2)): Promise<void> {
   children.push(be);
 
   if (parsed.app) {
-    pipeWithPrefixAndCallback(be.stdout, "[BE]", "Dev Dashboard API running at", () => {
-      openAppMode(`http://localhost:${parsed.port}`);
+    pipeWithPrefix(be.stdout, "[BE]", {
+      text: "Dev Dashboard API running at",
+      callback: () => openAppMode(`http://localhost:${parsed.port}`),
     });
   } else {
     pipeWithPrefix(be.stdout, "[BE]");

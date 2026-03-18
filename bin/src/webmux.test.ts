@@ -72,6 +72,18 @@ describe("webmux entrypoint", () => {
     });
   });
 
+  it("parses --app flag", () => {
+    delete process.env.PORT;
+
+    expect(parseRootArgs(["serve", "--app"])).toEqual({
+      port: 5111,
+      debug: false,
+      app: true,
+      command: "serve",
+      commandArgs: [],
+    });
+  });
+
   it("leaves service subcommand flags untouched", () => {
     delete process.env.PORT;
 

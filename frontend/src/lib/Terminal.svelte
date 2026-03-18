@@ -5,7 +5,6 @@
   import { FitAddon } from "@xterm/addon-fit";
   import { WebLinksAddon } from "@xterm/addon-web-links";
   import { uploadFiles } from "./api";
-  import { isMobileDebugEnabled, recordMobileDebug } from "./mobileDebug";
   import type {
     TerminalInteractionMode,
     TerminalResizeMessage,
@@ -66,28 +65,6 @@
     }
   }
 
-  function reportViewportState(reason: string): void {
-    if (!isMobileDebugEnabled() || !term) return;
-    const activeBuffer = term.buffer.active;
-    recordMobileDebug("terminal.layout", {
-      reason,
-      interaction: interactionMode,
-      disableStdin: term.options.disableStdin === true,
-      mouseTracking: term.modes.mouseTrackingMode,
-      rows: term.rows,
-      cols: term.cols,
-      bufferType: activeBuffer.type,
-      bufferLength: activeBuffer.length,
-      bufferBaseY: activeBuffer.baseY,
-      bufferViewportY: activeBuffer.viewportY,
-      containerH: Math.round(containerEl?.getBoundingClientRect().height ?? 0),
-      viewportH: Math.round(viewportEl?.getBoundingClientRect().height ?? 0),
-      viewportClientH: viewportEl?.clientHeight ?? 0,
-      viewportScrollH: viewportEl?.scrollHeight ?? 0,
-      viewportScrollTop: Math.round(viewportEl?.scrollTop ?? 0),
-    });
-  }
-
   function shouldUseManualTouchScroll(): boolean {
     return isMobile && interactionMode === "scroll" && !!viewportEl && term.modes.mouseTrackingMode !== "none";
   }
@@ -95,16 +72,7 @@
   function handleManualTouchStart(event: TouchEvent): void {
     const touch = event.touches[0];
     if (!touch) return;
-    const manual = shouldUseManualTouchScroll();
-    if (isMobile && interactionMode === "scroll") {
-      recordMobileDebug("terminal.touch", {
-        phase: "start",
-        manual,
-        mouseTracking: term.modes.mouseTrackingMode,
-        touchY: Math.round(touch.pageY),
-      });
-    }
-    if (!manual) return;
+    if (!shouldUseManualTouchScroll()) return;
     lastTouchY = touch.pageY;
   }
 
@@ -117,13 +85,6 @@
     if (deltaY === 0) return;
 
     viewportEl.scrollTop += deltaY;
-    recordMobileDebug("terminal.touch", {
-      phase: "move",
-      manual: true,
-      deltaY: Math.round(deltaY),
-      scrollTop: Math.round(viewportEl.scrollTop),
-    });
-    reportViewportState("manualTouchMove");
     event.preventDefault();
   }
 
@@ -135,31 +96,9 @@
     viewportEl = nextViewportEl;
     nextXtermEl.addEventListener("touchstart", handleManualTouchStart, { passive: true });
     nextXtermEl.addEventListener("touchmove", handleManualTouchMove, { passive: false });
-    const handleViewportScroll = (): void => {
-      recordMobileDebug("terminal.scroll", {
-        interaction: interactionMode,
-        mouseTracking: term.modes.mouseTrackingMode,
-        scrollTop: Math.round(nextViewportEl.scrollTop),
-        clientH: nextViewportEl.clientHeight,
-        scrollH: nextViewportEl.scrollHeight,
-      });
-      reportViewportState("viewportScroll");
-    };
-    nextViewportEl.addEventListener("scroll", handleViewportScroll, { passive: true });
-
-    let resizeObserver: ResizeObserver | null = null;
-    if (isMobileDebugEnabled()) {
-      resizeObserver = new ResizeObserver(() => reportViewportState("resize"));
-      resizeObserver.observe(containerEl);
-      resizeObserver.observe(nextViewportEl);
-      reportViewportState("attach");
-    }
-
     manualTouchCleanup = () => {
       nextXtermEl.removeEventListener("touchstart", handleManualTouchStart);
       nextXtermEl.removeEventListener("touchmove", handleManualTouchMove);
-      nextViewportEl.removeEventListener("scroll", handleViewportScroll);
-      resizeObserver?.disconnect();
       viewportEl = null;
     };
   }
@@ -296,11 +235,6 @@
 
   function syncInteractionMode(mode: TerminalInteractionMode): void {
     if (ws?.readyState !== WebSocket.OPEN) return;
-    recordMobileDebug("terminal.ws", {
-      event: "setInteractionMode",
-      mode,
-      readyState: ws.readyState,
-    });
     ws.send(buildInteractionModeMessage(mode));
   }
 
@@ -347,14 +281,7 @@
           term.focus();
         }
       });
-      recordMobileDebug("terminal.ws", {
-        event: "open",
-        announceReconnect,
-        interaction: interactionMode,
-        mouseTracking: term.modes.mouseTrackingMode,
-      });
       nextWs.send(buildResizeMessage(true));
-      reportViewportState("wsOpen");
     };
 
     nextWs.onclose = () => {
@@ -454,7 +381,6 @@
       if (shouldAutoFocus()) {
         term.focus();
       }
-      reportViewportState("mount");
     });
 
     connect();
@@ -472,7 +398,6 @@
         if (ws?.readyState === WebSocket.OPEN) {
           ws.send(buildResizeMessage());
         }
-        reportViewportState("resizeObserver");
       }, 150);
     });
     resizeObs.observe(containerEl);
@@ -492,13 +417,7 @@
   $effect(() => {
     if (!term) return;
     term.options.disableStdin = interactionMode === "scroll";
-    recordMobileDebug("terminal.mode", {
-      interaction: interactionMode,
-      disableStdin: term.options.disableStdin === true,
-      mouseTracking: term.modes.mouseTrackingMode,
-    });
     syncInteractionMode(interactionMode);
-    reportViewportState("modeEffect");
     if (interactionMode === "scroll" && document.activeElement instanceof HTMLElement) {
       document.activeElement.blur();
     }

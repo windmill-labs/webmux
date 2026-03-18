@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { isMobileDebugEnabled, recordMobileDebug } from "./mobileDebug";
   import MobileTerminalScrollView from "./MobileTerminalScrollView.svelte";
   import type { ITheme } from "@xterm/xterm";
   import PaneBar from "./PaneBar.svelte";
@@ -74,45 +73,10 @@
   } = $props();
 
   let showPaneBar = $derived(isMobile && canConnect && paneBarPanes.length > 0);
-  let panelEl = $state<HTMLDivElement | null>(null);
-  let topBarEl = $state<HTMLDivElement | null>(null);
-  let modeBarEl = $state<HTMLDivElement | null>(null);
-  let paneBarEl = $state<HTMLDivElement | null>(null);
-
-  $effect(() => {
-    if (!isMobile || !panelEl || !topBarEl || !isMobileDebugEnabled()) return;
-
-    const reportLayout = (): void => {
-      const nextPanelEl = panelEl;
-      const nextTopBarEl = topBarEl;
-      if (!nextPanelEl || !nextTopBarEl) return;
-
-      recordMobileDebug("session.layout", {
-        canConnect,
-        interaction: terminalInteractionMode,
-        paneCount: paneBarPanes.length,
-        panelH: Math.round(nextPanelEl.getBoundingClientRect().height),
-        topBarH: Math.round(nextTopBarEl.getBoundingClientRect().height),
-        modeBarH: modeBarEl ? Math.round(modeBarEl.getBoundingClientRect().height) : 0,
-        paneBarH: paneBarEl ? Math.round(paneBarEl.getBoundingClientRect().height) : 0,
-      });
-    };
-
-    const observer = new ResizeObserver(reportLayout);
-    observer.observe(panelEl);
-    observer.observe(topBarEl);
-    if (modeBarEl) observer.observe(modeBarEl);
-    if (paneBarEl) observer.observe(paneBarEl);
-    reportLayout();
-
-    return () => {
-      observer.disconnect();
-    };
-  });
 </script>
 
-<div class="flex flex-1 min-h-0 flex-col overflow-hidden" bind:this={panelEl}>
-  <div bind:this={topBarEl}>
+<div class="flex flex-1 min-h-0 flex-col overflow-hidden">
+  <div>
     <TopBar
       name={selectedWorktree?.branch ?? null}
       worktree={selectedWorktree}
@@ -136,7 +100,7 @@
 
   {#if canConnect}
     {#if isMobile}
-      <div class="shrink-0 border-b border-edge bg-surface px-4 py-2.5" bind:this={modeBarEl}>
+      <div class="shrink-0 border-b border-edge bg-surface px-4 py-2.5">
         <div class="inline-flex rounded-lg border border-edge bg-sidebar p-1">
           <button
             type="button"
@@ -225,7 +189,7 @@
   {/if}
 
   {#if showPaneBar}
-    <div bind:this={paneBarEl}>
+    <div>
       <PaneBar activePane={activePane} panes={paneBarPanes} onselect={onselectpane} />
     </div>
   {/if}

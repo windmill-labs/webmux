@@ -6,7 +6,6 @@
   import CiDetailsDialog from "./lib/CiDetailsDialog.svelte";
   import CommentReviewDialog from "./lib/CommentReviewDialog.svelte";
   import DiffDialog from "./lib/DiffDialog.svelte";
-  import MobileDebugOverlay from "./lib/MobileDebugOverlay.svelte";
   import SessionPanel from "./lib/SessionPanel.svelte";
   import NotificationToast from "./lib/NotificationToast.svelte";
   import LinearDetailDialog from "./lib/LinearDetailDialog.svelte";
@@ -23,7 +22,6 @@
     WorktreeCreateMode,
     WorktreeInfo,
   } from "./lib/types";
-  import { isMobileDebugEnabled, recordMobileDebug } from "./lib/mobileDebug";
   import {
     SSH_STORAGE_KEY,
     applyTheme,
@@ -170,9 +168,6 @@
   let terminalInteractionMode = $state<TerminalInteractionMode>("interact");
   let activePane = $state(0);
   let terminalRef = $state<TerminalController | undefined>();
-  let mobileRootEl = $state<HTMLDivElement | null>(null);
-  let mobileContentEl = $state<HTMLDivElement | null>(null);
-  let mobileNavEl = $state<HTMLElement | null>(null);
 
   // Safety buffer after backend confirms paste-buffer completion.
   // paste-buffer exits once tmux has queued the data, but the PTY write
@@ -283,41 +278,6 @@
     if (isMobile && mobileScreen === "session" && !selectedWorktree) {
       mobileScreen = "worktrees";
     }
-  });
-
-  $effect(() => {
-    if (!isMobile || !mobileRootEl || !mobileContentEl || !mobileNavEl || !isMobileDebugEnabled()) return;
-
-    const reportLayout = (): void => {
-      const rootEl = mobileRootEl;
-      const contentEl = mobileContentEl;
-      const navEl = mobileNavEl;
-      if (!rootEl || !contentEl || !navEl) return;
-
-      recordMobileDebug("app.mobileLayout", {
-        screen: mobileScreen,
-        selected: selectedBranch ?? "none",
-        innerH: window.innerHeight,
-        viewportH: Math.round(window.visualViewport?.height ?? 0),
-        rootH: Math.round(rootEl.getBoundingClientRect().height),
-        contentH: Math.round(contentEl.getBoundingClientRect().height),
-        navH: Math.round(navEl.getBoundingClientRect().height),
-      });
-    };
-
-    const observer = new ResizeObserver(reportLayout);
-    observer.observe(mobileRootEl);
-    observer.observe(mobileContentEl);
-    observer.observe(mobileNavEl);
-    window.addEventListener("resize", reportLayout);
-    window.visualViewport?.addEventListener("resize", reportLayout);
-    reportLayout();
-
-    return () => {
-      observer.disconnect();
-      window.removeEventListener("resize", reportLayout);
-      window.visualViewport?.removeEventListener("resize", reportLayout);
-    };
   });
 
   let paneBarPanes = $derived.by(() => {
@@ -645,8 +605,8 @@
 </script>
 
 {#if isMobile}
-  <div class="flex h-dvh flex-col bg-surface text-primary" bind:this={mobileRootEl}>
-    <div class="flex flex-1 min-h-0 overflow-hidden" bind:this={mobileContentEl}>
+  <div class="flex h-dvh flex-col bg-surface text-primary">
+    <div class="flex flex-1 min-h-0 overflow-hidden">
       {#if mobileScreen === "worktrees"}
         <WorktreeSidebar
           appName={config.name}
@@ -702,11 +662,7 @@
       {/if}
     </div>
 
-    <nav
-      class="shrink-0 border-t border-edge bg-topbar px-3 pt-2"
-      style="padding-bottom: env(safe-area-inset-bottom, 0px);"
-      bind:this={mobileNavEl}
-    >
+    <nav class="shrink-0 border-t border-edge bg-topbar px-3 pt-2" style="padding-bottom: env(safe-area-inset-bottom, 0px);">
       <div class="flex gap-2">
         <button
           type="button"
@@ -799,8 +755,6 @@
     </main>
   </div>
 {/if}
-
-<MobileDebugOverlay />
 
 {#if showCreateDialog}
   <CreateWorktreeDialog

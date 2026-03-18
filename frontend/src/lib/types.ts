@@ -76,7 +76,6 @@ export type WorktreeCreateMode = "new" | "existing";
 export type MobileAppScreen = "worktrees" | "session";
 export type TerminalInteractionMode = "interact" | "scroll";
 export type MobileScrollSource = "history" | "alternate";
-export type MobileDebugValue = string | number | boolean | null | undefined;
 
 export interface AvailableBranch {
   name: string;
@@ -104,18 +103,6 @@ export interface MobileScrollSnapshot {
   pane: number;
   source: MobileScrollSource;
   content: string;
-}
-
-export interface MobileDebugEntry {
-  timestamp: string;
-  scope: string;
-  fields: Record<string, MobileDebugValue>;
-}
-
-export interface MobileDebugState {
-  enabled: boolean;
-  latest: Record<string, MobileDebugEntry>;
-  events: MobileDebugEntry[];
 }
 
 export type WorktreeCreationPhase =

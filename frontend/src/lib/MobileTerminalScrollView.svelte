@@ -1,6 +1,5 @@
 <script lang="ts">
   import { fetchMobileScrollSnapshot } from "./api";
-  import { isMobileDebugEnabled, recordMobileDebug } from "./mobileDebug";
   import type { MobileScrollSnapshot } from "./types";
   import { errorMessage } from "./utils";
 
@@ -33,16 +32,6 @@
     return source === "alternate" ? "Alternate screen" : "Scrollback";
   }
 
-  function reportSnapshot(reason: string, fields: Record<string, string | number | boolean | null>): void {
-    if (!isMobileDebugEnabled()) return;
-    recordMobileDebug("terminal.snapshot", {
-      reason,
-      worktree,
-      pane,
-      ...fields,
-    });
-  }
-
   async function loadSnapshot(nextWorktree: string, nextPane: number, reason: string): Promise<void> {
     const token = ++requestToken;
     clearRetry();
@@ -51,17 +40,11 @@
     }
     loading = true;
     error = null;
-    reportSnapshot(reason, { loading: true });
 
     try {
       const nextSnapshot = await fetchMobileScrollSnapshot(nextWorktree, nextPane);
       if (token !== requestToken) return;
       snapshot = nextSnapshot;
-      reportSnapshot(reason, {
-        loading: false,
-        source: nextSnapshot.source,
-        contentLength: nextSnapshot.content.length,
-      });
     } catch (err: unknown) {
       if (token !== requestToken) return;
       const message = errorMessage(err);
@@ -74,10 +57,6 @@
       } else {
         error = message;
       }
-      reportSnapshot(reason, {
-        loading: false,
-        error: error,
-      });
     } finally {
       if (token === requestToken) {
         loading = false;

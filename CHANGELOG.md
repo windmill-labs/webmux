@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.18.0](https://github.com/windmill-labs/webmux/compare/v0.17.0...v0.18.0) (2026-03-18)
+
+
+### Features
+
+* add reusable Toggle component for boolean startup envs ([#154](https://github.com/windmill-labs/webmux/issues/154)) ([c748618](https://github.com/windmill-labs/webmux/commit/c7486188651aa59b82a8dcf440a882f8eaeb3045))
+* close dialog on outside click ([#151](https://github.com/windmill-labs/webmux/issues/151)) ([908af94](https://github.com/windmill-labs/webmux/commit/908af94edb3d40c0d8adf22ae57d8ac84b32a07e))
+* diff toggle, badge labels, and comment sorting ([#150](https://github.com/windmill-labs/webmux/issues/150)) ([a9fe654](https://github.com/windmill-labs/webmux/commit/a9fe654a87779078a587d234c31981afed06b83c))
+* resizable worktree list sidebar panel ([#153](https://github.com/windmill-labs/webmux/issues/153)) ([bf7c4ba](https://github.com/windmill-labs/webmux/commit/bf7c4ba379a5293b62c58e2e988a1cfe3c36ad53))
+
 ## [0.17.0](https://github.com/windmill-labs/webmux/compare/v0.16.0...v0.17.0) (2026-03-17)
 
 

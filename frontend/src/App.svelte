@@ -31,6 +31,8 @@
     saveSelectedWorktree,
     resolveSelectedBranch,
     applyTheme,
+    loadSavedSidebarWidth,
+    saveSidebarWidth,
   } from "./lib/utils";
   import { getTheme } from "./lib/themes";
   import type { ThemeKey } from "./lib/themes";
@@ -116,6 +118,49 @@
 
   function handleBellOpen(): void {
     unreadCount = 0;
+  }
+
+  // Sidebar resize
+  const MIN_SIDEBAR_WIDTH = 140;
+  const MAX_SIDEBAR_WIDTH = 500;
+  const SIDEBAR_KEYBOARD_STEP = 10;
+  let sidebarWidth = $state(
+    Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, loadSavedSidebarWidth())),
+  );
+  let isResizingSidebar = $state(false);
+
+  function clampSidebarWidth(w: number): number {
+    return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, w));
+  }
+
+  function handleResizeStart(e: PointerEvent) {
+    e.preventDefault();
+    isResizingSidebar = true;
+    const startX = e.clientX;
+    const startWidth = sidebarWidth;
+
+    function onPointerMove(ev: PointerEvent) {
+      sidebarWidth = clampSidebarWidth(startWidth + ev.clientX - startX);
+    }
+
+    function onPointerUp() {
+      isResizingSidebar = false;
+      saveSidebarWidth(sidebarWidth);
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+    }
+
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+  }
+
+  function handleResizeKeydown(e: KeyboardEvent) {
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      e.preventDefault();
+      const delta = e.key === "ArrowRight" ? SIDEBAR_KEYBOARD_STEP : -SIDEBAR_KEYBOARD_STEP;
+      sidebarWidth = clampSidebarWidth(sidebarWidth + delta);
+      saveSidebarWidth(sidebarWidth);
+    }
   }
 
   // Mobile state
@@ -521,7 +566,7 @@
   });
 </script>
 
-<div class="flex h-dvh bg-surface text-primary">
+<div class="flex h-dvh bg-surface text-primary {isResizingSidebar ? 'select-none' : ''}" style={isResizingSidebar ? 'cursor: col-resize' : ''}>
   <!-- Sidebar: fixed overlay on mobile, static on desktop -->
   {#if !isMobile || sidebarOpen}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -537,7 +582,8 @@
     <aside
       class="{isMobile
         ? 'fixed inset-0 z-50 w-full'
-        : 'w-[220px] min-w-[220px]'} bg-sidebar border-r border-edge flex flex-col overflow-hidden"
+        : ''} bg-sidebar border-r border-edge flex flex-col overflow-hidden shrink-0"
+      style={isMobile ? '' : `width: ${sidebarWidth}px`}
     >
       <div class="p-4 border-b border-edge">
         <div class="flex items-center justify-between">
@@ -600,6 +646,20 @@
         </div>
       {/if}
     </aside>
+    {#if !isMobile}
+      <div
+        class="w-1 shrink-0 cursor-col-resize hover:bg-accent/50 transition-colors"
+        class:bg-accent={isResizingSidebar}
+        onpointerdown={handleResizeStart}
+        onkeydown={handleResizeKeydown}
+        role="separator"
+        aria-orientation="vertical"
+        aria-valuenow={sidebarWidth}
+        aria-valuemin={MIN_SIDEBAR_WIDTH}
+        aria-valuemax={MAX_SIDEBAR_WIDTH}
+        tabindex="0"
+      ></div>
+    {/if}
   {/if}
 
   <main class="flex-1 min-w-0 flex flex-col overflow-hidden">

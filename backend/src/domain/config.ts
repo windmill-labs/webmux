@@ -56,6 +56,8 @@ export interface GitHubIntegrationConfig {
 export interface LinearIntegrationConfig {
   enabled: boolean;
   autoCreateWorktrees: boolean;
+  createTicketOption: boolean;
+  teamId?: string;
 }
 
 export interface IntegrationConfig {

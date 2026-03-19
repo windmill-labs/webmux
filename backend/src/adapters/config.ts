@@ -52,7 +52,7 @@ const DEFAULT_CONFIG: ProjectConfig = {
   startupEnvs: {},
   integrations: {
     github: { linkedRepos: [] },
-    linear: { enabled: true, autoCreateWorktrees: false },
+    linear: { enabled: true, autoCreateWorktrees: false, createTicketOption: false },
   },
   lifecycleHooks: {},
   autoName: null,
@@ -315,6 +315,17 @@ function parseProjectConfig(parsed: Record<string, unknown>): ProjectConfig {
         autoCreateWorktrees: isRecord(parsed.integrations) && isRecord(parsed.integrations.linear) && typeof parsed.integrations.linear.autoCreateWorktrees === "boolean"
           ? parsed.integrations.linear.autoCreateWorktrees
           : DEFAULT_CONFIG.integrations.linear.autoCreateWorktrees,
+        createTicketOption: isRecord(parsed.integrations) &&
+            isRecord(parsed.integrations.linear) &&
+            typeof parsed.integrations.linear.createTicketOption === "boolean"
+          ? parsed.integrations.linear.createTicketOption
+          : DEFAULT_CONFIG.integrations.linear.createTicketOption,
+        ...(isRecord(parsed.integrations) &&
+            isRecord(parsed.integrations.linear) &&
+            typeof parsed.integrations.linear.teamId === "string" &&
+            parsed.integrations.linear.teamId.trim()
+          ? { teamId: parsed.integrations.linear.teamId.trim() }
+          : {}),
       },
     },
     lifecycleHooks: parseLifecycleHooks(parsed.lifecycleHooks),
@@ -334,6 +345,8 @@ function parseLocalLinearOverlay(parsed: Record<string, unknown>): Partial<Linea
   const overlay: Partial<LinearIntegrationConfig> = {};
   if (typeof linear.enabled === "boolean") overlay.enabled = linear.enabled;
   if (typeof linear.autoCreateWorktrees === "boolean") overlay.autoCreateWorktrees = linear.autoCreateWorktrees;
+  if (typeof linear.createTicketOption === "boolean") overlay.createTicketOption = linear.createTicketOption;
+  if (typeof linear.teamId === "string" && linear.teamId.trim()) overlay.teamId = linear.teamId.trim();
   return Object.keys(overlay).length > 0 ? overlay : null;
 }
 

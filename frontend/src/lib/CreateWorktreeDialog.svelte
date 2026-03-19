@@ -1,8 +1,15 @@
 <script lang="ts">
-  import type { AvailableBranch, ProfileConfig, WorktreeCreateMode } from "./types";
+  import type {
+    AgentKind,
+    AvailableBranch,
+    CreateWorktreeRequest,
+    ProfileConfig,
+    WorktreeCreateMode,
+  } from "./types";
   import BaseDialog from "./BaseDialog.svelte";
   import Btn from "./Btn.svelte";
   import StartupEnvFields from "./StartupEnvFields.svelte";
+  import Toggle from "./Toggle.svelte";
   import { searchMatch } from "./utils";
 
   let {
@@ -15,6 +22,8 @@
     availableBranchesLoading = false,
     availableBranchesError = null,
     startupEnvs = {},
+    linearCreateTicketOption = false,
+    openedFromLinearIssue = false,
     oncreate,
     oncancel,
   }: {
@@ -27,18 +36,13 @@
     availableBranchesLoading?: boolean;
     availableBranchesError?: string | null;
     startupEnvs?: Record<string, string | boolean>;
-    oncreate: (
-      mode: WorktreeCreateMode,
-      name: string,
-      profile: string,
-      agent: string,
-      prompt: string,
-      envOverrides: Record<string, string>,
-    ) => void;
+    linearCreateTicketOption?: boolean;
+    openedFromLinearIssue?: boolean;
+    oncreate: (request: CreateWorktreeRequest) => void;
     oncancel: () => void;
   } = $props();
 
-  const AGENTS = [
+  const AGENTS: Array<{ value: AgentKind; label: string }> = [
     { value: "claude", label: "Claude" },
     { value: "codex", label: "Codex" },
   ];
@@ -59,8 +63,10 @@
   let selectedExistingBranch = $state("");
   let branchSearchQuery = $state("");
   let existingSelectorOpen = $state(false);
-  let agent = $state(savedAgent ?? "claude");
+  let agent = $state<AgentKind>(savedAgent === "codex" ? "codex" : "claude");
   let profile = $state(savedProfile ?? "");
+  let createLinearTicket = $state(false);
+  let linearTitle = $state("");
   const hasSavedDefaults = savedProfile != null || savedAgent != null || savedEnvs != null;
   let saveDefault = $state(hasSavedDefaults);
   let existingBranchFieldEl = $state<HTMLDivElement | undefined>(undefined);
@@ -91,13 +97,25 @@
       ? availableBranches.filter((branch) => searchMatch(branchSearchQuery, branch.name))
       : availableBranches,
   );
+  let showLinearTicketOption = $derived(
+    linearCreateTicketOption && !openedFromLinearIssue && mode === "new",
+  );
+  let promptRequired = $derived(showLinearTicketOption && createLinearTicket);
   let canSubmit = $derived(
-    mode === "new" || selectedExistingBranch.length > 0,
+    (mode === "new" || selectedExistingBranch.length > 0) &&
+      (!promptRequired || prompt.trim().length > 0),
   );
 
   $effect(() => {
     if (!profiles.some((p) => p.name === profile)) {
       profile = fallbackProfile;
+    }
+  });
+
+  $effect(() => {
+    if (!showLinearTicketOption) {
+      createLinearTicket = false;
+      linearTitle = "";
     }
   });
 
@@ -150,6 +168,7 @@
   <form
     onsubmit={(e) => {
       e.preventDefault();
+      if (!canSubmit) return;
       if (saveDefault) {
         localStorage.setItem(STORAGE_KEY, profile);
         localStorage.setItem(AGENT_STORAGE_KEY, agent);
@@ -167,21 +186,33 @@
           filteredEnvs[k] = v;
         }
       }
+      const trimmedPrompt = prompt.trim();
       const branchName = mode === "existing" ? selectedExistingBranch : newBranchName.trim();
-      oncreate(mode, branchName, profile, agent, prompt.trim(), filteredEnvs);
+      oncreate({
+        mode,
+        ...(branchName && !(mode === "new" && createLinearTicket) ? { branch: branchName } : {}),
+        profile,
+        agent,
+        ...(trimmedPrompt ? { prompt: trimmedPrompt } : {}),
+        ...(Object.keys(filteredEnvs).length > 0 ? { envOverrides: filteredEnvs } : {}),
+        ...(createLinearTicket ? { createLinearTicket: true } : {}),
+        ...(createLinearTicket && linearTitle.trim() ? { linearTitle: linearTitle.trim() } : {}),
+      });
     }}
   >
     <h2 class="text-base mb-4">New Worktree</h2>
     <div class="mb-4">
       <label class="block text-xs text-muted mb-1.5" for="wt-prompt"
-        >Prompt <span class="opacity-60">(optional)</span></label
+        >Prompt <span class="opacity-60">({promptRequired ? "required" : "optional"})</span></label
       >
       <textarea
         id="wt-prompt"
         rows="4"
         use:focus
         class="w-full px-2.5 py-1.5 rounded-md border border-edge bg-surface text-primary text-[13px] placeholder:text-muted/50 outline-none focus:border-accent resize-y"
-        placeholder="Describe the task for the agent..."
+        placeholder={createLinearTicket
+          ? "Describe the task for the agent. This will also be used as the Linear ticket description..."
+          : "Describe the task for the agent..."}
         bind:value={prompt}
         onkeydown={(e) => {
           if (e.key === "Enter" && !e.shiftKey) {
@@ -200,16 +231,27 @@
           id="wt-name"
           type="text"
           class="w-full px-2.5 py-1.5 rounded-md border border-edge bg-surface text-primary text-[13px] placeholder:text-muted/50 outline-none focus:border-accent"
-          placeholder={autoNameEnabled ? "generated from prompt if empty" : "auto-generated if empty"}
+          placeholder={createLinearTicket
+            ? "Generated from the Linear ticket"
+            : autoNameEnabled
+              ? "generated from prompt if empty"
+              : "auto-generated if empty"}
+          disabled={createLinearTicket}
           bind:value={newBranchName}
         />
-        <button
-          type="button"
-          class="mt-2 text-[11px] text-accent hover:underline"
-          onclick={openExistingBranchSelector}
-        >
-          Use existing branch
-        </button>
+        {#if createLinearTicket}
+          <p class="mt-2 text-[11px] text-muted">
+            The worktree branch will use the Linear ticket branch name.
+          </p>
+        {:else}
+          <button
+            type="button"
+            class="mt-2 text-[11px] text-accent hover:underline"
+            onclick={openExistingBranchSelector}
+          >
+            Use existing branch
+          </button>
+        {/if}
       {:else}
         <div bind:this={existingBranchFieldEl} onfocusout={handleExistingBranchFocusOut}>
           <span class="block text-xs text-muted mb-1.5">Existing branch</span>
@@ -347,6 +389,33 @@
       />
       Save as default
     </label>
+    {#if showLinearTicketOption}
+      <div class="mb-4 rounded-lg border border-edge bg-surface/40 p-3">
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <p class="text-[13px] text-primary">Create Linear ticket</p>
+            <p class="mt-1 text-[11px] text-muted">
+              Creates the ticket first, uses the prompt as the ticket description, and uses the ticket branch name for the worktree.
+            </p>
+          </div>
+          <Toggle bind:checked={createLinearTicket} aria-label="Create Linear ticket" />
+        </div>
+        {#if createLinearTicket}
+          <div class="mt-3">
+            <label class="block text-xs text-muted mb-1.5" for="wt-linear-title">
+              Linear ticket title <span class="opacity-60">(optional)</span>
+            </label>
+            <input
+              id="wt-linear-title"
+              type="text"
+              class="w-full px-2.5 py-1.5 rounded-md border border-edge bg-surface text-primary text-[13px] placeholder:text-muted/50 outline-none focus:border-accent"
+              placeholder="Defaults to the first non-empty line of the prompt"
+              bind:value={linearTitle}
+            />
+          </div>
+        {/if}
+      </div>
+    {/if}
     <div class="flex justify-end gap-2">
       <Btn type="button" onclick={oncancel}>Cancel</Btn>
       <Btn

@@ -79,10 +79,26 @@ export interface FileUploadResult {
   files: Array<{ path: string }>;
 }
 
+export type AgentKind = "claude" | "codex";
 export type WorktreeCreateMode = "new" | "existing";
 
 export interface AvailableBranch {
   name: string;
+}
+
+export interface CreateWorktreeRequest {
+  mode: WorktreeCreateMode;
+  branch?: string;
+  profile: string;
+  agent: AgentKind;
+  prompt?: string;
+  envOverrides?: Record<string, string>;
+  createLinearTicket?: boolean;
+  linearTitle?: string;
+}
+
+export interface CreateWorktreeResponse {
+  branch: string;
 }
 
 export type WorktreeCreationPhase =
@@ -184,6 +200,7 @@ export interface AppConfig {
   profiles: ProfileConfig[];
   defaultProfileName: string;
   autoName: boolean;
+  linearCreateTicketOption: boolean;
   startupEnvs?: Record<string, string | boolean>;
   linkedRepos?: LinkedRepoInfo[];
   linearAutoCreateWorktrees?: boolean;

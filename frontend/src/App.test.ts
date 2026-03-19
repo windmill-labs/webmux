@@ -51,13 +51,15 @@ function deferred<T>(): Deferred<T> {
   return { promise, resolve, reject };
 }
 
-function createConfig(): AppConfig {
+function createConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   return {
     services: [],
     profiles: [{ name: "default" }],
     defaultProfileName: "default",
     autoName: false,
+    linearCreateTicketOption: false,
     linkedRepos: [],
+    ...overrides,
   };
 }
 
@@ -286,5 +288,58 @@ describe("App create selection", () => {
     expect(
       await screen.findByText("No assigned Linear issues right now."),
     ).toBeInTheDocument();
+  });
+
+  it("hides the Linear ticket option when disabled in config", async () => {
+    vi.mocked(api.fetchWorktrees).mockResolvedValue([]);
+
+    render(App);
+
+    await fireEvent.click(screen.getByTitle("New Worktree (Cmd+K)"));
+    await screen.findByText("New Worktree");
+
+    expect(screen.queryByRole("switch", { name: /create linear ticket/i })).not.toBeInTheDocument();
+  });
+
+  it("submits Linear ticket creation when the option is enabled", async () => {
+    vi.mocked(api.fetchConfig).mockResolvedValue(createConfig({
+      linearCreateTicketOption: true,
+    }));
+    vi.mocked(api.fetchWorktrees).mockResolvedValue([]);
+    vi.mocked(api.createWorktree).mockResolvedValue({ branch: "eng-123-new-flow" });
+
+    render(App);
+
+    await fireEvent.click(screen.getByTitle("New Worktree (Cmd+K)"));
+    await screen.findByText("New Worktree");
+
+    const linearToggle = screen.getByRole("switch", { name: /create linear ticket/i });
+    await fireEvent.click(linearToggle);
+
+    const createButton = screen.getByRole("button", { name: "Create" });
+    expect(createButton).toBeDisabled();
+    expect(screen.getByLabelText(/Branch name/i)).toBeDisabled();
+
+    await fireEvent.input(screen.getByLabelText(/Prompt/i), {
+      target: { value: "Implement the new flow" },
+    });
+    await fireEvent.input(screen.getByLabelText(/Linear ticket title/i), {
+      target: { value: "Ship Linear-backed worktree creation" },
+    });
+    await waitFor(() => {
+      expect(createButton).not.toBeDisabled();
+    });
+    await fireEvent.click(createButton);
+
+    await waitFor(() => {
+      expect(api.createWorktree).toHaveBeenCalledWith({
+        mode: "new",
+        profile: "default",
+        agent: "claude",
+        prompt: "Implement the new flow",
+        createLinearTicket: true,
+        linearTitle: "Ship Linear-backed worktree creation",
+      });
+    });
   });
 });

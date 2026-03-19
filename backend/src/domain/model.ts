@@ -170,3 +170,10 @@ export interface ProjectSnapshot {
   worktrees: WorktreeSnapshot[];
   notifications: NotificationView[];
 }
+
+export interface NativeTerminalLaunch {
+  worktreeId: string;
+  branch: string;
+  path: string;
+  shellCommand: string;
+}

@@ -23,6 +23,7 @@ import { jsonResponse, errorResponse } from "./lib/http";
 import { hasRecentDashboardActivity, touchDashboardActivity } from "./services/dashboard-activity";
 import { branchMatchesIssue, fetchAssignedIssues } from "./services/linear-service";
 import { LifecycleError } from "./services/lifecycle-service";
+import { buildNativeTerminalLaunch, buildNativeTerminalTmuxCommand } from "./services/native-terminal-service";
 import { startPrMonitor } from "./services/pr-service";
 import { buildProjectSnapshot } from "./services/snapshot-service";
 import { parseRuntimeEvent } from "./domain/events";
@@ -213,6 +214,22 @@ async function resolveTerminalWorktree(branch: string): Promise<{
       windowName: state.session.windowName,
     },
   };
+}
+
+async function apiGetNativeTerminalLaunch(branch: string): Promise<Response> {
+  touchDashboardActivity();
+  ensureBranchNotBusy(branch);
+  await reconciliationService.reconcile(PROJECT_DIR);
+  const launch = buildNativeTerminalLaunch({
+    branch,
+    state: projectRuntime.getWorktreeByBranch(branch),
+    tmuxCommand: buildNativeTerminalTmuxCommand(Bun.env),
+    sessionPrefix: `wm-native-${PORT}-`,
+  });
+  if (!launch.ok) {
+    return errorResponse(launch.message, launch.reason === "not_found" ? 404 : 409);
+  }
+  return jsonResponse(launch.data);
 }
 
 function getAttachedSessionId(ws: { data: WsData; readyState: number; send: (data: string) => void }): string | null {
@@ -576,6 +593,14 @@ Bun.serve({
         const name = decodeURIComponent(req.params.name);
         if (!isValidWorktreeName(name)) return errorResponse("Invalid worktree name", 400);
         return catching(`POST /api/worktrees/${name}/open`, () => apiOpenWorktree(name));
+      },
+    },
+
+    "/api/worktrees/:name/terminal-launch": {
+      GET: (req) => {
+        const name = decodeURIComponent(req.params.name);
+        if (!isValidWorktreeName(name)) return errorResponse("Invalid worktree name", 400);
+        return catching(`GET /api/worktrees/${name}/terminal-launch`, () => apiGetNativeTerminalLaunch(name));
       },
     },
 

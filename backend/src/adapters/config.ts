@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { parse as parseYaml } from "yaml";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import type {
   AgentKind,
   AutoNameConfig,
@@ -426,6 +426,30 @@ export function loadConfig(dir: string, options: LoadConfigOptions = {}): Projec
       },
     } : {}),
   };
+}
+
+/** Persist a partial Linear integration config override into `.webmux.local.yaml`.
+ *  Reads the existing file, merges the changes under `integrations.linear`, and writes back. */
+export async function persistLocalLinearConfig(
+  dir: string,
+  changes: Partial<LinearIntegrationConfig>,
+): Promise<void> {
+  const root = projectRoot(dir);
+  const localPath = join(root, ".webmux.local.yaml");
+
+  let existing: Record<string, unknown> = {};
+  try {
+    const text = readFileSync(localPath, "utf8").trim();
+    if (text) existing = parseConfigDocument(text);
+  } catch { /* file doesn't exist yet */ }
+
+  const integrations = isRecord(existing.integrations) ? { ...existing.integrations } : {};
+  const linear = isRecord(integrations.linear) ? { ...integrations.linear } : {};
+  Object.assign(linear, changes);
+  integrations.linear = linear;
+  existing.integrations = integrations;
+
+  await Bun.write(localPath, stringifyYaml(existing));
 }
 
 /** Expand ${VAR} placeholders in a template string using an env map. */

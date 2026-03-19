@@ -4,7 +4,7 @@ import { branchMatchesIssue, fetchAssignedIssues, type LinearIssue } from "./lin
 import type { LifecycleService } from "./lifecycle-service";
 import type { GitGateway } from "../adapters/git";
 
-const POLL_INTERVAL_MS = 60_000;
+const POLL_INTERVAL_MS = 15_000;
 
 export interface LinearAutoCreateDependencies {
   lifecycleService: LifecycleService;
@@ -17,13 +17,16 @@ export interface LinearAutoCreateDependencies {
  *  Prevents retrying on transient failures every poll cycle. */
 const processedIssueIds = new Set<string>();
 
-/** Filter issues to only those in "Todo" state that don't already have a worktree. */
-export function filterNewTodoIssues(
+const AUTO_CREATE_LABEL = "webmux";
+
+/** Filter issues to only those in Todo state with the "webmux" label that don't already have a worktree. */
+export function filterAutoCreateIssues(
   issues: LinearIssue[],
   existingBranches: string[],
 ): LinearIssue[] {
   return issues.filter((issue) => {
     if (issue.state.name !== "Todo") return false;
+    if (!issue.labels.some((l) => l.name.toLowerCase() === AUTO_CREATE_LABEL)) return false;
     if (processedIssueIds.has(issue.id)) return false;
     return !existingBranches.some((branch) => branchMatchesIssue(branch, issue.branchName));
   });
@@ -31,7 +34,7 @@ export function filterNewTodoIssues(
 
 async function runAutoCreate(deps: LinearAutoCreateDependencies): Promise<void> {
   if (!deps.isActive()) {
-    log.debug("[linear-auto-create] skipping: no active clients");
+    log.info("[linear-auto-create] skipping: no active clients");
     return;
   }
 
@@ -47,13 +50,13 @@ async function runAutoCreate(deps: LinearAutoCreateDependencies): Promise<void> 
     .filter((entry) => !entry.bare && entry.branch !== null)
     .map((entry) => entry.branch as string);
 
-  const newIssues = filterNewTodoIssues(result.data, existingBranches);
+  const newIssues = filterAutoCreateIssues(result.data, existingBranches);
   if (newIssues.length === 0) {
-    log.debug(`[linear-auto-create] no new Todo issues (${result.data.length} assigned, ${existingBranches.length} worktrees)`);
+    log.info(`[linear-auto-create] no new labeled issues (${result.data.length} assigned, ${existingBranches.length} worktrees)`);
     return;
   }
 
-  log.info(`[linear-auto-create] found ${newIssues.length} new Todo issue(s) to create worktrees for`);
+  log.info(`[linear-auto-create] found ${newIssues.length} new issue(s) with "${AUTO_CREATE_LABEL}" label`);
 
   for (const issue of newIssues) {
     processedIssueIds.add(issue.id);

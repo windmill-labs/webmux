@@ -90,7 +90,7 @@
         <div>
           <span class="text-[13px] text-primary">Auto-create worktrees</span>
           <p class="text-[11px] text-muted mt-0.5">
-            Automatically create worktrees for new Linear tickets assigned to you (Todo state).
+            Automatically create worktrees for Todo Linear tickets with the "webmux" label.
           </p>
         </div>
 

@@ -18,7 +18,7 @@ import {
   type TerminalAttachTarget,
 } from "./adapters/terminal";
 import { loadControlToken } from "./adapters/control-token";
-import { getDefaultProfileName, type ProjectConfig } from "./adapters/config";
+import { getDefaultProfileName, persistLocalLinearConfig, type ProjectConfig } from "./adapters/config";
 import { jsonResponse, errorResponse } from "./lib/http";
 import { hasRecentDashboardActivity, touchDashboardActivity } from "./services/dashboard-activity";
 import { branchMatchesIssue, fetchAssignedIssues } from "./services/linear-service";
@@ -478,6 +478,8 @@ async function apiSetLinearAutoCreate(req: Request): Promise<Response> {
     stopLinearAutoCreateMonitor();
     log.info("[config] Linear auto-create worktrees disabled");
   }
+
+  await persistLocalLinearConfig(PROJECT_DIR, { autoCreateWorktrees: linearAutoCreateEnabled });
 
   return jsonResponse({ ok: true, enabled: linearAutoCreateEnabled });
 }

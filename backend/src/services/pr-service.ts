@@ -465,7 +465,7 @@ export function startPrMonitor(
   getWorktreeGitDirs: () => Promise<Map<string, string>>,
   linkedRepos: LinkedRepoConfig[],
   projectDir?: string,
-  intervalMs: number = 20_000,
+  intervalMs: number = 10_000,
   isActive?: () => boolean,
 ): () => void {
   const run = async (): Promise<void> => {

@@ -1,10 +1,11 @@
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { parse as parseYaml } from "yaml";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import type {
   AgentKind,
   AutoNameConfig,
   LifecycleHooksConfig,
+  LinearIntegrationConfig,
   LinkedRepoConfig,
   MountSpec,
   PaneTemplate,
@@ -25,6 +26,7 @@ interface LocalProjectConfigOverlay {
   worktreeRoot: string | null;
   profiles: Record<string, ProfileConfig>;
   lifecycleHooks: LifecycleHooksConfig;
+  linear: Partial<LinearIntegrationConfig> | null;
 }
 
 const DEFAULT_PANES: PaneTemplate[] = [
@@ -50,7 +52,7 @@ const DEFAULT_CONFIG: ProjectConfig = {
   startupEnvs: {},
   integrations: {
     github: { linkedRepos: [] },
-    linear: { enabled: true },
+    linear: { enabled: true, autoCreateWorktrees: false },
   },
   lifecycleHooks: {},
   autoName: null,
@@ -310,6 +312,9 @@ function parseProjectConfig(parsed: Record<string, unknown>): ProjectConfig {
         enabled: isRecord(parsed.integrations) && isRecord(parsed.integrations.linear) && typeof parsed.integrations.linear.enabled === "boolean"
           ? parsed.integrations.linear.enabled
           : DEFAULT_CONFIG.integrations.linear.enabled,
+        autoCreateWorktrees: isRecord(parsed.integrations) && isRecord(parsed.integrations.linear) && typeof parsed.integrations.linear.autoCreateWorktrees === "boolean"
+          ? parsed.integrations.linear.autoCreateWorktrees
+          : DEFAULT_CONFIG.integrations.linear.autoCreateWorktrees,
       },
     },
     lifecycleHooks: parseLifecycleHooks(parsed.lifecycleHooks),
@@ -321,11 +326,22 @@ function defaultConfig(): ProjectConfig {
   return parseProjectConfig({});
 }
 
+function parseLocalLinearOverlay(parsed: Record<string, unknown>): Partial<LinearIntegrationConfig> | null {
+  if (!isRecord(parsed.integrations)) return null;
+  const linear = parsed.integrations.linear;
+  if (!isRecord(linear)) return null;
+
+  const overlay: Partial<LinearIntegrationConfig> = {};
+  if (typeof linear.enabled === "boolean") overlay.enabled = linear.enabled;
+  if (typeof linear.autoCreateWorktrees === "boolean") overlay.autoCreateWorktrees = linear.autoCreateWorktrees;
+  return Object.keys(overlay).length > 0 ? overlay : null;
+}
+
 function loadLocalProjectConfigOverlay(root: string): LocalProjectConfigOverlay {
   try {
     const text = readLocalConfigFile(root).trim();
     if (!text) {
-      return { worktreeRoot: null, profiles: {}, lifecycleHooks: {} };
+      return { worktreeRoot: null, profiles: {}, lifecycleHooks: {}, linear: null };
     }
 
     const parsed = parseConfigDocument(text);
@@ -334,9 +350,10 @@ function loadLocalProjectConfigOverlay(root: string): LocalProjectConfigOverlay 
       worktreeRoot: ws && typeof ws.worktreeRoot === "string" ? ws.worktreeRoot : null,
       profiles: parseProfiles(parsed.profiles, false),
       lifecycleHooks: parseLifecycleHooks(parsed.lifecycleHooks),
+      linear: parseLocalLinearOverlay(parsed),
     };
   } catch {
-    return { worktreeRoot: null, profiles: {}, lifecycleHooks: {} };
+    return { worktreeRoot: null, profiles: {}, lifecycleHooks: {}, linear: null };
   }
 }
 
@@ -402,7 +419,37 @@ export function loadConfig(dir: string, options: LoadConfigOptions = {}): Projec
       ...cloneProfiles(localOverlay.profiles),
     },
     lifecycleHooks: mergeLifecycleHooks(projectConfig.lifecycleHooks, localOverlay.lifecycleHooks),
+    ...(localOverlay.linear ? {
+      integrations: {
+        ...projectConfig.integrations,
+        linear: { ...projectConfig.integrations.linear, ...localOverlay.linear },
+      },
+    } : {}),
   };
+}
+
+/** Persist a partial Linear integration config override into `.webmux.local.yaml`.
+ *  Reads the existing file, merges the changes under `integrations.linear`, and writes back. */
+export async function persistLocalLinearConfig(
+  dir: string,
+  changes: Partial<LinearIntegrationConfig>,
+): Promise<void> {
+  const root = projectRoot(dir);
+  const localPath = join(root, ".webmux.local.yaml");
+
+  let existing: Record<string, unknown> = {};
+  try {
+    const text = readFileSync(localPath, "utf8").trim();
+    if (text) existing = parseConfigDocument(text);
+  } catch { /* file doesn't exist yet */ }
+
+  const integrations = isRecord(existing.integrations) ? { ...existing.integrations } : {};
+  const linear = isRecord(integrations.linear) ? { ...integrations.linear } : {};
+  Object.assign(linear, changes);
+  integrations.linear = linear;
+  existing.integrations = integrations;
+
+  await Bun.write(localPath, stringifyYaml(existing));
 }
 
 /** Expand ${VAR} placeholders in a template string using an env map. */

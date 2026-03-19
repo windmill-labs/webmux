@@ -165,14 +165,14 @@ export function branchMatchesIssue(
 const CACHE_TTL_MS = 300_000;
 let issueCache: { data: FetchIssuesResult; expiry: number } | null = null;
 
-export async function fetchAssignedIssues(): Promise<FetchIssuesResult> {
+export async function fetchAssignedIssues(options?: { skipCache?: boolean }): Promise<FetchIssuesResult> {
   const apiKey = Bun.env.LINEAR_API_KEY;
   if (!apiKey) {
     return { ok: false, error: "LINEAR_API_KEY not set" };
   }
 
   const now = Date.now();
-  if (issueCache && now < issueCache.expiry) {
+  if (!options?.skipCache && issueCache && now < issueCache.expiry) {
     return issueCache.data;
   }
 

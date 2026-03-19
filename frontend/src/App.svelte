@@ -784,7 +784,9 @@
 {#if showSettingsDialog}
   <SettingsDialog
     {currentTheme}
+    linearAutoCreate={config.linearAutoCreateWorktrees ?? false}
     onthemechange={(key) => (currentTheme = key)}
+    onlinearautocreatechange={(enabled) => { config.linearAutoCreateWorktrees = enabled; }}
     onsave={(host) => {
       sshHost = host;
       showSettingsDialog = false;

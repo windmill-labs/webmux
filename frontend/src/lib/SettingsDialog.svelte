@@ -4,15 +4,43 @@
   import { THEMES } from "./themes";
   import BaseDialog from "./BaseDialog.svelte";
   import Btn from "./Btn.svelte";
+  import Toggle from "./Toggle.svelte";
+  import * as api from "./api";
 
-  let { currentTheme, onthemechange, onsave, onclose }: {
+  let { currentTheme, linearAutoCreate, onthemechange, onlinearautocreatechange, onsave, onclose }: {
     currentTheme: ThemeKey;
+    linearAutoCreate: boolean;
     onthemechange: (key: ThemeKey) => void;
+    onlinearautocreatechange: (enabled: boolean) => void;
     onsave: (sshHost: string) => void;
     onclose: () => void;
   } = $props();
 
+  const initialAutoCreate = linearAutoCreate;
   let sshHost = $state(localStorage.getItem(SSH_STORAGE_KEY) ?? "");
+  let autoCreate = $state(initialAutoCreate);
+  let autoCreateSaving = $state(false);
+  let lastSyncedAutoCreate = initialAutoCreate;
+
+  $effect(() => {
+    if (autoCreate === lastSyncedAutoCreate) return;
+    const desired = autoCreate;
+    lastSyncedAutoCreate = desired;
+    autoCreateSaving = true;
+    api.setLinearAutoCreate(desired)
+      .then((result) => {
+        autoCreate = result.enabled;
+        lastSyncedAutoCreate = result.enabled;
+        onlinearautocreatechange(result.enabled);
+      })
+      .catch(() => {
+        autoCreate = !desired;
+        lastSyncedAutoCreate = !desired;
+      })
+      .finally(() => {
+        autoCreateSaving = false;
+      });
+  });
 
   function handleSave() {
     const trimmed = sshHost.trim();
@@ -53,6 +81,20 @@
             <span>{theme.label}</span>
           </button>
         {/each}
+      </div>
+    </div>
+
+    <div class="mb-5">
+      <span class="block text-xs text-muted mb-2">Linear</span>
+      <div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md border border-edge bg-surface">
+        <div>
+          <span class="text-[13px] text-primary">Auto-create worktrees</span>
+          <p class="text-[11px] text-muted mt-0.5">
+            Automatically create worktrees for Todo Linear tickets with the "webmux" label.
+          </p>
+        </div>
+
+        <Toggle bind:checked={autoCreate} disabled={autoCreateSaving} aria-label="Auto-create worktrees for Linear tickets" />
       </div>
     </div>
 

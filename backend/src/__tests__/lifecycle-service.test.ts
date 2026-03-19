@@ -197,7 +197,7 @@ const TEST_CONFIG: ProjectConfig = {
   },
   integrations: {
     github: { linkedRepos: [] },
-    linear: { enabled: true },
+    linear: { enabled: true, autoCreateWorktrees: false },
   },
   lifecycleHooks: {
     postCreate: "scripts/post-create.sh",

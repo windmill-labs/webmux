@@ -179,4 +179,5 @@ export interface AppConfig {
   autoName: boolean;
   startupEnvs?: Record<string, string | boolean>;
   linkedRepos?: LinkedRepoInfo[];
+  linearAutoCreateWorktrees?: boolean;
 }

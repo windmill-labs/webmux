@@ -5,6 +5,7 @@ import type {
   AgentKind,
   AutoNameConfig,
   LifecycleHooksConfig,
+  LinearIntegrationConfig,
   LinkedRepoConfig,
   MountSpec,
   PaneTemplate,
@@ -25,6 +26,7 @@ interface LocalProjectConfigOverlay {
   worktreeRoot: string | null;
   profiles: Record<string, ProfileConfig>;
   lifecycleHooks: LifecycleHooksConfig;
+  linear: Partial<LinearIntegrationConfig> | null;
 }
 
 const DEFAULT_PANES: PaneTemplate[] = [
@@ -324,11 +326,22 @@ function defaultConfig(): ProjectConfig {
   return parseProjectConfig({});
 }
 
+function parseLocalLinearOverlay(parsed: Record<string, unknown>): Partial<LinearIntegrationConfig> | null {
+  if (!isRecord(parsed.integrations)) return null;
+  const linear = parsed.integrations.linear;
+  if (!isRecord(linear)) return null;
+
+  const overlay: Partial<LinearIntegrationConfig> = {};
+  if (typeof linear.enabled === "boolean") overlay.enabled = linear.enabled;
+  if (typeof linear.autoCreateWorktrees === "boolean") overlay.autoCreateWorktrees = linear.autoCreateWorktrees;
+  return Object.keys(overlay).length > 0 ? overlay : null;
+}
+
 function loadLocalProjectConfigOverlay(root: string): LocalProjectConfigOverlay {
   try {
     const text = readLocalConfigFile(root).trim();
     if (!text) {
-      return { worktreeRoot: null, profiles: {}, lifecycleHooks: {} };
+      return { worktreeRoot: null, profiles: {}, lifecycleHooks: {}, linear: null };
     }
 
     const parsed = parseConfigDocument(text);
@@ -337,9 +350,10 @@ function loadLocalProjectConfigOverlay(root: string): LocalProjectConfigOverlay 
       worktreeRoot: ws && typeof ws.worktreeRoot === "string" ? ws.worktreeRoot : null,
       profiles: parseProfiles(parsed.profiles, false),
       lifecycleHooks: parseLifecycleHooks(parsed.lifecycleHooks),
+      linear: parseLocalLinearOverlay(parsed),
     };
   } catch {
-    return { worktreeRoot: null, profiles: {}, lifecycleHooks: {} };
+    return { worktreeRoot: null, profiles: {}, lifecycleHooks: {}, linear: null };
   }
 }
 
@@ -405,6 +419,12 @@ export function loadConfig(dir: string, options: LoadConfigOptions = {}): Projec
       ...cloneProfiles(localOverlay.profiles),
     },
     lifecycleHooks: mergeLifecycleHooks(projectConfig.lifecycleHooks, localOverlay.lifecycleHooks),
+    ...(localOverlay.linear ? {
+      integrations: {
+        ...projectConfig.integrations,
+        linear: { ...projectConfig.integrations.linear, ...localOverlay.linear },
+      },
+    } : {}),
   };
 }
 

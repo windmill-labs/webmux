@@ -57,13 +57,14 @@ export function getWorktreeCommandUsage(command: WorktreeSubcommand): string {
     case "add":
       return [
         "Usage:",
-        "  webmux add [branch] [--profile <name>] [--agent <claude|codex>] [--prompt <text>] [--env KEY=VALUE]",
+        "  webmux add [branch] [--profile <name>] [--agent <claude|codex>] [--prompt <text>] [--env KEY=VALUE] [--detach]",
         "",
         "Options:",
         "  --profile <name>         Worktree profile from .webmux.yaml",
         "  --agent <claude|codex>   Agent to launch in the worktree",
         "  --prompt <text>          Initial agent prompt",
         "  --env KEY=VALUE          Runtime env override (repeatable)",
+        "  -d, --detach             Create worktree without switching to it",
         "  --help                   Show this help message",
       ].join("\n");
     case "list":
@@ -116,9 +117,15 @@ function parseAgent(value: string): AgentKind {
   throw new CommandUsageError(`Unknown agent: ${value}`);
 }
 
-export function parseAddCommandArgs(args: string[]): CreateLifecycleWorktreeInput | null {
+export interface ParsedAddCommand {
+  input: CreateLifecycleWorktreeInput;
+  detach: boolean;
+}
+
+export function parseAddCommandArgs(args: string[]): ParsedAddCommand | null {
   const input: CreateLifecycleWorktreeInput = {};
   const envOverrides: Record<string, string> = {};
+  let detach = false;
 
   for (let index = 0; index < args.length; index++) {
     const arg = args[index];
@@ -126,6 +133,11 @@ export function parseAddCommandArgs(args: string[]): CreateLifecycleWorktreeInpu
 
     if (arg === "--help" || arg === "-h") {
       return null;
+    }
+
+    if (arg === "--detach" || arg === "-d") {
+      detach = true;
+      continue;
     }
 
     if (arg === "--profile" || arg.startsWith("--profile=")) {
@@ -175,7 +187,7 @@ export function parseAddCommandArgs(args: string[]): CreateLifecycleWorktreeInpu
     input.envOverrides = envOverrides;
   }
 
-  return input;
+  return { input, detach };
 }
 
 export function parseBranchCommandArgs(args: string[]): string | null {
@@ -327,8 +339,8 @@ export async function runWorktreeCommand(
 
   try {
     if (context.command === "add") {
-      const input = parseAddCommandArgs(context.args);
-      if (!input) {
+      const parsed = parseAddCommandArgs(context.args);
+      if (!parsed) {
         stdout(getWorktreeCommandUsage("add"));
         return 0;
       }
@@ -337,9 +349,11 @@ export async function runWorktreeCommand(
         projectDir: context.projectDir,
         port: context.port,
       });
-      const result = await runtime.lifecycleService.createWorktree(input);
+      const result = await runtime.lifecycleService.createWorktree(parsed.input);
       stdout(`Created worktree ${result.branch}`);
-      switchToTmuxWindow(runtime.projectDir, result.branch);
+      if (!parsed.detach) {
+        switchToTmuxWindow(runtime.projectDir, result.branch);
+      }
       return 0;
     }
 

@@ -12,6 +12,7 @@ import {
   readWorktreeMeta,
   writeControlEnv,
   writeRuntimeEnv,
+  writeWorktreeMeta,
 } from "../adapters/fs";
 import { expandTemplate, getDefaultProfileName, isDockerProfile, type DockerProfileConfig } from "../adapters/config";
 import { type DockerGateway } from "../adapters/docker";
@@ -326,6 +327,45 @@ export class LifecycleService {
           500,
         );
       }
+    } catch (error) {
+      throw this.wrapOperationError(error);
+    }
+  }
+
+  async updateWorktreeConfig(branch: string, input: {
+    profile?: string;
+    agent?: AgentKind;
+    envOverrides?: Record<string, string>;
+  }): Promise<void> {
+    try {
+      const resolved = await this.resolveExistingWorktree(branch);
+      if (!resolved.meta) {
+        throw new LifecycleError("Cannot edit unmanaged worktree", 404);
+      }
+
+      const updatedMeta = { ...resolved.meta };
+
+      if (input.profile !== undefined) {
+        const { profileName, profile } = this.resolveProfile(input.profile);
+        updatedMeta.profile = profileName;
+        updatedMeta.runtime = profile.runtime;
+      }
+
+      if (input.agent !== undefined) {
+        updatedMeta.agent = this.resolveAgent(input.agent);
+      }
+
+      if (input.envOverrides !== undefined) {
+        updatedMeta.startupEnvValues = await this.buildStartupEnvValues(input.envOverrides);
+      }
+
+      await writeWorktreeMeta(resolved.gitDir, updatedMeta);
+      await this.refreshManagedArtifactsFromMeta({
+        gitDir: resolved.gitDir,
+        meta: updatedMeta,
+        worktreePath: resolved.entry.path,
+      });
+      await this.deps.reconciliation.reconcile(this.deps.projectRoot);
     } catch (error) {
       throw this.wrapOperationError(error);
     }

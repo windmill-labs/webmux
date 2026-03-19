@@ -115,6 +115,16 @@ export function closeWorktree(name: string): Promise<unknown> {
   return api(`worktrees/${encodeURIComponent(name)}/close`, { method: "POST" });
 }
 
+export function updateWorktreeConfig(
+  branch: string,
+  config: { profile?: string; agent?: string; envOverrides?: Record<string, string> },
+): Promise<{ ok: boolean }> {
+  return api<{ ok: boolean }>(`worktrees/${encodeURIComponent(branch)}/config`, {
+    method: "PATCH",
+    body: JSON.stringify(config),
+  });
+}
+
 export function mergeWorktree(name: string): Promise<unknown> {
   return api(`worktrees/${encodeURIComponent(name)}/merge`, { method: "POST" });
 }

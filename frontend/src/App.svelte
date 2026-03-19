@@ -5,6 +5,7 @@
   import Terminal from "./lib/Terminal.svelte";
   import ConfirmDialog from "./lib/ConfirmDialog.svelte";
   import CreateWorktreeDialog from "./lib/CreateWorktreeDialog.svelte";
+  import EditWorktreeDialog from "./lib/EditWorktreeDialog.svelte";
   import SettingsDialog from "./lib/SettingsDialog.svelte";
   import CiDetailsDialog from "./lib/CiDetailsDialog.svelte";
   import CommentReviewDialog from "./lib/CommentReviewDialog.svelte";
@@ -54,6 +55,7 @@
   let mergeBranch = $state<string | null>(null);
   let removingBranches = $state<Set<string>>(new Set());
   let showCreateDialog = $state(false);
+  let editingWorktree = $state<WorktreeInfo | null>(null);
   let showSettingsDialog = $state(false);
   let ciDetailsPr = $state<PrEntry | null>(null);
   let commentReviewPr = $state<PrEntry | null>(null);
@@ -673,6 +675,9 @@
       {unreadCount}
       ontogglesidebar={() => (sidebarOpen = !sidebarOpen)}
       onclose={handleClose}
+      onedit={() => {
+        if (selectedWorktree) editingWorktree = selectedWorktree;
+      }}
       onmerge={() => {
         if (selectedBranch) mergeBranch = selectedBranch;
       }}
@@ -762,6 +767,28 @@
     openedFromLinearIssue={assignIssue !== null}
     oncreate={handleCreate}
     oncancel={() => { showCreateDialog = false; assignIssue = null; }}
+  />
+{/if}
+
+{#if editingWorktree}
+  <EditWorktreeDialog
+    branch={editingWorktree.branch}
+    currentProfile={editingWorktree.profile ?? config.defaultProfileName}
+    currentAgent={editingWorktree.agentName ?? "claude"}
+    profiles={config.profiles}
+    startupEnvs={config.startupEnvs ?? {}}
+    currentEnvValues={{}}
+    onsave={async (cfg) => {
+      const branch = editingWorktree!.branch;
+      editingWorktree = null;
+      try {
+        await api.updateWorktreeConfig(branch, cfg);
+        await refresh();
+      } catch (err) {
+        alert(`Failed to update config: ${errorMessage(err)}`);
+      }
+    }}
+    oncancel={() => (editingWorktree = null)}
   />
 {/if}
 

@@ -524,6 +524,32 @@ async function apiSendPrompt(name: string, req: Request): Promise<Response> {
   return jsonResponse({ ok: true });
 }
 
+async function apiUpdateWorktreeConfig(name: string, req: Request): Promise<Response> {
+  ensureBranchNotBusy(name);
+  const raw: unknown = await req.json();
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return errorResponse("Invalid request body", 400);
+  }
+  const body = raw as Record<string, unknown>;
+  const profile = typeof body.profile === "string" ? body.profile : undefined;
+  const agent = body.agent === "claude" || body.agent === "codex" ? body.agent : undefined;
+
+  let envOverrides: Record<string, string> | undefined;
+  if (body.envOverrides && typeof body.envOverrides === "object" && !Array.isArray(body.envOverrides)) {
+    const rawEnv = body.envOverrides as Record<string, unknown>;
+    const parsed: Record<string, string> = {};
+    for (const [k, v] of Object.entries(rawEnv)) {
+      if (typeof v === "string") parsed[k] = v;
+    }
+    envOverrides = parsed;
+  }
+
+  log.info(`[worktree:config] name=${name}${profile ? ` profile=${profile}` : ""}${agent ? ` agent=${agent}` : ""}`);
+  await lifecycleService.updateWorktreeConfig(name, { profile, agent, envOverrides });
+  log.debug(`[worktree:config] done name=${name}`);
+  return jsonResponse({ ok: true });
+}
+
 async function apiMergeWorktree(name: string): Promise<Response> {
   ensureBranchNotBusy(name);
   log.info(`[worktree:merge] name=${name}`);
@@ -696,6 +722,14 @@ Bun.serve({
         const name = decodeURIComponent(req.params.name);
         if (!isValidWorktreeName(name)) return errorResponse("Invalid worktree name", 400);
         return catching(`DELETE /api/worktrees/${name}`, () => apiDeleteWorktree(name));
+      },
+    },
+
+    "/api/worktrees/:name/config": {
+      PATCH: (req) => {
+        const name = decodeURIComponent(req.params.name);
+        if (!isValidWorktreeName(name)) return errorResponse("Invalid worktree name", 400);
+        return catching(`PATCH /api/worktrees/${name}/config`, () => apiUpdateWorktreeConfig(name, req));
       },
     },
 

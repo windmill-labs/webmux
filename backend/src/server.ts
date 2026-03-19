@@ -49,6 +49,7 @@ const lifecycleService = runtime.lifecycleService;
 let linearAutoCreateEnabled = config.integrations.linear.autoCreateWorktrees;
 let stopLinearAutoCreate: (() => void) | null = null;
 
+/** Safe to call multiple times — the guard prevents duplicate monitors. */
 function startLinearAutoCreate(): void {
   if (stopLinearAutoCreate) return;
   stopLinearAutoCreate = startLinearAutoCreateMonitor({

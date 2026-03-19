@@ -13,8 +13,8 @@ export interface LinearAutoCreateDependencies {
   isActive: () => boolean;
 }
 
-/** Issue IDs that have already been processed (created or skipped due to error).
- *  Prevents retrying on transient failures every poll cycle. */
+/** Issue IDs for which worktrees have been successfully created.
+ *  Prevents duplicate creation attempts across poll cycles. */
 const processedIssueIds = new Set<string>();
 
 const AUTO_CREATE_LABEL = "webmux";
@@ -34,7 +34,7 @@ export function filterAutoCreateIssues(
 
 async function runAutoCreate(deps: LinearAutoCreateDependencies): Promise<void> {
   if (!deps.isActive()) {
-    log.info("[linear-auto-create] skipping: no active clients");
+    log.debug("[linear-auto-create] skipping: no active clients");
     return;
   }
 
@@ -52,14 +52,13 @@ async function runAutoCreate(deps: LinearAutoCreateDependencies): Promise<void> 
 
   const newIssues = filterAutoCreateIssues(result.data, existingBranches);
   if (newIssues.length === 0) {
-    log.info(`[linear-auto-create] no new labeled issues (${result.data.length} assigned, ${existingBranches.length} worktrees)`);
+    log.debug(`[linear-auto-create] no new labeled issues (${result.data.length} assigned, ${existingBranches.length} worktrees)`);
     return;
   }
 
   log.info(`[linear-auto-create] found ${newIssues.length} new issue(s) with "${AUTO_CREATE_LABEL}" label`);
 
   for (const issue of newIssues) {
-    processedIssueIds.add(issue.id);
     try {
       log.info(`[linear-auto-create] creating worktree for ${issue.identifier}: ${issue.title}`);
       await deps.lifecycleService.createWorktree({
@@ -67,6 +66,7 @@ async function runAutoCreate(deps: LinearAutoCreateDependencies): Promise<void> 
         branch: issue.branchName,
         prompt: `${issue.title}\n\n${issue.description ?? ""}`.trim(),
       });
+      processedIssueIds.add(issue.id);
       log.info(`[linear-auto-create] created worktree for ${issue.identifier}`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);

@@ -32,6 +32,18 @@ describe("buildLinearIssuesResponse", () => {
     });
   });
 
+  it("returns an error when LINEAR_API_KEY is set but the fetch result is omitted", () => {
+    const result = buildLinearIssuesResponse({
+      integrationEnabled: true,
+      apiKey: "linear-key",
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      error: "Linear fetch result required when LINEAR_API_KEY is set",
+    });
+  });
+
   it("returns issues when the integration is enabled and configured", () => {
     const result = buildLinearIssuesResponse({
       integrationEnabled: true,

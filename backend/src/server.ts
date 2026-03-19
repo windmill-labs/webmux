@@ -277,7 +277,8 @@ function makeCallbacks(ws: { send: (data: string) => void; readyState: number })
 
 async function apiGetProject(): Promise<Response> {
   touchDashboardActivity();
-  const linearIssuesPromise = config.integrations.linear.enabled
+  const linearApiKey = Bun.env.LINEAR_API_KEY;
+  const linearIssuesPromise = config.integrations.linear.enabled && linearApiKey?.trim()
     ? fetchAssignedIssues()
     : Promise.resolve({ ok: true as const, data: [] });
   const [, linearResult] = await Promise.all([

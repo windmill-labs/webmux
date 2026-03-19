@@ -203,6 +203,7 @@
   let pollIntervalMs = $derived(
     hasCreatingWorktrees ? ACTIVE_CREATE_POLL_INTERVAL_MS : DEFAULT_POLL_INTERVAL_MS,
   );
+  let showLinearPanel = $derived(linearAvailability !== "disabled");
 
   $effect(() => {
     const nextSelectedBranch = resolveSelectedBranch(
@@ -627,7 +628,7 @@
         }}
         onremove={(b) => (removeBranch = b)}
       />
-      {#if linearAvailability === "missing_api_key" || linearIssues.length > 0}
+      {#if showLinearPanel}
         <LinearPanel
           issues={linearIssues}
           availability={linearAvailability}

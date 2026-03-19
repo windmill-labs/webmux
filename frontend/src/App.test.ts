@@ -269,4 +269,22 @@ describe("App create selection", () => {
       ),
     ).toBeInTheDocument();
   });
+
+  it("shows an empty-state message in the Linear panel when Linear is ready but has no issues", async () => {
+    vi.mocked(api.fetchWorktrees).mockResolvedValue([]);
+    vi.mocked(api.fetchLinearIssues).mockResolvedValue(
+      createLinearIssuesResponse({ availability: "ready", issues: [] }),
+    );
+
+    render(App);
+
+    const toggle = await screen.findByRole("button", { name: /linear/i });
+    expect(toggle).toBeInTheDocument();
+
+    await fireEvent.click(toggle);
+
+    expect(
+      await screen.findByText("No assigned Linear issues right now."),
+    ).toBeInTheDocument();
+  });
 });

@@ -35,7 +35,7 @@ async function runAutoCreate(deps: LinearAutoCreateDependencies): Promise<void> 
     return;
   }
 
-  const result = await fetchAssignedIssues();
+  const result = await fetchAssignedIssues({ skipCache: true });
   if (!result.ok) {
     log.error(`[linear-auto-create] failed to fetch issues: ${result.error}`);
     return;

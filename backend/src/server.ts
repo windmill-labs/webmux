@@ -21,7 +21,13 @@ import { loadControlToken } from "./adapters/control-token";
 import { getDefaultProfileName, persistLocalLinearConfig, type ProjectConfig } from "./adapters/config";
 import { jsonResponse, errorResponse } from "./lib/http";
 import { hasRecentDashboardActivity, touchDashboardActivity } from "./services/dashboard-activity";
-import { branchMatchesIssue, buildLinearIssuesResponse, fetchAssignedIssues } from "./services/linear-service";
+import {
+  branchMatchesIssue,
+  buildLinearIssuesResponse,
+  createLinearIssue,
+  deriveLinearIssueTitle,
+  fetchAssignedIssues,
+} from "./services/linear-service";
 import { LifecycleError } from "./services/lifecycle-service";
 import { buildNativeTerminalLaunch, buildNativeTerminalTmuxCommand } from "./services/native-terminal-service";
 import { startPrMonitor } from "./services/pr-service";
@@ -74,6 +80,7 @@ function getFrontendConfig(): {
   profiles: Array<{ name: string; systemPrompt?: string }>;
   defaultProfileName: string;
   autoName: boolean;
+  linearCreateTicketOption: boolean;
   startupEnvs: ProjectConfig["startupEnvs"];
   linkedRepos: Array<{ alias: string; dir?: string }>;
   linearAutoCreateWorktrees: boolean;
@@ -94,6 +101,7 @@ function getFrontendConfig(): {
     })),
     defaultProfileName,
     autoName: config.autoName !== null,
+    linearCreateTicketOption: config.integrations.linear.enabled && config.integrations.linear.createTicketOption,
     startupEnvs: config.startupEnvs,
     linkedRepos: config.integrations.github.linkedRepos.map((lr) => ({
       alias: lr.alias,
@@ -393,26 +401,72 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
     if (Object.keys(parsed).length > 0) envOverrides = parsed;
   }
 
-  const branch = typeof body.branch === "string" ? body.branch : undefined;
-  const prompt = typeof body.prompt === "string" ? body.prompt : undefined;
+  const branch = typeof body.branch === "string" && body.branch.trim() ? body.branch.trim() : undefined;
+  const prompt = typeof body.prompt === "string" && body.prompt.trim() ? body.prompt.trim() : undefined;
   const profile = typeof body.profile === "string" ? body.profile : undefined;
   const agent = body.agent === "claude" || body.agent === "codex" ? body.agent : undefined;
-  const mode = body.mode;
+  const createLinearTicket = body.createLinearTicket === true;
+  const linearTitle = typeof body.linearTitle === "string" && body.linearTitle.trim()
+    ? body.linearTitle.trim()
+    : undefined;
+  const mode = body.mode === "new" || body.mode === "existing" ? body.mode : undefined;
 
-  if (mode !== undefined && mode !== "new" && mode !== "existing") {
+  if (body.mode !== undefined && body.mode !== "new" && body.mode !== "existing") {
     return errorResponse("Invalid worktree create mode", 400);
   }
 
-  if (branch) {
-    ensureBranchNotCreating(branch);
+  if (createLinearTicket && mode === "existing") {
+    return errorResponse("Linear ticket creation is only supported for new branches", 400);
+  }
+
+  if (createLinearTicket && !config.integrations.linear.enabled) {
+    return errorResponse("Linear integration is disabled", 400);
+  }
+
+  if (createLinearTicket && !config.integrations.linear.createTicketOption) {
+    return errorResponse("Linear ticket creation is not enabled for this project", 400);
+  }
+
+  if (createLinearTicket && !prompt) {
+    return errorResponse("Prompt is required when creating a Linear ticket", 400);
+  }
+
+  let resolvedBranch = branch;
+  if (createLinearTicket) {
+    const title = deriveLinearIssueTitle(linearTitle, prompt);
+    if (!title) {
+      return errorResponse("Linear ticket title could not be derived from the prompt", 400);
+    }
+
+    const teamId = config.integrations.linear.teamId;
+    if (!teamId) {
+      return errorResponse("Linear teamId is not configured", 503);
+    }
+
+    const linearResult = await createLinearIssue({
+      title,
+      description: prompt ?? "",
+      teamId,
+    });
+    if (!linearResult.ok) {
+      return errorResponse(linearResult.error, 502);
+    }
+
+    resolvedBranch = linearResult.data.branchName;
+    ensureBranchNotCreating(resolvedBranch);
+    log.info(
+      `[linear] created ticket ${linearResult.data.identifier} branch=${linearResult.data.branchName} title="${linearResult.data.title.slice(0, 80)}"`,
+    );
+  } else if (resolvedBranch) {
+    ensureBranchNotCreating(resolvedBranch);
   }
 
   log.info(
-    `[worktree:add] mode=${mode ?? "new"}${branch ? ` branch=${branch}` : ""}${profile ? ` profile=${profile}` : ""}${agent ? ` agent=${agent}` : ""}${prompt ? ` prompt="${prompt.slice(0, 80)}"` : ""}`,
+    `[worktree:add] mode=${mode ?? "new"}${resolvedBranch ? ` branch=${resolvedBranch}` : ""}${profile ? ` profile=${profile}` : ""}${agent ? ` agent=${agent}` : ""}${createLinearTicket ? " linearTicket=true" : ""}${prompt ? ` prompt="${prompt.slice(0, 80)}"` : ""}`,
   );
   const result = await lifecycleService.createWorktree({
     mode,
-    branch,
+    branch: resolvedBranch,
     prompt,
     profile,
     agent,

@@ -79,6 +79,8 @@ describe("loadConfig", () => {
         "        alias: linked",
         "  linear:",
         "    enabled: false",
+        "    createTicketOption: true",
+        "    teamId: team-123",
         "",
       ].join("\n"),
     );
@@ -107,6 +109,8 @@ describe("loadConfig", () => {
     });
     expect(config.integrations.github.linkedRepos).toEqual([{ repo: "acme/linked", alias: "linked" }]);
     expect(config.integrations.linear.enabled).toBe(false);
+    expect(config.integrations.linear.createTicketOption).toBe(true);
+    expect(config.integrations.linear.teamId).toBe("team-123");
   });
 
   it("uses the first configured profile when no default profile exists", async () => {
@@ -139,6 +143,28 @@ describe("loadConfig", () => {
     const config = loadConfig(dir);
 
     expect(getDefaultProfileName(config)).toBe("slim");
+  });
+
+  it("defaults Linear ticket creation option to false", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "webmux-config-"));
+    tempDirs.push(dir);
+    Bun.spawnSync(["git", "init"], { cwd: dir });
+
+    await Bun.write(
+      join(dir, ".webmux.yaml"),
+      [
+        "integrations:",
+        "  linear:",
+        "    enabled: true",
+        "",
+      ].join("\n"),
+    );
+
+    const config = loadConfig(dir);
+
+    expect(config.integrations.linear.enabled).toBe(true);
+    expect(config.integrations.linear.createTicketOption).toBe(false);
+    expect(config.integrations.linear.teamId).toBeUndefined();
   });
 
   it("adds local profiles and appends local lifecycle hooks after project hooks", async () => {

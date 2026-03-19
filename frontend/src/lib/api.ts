@@ -3,13 +3,14 @@ import type {
   WorktreeInfo,
   AppConfig,
   AppNotification,
+  CreateWorktreeRequest,
+  CreateWorktreeResponse,
   FileUploadResult,
   LinearIssue,
   LinearIssuesResponse,
   PrEntry,
   ProjectSnapshot,
   ProjectWorktreeSnapshot,
-  WorktreeCreateMode,
   WorktreeDiffResponse,
 } from "./types";
 
@@ -84,23 +85,20 @@ export async function fetchAvailableBranches(): Promise<AvailableBranch[]> {
   return data.branches;
 }
 
-export function createWorktree(
-  mode: WorktreeCreateMode,
-  branch: string | undefined,
-  profile: string,
-  agent: string,
-  prompt?: string,
-  envOverrides?: Record<string, string>,
-): Promise<{ branch: string }> {
-  return api<{ branch: string }>("worktrees", {
+export function createWorktree(request: CreateWorktreeRequest): Promise<CreateWorktreeResponse> {
+  return api<CreateWorktreeResponse>("worktrees", {
     method: "POST",
     body: JSON.stringify({
-      mode,
-      ...(branch ? { branch } : {}),
-      profile,
-      agent,
-      ...(prompt ? { prompt } : {}),
-      ...(envOverrides && Object.keys(envOverrides).length > 0 ? { envOverrides } : {}),
+      mode: request.mode,
+      ...(request.branch ? { branch: request.branch } : {}),
+      profile: request.profile,
+      agent: request.agent,
+      ...(request.prompt ? { prompt: request.prompt } : {}),
+      ...(request.envOverrides && Object.keys(request.envOverrides).length > 0
+        ? { envOverrides: request.envOverrides }
+        : {}),
+      ...(request.createLinearTicket ? { createLinearTicket: true } : {}),
+      ...(request.linearTitle ? { linearTitle: request.linearTitle } : {}),
     }),
   });
 }

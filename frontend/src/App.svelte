@@ -15,13 +15,13 @@
   import LinearDetailDialog from "./lib/LinearDetailDialog.svelte";
   import type {
     AvailableBranch,
-    WorktreeCreateMode,
-    WorktreeInfo,
     AppConfig,
     AppNotification,
+    CreateWorktreeRequest,
     PrEntry,
     LinearIssueAvailability,
     LinearIssue,
+    WorktreeInfo,
   } from "./lib/types";
   import {
     SSH_STORAGE_KEY,
@@ -44,6 +44,7 @@
     profiles: [],
     defaultProfileName: "",
     autoName: false,
+    linearCreateTicketOption: false,
     linkedRepos: [],
   });
   let worktrees = $state<WorktreeInfo[]>([]);
@@ -306,14 +307,7 @@
     showCreateDialog = true;
   }
 
-  async function handleCreate(
-    mode: WorktreeCreateMode,
-    name: string,
-    profile: string,
-    agent: string,
-    prompt: string,
-    envOverrides: Record<string, string>,
-  ) {
+  async function handleCreate(request: CreateWorktreeRequest) {
     const requestId = nextCreateRequestId++;
     const shouldAutoSelectCreatedWorktree = selectedWorktree == null;
     if (shouldAutoSelectCreatedWorktree) {
@@ -321,26 +315,23 @@
     }
     pendingCreateCount += 1;
     if (shouldAutoSelectCreatedWorktree) {
-      pendingCreateBranchHint = name || null;
+      pendingCreateBranchHint = request.branch ?? null;
     }
     showCreateDialog = false;
     assignIssue = null;
 
     try {
-      const createPromise = api.createWorktree(
-        mode,
-        name || undefined,
-        profile,
-        agent,
-        prompt || undefined,
-        Object.keys(envOverrides).length > 0 ? envOverrides : undefined,
-      );
+      const createPromise = api.createWorktree(request);
       void refresh();
       const result = await createPromise;
       if (shouldAutoSelectCreatedWorktree) {
         pendingCreateBranchHint = result.branch;
       }
       await refresh();
+      if (request.createLinearTicket) {
+        linearLastFetch = 0;
+        refreshLinear();
+      }
       if (shouldAutoSelectCreatedWorktree && requestId === latestAutoSelectCreateId) {
         selectedBranch = result.branch;
         if (isMobile) sidebarOpen = false;
@@ -767,6 +758,8 @@
     {availableBranchesLoading}
     {availableBranchesError}
     startupEnvs={config.startupEnvs ?? {}}
+    linearCreateTicketOption={config.linearCreateTicketOption}
+    openedFromLinearIssue={assignIssue !== null}
     oncreate={handleCreate}
     oncancel={() => { showCreateDialog = false; assignIssue = null; }}
   />

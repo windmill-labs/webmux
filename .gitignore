@@ -12,3 +12,4 @@ public/
 .env
 .env.local
 .webmux.local.yaml
+docs/useful-commands.txt

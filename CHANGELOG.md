@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.19.0](https://github.com/windmill-labs/webmux/compare/v0.18.0...v0.19.0) (2026-03-19)
+
+
+### Features
+
+* add --app flag for browser app mode ([#143](https://github.com/windmill-labs/webmux/issues/143)) ([62b68a8](https://github.com/windmill-labs/webmux/commit/62b68a8df0b8e3db8bd53cc45615e2584d4e1df5))
+* add --detach/-d flag to webmux add command ([#159](https://github.com/windmill-labs/webmux/issues/159)) ([0e144f6](https://github.com/windmill-labs/webmux/commit/0e144f6d313a566a38388663bac505ee465ea938))
+* add linear ticket worktree option ([#163](https://github.com/windmill-labs/webmux/issues/163)) ([e52caf5](https://github.com/windmill-labs/webmux/commit/e52caf5d7f8d53488a58382515425f0ddb961443))
+* add native terminal launch endpoint ([#158](https://github.com/windmill-labs/webmux/issues/158)) ([11ff5aa](https://github.com/windmill-labs/webmux/commit/11ff5aa896dd4441c5a6724a0eb3143cce5a3bd2))
+* auto-create worktrees for Linear tickets ([#160](https://github.com/windmill-labs/webmux/issues/160)) ([53afe95](https://github.com/windmill-labs/webmux/commit/53afe95b28df9104fd8965eb2e06a3054c36363e))
+
+
+### Bug Fixes
+
+* isolate terminal sessions and serialize sync ([#138](https://github.com/windmill-labs/webmux/issues/138)) ([31f4162](https://github.com/windmill-labs/webmux/commit/31f4162683da14299eb29b3cb670ad2ccf0de6b3))
+* make linear badge static in worktree list ([#161](https://github.com/windmill-labs/webmux/issues/161)) ([000ad83](https://github.com/windmill-labs/webmux/commit/000ad83693158b36b51419a5712949118fafbbda))
+* show linear panel without api key ([#164](https://github.com/windmill-labs/webmux/issues/164)) ([0c8965d](https://github.com/windmill-labs/webmux/commit/0c8965d6d60f2c5ed7419a744dcf7d689691c669))
+
+
+### Performance
+
+* increase github PR polling rate from 20s to 10s ([#162](https://github.com/windmill-labs/webmux/issues/162)) ([888d36c](https://github.com/windmill-labs/webmux/commit/888d36ca4e48c8aad05369ec4bf0a00ba8bbee5f))
+
 ## [0.18.0](https://github.com/windmill-labs/webmux/compare/v0.17.0...v0.18.0) (2026-03-18)
 
 

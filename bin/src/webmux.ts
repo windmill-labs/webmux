@@ -15,7 +15,7 @@ function usage() {
 webmux — Dev dashboard for managing Git worktrees
 
 Usage:
-  webmux serve        Start the dashboard server
+  webmux serve        Start the dashboard server (--app opens in app mode)
   webmux init         Interactive project setup
   webmux service      Manage webmux as a system service
   webmux update       Update webmux to the latest version
@@ -30,6 +30,7 @@ Usage:
 
 Options:
   --port N            Set port (default: 5111)
+  --app               Open dashboard in browser app mode (minimal window)
   --debug             Show debug-level logs
   --version           Show version number
   --help              Show this help message
@@ -44,6 +45,7 @@ type RootCommand = "serve" | "init" | "service" | "update" | "add" | "list" | "o
 interface ParsedRootArgs {
   port: number;
   debug: boolean;
+  app: boolean;
   command: RootCommand;
   commandArgs: string[];
 }
@@ -64,12 +66,13 @@ function isRootCommand(value: string): value is NonNullable<RootCommand> {
 }
 
 function isServeRootOption(value: string): boolean {
-  return value === "--port" || value === "--debug" || value === "--help" || value === "-h" || value === "--version" || value === "-V";
+  return value === "--port" || value === "--app" || value === "--debug" || value === "--help" || value === "-h" || value === "--version" || value === "-V";
 }
 
 export function parseRootArgs(args: string[]): ParsedRootArgs {
   let port = parseInt(process.env.PORT || "5111", 10);
   let debug = false;
+  let app = false;
   let command: RootCommand = null;
   const commandArgs: string[] = [];
 
@@ -95,6 +98,9 @@ export function parseRootArgs(args: string[]): ParsedRootArgs {
         index += 1;
         break;
       }
+      case "--app":
+        app = true;
+        break;
       case "--debug":
         debug = true;
         break;
@@ -118,6 +124,7 @@ export function parseRootArgs(args: string[]): ParsedRootArgs {
   return {
     port,
     debug,
+    app,
     command,
     commandArgs,
   };
@@ -151,12 +158,59 @@ async function loadEnvFile(path: string) {
   }
 }
 
+// ── Browser app mode ─────────────────────────────────────────────────────────
+
+function findBrowserBinary(): string | null {
+  const candidates =
+    process.platform === "darwin"
+      ? [
+          "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+          "/Applications/Chromium.app/Contents/MacOS/Chromium",
+          "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+          "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+        ]
+      : [
+          "google-chrome",
+          "google-chrome-stable",
+          "chromium",
+          "chromium-browser",
+          "microsoft-edge",
+          "brave-browser",
+        ];
+
+  for (const candidate of candidates) {
+    const found = candidate.startsWith("/")
+      ? existsSync(candidate)
+      : Bun.spawnSync(["which", candidate], { stdout: "pipe", stderr: "pipe" }).success;
+    if (found) return candidate;
+  }
+  return null;
+}
+
+function openAppMode(url: string): void {
+  const browser = findBrowserBinary();
+  if (!browser) {
+    console.log(`[app] No Chromium-based browser found — open ${url} manually`);
+    return;
+  }
+  console.log(`[app] Opening ${url} in app mode`);
+  Bun.spawn([browser, `--app=${url}`], {
+    stdout: "ignore",
+    stderr: "ignore",
+  });
+}
+
 // ── Prefixed output ──────────────────────────────────────────────────────────
 
-function pipeWithPrefix(stream: ReadableStream<Uint8Array>, prefix: string) {
+function pipeWithPrefix(
+  stream: ReadableStream<Uint8Array>,
+  prefix: string,
+  onTrigger?: { text: string; callback: () => void },
+): void {
   const reader = stream.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  let fired = false;
 
   (async () => {
     while (true) {
@@ -167,6 +221,10 @@ function pipeWithPrefix(stream: ReadableStream<Uint8Array>, prefix: string) {
       buffer = lines.pop()!;
       for (const line of lines) {
         console.log(`${prefix} ${line}`);
+        if (onTrigger && !fired && line.includes(onTrigger.text)) {
+          fired = true;
+          onTrigger.callback();
+        }
       }
     }
     if (buffer) {
@@ -288,7 +346,15 @@ async function main(args: string[] = process.argv.slice(2)): Promise<void> {
     stderr: "pipe",
   });
   children.push(be);
-  pipeWithPrefix(be.stdout, "[BE]");
+
+  if (parsed.app) {
+    pipeWithPrefix(be.stdout, "[BE]", {
+      text: "Dev Dashboard API running at",
+      callback: () => openAppMode(`http://localhost:${parsed.port}`),
+    });
+  } else {
+    pipeWithPrefix(be.stdout, "[BE]");
+  }
   pipeWithPrefix(be.stderr, "[BE]");
 
   await be.exited;

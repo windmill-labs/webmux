@@ -24,6 +24,7 @@ import { hasRecentDashboardActivity, touchDashboardActivity } from "./services/d
 import { branchMatchesIssue, fetchAssignedIssues } from "./services/linear-service";
 import { LifecycleError } from "./services/lifecycle-service";
 import { startPrMonitor } from "./services/pr-service";
+import { startLinearAutoCreateMonitor, resetProcessedIssues } from "./services/linear-auto-create-service";
 import { buildProjectSnapshot } from "./services/snapshot-service";
 import { parseRuntimeEvent } from "./domain/events";
 import { isValidWorktreeName } from "./domain/policies";
@@ -45,6 +46,25 @@ const runtimeNotifications = runtime.runtimeNotifications;
 const reconciliationService = runtime.reconciliationService;
 const removingBranches = new Set<string>();
 const lifecycleService = runtime.lifecycleService;
+let linearAutoCreateEnabled = config.integrations.linear.autoCreateWorktrees;
+let stopLinearAutoCreate: (() => void) | null = null;
+
+function startLinearAutoCreate(): void {
+  if (stopLinearAutoCreate) return;
+  stopLinearAutoCreate = startLinearAutoCreateMonitor({
+    lifecycleService,
+    git,
+    projectRoot: PROJECT_DIR,
+    isActive: hasRecentDashboardActivity,
+  });
+}
+
+function stopLinearAutoCreateMonitor(): void {
+  if (stopLinearAutoCreate) {
+    stopLinearAutoCreate();
+    stopLinearAutoCreate = null;
+  }
+}
 
 function getFrontendConfig(): {
   name: string;
@@ -54,6 +74,7 @@ function getFrontendConfig(): {
   autoName: boolean;
   startupEnvs: ProjectConfig["startupEnvs"];
   linkedRepos: Array<{ alias: string; dir?: string }>;
+  linearAutoCreateWorktrees: boolean;
 } {
   const defaultProfileName = getDefaultProfileName(config);
   const orderedProfileEntries = Object.entries(config.profiles).sort(([left], [right]) => {
@@ -76,6 +97,7 @@ function getFrontendConfig(): {
       alias: lr.alias,
       ...(lr.dir ? { dir: resolve(PROJECT_DIR, lr.dir) } : {}),
     })),
+    linearAutoCreateWorktrees: linearAutoCreateEnabled,
   };
 }
 
@@ -437,6 +459,29 @@ async function apiMergeWorktree(name: string): Promise<Response> {
   return jsonResponse({ ok: true });
 }
 
+async function apiSetLinearAutoCreate(req: Request): Promise<Response> {
+  const raw: unknown = await req.json();
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return errorResponse("Invalid request body", 400);
+  }
+  const body = raw as Record<string, unknown>;
+  if (typeof body.enabled !== "boolean") {
+    return errorResponse("Missing boolean 'enabled' field", 400);
+  }
+
+  linearAutoCreateEnabled = body.enabled;
+  if (linearAutoCreateEnabled) {
+    resetProcessedIssues();
+    startLinearAutoCreate();
+    log.info("[config] Linear auto-create worktrees enabled");
+  } else {
+    stopLinearAutoCreateMonitor();
+    log.info("[config] Linear auto-create worktrees disabled");
+  }
+
+  return jsonResponse({ ok: true, enabled: linearAutoCreateEnabled });
+}
+
 async function apiGetLinearIssues(): Promise<Response> {
   const result = await fetchAssignedIssues();
   if (!result.ok) return errorResponse(result.error, 502);
@@ -623,6 +668,10 @@ Bun.serve({
       GET: () => catching("GET /api/linear/issues", () => apiGetLinearIssues()),
     },
 
+    "/api/linear/auto-create": {
+      PUT: (req) => catching("PUT /api/linear/auto-create", () => apiSetLinearAutoCreate(req)),
+    },
+
     "/api/ci-logs/:runId": {
       GET: (req) => catching(`GET /api/ci-logs/${req.params.runId}`, () => apiCiLogs(req.params.runId)),
     },
@@ -777,6 +826,9 @@ if (tmuxCheck.exitCode !== 0) {
 
 cleanupStaleSessions();
 startPrMonitor(getWorktreeGitDirs, config.integrations.github.linkedRepos, PROJECT_DIR, undefined, hasRecentDashboardActivity);
+if (linearAutoCreateEnabled) {
+  startLinearAutoCreate();
+}
 
 log.info(`Dev Dashboard API running at http://localhost:${PORT}`);
 const nets = networkInterfaces();

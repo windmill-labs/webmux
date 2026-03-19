@@ -50,7 +50,7 @@ const DEFAULT_CONFIG: ProjectConfig = {
   startupEnvs: {},
   integrations: {
     github: { linkedRepos: [] },
-    linear: { enabled: true },
+    linear: { enabled: true, autoCreateWorktrees: false },
   },
   lifecycleHooks: {},
   autoName: null,
@@ -310,6 +310,9 @@ function parseProjectConfig(parsed: Record<string, unknown>): ProjectConfig {
         enabled: isRecord(parsed.integrations) && isRecord(parsed.integrations.linear) && typeof parsed.integrations.linear.enabled === "boolean"
           ? parsed.integrations.linear.enabled
           : DEFAULT_CONFIG.integrations.linear.enabled,
+        autoCreateWorktrees: isRecord(parsed.integrations) && isRecord(parsed.integrations.linear) && typeof parsed.integrations.linear.autoCreateWorktrees === "boolean"
+          ? parsed.integrations.linear.autoCreateWorktrees
+          : DEFAULT_CONFIG.integrations.linear.autoCreateWorktrees,
       },
     },
     lifecycleHooks: parseLifecycleHooks(parsed.lifecycleHooks),

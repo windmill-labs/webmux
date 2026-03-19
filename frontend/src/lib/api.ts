@@ -124,6 +124,13 @@ export function fetchLinearIssues(): Promise<LinearIssue[]> {
   return api<LinearIssue[]>("linear/issues");
 }
 
+export function setLinearAutoCreate(enabled: boolean): Promise<{ ok: boolean; enabled: boolean }> {
+  return api<{ ok: boolean; enabled: boolean }>("linear/auto-create", {
+    method: "PUT",
+    body: JSON.stringify({ enabled }),
+  });
+}
+
 export async function fetchCiLogs(runId: number): Promise<string> {
   const data = await api<{ logs: string }>(`ci-logs/${runId}`);
   return data.logs;

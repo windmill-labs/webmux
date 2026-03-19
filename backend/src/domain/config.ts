@@ -55,6 +55,7 @@ export interface GitHubIntegrationConfig {
 
 export interface LinearIntegrationConfig {
   enabled: boolean;
+  autoCreateWorktrees: boolean;
 }
 
 export interface IntegrationConfig {

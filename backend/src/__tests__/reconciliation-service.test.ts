@@ -159,7 +159,7 @@ const TEST_CONFIG: ProjectConfig = {
   startupEnvs: {},
   integrations: {
     github: { linkedRepos: [] },
-    linear: { enabled: true },
+    linear: { enabled: true, autoCreateWorktrees: false },
   },
   lifecycleHooks: {},
   autoName: null,

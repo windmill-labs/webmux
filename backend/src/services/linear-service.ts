@@ -481,7 +481,6 @@ async function fetchInProgressStateId(teamId: string): Promise<FetchStateIdResul
   inProgressStateIdCache.set(teamId, result.data);
   return result;
 }
-
 export async function fetchAssignedIssues(options?: { skipCache?: boolean }): Promise<FetchIssuesResult> {
   const now = Date.now();
   if (!options?.skipCache && issueCache && now < issueCache.expiry) {

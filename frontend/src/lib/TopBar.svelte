@@ -148,7 +148,7 @@
         >{worktree.dirty ? "dirty" : "unpushed"}</button>
       {/if}
       {#if worktree?.linearIssue}
-        <LinearBadge issue={worktree.linearIssue} />
+        <LinearBadge issue={worktree.linearIssue} clickable={true} />
       {/if}
       {#if !isMobile}
         <RepoGroup

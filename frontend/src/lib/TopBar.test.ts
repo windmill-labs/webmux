@@ -3,7 +3,10 @@ import { describe, expect, it, vi } from "vitest";
 import TopBar from "./TopBar.svelte";
 import type { WorktreeInfo } from "./types";
 
-function createWorktree(branch: string): WorktreeInfo {
+function createWorktree(
+  branch: string,
+  overrides: Partial<WorktreeInfo> = {},
+): WorktreeInfo {
   return {
     branch,
     agent: "claude",
@@ -22,14 +25,18 @@ function createWorktree(branch: string): WorktreeInfo {
     linearIssue: null,
     creating: false,
     creationPhase: null,
+    ...overrides,
   };
 }
 
-function renderTopBar(branch: string): void {
+function renderTopBar(
+  branch: string,
+  overrides: Partial<WorktreeInfo> = {},
+): void {
   render(TopBar, {
     props: {
       name: branch,
-      worktree: createWorktree(branch),
+      worktree: createWorktree(branch, overrides),
       sshHost: "",
       linkedRepos: [],
       notificationHistory: [],
@@ -45,15 +52,15 @@ function renderTopBar(branch: string): void {
 }
 
 describe("TopBar", () => {
-  it("truncates worktree names longer than 40 characters in the header", () => {
+  it("truncates worktree names longer than 30 characters in the header", () => {
     const branch = "feature/abcdefghijklmnopqrstuvwxyz-1234567890";
 
     renderTopBar(branch);
 
-    const truncated = `${branch.slice(0, 37)}...`;
+    const truncated = `${branch.slice(0, 27)}...`;
     const header = screen.getByText(truncated);
 
-    expect(truncated).toHaveLength(40);
+    expect(truncated).toHaveLength(30);
     expect(header).toHaveAttribute("title", branch);
   });
 
@@ -65,5 +72,25 @@ describe("TopBar", () => {
     const header = screen.getByText(branch);
 
     expect(header).toHaveAttribute("title", branch);
+  });
+
+  it("renders the Linear badge as a link in the header", () => {
+    const branch = "feature/linear-link";
+    const linearIssue = {
+      identifier: "ENG-42",
+      url: "https://linear.app/example/issue/ENG-42",
+      state: {
+        name: "In Progress",
+        color: "#5e6ad2",
+        type: "started",
+      },
+    };
+
+    renderTopBar(branch, { linearIssue });
+
+    expect(screen.getByRole("link", { name: "ENG-42" })).toHaveAttribute(
+      "href",
+      linearIssue.url,
+    );
   });
 });

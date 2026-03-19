@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { buildProjectSessionName, buildWorktreeWindowName } from "../../backend/src/adapters/tmux";
 import type { CreateLifecycleWorktreeInput } from "../../backend/src/services/lifecycle-service";
-import { parseAddCommandArgs, parseBranchCommandArgs, runWorktreeCommand } from "./worktree-commands";
+import { parseAddCommandArgs, parseBranchCommandArgs, runWorktreeCommand, type ParsedAddCommand } from "./worktree-commands";
 
 function stubLifecycleService(calls: Array<{ method: string; value: unknown }>) {
   return {
@@ -72,14 +72,31 @@ describe("parseAddCommandArgs", () => {
       "FOO=bar",
       "--env=BAR=baz",
     ])).toEqual({
-      branch: "feature/search",
-      profile: "sandbox",
-      agent: "codex",
-      prompt: "Fix the search ranking",
-      envOverrides: {
-        FOO: "bar",
-        BAR: "baz",
+      input: {
+        branch: "feature/search",
+        profile: "sandbox",
+        agent: "codex",
+        prompt: "Fix the search ranking",
+        envOverrides: {
+          FOO: "bar",
+          BAR: "baz",
+        },
       },
+      detach: false,
+    } satisfies ParsedAddCommand);
+  });
+
+  it("parses --detach flag", () => {
+    expect(parseAddCommandArgs(["feature/search", "--detach"])).toEqual({
+      input: { branch: "feature/search" },
+      detach: true,
+    });
+  });
+
+  it("parses -d shorthand", () => {
+    expect(parseAddCommandArgs(["-d", "feature/search"])).toEqual({
+      input: { branch: "feature/search" },
+      detach: true,
     });
   });
 
@@ -138,6 +155,30 @@ describe("runWorktreeCommand", () => {
     expect(stdout).toEqual(["Created worktree feature/search"]);
     expect(stderr).toEqual([]);
     expect(switchCalls).toEqual([{ projectDir: "/repo", branch: "feature/search" }]);
+  });
+
+  it("skips tmux switch when --detach is passed to add", async () => {
+    const { runtime } = makeRuntime();
+    const stdout: string[] = [];
+    const switchCalls: Array<{ projectDir: string; branch: string }> = [];
+
+    const exitCode = await runWorktreeCommand(
+      {
+        command: "add",
+        args: ["feature/search", "--detach"],
+        projectDir: "/repo",
+        port: 5111,
+      },
+      {
+        createRuntime: () => runtime,
+        stdout: (message) => stdout.push(message),
+        switchToTmuxWindow: (projectDir, branch) => switchCalls.push({ projectDir, branch }),
+      },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(stdout).toEqual(["Created worktree feature/search"]);
+    expect(switchCalls).toEqual([]);
   });
 
   it("dispatches open through the lifecycle service and switches to tmux", async () => {

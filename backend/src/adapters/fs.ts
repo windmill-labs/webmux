@@ -155,7 +155,7 @@ function isCiCheck(raw: unknown): raw is CiCheck {
       || raw.status === "success"
       || raw.status === "failed"
       || raw.status === "skipped")
-    && typeof raw.url === "string"
+    && (raw.url === null || typeof raw.url === "string")
     && (raw.runId === null || typeof raw.runId === "number");
 }
 

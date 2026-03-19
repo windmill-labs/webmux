@@ -76,7 +76,7 @@ export interface PrComment {
 export interface CiCheck {
   name: string;
   status: "pending" | "success" | "failed" | "skipped";
-  url: string;
+  url: string | null;
   runId: number | null;
 }
 

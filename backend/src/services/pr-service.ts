@@ -42,12 +42,24 @@ interface GhReviewComment {
   in_reply_to_id?: number;
 }
 
-interface GhCheckEntry {
+// CheckRun entries from GitHub Actions
+interface GhCheckRunEntry {
+  __typename: "CheckRun";
   conclusion: GhCheckConclusion | null;
   status: GhCheckStatus;
   name: string;
-  detailsUrl: string;
+  detailsUrl: string | null;
 }
+
+// StatusContext entries from external CI (e.g. Vercel)
+interface GhStatusContextEntry {
+  __typename: "StatusContext";
+  context: string;
+  state: "SUCCESS" | "FAILURE" | "PENDING" | "ERROR" | "EXPECTED";
+  targetUrl: string | null;
+}
+
+type GhCheckEntry = GhCheckRunEntry | GhStatusContextEntry;
 
 interface GhPrEntry {
   number: number;
@@ -81,25 +93,34 @@ export function summarizeChecks(
   checks: GhCheckEntry[] | null,
 ): PrEntry["ciStatus"] {
   if (!checks || checks.length === 0) return "none";
-  const allDone = checks.every((c) => c.status === "COMPLETED");
-  if (!allDone) return "pending";
-  const allPass = checks.every(
-    (c) =>
-      c.conclusion === "SUCCESS" ||
-      c.conclusion === "NEUTRAL" ||
-      c.conclusion === "SKIPPED",
+  const allDone = checks.every((c) =>
+    c.__typename === "StatusContext"
+      ? c.state !== "PENDING" && c.state !== "EXPECTED"
+      : c.status === "COMPLETED",
   );
+  if (!allDone) return "pending";
+  const allPass = checks.every((c) => {
+    if (c.__typename === "StatusContext") return c.state === "SUCCESS";
+    return c.conclusion === "SUCCESS" || c.conclusion === "NEUTRAL" || c.conclusion === "SKIPPED";
+  });
   return allPass ? "success" : "failed";
 }
 
 /** Parse a GitHub Actions run ID from a details URL. Returns null when not found. */
-export function parseRunId(detailsUrl: string): number | null {
+export function parseRunId(detailsUrl: string | null): number | null {
+  if (!detailsUrl) return null;
   const match = detailsUrl.match(/\/actions\/runs\/(\d+)/);
   return match ? parseInt(match[1], 10) : null;
 }
 
 /** Derive a typed check status from GH conclusion/status fields. */
 export function deriveCheckStatus(check: GhCheckEntry): CiCheck["status"] {
+  if (check.__typename === "StatusContext") {
+    const s = check.state;
+    if (s === "SUCCESS") return "success";
+    if (s === "PENDING" || s === "EXPECTED") return "pending";
+    return "failed";
+  }
   if (check.status !== "COMPLETED") return "pending";
   const c = check.conclusion;
   if (c === "SUCCESS" || c === "NEUTRAL") return "success";
@@ -110,12 +131,16 @@ export function deriveCheckStatus(check: GhCheckEntry): CiCheck["status"] {
 /** Map raw GH check entries to typed CiCheck array. */
 export function mapChecks(checks: GhCheckEntry[] | null): CiCheck[] {
   if (!checks || checks.length === 0) return [];
-  return checks.map((c) => ({
-    name: c.name,
-    status: deriveCheckStatus(c),
-    url: c.detailsUrl,
-    runId: parseRunId(c.detailsUrl),
-  }));
+  return checks.map((c) => {
+    const name = c.__typename === "StatusContext" ? c.context : c.name;
+    const url = c.__typename === "StatusContext" ? c.targetUrl : c.detailsUrl;
+    return {
+      name,
+      status: deriveCheckStatus(c),
+      url,
+      runId: parseRunId(url),
+    };
+  });
 }
 
 /** Parse raw `gh api` review comments JSON into typed array. Keeps most recent 50. */

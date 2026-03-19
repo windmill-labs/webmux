@@ -61,21 +61,22 @@ export function buildNativeTerminalLaunch(input: {
 
   const sessionPrefix = input.sessionPrefix ?? "wm-native-launch-";
   const groupedSessionPrefix = `${sessionPrefix}${sanitizeSessionSuffix(state.worktreeId)}`;
-  const ownerSessionName = quoteShell(state.session.sessionName);
-  const groupedWindowTarget = `"${"$"}g_name:${state.session.windowName}"`;
-  const groupedPaneTarget = `"${"$"}g_name:${state.session.windowName}.0"`;
 
   const attachScript = [
     `g_name="${groupedSessionPrefix}-${"$"}$-$(date +%s)"`,
+    `owner_session_name=${quoteShell(state.session.sessionName)}`,
+    `window_name=${quoteShell(state.session.windowName)}`,
+    `grouped_window_target="${"$"}g_name:${"$"}window_name"`,
+    `grouped_pane_target="${"$"}grouped_window_target.0"`,
     `cleanup() { ${tmuxCommand} kill-session -t "${"$"}g_name" >/dev/null 2>&1 || true; }`,
     "cleanup",
-    `${tmuxCommand} new-session -d -s "${"$"}g_name" -t ${ownerSessionName}`,
-    `${tmuxCommand} set-option -t ${ownerSessionName} window-size latest`,
+    `${tmuxCommand} new-session -d -s "${"$"}g_name" -t "${"$"}owner_session_name"`,
+    `${tmuxCommand} set-option -t "${"$"}owner_session_name" window-size latest`,
     `${tmuxCommand} set-option -t "${"$"}g_name" mouse on`,
     `${tmuxCommand} set-option -t "${"$"}g_name" set-clipboard on`,
-    `${tmuxCommand} select-window -t ${groupedWindowTarget}`,
-    `if [ "$(${tmuxCommand} display-message -t ${groupedWindowTarget} -p '#{window_zoomed_flag}')" = "1" ]; then ${tmuxCommand} resize-pane -Z -t ${groupedWindowTarget}; fi`,
-    `${tmuxCommand} select-pane -t ${groupedPaneTarget}`,
+    `${tmuxCommand} select-window -t "${"$"}grouped_window_target"`,
+    `if [ "$(${tmuxCommand} display-message -t "${"$"}grouped_window_target" -p '#{window_zoomed_flag}')" = "1" ]; then ${tmuxCommand} resize-pane -Z -t "${"$"}grouped_window_target"; fi`,
+    `${tmuxCommand} select-pane -t "${"$"}grouped_pane_target"`,
     "trap cleanup EXIT INT TERM",
     `exec ${tmuxCommand} attach-session -t "${"$"}g_name"`,
   ].join(" && ");

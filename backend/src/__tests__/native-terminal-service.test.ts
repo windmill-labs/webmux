@@ -7,17 +7,8 @@ function makeState(overrides: Partial<ManagedWorktreeRuntimeState> = {}): Manage
     worktreeId: "wt_feature_search",
     branch: "feature/search",
     path: "/repo/__worktrees/feature-search",
-    meta: {
-      schemaVersion: 1,
-      worktreeId: "wt_feature_search",
-      branch: "feature/search",
-      createdAt: "2026-03-19T00:00:00.000Z",
-      profile: "default",
-      agent: "codex",
-      runtime: "host",
-      startupEnvValues: {},
-      allocatedPorts: {},
-    },
+    profile: "default",
+    agentName: "codex",
     git: {
       exists: true,
       branch: "feature/search",
@@ -40,8 +31,6 @@ function makeState(overrides: Partial<ManagedWorktreeRuntimeState> = {}): Manage
     },
     services: [],
     prs: [],
-    linearIssue: null,
-    creation: null,
     ...overrides,
   };
 }
@@ -52,6 +41,12 @@ describe("buildNativeTerminalTmuxCommand", () => {
       WEBMUX_ISOLATED_TMUX_SOCKET: "webmux-native-demo",
       WEBMUX_ISOLATED_TMUX_CONFIG: "/tmp/webmux.conf",
     })).toBe("tmux -L 'webmux-native-demo' -f '/tmp/webmux.conf'");
+  });
+
+  it("uses isolated tmux socket without config when available", () => {
+    expect(buildNativeTerminalTmuxCommand({
+      WEBMUX_ISOLATED_TMUX_SOCKET: "webmux-native-demo",
+    })).toBe("tmux -L 'webmux-native-demo'");
   });
 
   it("falls back to plain tmux when no isolated settings are present", () => {
@@ -76,6 +71,8 @@ describe("buildNativeTerminalLaunch", () => {
     expect(launch.data.shellCommand).toContain("/bin/sh -lc");
     expect(launch.data.shellCommand).toContain("wm-native-5111-wt_feature_search");
     expect(launch.data.shellCommand).toContain("new-session -d -s \"$g_name\" -t");
+    expect(launch.data.shellCommand).toContain("window_name=");
+    expect(launch.data.shellCommand).toContain("grouped_window_target=\"$g_name:$window_name\"");
     expect(launch.data.shellCommand).toContain("wm-project-12345678");
     expect(launch.data.shellCommand).toContain("attach-session -t \"$g_name\"");
   });

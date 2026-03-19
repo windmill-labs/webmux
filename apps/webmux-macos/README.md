@@ -7,8 +7,8 @@ This target is intentionally small:
 - one window
 - worktree sidebar
 - create/open/close worktree actions
-- native terminal surface attached to the selected tmux target
-- Bun backend reused as a local sidecar
+- native terminal surface attached to the selected worktree
+- saved local or remote webmux server connections
 
 It is a development POC, not a signed or notarized desktop app.
 
@@ -17,30 +17,33 @@ It is a development POC, not a signed or notarized desktop app.
 The current runtime flow is:
 
 1. `WebmuxMacOSApp` boots a single SwiftUI window.
-2. `WorktreeStore` starts or connects to the local Bun sidecar through `SidecarController`.
-3. `BackendClient` loads `GET /api/project` and populates the sidebar.
-4. Selecting an open worktree fetches `GET /api/worktrees/:name/terminal-target`.
-5. `TerminalCommandFactory` turns that target into a grouped tmux attach command.
-6. `GhosttyTerminalView` embeds a native Ghostty surface and runs that command in the worktree directory.
+2. `ConnectionsStore` persists user-added server connections in `UserDefaults`.
+3. `WorktreeStore` connects to the selected project through `WebmuxConnection`.
+4. `BackendClient` loads `GET /api/project` and populates the sidebar.
+5. Selecting an open worktree fetches `GET /api/worktrees/:name/terminal-launch`.
+6. `TerminalCommandFactory` runs the backend-provided launch command locally or wraps it in SSH.
+7. `GhosttyTerminalView` embeds a native Ghostty surface and runs that command.
 
 Main files:
 
 - `Sources/WebmuxMacOS/WebmuxMacOSApp.swift`
   - app entry point
 - `Sources/WebmuxMacOS/ContentView.swift`
-  - sidebar, detail pane, toolbar, create sheet, terminal panel
+  - sidebar, detail pane, toolbar, project management, create sheet, terminal panel
+- `Sources/WebmuxMacOS/ConnectionsStore.swift`
+  - saved project persistence, validation, add/edit/remove flows
 - `Sources/WebmuxMacOS/WorktreeStore.swift`
-  - app state, worktree actions, terminal attach resolution
+  - active project state, worktree actions, terminal attach resolution
+- `Sources/WebmuxMacOS/WebmuxConnection.swift`
+  - runtime connection abstraction for local and remote servers
 - `Sources/WebmuxMacOS/BackendClient.swift`
-  - minimal HTTP client for the Bun API
+  - minimal HTTP client for the webmux API
 - `Sources/WebmuxMacOS/BackendModels.swift`
   - request and response models
-- `Sources/WebmuxMacOS/SidecarController.swift`
-  - starts the backend locally and waits for health
 - `Sources/WebmuxMacOS/AppEnvironment.swift`
-  - repo detection, ports, tmux mode, Ghostty resource discovery
+  - Ghostty resource discovery
 - `Sources/WebmuxMacOS/TerminalCommandFactory.swift`
-  - tmux grouped-session attach command builder
+  - local vs SSH command transport wrapper
 - `Sources/WebmuxMacOS/GhosttyRuntime.swift`
   - `GhosttyKit` runtime bootstrap and clipboard/action callbacks
 - `Sources/WebmuxMacOS/GhosttyTerminalView.swift`
@@ -50,13 +53,22 @@ Main files:
 
 ## Runtime model
 
-The app currently depends on three local pieces:
+The app depends on:
 
-- this repo checkout
-- the Bun backend in `backend/src/server.ts`
+- this repo checkout while developing from source
 - Ghostty assets under `apps/webmux-macos/ThirdParty/`
+- one or more user-managed webmux servers
 
-By default the app runs the backend in isolated tmux mode via `scripts/run-with-isolated-tmux.sh`. That keeps native POC sessions away from the user’s normal tmux server unless explicitly overridden.
+Connection types:
+
+- local
+  - API URL must be loopback such as `http://127.0.0.1:5111`
+  - terminal commands run locally on the Mac
+- remote
+  - API URL can be a reachable remote server such as a Tailscale IP
+  - terminal commands run over SSH
+
+The app does not start `webmux serve` for you in this v1.
 
 ## Prerequisites
 
@@ -64,10 +76,13 @@ You need:
 
 - macOS 15 or newer
 - Xcode with Swift 6.1 support
+- `zig`
+
+If you want to connect to a local server from the app, you also need whatever your local `webmux serve` setup requires, typically:
+
 - `bun`
 - `tmux`
 - `git`
-- `zig`
 
 If Ghostty build complains about missing Apple toolchain pieces, install the Xcode Metal toolchain component first.
 
@@ -101,27 +116,29 @@ Run:
 swift run --package-path apps/webmux-macos
 ```
 
-The app will:
+On first launch:
 
-- detect the repo root
-- start the Bun backend sidecar if it is not already running
-- fetch the worktree list from `GET /api/project`
-- attach the terminal using `GET /api/worktrees/:name/terminal-target`
+1. Click `Add Project`.
+2. Enter a local or remote webmux server URL.
+3. Choose whether terminal commands should run locally or over SSH.
+4. Let the app test `GET /api/project` before saving the connection.
+
+Examples:
+
+- local loopback server
+  - URL: `http://127.0.0.1:5111`
+  - connection type: `Local`
+- remote server
+  - URL: `http://100.x.y.z:5111`
+  - connection type: `Remote`
+  - SSH host/user as needed
 
 ## Useful environment variables
 
-These are optional, but useful while developing:
+These are optional while developing:
 
 - `WEBMUX_NATIVE_REPO_ROOT`
-  - override repo root discovery
-- `WEBMUX_NATIVE_PROJECT_DIR`
-  - override the project directory passed to the backend
-- `WEBMUX_NATIVE_PORT`
-  - change the backend port from the default `6121`
-- `WEBMUX_NATIVE_TMUX_MODE`
-  - `isolated` by default, set to `live` to use the normal tmux server
-- `WEBMUX_ISOLATED_TMUX_SOCKET_NAME`
-  - override the isolated tmux socket name
+  - override repo root discovery for Ghostty asset lookup
 - `WEBMUX_NATIVE_GHOSTTY_RESOURCES_DIR`
   - override the Ghostty resource directory
 - `GHOSTTY_RESOURCES_DIR`
@@ -130,8 +147,7 @@ These are optional, but useful while developing:
 Example:
 
 ```bash
-WEBMUX_NATIVE_PORT=6122 \
-WEBMUX_NATIVE_TMUX_MODE=isolated \
+WEBMUX_NATIVE_GHOSTTY_RESOURCES_DIR="$PWD/apps/webmux-macos/ThirdParty/GhosttyResources/share/ghostty" \
 swift run --package-path apps/webmux-macos
 ```
 
@@ -139,11 +155,12 @@ swift run --package-path apps/webmux-macos
 
 Start the app and validate the current POC end to end:
 
-1. Confirm the sidebar loads worktrees from the backend.
-2. Select a worktree and verify its detail pane updates.
-3. Click `Open Worktree` for a closed worktree.
-4. Wait for the terminal panel to attach.
-5. In the terminal, verify:
+1. Add a local loopback server and confirm the sidebar loads worktrees from `GET /api/project`.
+2. Add a remote server and confirm it appears in the project selector.
+3. Switch between saved projects and verify the detail pane reloads.
+4. Open the create worktree sheet and verify branch text entry works.
+5. Select an open worktree and confirm the terminal panel attaches.
+6. In the terminal, verify:
    - `pwd`
    - `echo $TERM`
    - `nvim`
@@ -151,29 +168,18 @@ Start the app and validate the current POC end to end:
    - long-running CLI output
    - resize behavior
    - copy/paste
-6. Switch to another worktree and confirm the terminal reattaches to the correct tmux target.
 7. Close the worktree and confirm the terminal panel returns to the placeholder state.
 
-Useful external checks while the app is running:
+Useful external checks while a local server is running:
 
 ```bash
-curl -sS http://127.0.0.1:6121/api/project | jq .
-curl -sS http://127.0.0.1:6121/api/worktrees/<branch>/terminal-target | jq .
-tmux -L webmux-native-webmux-6121 list-sessions
-tmux -L webmux-native-webmux-6121 list-windows -a
+curl -sS http://127.0.0.1:5111/api/project | jq .
+curl -sS http://127.0.0.1:5111/api/worktrees/<branch>/terminal-launch | jq .
 ```
-
-If you changed `WEBMUX_NATIVE_PORT` or the socket name, update those commands accordingly.
 
 ## Bundle it
 
 There is no automated packaging target yet. The current bundle story is a manual development bundle around the SwiftPM executable.
-
-Important limitation:
-
-- this is not a self-contained production app
-- it still expects a local `webmux` repo checkout so it can launch the Bun backend and related scripts
-- if you move the bundle away from the machine or checkout it was built from, you should pass explicit environment overrides
 
 ### Build a release executable
 
@@ -220,28 +226,18 @@ EOF
 
 ### Launch the bundle in development
 
-The most reliable way is to run the app executable directly with explicit environment values:
+The safest option is to point the app explicitly at the bundled Ghostty resources:
 
 ```bash
 APP_DIR="$PWD/dist/WebmuxMacOS.app"
 
-WEBMUX_NATIVE_REPO_ROOT="$PWD" \
-WEBMUX_NATIVE_PROJECT_DIR="$PWD" \
 WEBMUX_NATIVE_GHOSTTY_RESOURCES_DIR="$APP_DIR/Contents/Resources/GhosttyResources/share/ghostty" \
 "$APP_DIR/Contents/MacOS/WebmuxMacOS"
 ```
-
-This works because:
-
-- `GhosttyKit` is statically linked into the executable
-- Ghostty runtime resources are copied into the bundle
-- the repo path is still provided explicitly so the backend sidecar can be launched from the checkout
 
 What this does not do:
 
 - code signing
 - notarization
 - updater support
-- standalone distribution without the repo checkout
-
-If we want a real distributable macOS app later, the next step is to add an actual Xcode app target or dedicated packaging script that embeds config, launcher logic, and signing behavior explicitly.
+- standalone distribution polish

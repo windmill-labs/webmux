@@ -5,10 +5,6 @@ enum AppEnvironment {
 
     struct EnvironmentValues {
         let repoRoot: URL
-        let projectRoot: URL
-        let backendPort: Int
-        let useIsolatedTmux: Bool
-        let isolatedTmuxSocketName: String?
         let ghosttyResourcesDir: URL?
         let ghosttyTerminfoDir: URL?
 
@@ -23,40 +19,8 @@ enum AppEnvironment {
                 .deletingLastPathComponent()
             let detectedRoot = Self.findRepoRoot(startingAt: sourceFile.deletingLastPathComponent()) ?? fallbackRoot
             repoRoot = URL(fileURLWithPath: environment["WEBMUX_NATIVE_REPO_ROOT"] ?? detectedRoot.path)
-            projectRoot = URL(fileURLWithPath: environment["WEBMUX_NATIVE_PROJECT_DIR"] ?? repoRoot.path)
-            backendPort = Int(environment["WEBMUX_NATIVE_PORT"] ?? "") ?? 6121
-            useIsolatedTmux = (environment["WEBMUX_NATIVE_TMUX_MODE"] ?? "isolated") != "live"
-            isolatedTmuxSocketName = useIsolatedTmux
-                ? environment["WEBMUX_ISOLATED_TMUX_SOCKET_NAME"] ?? Self.defaultIsolatedTmuxSocketName(
-                    projectRoot: projectRoot,
-                    backendPort: backendPort
-                )
-                : nil
             ghosttyResourcesDir = Self.findGhosttyResourcesDir(environment: environment, repoRoot: repoRoot)
             ghosttyTerminfoDir = Self.findGhosttyTerminfoDir(ghosttyResourcesDir: ghosttyResourcesDir)
-        }
-
-        var backendBaseURL: URL {
-            URL(string: "http://127.0.0.1:\(backendPort)")!
-        }
-
-        var tmuxCommandPrefix: String {
-            Self.tmuxCommandPrefix(
-                useIsolatedTmux: useIsolatedTmux,
-                isolatedTmuxSocketName: isolatedTmuxSocketName
-            )
-        }
-
-        private static func tmuxCommandPrefix(
-            useIsolatedTmux: Bool,
-            isolatedTmuxSocketName: String?
-        ) -> String {
-            guard useIsolatedTmux,
-                  let isolatedTmuxSocketName else {
-                return "tmux"
-            }
-
-            return "tmux -L \(ShellQuoter.quote(isolatedTmuxSocketName))"
         }
 
         private static func findRepoRoot(startingAt url: URL) -> URL? {
@@ -112,18 +76,6 @@ enum AppEnvironment {
             }
 
             return terminfoDir
-        }
-
-        private static func defaultIsolatedTmuxSocketName(
-            projectRoot: URL,
-            backendPort: Int
-        ) -> String {
-            let basename = projectRoot.lastPathComponent
-                .lowercased()
-                .replacingOccurrences(of: #"[^a-z0-9_-]+"#, with: "-", options: .regularExpression)
-                .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
-            let prefix = basename.isEmpty ? "webmux" : String(basename.prefix(24))
-            return "webmux-native-\(prefix)-\(backendPort)"
         }
     }
 }

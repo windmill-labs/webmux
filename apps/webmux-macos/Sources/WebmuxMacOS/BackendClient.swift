@@ -64,9 +64,9 @@ struct BackendClient {
     ) async throws -> Response {
         var request = URLRequest(url: baseURL.appending(path: path))
         request.httpMethod = method
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
         if let body {
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONEncoder().encode(body)
         }
 
@@ -76,7 +76,10 @@ struct BackendClient {
         }
 
         if httpResponse.statusCode == 204 {
-            return EmptyResponse() as! Response
+            guard let response = EmptyResponse() as? Response else {
+                throw BackendError.invalidResponse
+            }
+            return response
         }
 
         if (200..<300).contains(httpResponse.statusCode) {

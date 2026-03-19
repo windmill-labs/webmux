@@ -65,7 +65,7 @@ struct CreateWorktreeSheet: View {
 
     private func focusBranchField() {
         Task { @MainActor in
-            NSApp.activate(ignoringOtherApps: true)
+            NSApp.activate()
             branchFieldFocused = true
         }
     }

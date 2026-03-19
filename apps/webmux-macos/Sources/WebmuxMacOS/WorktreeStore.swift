@@ -6,6 +6,7 @@ final class WorktreeStore: ObservableObject {
     @Published private(set) var worktrees: [WorktreeSnapshot] = []
     @Published var selectedBranch: String? {
         didSet {
+            guard !suppressSelectionResolution else { return }
             Task {
                 await resolveTerminalForSelection()
             }
@@ -20,6 +21,7 @@ final class WorktreeStore: ObservableObject {
     @Published private(set) var terminalMessage: String?
 
     private var connection: (any WebmuxConnection)?
+    private var suppressSelectionResolution = false
 
     init() {}
 
@@ -154,7 +156,9 @@ final class WorktreeStore: ObservableObject {
         connection = nil
         project = nil
         worktrees = []
+        suppressSelectionResolution = true
         selectedBranch = nil
+        suppressSelectionResolution = false
         terminalSession = nil
         terminalMessage = nil
         alertMessage = nil

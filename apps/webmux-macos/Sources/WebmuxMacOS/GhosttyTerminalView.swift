@@ -66,6 +66,12 @@ final class GhosttyTerminalNSView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    deinit {
+        MainActor.assumeIsolated {
+            cleanUp()
+        }
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         configureWindowObservers()

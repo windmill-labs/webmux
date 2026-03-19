@@ -68,7 +68,7 @@
             <PrBadge {pr} />
           {/each}
           {#if wt.linearIssue}
-            <LinearBadge issue={wt.linearIssue} />
+            <LinearBadge issue={wt.linearIssue} clickable={false} />
           {/if}
         </span>
         <span class="flex gap-2 text-[11px] text-muted items-center flex-wrap">

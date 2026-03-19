@@ -69,8 +69,19 @@ export interface LinearIssue {
   project: string | null;
 }
 
+export type LinearIssueAvailability = "disabled" | "missing_api_key" | "ready";
+
+export interface LinearIssuesResponse {
+  availability: LinearIssueAvailability;
+  issues: LinearIssue[];
+}
+
 export type FetchIssuesResult =
   | { ok: true; data: LinearIssue[] }
+  | { ok: false; error: string };
+
+export type BuildLinearIssuesResponseResult =
+  | { ok: true; data: LinearIssuesResponse }
   | { ok: false; error: string };
 
 // --- GraphQL query ---
@@ -131,6 +142,48 @@ export function parseIssuesResponse(raw: GqlResponse): FetchIssuesResult {
     project: n.project?.name ?? null,
   }));
   return { ok: true, data: issues };
+}
+
+export function buildLinearIssuesResponse(input: {
+  integrationEnabled: boolean;
+  apiKey: string | undefined;
+  fetchResult?: FetchIssuesResult;
+}): BuildLinearIssuesResponseResult {
+  if (!input.integrationEnabled) {
+    return {
+      ok: true,
+      data: {
+        availability: "disabled",
+        issues: [],
+      },
+    };
+  }
+
+  if (!input.apiKey?.trim()) {
+    return {
+      ok: true,
+      data: {
+        availability: "missing_api_key",
+        issues: [],
+      },
+    };
+  }
+
+  if (!input.fetchResult) {
+    return { ok: false, error: "Linear fetch result required when LINEAR_API_KEY is set" };
+  }
+
+  if (!input.fetchResult.ok) {
+    return input.fetchResult;
+  }
+
+  return {
+    ok: true,
+    data: {
+      availability: "ready",
+      issues: input.fetchResult.data,
+    },
+  };
 }
 
 /** Match a worktree branch to a Linear issue branch name.

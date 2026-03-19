@@ -5,6 +5,7 @@ import type {
   AppNotification,
   FileUploadResult,
   LinearIssue,
+  LinearIssuesResponse,
   PrEntry,
   ProjectSnapshot,
   ProjectWorktreeSnapshot,
@@ -120,8 +121,8 @@ export function mergeWorktree(name: string): Promise<unknown> {
   return api(`worktrees/${encodeURIComponent(name)}/merge`, { method: "POST" });
 }
 
-export function fetchLinearIssues(): Promise<LinearIssue[]> {
-  return api<LinearIssue[]>("linear/issues");
+export function fetchLinearIssues(): Promise<LinearIssuesResponse> {
+  return api<LinearIssuesResponse>("linear/issues");
 }
 
 export async function fetchCiLogs(runId: number): Promise<string> {

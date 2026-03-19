@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AppConfig, WorktreeInfo } from "./lib/types";
+import type { AppConfig, LinearIssuesResponse, WorktreeInfo } from "./lib/types";
 
 vi.mock("./lib/api", () => ({
   closeWorktree: vi.fn(),
@@ -87,6 +87,16 @@ function createWorktree(
   };
 }
 
+function createLinearIssuesResponse(
+  overrides: Partial<LinearIssuesResponse> = {},
+): LinearIssuesResponse {
+  return {
+    availability: "ready",
+    issues: [],
+    ...overrides,
+  };
+}
+
 function setupBrowserMocks(): void {
   Object.defineProperty(window, "matchMedia", {
     configurable: true,
@@ -158,7 +168,7 @@ describe("App create selection", () => {
 
     vi.mocked(api.fetchConfig).mockResolvedValue(createConfig());
     vi.mocked(api.fetchAvailableBranches).mockResolvedValue([]);
-    vi.mocked(api.fetchLinearIssues).mockResolvedValue([]);
+    vi.mocked(api.fetchLinearIssues).mockResolvedValue(createLinearIssuesResponse());
     vi.mocked(api.subscribeNotifications).mockReturnValue(() => {});
     vi.mocked(api.openWorktree).mockResolvedValue(undefined);
     vi.mocked(api.closeWorktree).mockResolvedValue(undefined);
@@ -238,5 +248,25 @@ describe("App create selection", () => {
       expect(api.fetchWorktrees).toHaveBeenCalledTimes(3);
     });
     expect(screen.getByTitle("feature/new")).toBeInTheDocument();
+  });
+
+  it("shows a setup message in the Linear panel when LINEAR_API_KEY is missing", async () => {
+    vi.mocked(api.fetchWorktrees).mockResolvedValue([]);
+    vi.mocked(api.fetchLinearIssues).mockResolvedValue(
+      createLinearIssuesResponse({ availability: "missing_api_key" }),
+    );
+
+    render(App);
+
+    const toggle = await screen.findByRole("button", { name: /linear/i });
+    expect(toggle).toBeInTheDocument();
+
+    await fireEvent.click(toggle);
+
+    expect(
+      await screen.findByText((_, element) =>
+        element?.textContent === "Set LINEAR_API_KEY to show your assigned Linear issues here.",
+      ),
+    ).toBeInTheDocument();
   });
 });

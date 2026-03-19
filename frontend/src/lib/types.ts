@@ -68,6 +68,13 @@ export interface LinearIssue {
   project: string | null;
 }
 
+export type LinearIssueAvailability = "disabled" | "missing_api_key" | "ready";
+
+export interface LinearIssuesResponse {
+  availability: LinearIssueAvailability;
+  issues: LinearIssue[];
+}
+
 export interface FileUploadResult {
   files: Array<{ path: string }>;
 }

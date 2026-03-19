@@ -48,7 +48,10 @@ async function runAutoCreate(deps: LinearAutoCreateDependencies): Promise<void> 
     .map((entry) => entry.branch as string);
 
   const newIssues = filterNewTodoIssues(result.data, existingBranches);
-  if (newIssues.length === 0) return;
+  if (newIssues.length === 0) {
+    log.debug(`[linear-auto-create] no new Todo issues (${result.data.length} assigned, ${existingBranches.length} worktrees)`);
+    return;
+  }
 
   log.info(`[linear-auto-create] found ${newIssues.length} new Todo issue(s) to create worktrees for`);
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.1](https://github.com/windmill-labs/webmux/compare/v0.19.0...v0.19.1) (2026-03-20)
+
+
+### Bug Fixes
+
+* fall back to python3 pty.spawn when script is not in PATH ([#166](https://github.com/windmill-labs/webmux/issues/166)) ([8188e5a](https://github.com/windmill-labs/webmux/commit/8188e5a0bbc569b2a75c5fbeaa72702d6ecc4002))
+
 ## [0.19.0](https://github.com/windmill-labs/webmux/compare/v0.18.0...v0.19.0) (2026-03-19)
 
 

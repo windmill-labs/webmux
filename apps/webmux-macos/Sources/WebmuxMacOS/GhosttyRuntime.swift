@@ -154,35 +154,11 @@ final class GhosttyRuntime {
             return false
         case GHOSTTY_ACTION_SHOW_CHILD_EXITED:
             return false
-        case GHOSTTY_ACTION_INITIAL_SIZE:
-            let size = CGSize(
-                width: Double(action.action.initial_size.width),
-                height: Double(action.action.initial_size.height)
-            )
-            DispatchQueue.main.async {
-                surfaceView?.initialSize = size
-            }
-            return true
-        case GHOSTTY_ACTION_CELL_SIZE:
-            let backingSize = CGSize(
-                width: Double(action.action.cell_size.width),
-                height: Double(action.action.cell_size.height)
-            )
-            DispatchQueue.main.async {
-                surfaceView?.cellSize = surfaceView?.convertFromBacking(backingSize) ?? backingSize
-            }
-            return true
-        case GHOSTTY_ACTION_SET_TITLE:
-            let title = string(from: action.action.set_title.title)
-            DispatchQueue.main.async {
-                surfaceView?.terminalTitle = title
-            }
-            return true
-        case GHOSTTY_ACTION_PWD:
-            let pwd = string(from: action.action.pwd.pwd)
-            DispatchQueue.main.async {
-                surfaceView?.terminalPWD = pwd
-            }
+        case GHOSTTY_ACTION_INITIAL_SIZE,
+             GHOSTTY_ACTION_CELL_SIZE,
+             GHOSTTY_ACTION_SET_TITLE,
+             GHOSTTY_ACTION_PWD,
+             GHOSTTY_ACTION_RENDERER_HEALTH:
             return true
         case GHOSTTY_ACTION_MOUSE_SHAPE:
             let shape = action.action.mouse_shape
@@ -194,12 +170,6 @@ final class GhosttyRuntime {
             let isVisible = action.action.mouse_visibility == GHOSTTY_MOUSE_VISIBLE
             DispatchQueue.main.async {
                 surfaceView?.updateMouseVisibility(isVisible)
-            }
-            return true
-        case GHOSTTY_ACTION_RENDERER_HEALTH:
-            let isHealthy = action.action.renderer_health == GHOSTTY_RENDERER_HEALTH_HEALTHY
-            DispatchQueue.main.async {
-                surfaceView?.rendererHealthy = isHealthy
             }
             return true
         case GHOSTTY_ACTION_OPEN_URL:
@@ -261,10 +231,8 @@ final class GhosttyRuntime {
         _ userdata: UnsafeMutableRawPointer?,
         processAlive: Bool
     ) {
-        guard let surfaceView = surfaceView(from: userdata) else { return }
-        DispatchQueue.main.async {
-            surfaceView.processAlive = processAlive
-        }
+        _ = userdata
+        _ = processAlive
     }
 
     nonisolated private static func surfaceView(from userdata: UnsafeMutableRawPointer?) -> GhosttyTerminalNSView? {
@@ -279,11 +247,6 @@ final class GhosttyRuntime {
         }
 
         return Unmanaged<GhosttyTerminalNSView>.fromOpaque(userdata).takeUnretainedValue()
-    }
-
-    nonisolated private static func string(from pointer: UnsafePointer<CChar>?) -> String {
-        guard let pointer else { return "" }
-        return String(cString: pointer)
     }
 
     nonisolated private static func openURL(_ value: ghostty_action_open_url_s) -> Bool {

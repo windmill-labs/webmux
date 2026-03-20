@@ -1,56 +1,20 @@
 import AppKit
-import Dispatch
-import SwiftUI
 import GhosttyKit
-
-struct GhosttyTerminalContainer: View {
-    let session: TerminalSessionDescriptor
-
-    var body: some View {
-        switch GhosttyRuntime.shared {
-        case .success(let runtime):
-            GhosttyTerminalRepresentable(runtime: runtime, session: session)
-        case .failure(let error):
-            ContentUnavailableView(
-                "Ghostty Unavailable",
-                systemImage: "terminal",
-                description: Text(error.localizedDescription)
-            )
-        }
-    }
-}
-
-private struct GhosttyTerminalRepresentable: NSViewRepresentable {
-    let runtime: GhosttyRuntime
-    let session: TerminalSessionDescriptor
-
-    func makeNSView(context: Context) -> GhosttyTerminalNSView {
-        GhosttyTerminalNSView(runtime: runtime, session: session)
-    }
-
-    func updateNSView(_ nsView: GhosttyTerminalNSView, context: Context) {
-    }
-}
 
 final class GhosttyTerminalNSView: NSView {
     let session: TerminalSessionDescriptor
 
     private weak var runtime: GhosttyRuntime?
     nonisolated(unsafe) private var surfaceStorage: ghostty_surface_t?
+    private let windowObserverController = GhosttyWindowObserverController()
     private var trackingAreaRef: NSTrackingArea?
-    private var windowObservers: [NSObjectProtocol] = []
+    private var lastSurfaceSize: CGSize?
+    private var lastSurfaceScale: CGFloat?
     private var didCleanUp = false
 
     nonisolated var surface: ghostty_surface_t? {
         surfaceStorage
     }
-
-    var terminalTitle = ""
-    var terminalPWD = ""
-    var rendererHealthy = true
-    var processAlive = true
-    var initialSize = NSSize.zero
-    var cellSize = NSSize.zero
 
     override var acceptsFirstResponder: Bool { true }
 
@@ -245,7 +209,12 @@ final class GhosttyTerminalNSView: NSView {
     override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
         guard let surfaceStorage else { return }
-        ghostty_surface_mouse_pos(surfaceStorage, -1, -1, GhosttyInputSupport.ghosttyMods(from: event.modifierFlags))
+        ghostty_surface_mouse_pos(
+            surfaceStorage,
+            -1,
+            -1,
+            GhosttyInputSupport.ghosttyMods(from: event.modifierFlags)
+        )
     }
 
     override func mouseMoved(with event: NSEvent) {
@@ -270,7 +239,12 @@ final class GhosttyTerminalNSView: NSView {
 
     override func scrollWheel(with event: NSEvent) {
         guard let surfaceStorage else { return }
-        ghostty_surface_mouse_scroll(surfaceStorage, event.scrollingDeltaX, event.scrollingDeltaY, 0)
+        ghostty_surface_mouse_scroll(
+            surfaceStorage,
+            event.scrollingDeltaX,
+            event.scrollingDeltaY,
+            ghostty_input_scroll_mods_t(GhosttyInputSupport.ghosttyMods(from: event.modifierFlags).rawValue)
+        )
     }
 
     override func pressureChange(with event: NSEvent) {
@@ -343,6 +317,14 @@ final class GhosttyTerminalNSView: NSView {
         let width = max(Int(backingBounds.width.rounded(.down)), 1)
         let height = max(Int(backingBounds.height.rounded(.down)), 1)
         let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+        let size = CGSize(width: width, height: height)
+
+        guard size != lastSurfaceSize || scale != lastSurfaceScale else {
+            return
+        }
+
+        lastSurfaceSize = size
+        lastSurfaceScale = scale
         ghostty_surface_set_content_scale(surfaceStorage, scale, scale)
         ghostty_surface_set_size(surfaceStorage, UInt32(width), UInt32(height))
     }
@@ -363,39 +345,19 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     private func configureWindowObservers() {
-        removeWindowObservers()
-
-        guard let window else { return }
-        let center = NotificationCenter.default
-
-        windowObservers.append(center.addObserver(
-            forName: NSWindow.didBecomeKeyNotification,
-            object: window,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
+        windowObserverController.configure(
+            for: window,
+            onDidBecomeKey: { [weak self] in
                 self?.syncFocus()
-            }
-        })
-        windowObservers.append(center.addObserver(
-            forName: NSWindow.didResignKeyNotification,
-            object: window,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
+            },
+            onDidResignKey: { [weak self] in
                 self?.syncFocus()
-            }
-        })
-        windowObservers.append(center.addObserver(
-            forName: NSWindow.didChangeScreenNotification,
-            object: window,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
+            },
+            onDidChangeScreen: { [weak self] in
                 self?.syncWindowMetadata()
                 self?.syncGeometry()
             }
-        })
+        )
     }
 
     private func sendMousePosition(_ event: NSEvent) {
@@ -455,17 +417,12 @@ final class GhosttyTerminalNSView: NSView {
         }
     }
 
-    private func removeWindowObservers() {
-        for observer in windowObservers {
-            NotificationCenter.default.removeObserver(observer)
-        }
-        windowObservers.removeAll()
-    }
-
     private func cleanUp() {
         guard !didCleanUp else { return }
         didCleanUp = true
-        removeWindowObservers()
+        windowObserverController.removeAll()
+        lastSurfaceSize = nil
+        lastSurfaceScale = nil
         if let surfaceStorage {
             ghostty_surface_free(surfaceStorage)
             self.surfaceStorage = nil

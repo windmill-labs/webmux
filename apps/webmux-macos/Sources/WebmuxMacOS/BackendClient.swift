@@ -3,6 +3,8 @@ import Foundation
 struct BackendClient {
     let baseURL: URL
     let session: URLSession
+    private static let encoder = JSONEncoder()
+    private static let decoder = JSONDecoder()
 
     init(baseURL: URL, session: URLSession = .shared) {
         self.baseURL = baseURL
@@ -10,12 +12,12 @@ struct BackendClient {
     }
 
     func fetchProject() async throws -> ProjectSnapshot {
-        try await request(path: "api/project", method: "GET", body: Optional<String>.none)
+        try await request(path: BackendPath.project, method: "GET", body: Optional<String>.none)
     }
 
     func createWorktree(mode: CreateWorktreeMode, branch: String?) async throws -> CreateWorktreeResponse {
         try await request(
-            path: "api/worktrees",
+            path: BackendPath.worktrees,
             method: "POST",
             body: CreateWorktreeRequest(
                 mode: mode,
@@ -26,7 +28,7 @@ struct BackendClient {
 
     func openWorktree(named branch: String) async throws {
         _ = try await request(
-            path: "api/worktrees/\(branch.urlPathEncoded)/open",
+            path: BackendPath.openWorktree(named: branch),
             method: "POST",
             body: Optional<String>.none
         ) as EmptyResponse
@@ -34,7 +36,7 @@ struct BackendClient {
 
     func closeWorktree(named branch: String) async throws {
         _ = try await request(
-            path: "api/worktrees/\(branch.urlPathEncoded)/close",
+            path: BackendPath.closeWorktree(named: branch),
             method: "POST",
             body: Optional<String>.none
         ) as EmptyResponse
@@ -42,19 +44,10 @@ struct BackendClient {
 
     func fetchTerminalLaunch(named branch: String) async throws -> NativeTerminalLaunch {
         try await request(
-            path: "api/worktrees/\(branch.urlPathEncoded)/terminal-launch",
+            path: BackendPath.terminalLaunch(named: branch),
             method: "GET",
             body: Optional<String>.none
         )
-    }
-
-    func healthcheck() async -> Bool {
-        do {
-            _ = try await fetchProject()
-            return true
-        } catch {
-            return false
-        }
     }
 
     private func request<Response: Decodable, Body: Encodable>(
@@ -67,7 +60,7 @@ struct BackendClient {
 
         if let body {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = try JSONEncoder().encode(body)
+            request.httpBody = try Self.encoder.encode(body)
         }
 
         let (data, response) = try await session.data(for: request)
@@ -84,13 +77,13 @@ struct BackendClient {
 
         if (200..<300).contains(httpResponse.statusCode) {
             do {
-                return try JSONDecoder().decode(Response.self, from: data)
+                return try Self.decoder.decode(Response.self, from: data)
             } catch {
                 throw BackendError.decodeFailed(error)
             }
         }
 
-        if let payload = try? JSONDecoder().decode(APIErrorPayload.self, from: data) {
+        if let payload = try? Self.decoder.decode(APIErrorPayload.self, from: data) {
             throw BackendError.requestFailed(status: httpResponse.statusCode, message: payload.error)
         }
 
@@ -119,12 +112,6 @@ enum BackendError: LocalizedError {
 private struct EmptyResponse: Decodable {}
 
 private extension String {
-    var urlPathEncoded: String {
-        var allowed = CharacterSet.urlPathAllowed
-        allowed.remove(charactersIn: "/")
-        return addingPercentEncoding(withAllowedCharacters: allowed) ?? self
-    }
-
     var nilIfEmpty: String? {
         isEmpty ? nil : self
     }

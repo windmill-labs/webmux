@@ -10,17 +10,23 @@ final class ConnectionsStore: ObservableObject {
     }
     @Published var addSheetPresented = false
 
+    private static let connectionsKey = "webmux.macos.savedConnections"
+    private static let selectedConnectionIDKey = "webmux.macos.selectedConnectionID"
+    private static let decoder = JSONDecoder()
+    private static let encoder = JSONEncoder()
+
     private let userDefaults: UserDefaults
+    private let projectFetcher: (URL) async throws -> ProjectSnapshot
 
-    init(userDefaults: UserDefaults = .standard) {
-        self.userDefaults = userDefaults
-
-        if let data = userDefaults.data(forKey: Self.connectionsKey),
-           let decoded = try? JSONDecoder().decode([ConnectionProfile].self, from: data) {
-            connections = decoded
-        } else {
-            connections = []
+    init(
+        userDefaults: UserDefaults = .standard,
+        projectFetcher: @escaping (URL) async throws -> ProjectSnapshot = {
+            try await BackendClient(baseURL: $0).fetchProject()
         }
+    ) {
+        self.userDefaults = userDefaults
+        self.projectFetcher = projectFetcher
+        connections = Self.loadConnections(from: userDefaults)
 
         let storedSelection = userDefaults.string(forKey: Self.selectedConnectionIDKey)
         if let storedSelection,
@@ -37,18 +43,7 @@ final class ConnectionsStore: ObservableObject {
     }
 
     func addConnection(from draft: ConnectionDraft) async throws -> ConnectionProfile {
-        let resolved = try resolve(draft: draft)
-        try ensureNoDuplicate(for: resolved)
-
-        let snapshot = try await BackendClient(baseURL: resolved.apiBaseURL).fetchProject()
-        let profile = ConnectionProfile(
-            id: UUID().uuidString,
-            name: snapshot.project.name,
-            mode: resolved.mode,
-            apiBaseURL: resolved.apiBaseURL,
-            ssh: resolved.ssh
-        )
-
+        let profile = try await buildProfile(from: draft)
         connections.append(profile)
         persistConnections()
         selectedConnectionID = profile.id
@@ -56,17 +51,7 @@ final class ConnectionsStore: ObservableObject {
     }
 
     func updateConnection(_ connection: ConnectionProfile, from draft: ConnectionDraft) async throws -> ConnectionProfile {
-        let resolved = try resolve(draft: draft)
-        try ensureNoDuplicate(for: resolved, excluding: connection.id)
-
-        let snapshot = try await BackendClient(baseURL: resolved.apiBaseURL).fetchProject()
-        let updated = ConnectionProfile(
-            id: connection.id,
-            name: snapshot.project.name,
-            mode: resolved.mode,
-            apiBaseURL: resolved.apiBaseURL,
-            ssh: resolved.ssh
-        )
+        let updated = try await buildProfile(from: draft, existingID: connection.id)
 
         guard let index = connections.firstIndex(where: { $0.id == connection.id }) else {
             throw ConnectionStoreError.connectionNotFound
@@ -95,48 +80,21 @@ final class ConnectionsStore: ObservableObject {
         persistConnections()
     }
 
-    private func resolve(draft: ConnectionDraft) throws -> ResolvedConnectionDraft {
-        let rawURL = draft.apiBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !rawURL.isEmpty else {
-            throw ConnectionStoreError.missingServerURL
-        }
+    private func buildProfile(
+        from draft: ConnectionDraft,
+        existingID: String? = nil
+    ) async throws -> ConnectionProfile {
+        let resolved = try ConnectionDraftResolver.resolve(draft)
+        try ensureNoDuplicate(for: resolved, excluding: existingID)
 
-        guard var components = URLComponents(string: rawURL),
-              let scheme = components.scheme?.lowercased(),
-              ["http", "https"].contains(scheme),
-              let host = components.host?.lowercased() else {
-            throw ConnectionStoreError.invalidServerURL(rawURL)
-        }
-
-        if components.path == "/" {
-            components.path = ""
-        }
-
-        guard let apiBaseURL = components.url else {
-            throw ConnectionStoreError.invalidServerURL(rawURL)
-        }
-
-        switch draft.mode {
-        case .local:
-            guard Self.isLoopbackHost(host) else {
-                throw ConnectionStoreError.localConnectionRequiresLoopbackHost
-            }
-
-            return ResolvedConnectionDraft(
-                mode: .local,
-                apiBaseURL: apiBaseURL,
-                ssh: nil
-            )
-        case .remote:
-            let sshHost = nonEmpty(draft.sshHost)?.lowercased() ?? host
-            let sshUser = nonEmpty(draft.sshUser) ?? NSUserName()
-            let sshPort = try resolveSSHPort(from: draft.sshPort)
-            return ResolvedConnectionDraft(
-                mode: .remote,
-                apiBaseURL: apiBaseURL,
-                ssh: SSHConnectionConfig(host: sshHost, user: sshUser, port: sshPort)
-            )
-        }
+        let snapshot = try await projectFetcher(resolved.apiBaseURL)
+        return ConnectionProfile(
+            id: existingID ?? UUID().uuidString,
+            name: snapshot.project.name,
+            mode: resolved.mode,
+            apiBaseURL: resolved.apiBaseURL,
+            ssh: resolved.ssh
+        )
     }
 
     private func ensureNoDuplicate(
@@ -167,7 +125,7 @@ final class ConnectionsStore: ObservableObject {
     }
 
     private func persistConnections() {
-        guard let data = try? JSONEncoder().encode(connections) else { return }
+        guard let data = try? Self.encoder.encode(connections) else { return }
         userDefaults.set(data, forKey: Self.connectionsKey)
     }
 
@@ -175,28 +133,14 @@ final class ConnectionsStore: ObservableObject {
         userDefaults.set(selectedConnectionID, forKey: Self.selectedConnectionIDKey)
     }
 
-    private func nonEmpty(_ value: String) -> String? {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
-    private static func isLoopbackHost(_ host: String) -> Bool {
-        switch host {
-        case "localhost", "127.0.0.1", "::1", "0.0.0.0":
-            return true
-        default:
-            return false
+    private static func loadConnections(from userDefaults: UserDefaults) -> [ConnectionProfile] {
+        guard let data = userDefaults.data(forKey: connectionsKey),
+              let decoded = try? decoder.decode([ConnectionProfile].self, from: data) else {
+            return []
         }
-    }
 
-    private struct ResolvedConnectionDraft {
-        let mode: ConnectionMode
-        let apiBaseURL: URL
-        let ssh: SSHConnectionConfig?
+        return decoded
     }
-
-    private static let connectionsKey = "webmux.macos.savedConnections"
-    private static let selectedConnectionIDKey = "webmux.macos.selectedConnectionID"
 }
 
 enum ConnectionStoreError: LocalizedError {

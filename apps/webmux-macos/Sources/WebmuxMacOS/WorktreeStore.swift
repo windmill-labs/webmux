@@ -4,14 +4,7 @@ import Foundation
 final class WorktreeStore: ObservableObject {
     @Published private(set) var project: ProjectSnapshot.Project?
     @Published private(set) var worktrees: [WorktreeSnapshot] = []
-    @Published var selectedBranch: String? {
-        didSet {
-            guard !suppressSelectionResolution else { return }
-            Task {
-                await resolveTerminalForSelection()
-            }
-        }
-    }
+    @Published private(set) var selectedBranch: String?
     @Published var createSheetPresented = false
     @Published var alertMessage: String?
     @Published private(set) var isLoading = false
@@ -21,7 +14,7 @@ final class WorktreeStore: ObservableObject {
     @Published private(set) var terminalMessage: String?
 
     private var connection: (any WebmuxConnection)?
-    private var suppressSelectionResolution = false
+    private var terminalResolutionTask: Task<Void, Never>?
 
     init() {}
 
@@ -30,21 +23,20 @@ final class WorktreeStore: ObservableObject {
         return worktrees.first(where: { $0.branch == selectedBranch })
     }
 
-    func reload() async {
+    func selectBranch(_ branch: String?) {
+        guard selectedBranch != branch else { return }
+        selectedBranch = branch
+        scheduleTerminalResolution()
+    }
+
+    func reload(selecting preferredBranch: String? = nil) async {
         guard let client = connection?.client else { return }
 
         do {
             isLoading = true
             let snapshot = try await client.fetchProject()
-            project = snapshot.project
-            worktrees = snapshot.worktrees
-            if selectedBranch == nil {
-                selectedBranch = snapshot.worktrees.first?.branch
-            } else if !snapshot.worktrees.contains(where: { $0.branch == selectedBranch }) {
-                selectedBranch = snapshot.worktrees.first?.branch
-            }
             isLoading = false
-            await resolveTerminalForSelection()
+            applyProjectSnapshot(snapshot, preferredSelection: preferredBranch)
         } catch {
             isLoading = false
             alertMessage = error.localizedDescription
@@ -56,8 +48,7 @@ final class WorktreeStore: ObservableObject {
 
         do {
             let created = try await client.createWorktree(mode: mode, branch: branch)
-            await reload()
-            selectedBranch = created.branch
+            await reload(selecting: created.branch)
             createSheetPresented = false
         } catch {
             alertMessage = error.localizedDescription
@@ -88,50 +79,9 @@ final class WorktreeStore: ObservableObject {
         }
     }
 
-    private func resolveTerminalForSelection() async {
-        guard let selectedWorktree else {
-            terminalSession = nil
-            terminalMessage = nil
-            return
-        }
-
-        guard selectedWorktree.mux else {
-            terminalSession = nil
-            terminalMessage = "Open this worktree to attach the terminal."
-            return
-        }
-
-        guard let connection else { return }
-
-        do {
-            isResolvingTerminal = true
-            let launch = try await connection.client.fetchTerminalLaunch(named: selectedWorktree.branch)
-            terminalSession = connection.makeTerminalSession(for: launch)
-            terminalMessage = nil
-            isResolvingTerminal = false
-        } catch let error as BackendError {
-            isResolvingTerminal = false
-            terminalSession = nil
-            switch error {
-            case .requestFailed(let status, let message) where status == 409:
-                terminalMessage = message
-            default:
-                terminalMessage = error.localizedDescription
-            }
-        } catch {
-            isResolvingTerminal = false
-            terminalSession = nil
-            terminalMessage = error.localizedDescription
-        }
-    }
-
     func selectConnection(_ profile: ConnectionProfile?) async {
         if connection?.profile == profile {
             return
-        }
-
-        if let connection {
-            await connection.stop()
         }
 
         clearState()
@@ -143,22 +93,136 @@ final class WorktreeStore: ObservableObject {
 
         do {
             isConnecting = true
-            try await connection.start()
+            let snapshot = try await connection.client.fetchProject()
             isConnecting = false
-            await reload()
+            applyProjectSnapshot(snapshot)
         } catch {
             isConnecting = false
+            self.connection = nil
             alertMessage = error.localizedDescription
         }
     }
 
+    private func applyProjectSnapshot(
+        _ snapshot: ProjectSnapshot,
+        preferredSelection: String? = nil
+    ) {
+        project = snapshot.project
+        worktrees = snapshot.worktrees
+        selectedBranch = resolvedSelection(
+            in: snapshot.worktrees,
+            preferredSelection: preferredSelection
+        )
+        scheduleTerminalResolution()
+    }
+
+    private func resolvedSelection(
+        in worktrees: [WorktreeSnapshot],
+        preferredSelection: String?
+    ) -> String? {
+        if let preferredSelection,
+           worktrees.contains(where: { $0.branch == preferredSelection }) {
+            return preferredSelection
+        }
+
+        if let selectedBranch,
+           worktrees.contains(where: { $0.branch == selectedBranch }) {
+            return selectedBranch
+        }
+
+        return worktrees.first?.branch
+    }
+
+    private func scheduleTerminalResolution() {
+        cancelTerminalResolution()
+
+        guard let selectedWorktree else {
+            terminalSession = nil
+            terminalMessage = nil
+            isResolvingTerminal = false
+            return
+        }
+
+        guard selectedWorktree.mux else {
+            terminalSession = nil
+            terminalMessage = "Open this worktree to attach the terminal."
+            isResolvingTerminal = false
+            return
+        }
+
+        guard let connection else {
+            terminalSession = nil
+            terminalMessage = nil
+            isResolvingTerminal = false
+            return
+        }
+
+        let branch = selectedWorktree.branch
+        let profile = connection.profile
+        isResolvingTerminal = true
+        terminalSession = nil
+        terminalMessage = nil
+
+        terminalResolutionTask = Task { @MainActor [weak self] in
+            do {
+                let launch = try await connection.client.fetchTerminalLaunch(named: branch)
+                guard let self,
+                      !Task.isCancelled,
+                      self.connection?.profile == profile,
+                      self.selectedBranch == branch else {
+                    return
+                }
+
+                terminalSession = connection.makeTerminalSession(for: launch)
+                terminalMessage = nil
+                isResolvingTerminal = false
+                terminalResolutionTask = nil
+            } catch is CancellationError {
+                return
+            } catch let error as BackendError {
+                guard let self,
+                      !Task.isCancelled,
+                      self.connection?.profile == profile,
+                      self.selectedBranch == branch else {
+                    return
+                }
+
+                isResolvingTerminal = false
+                terminalSession = nil
+                switch error {
+                case .requestFailed(let status, let message) where status == 409:
+                    terminalMessage = message
+                default:
+                    terminalMessage = error.localizedDescription
+                }
+                terminalResolutionTask = nil
+            } catch {
+                guard let self,
+                      !Task.isCancelled,
+                      self.connection?.profile == profile,
+                      self.selectedBranch == branch else {
+                    return
+                }
+
+                isResolvingTerminal = false
+                terminalSession = nil
+                terminalMessage = error.localizedDescription
+                terminalResolutionTask = nil
+            }
+        }
+    }
+
+    private func cancelTerminalResolution() {
+        terminalResolutionTask?.cancel()
+        terminalResolutionTask = nil
+    }
+
     private func clearState() {
+        cancelTerminalResolution()
         connection = nil
         project = nil
         worktrees = []
-        suppressSelectionResolution = true
         selectedBranch = nil
-        suppressSelectionResolution = false
         terminalSession = nil
         terminalMessage = nil
         alertMessage = nil

@@ -25,5 +25,9 @@ let package = Package(
                 .linkedLibrary("c++"),
             ]
         ),
+        .testTarget(
+            name: "WebmuxMacOSTests",
+            dependencies: ["WebmuxMacOS"]
+        ),
     ]
 )

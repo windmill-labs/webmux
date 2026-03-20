@@ -28,6 +28,32 @@ export interface TerminalAttachTarget {
 const textDecoder = new TextDecoder();
 const textEncoder = new TextEncoder();
 
+/** Resolve which PTY wrapper to use for spawning terminal sessions.
+ *  Returns the command builder, or null if no suitable wrapper is found. */
+function detectPtyWrapper(): "script" | "python3" | null {
+  if (process.platform === "darwin") return "python3";
+  // Linux: prefer `script` (lighter), fall back to python3
+  const scriptResult = Bun.spawnSync(["which", "script"], { stdout: "ignore", stderr: "ignore" });
+  if (scriptResult.exitCode === 0) return "script";
+  const py3Result = Bun.spawnSync(["which", "python3"], { stdout: "ignore", stderr: "ignore" });
+  if (py3Result.exitCode === 0) return "python3";
+  return null;
+}
+
+const ptyWrapper = detectPtyWrapper();
+
+function buildPtyArgs(cmd: string): string[] {
+  if (ptyWrapper === "python3") {
+    return ["python3", "-c", "import pty,sys;pty.spawn(sys.argv[1:])", "bash", "-c", cmd];
+  }
+  if (ptyWrapper === "script") {
+    return ["script", "-q", "-c", cmd, "/dev/null"];
+  }
+  throw new Error(
+    "No PTY wrapper found. Install util-linux (provides 'script') or python3, then restart the server."
+  );
+}
+
 // Scope session names per backend instance using the backend port so multiple
 // backends sharing the same tmux server don't collide or kill each other's sessions.
 const DASH_PORT = Bun.env.PORT || "5111";
@@ -142,14 +168,7 @@ export async function attach(
     initialPane,
   });
 
-  // macOS `script` fails with "tcgetattr: Operation not supported on socket"
-  // when stdin is a socket pair (Bun.spawn uses socketpair, not pipe).
-  // Python's pty.spawn handles non-TTY stdin gracefully.
-  const scriptArgs = process.platform === "darwin"
-    ? ["python3", "-c", "import pty,sys;pty.spawn(sys.argv[1:])", "bash", "-c", cmd]
-    : ["script", "-q", "-c", cmd, "/dev/null"];
-
-  const proc = Bun.spawn(scriptArgs, {
+  const proc = Bun.spawn(buildPtyArgs(cmd), {
     stdin: "pipe",
     stdout: "pipe",
     stderr: "pipe",

@@ -10,6 +10,8 @@ This target is intentionally small:
 - native terminal surface attached to the selected worktree
 - saved local or remote webmux server connections
 
+For a detailed gap analysis against the current web UI, see [FEATURE_PARITY.md](FEATURE_PARITY.md).
+
 It is a development POC, not a signed or notarized desktop app.
 
 ## Architecture

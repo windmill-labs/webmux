@@ -32,7 +32,7 @@ import { LifecycleError } from "./services/lifecycle-service";
 import { buildNativeTerminalLaunch, buildNativeTerminalTmuxCommand } from "./services/native-terminal-service";
 import { startPrMonitor } from "./services/pr-service";
 import { startLinearAutoCreateMonitor, resetProcessedIssues } from "./services/linear-auto-create-service";
-import { runAutoClose, resetProcessedBranches, type AutoCloseDependencies } from "./services/auto-close-service";
+import { runAutoClose, type AutoCloseDependencies } from "./services/auto-close-service";
 import { startAutoPullMonitor } from "./services/auto-pull-service";
 import { buildProjectSnapshot } from "./services/snapshot-service";
 import { parseRuntimeEvent } from "./domain/events";
@@ -583,12 +583,7 @@ async function apiSetAutoCloseOnMerge(req: Request): Promise<Response> {
   }
 
   autoCloseOnMergeEnabled = body.enabled;
-  if (autoCloseOnMergeEnabled) {
-    resetProcessedBranches();
-    log.info("[config] Auto-close on merge enabled");
-  } else {
-    log.info("[config] Auto-close on merge disabled");
-  }
+  log.info(`[config] Auto-close on merge ${autoCloseOnMergeEnabled ? "enabled" : "disabled"}`);
 
   await persistLocalGitHubConfig(PROJECT_DIR, { autoCloseOnMerge: autoCloseOnMergeEnabled });
 

@@ -94,6 +94,7 @@ export interface ReconcileOptions {
 interface ReconciledWorktreeState {
   worktreeId: string;
   branch: string;
+  baseBranch: string | null;
   path: string;
   profile: string | null;
   agentName: "claude" | "codex" | null;
@@ -174,6 +175,7 @@ export class ReconciliationService {
       return {
         worktreeId,
         branch,
+        baseBranch: meta?.baseBranch ?? null,
         path: entry.path,
         profile: meta?.profile ?? null,
         agentName: meta?.agent ?? null,
@@ -209,6 +211,7 @@ export class ReconciliationService {
       this.deps.runtime.upsertWorktree({
         worktreeId: state.worktreeId,
         branch: state.branch,
+        baseBranch: state.baseBranch,
         path: state.path,
         profile: state.profile,
         agentName: state.agentName,

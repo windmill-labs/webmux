@@ -6,6 +6,7 @@ export interface WorktreeMeta {
   schemaVersion: number;
   worktreeId: string;
   branch: string;
+  baseBranch?: string;
   createdAt: string;
   profile: string;
   agent: AgentKind;
@@ -112,6 +113,7 @@ export type WorktreeCreationPhase =
 
 export interface CreatingWorktreeState {
   branch: string;
+  baseBranch?: string;
   path: string;
   profile: string | null;
   agentName: AgentKind | null;
@@ -125,6 +127,7 @@ export interface WorktreeCreationSnapshot {
 export interface ManagedWorktreeRuntimeState {
   worktreeId: string;
   branch: string;
+  baseBranch: string | null;
   path: string;
   profile: string | null;
   agentName: AgentKind | null;
@@ -146,6 +149,7 @@ export interface NotificationView {
 
 export interface WorktreeSnapshot {
   branch: string;
+  baseBranch?: string;
   path: string;
   dir: string;
   profile: string | null;

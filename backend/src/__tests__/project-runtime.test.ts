@@ -7,6 +7,7 @@ describe("ProjectRuntime", () => {
     const state = runtime.upsertWorktree({
       worktreeId: "wt_search",
       branch: "feature/search",
+      baseBranch: "main",
       path: "/repo/__worktrees/feature-search",
       profile: "default",
       agentName: "claude",
@@ -15,6 +16,7 @@ describe("ProjectRuntime", () => {
 
     expect(state.worktreeId).toBe("wt_search");
     expect(state.branch).toBe("feature/search");
+    expect(state.baseBranch).toBe("main");
     expect(state.profile).toBe("default");
     expect(state.agentName).toBe("claude");
     expect(state.session.windowName).toBe("wm-feature/search");

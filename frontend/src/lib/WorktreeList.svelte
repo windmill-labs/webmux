@@ -1,12 +1,12 @@
 <script lang="ts">
-  import type { WorktreeInfo } from "./types";
+  import type { WorktreeListRow } from "./types";
   import PrBadge from "./PrBadge.svelte";
   import LinearBadge from "./LinearBadge.svelte";
   import AgentStatusIcon from "./AgentStatusIcon.svelte";
   import { worktreeCreationPhaseLabel } from "./utils";
 
   let {
-    worktrees,
+    rows,
     selected,
     removing,
     initializing,
@@ -14,7 +14,7 @@
     onselect,
     onremove,
   }: {
-    worktrees: WorktreeInfo[];
+    rows: WorktreeListRow[];
     selected: string | null;
     removing: Set<string>;
     initializing: Set<string>;
@@ -25,7 +25,8 @@
 </script>
 
 <ul class="list-none overflow-y-auto flex-1 p-2">
-  {#each worktrees as wt (wt.branch)}
+  {#each rows as row (row.worktree.branch)}
+    {@const wt = row.worktree}
     {@const isActive = wt.branch === selected}
     {@const isRemoving = removing.has(wt.branch)}
     {@const isClosed = wt.mux !== "✓"}
@@ -40,13 +41,17 @@
       <button
         type="button"
         disabled={isBusy}
-        class="w-full py-2.5 px-3 rounded-md border cursor-pointer flex flex-col gap-1 text-left text-inherit text-sm bg-transparent hover:bg-hover {isActive
+        class="w-full py-2.5 rounded-md border cursor-pointer flex flex-col gap-1 text-left text-inherit text-sm bg-transparent hover:bg-hover {isActive
           ? 'bg-active border-accent'
           : 'border-transparent'} {isClosed && !isInitializing && !isCreating ? 'opacity-50' : ''}"
+        style={`padding-left:${12 + row.depth * 18}px; padding-right:12px;`}
         onclick={() => onselect(wt.branch)}
       >
         <span class="flex items-center gap-1.5 pr-5 flex-wrap">
           <div class="flex items-center gap-2 max-w-[90%] min-w-0">
+            {#if row.depth > 0}
+              <span class="shrink-0 text-muted/60">↳</span>
+            {/if}
             <span class="font-medium truncate">{wt.branch}</span>
             {#if isCreating}
               <span class="shrink-0 inline-flex items-center gap-1 text-[10px] text-muted">

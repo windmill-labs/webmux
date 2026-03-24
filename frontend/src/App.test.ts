@@ -7,6 +7,7 @@ vi.mock("./lib/api", () => ({
   createWorktree: vi.fn(),
   dismissNotification: vi.fn(),
   fetchAvailableBranches: vi.fn(),
+  fetchBaseBranches: vi.fn(),
   fetchCiLogs: vi.fn(),
   fetchConfig: vi.fn(),
   fetchLinearIssues: vi.fn(),
@@ -161,6 +162,17 @@ async function openCreateDialogAndSubmit(branch: string): Promise<void> {
   await fireEvent.click(screen.getByRole("button", { name: "Create" }));
 }
 
+async function openCreateDialogWithBaseAndSubmit(branch: string, baseBranch: string): Promise<void> {
+  await fireEvent.click(screen.getByTitle("New Worktree (Cmd+K)"));
+  await screen.findByText("New Worktree");
+  await fireEvent.input(screen.getByLabelText(/Branch name/i), {
+    target: { value: branch },
+  });
+  await fireEvent.click(screen.getByRole("button", { name: "Base branch" }));
+  await fireEvent.click(await screen.findByRole("button", { name: baseBranch }));
+  await fireEvent.click(screen.getByRole("button", { name: "Create" }));
+}
+
 describe("App create selection", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -170,6 +182,7 @@ describe("App create selection", () => {
 
     vi.mocked(api.fetchConfig).mockResolvedValue(createConfig());
     vi.mocked(api.fetchAvailableBranches).mockResolvedValue([]);
+    vi.mocked(api.fetchBaseBranches).mockResolvedValue([]);
     vi.mocked(api.fetchLinearIssues).mockResolvedValue(createLinearIssuesResponse());
     vi.mocked(api.subscribeNotifications).mockReturnValue(() => {});
     vi.mocked(api.openWorktree).mockResolvedValue(undefined);
@@ -339,6 +352,26 @@ describe("App create selection", () => {
         prompt: "Implement the new flow",
         createLinearTicket: true,
         linearTitle: "Ship Linear-backed worktree creation",
+      });
+    });
+  });
+
+  it("submits an explicit base branch when provided", async () => {
+    vi.mocked(api.fetchWorktrees).mockResolvedValue([]);
+    vi.mocked(api.fetchBaseBranches).mockResolvedValue([{ name: "release/base" }]);
+    vi.mocked(api.createWorktree).mockResolvedValue({ branch: "feature/from-release" });
+
+    render(App);
+
+    await openCreateDialogWithBaseAndSubmit("feature/from-release", "release/base");
+
+    await waitFor(() => {
+      expect(api.createWorktree).toHaveBeenCalledWith({
+        mode: "new",
+        branch: "feature/from-release",
+        baseBranch: "release/base",
+        profile: "default",
+        agent: "claude",
       });
     });
   });

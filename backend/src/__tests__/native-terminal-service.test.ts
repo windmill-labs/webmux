@@ -6,6 +6,7 @@ function makeState(overrides: Partial<ManagedWorktreeRuntimeState> = {}): Manage
   return {
     worktreeId: "wt_feature_search",
     branch: "feature/search",
+    baseBranch: null,
     path: "/repo/__worktrees/feature-search",
     profile: "default",
     agentName: "codex",

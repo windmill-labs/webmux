@@ -56,6 +56,7 @@ function clonePrEntry(pr: PrEntry): PrEntry {
 function mapWorktree(snapshot: ProjectWorktreeSnapshot): WorktreeInfo {
   return {
     branch: snapshot.branch,
+    ...(snapshot.baseBranch ? { baseBranch: snapshot.baseBranch } : {}),
     agent: mapAgentStatus(snapshot.status),
     mux: snapshot.mux ? "✓" : "",
     path: snapshot.path,
@@ -85,12 +86,18 @@ export async function fetchAvailableBranches(): Promise<AvailableBranch[]> {
   return data.branches;
 }
 
+export async function fetchBaseBranches(): Promise<AvailableBranch[]> {
+  const data = await api<{ branches: AvailableBranch[] }>("base-branches");
+  return data.branches;
+}
+
 export function createWorktree(request: CreateWorktreeRequest): Promise<CreateWorktreeResponse> {
   return api<CreateWorktreeResponse>("worktrees", {
     method: "POST",
     body: JSON.stringify({
       mode: request.mode,
       ...(request.branch ? { branch: request.branch } : {}),
+      ...(request.baseBranch ? { baseBranch: request.baseBranch } : {}),
       profile: request.profile,
       agent: request.agent,
       ...(request.prompt ? { prompt: request.prompt } : {}),

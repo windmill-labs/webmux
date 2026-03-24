@@ -7,10 +7,10 @@
     WorktreeCreateMode,
   } from "./types";
   import BaseDialog from "./BaseDialog.svelte";
+  import BranchSelector from "./BranchSelector.svelte";
   import Btn from "./Btn.svelte";
   import StartupEnvFields from "./StartupEnvFields.svelte";
   import Toggle from "./Toggle.svelte";
-  import { searchMatch } from "./utils";
 
   let {
     profiles = [],
@@ -21,6 +21,9 @@
     availableBranches = [],
     availableBranchesLoading = false,
     availableBranchesError = null,
+    baseBranches = [],
+    baseBranchesLoading = false,
+    baseBranchesError = null,
     startupEnvs = {},
     linearCreateTicketOption = false,
     openedFromLinearIssue = false,
@@ -35,6 +38,9 @@
     availableBranches?: AvailableBranch[];
     availableBranchesLoading?: boolean;
     availableBranchesError?: string | null;
+    baseBranches?: AvailableBranch[];
+    baseBranchesLoading?: boolean;
+    baseBranchesError?: string | null;
     startupEnvs?: Record<string, string | boolean>;
     linearCreateTicketOption?: boolean;
     openedFromLinearIssue?: boolean;
@@ -61,16 +67,13 @@
   // svelte-ignore state_referenced_locally
   let prompt = $state(initialPrompt);
   let selectedExistingBranch = $state("");
-  let branchSearchQuery = $state("");
-  let existingSelectorOpen = $state(false);
+  let selectedBaseBranch = $state("");
   let agent = $state<AgentKind>(savedAgent === "codex" ? "codex" : "claude");
   let profile = $state(savedProfile ?? "");
   let createLinearTicket = $state(false);
   let linearTitle = $state("");
   const hasSavedDefaults = savedProfile != null || savedAgent != null || savedEnvs != null;
   let saveDefault = $state(hasSavedDefaults);
-  let existingBranchFieldEl = $state<HTMLDivElement | undefined>(undefined);
-  let existingBranchSearchEl = $state<HTMLInputElement | undefined>(undefined);
 
   function loadSavedEnvs(): Record<string, string | boolean> {
     if (!savedEnvs) return { ...startupEnvs };
@@ -91,12 +94,6 @@
   function focus(node: HTMLElement) {
     node.focus();
   }
-
-  let filteredBranches = $derived(
-    branchSearchQuery.trim()
-      ? availableBranches.filter((branch) => searchMatch(branchSearchQuery, branch.name))
-      : availableBranches,
-  );
   let showLinearTicketOption = $derived(
     linearCreateTicketOption && !openedFromLinearIssue && mode === "new",
   );
@@ -121,46 +118,17 @@
 
   function selectExistingBranch(name: string): void {
     selectedExistingBranch = name;
-    branchSearchQuery = "";
-    existingSelectorOpen = false;
-  }
-
-  function focusExistingBranchSearch(): void {
-    queueMicrotask(() => existingBranchSearchEl?.focus());
   }
 
   function openExistingBranchSelector(): void {
     mode = "existing";
-    existingSelectorOpen = true;
     if (!selectedExistingBranch && initialBranch.trim().length > 0) {
       selectedExistingBranch = initialBranch.trim();
     }
-    branchSearchQuery = "";
-    focusExistingBranchSearch();
   }
 
   function switchToNewBranchMode(): void {
     mode = "new";
-    existingSelectorOpen = false;
-    branchSearchQuery = "";
-  }
-
-  function handleExistingBranchFocusOut(event: FocusEvent): void {
-    const nextTarget = event.relatedTarget;
-    if (nextTarget instanceof Node && existingBranchFieldEl?.contains(nextTarget)) {
-      return;
-    }
-    existingSelectorOpen = false;
-    branchSearchQuery = "";
-  }
-
-  function toggleExistingBranchSelector(): void {
-    existingSelectorOpen = !existingSelectorOpen;
-    if (!existingSelectorOpen) {
-      branchSearchQuery = "";
-      return;
-    }
-    focusExistingBranchSearch();
   }
 </script>
 
@@ -191,6 +159,7 @@
       oncreate({
         mode,
         ...(branchName && !(mode === "new" && createLinearTicket) ? { branch: branchName } : {}),
+        ...(mode === "new" && selectedBaseBranch ? { baseBranch: selectedBaseBranch } : {}),
         profile,
         agent,
         ...(trimmedPrompt ? { prompt: trimmedPrompt } : {}),
@@ -253,77 +222,16 @@
           </button>
         {/if}
       {:else}
-        <div bind:this={existingBranchFieldEl} onfocusout={handleExistingBranchFocusOut}>
-          <span class="block text-xs text-muted mb-1.5">Existing branch</span>
-          <button
-            type="button"
-            class="flex w-full items-center justify-between gap-3 rounded-md border border-edge bg-surface px-2.5 py-1.5 text-left text-[13px] text-primary outline-none transition-colors hover:bg-hover focus:border-accent"
-            aria-expanded={existingSelectorOpen}
-            onclick={toggleExistingBranchSelector}
-          >
-            <span class={selectedExistingBranch ? "font-mono" : "text-muted/50"}>
-              {selectedExistingBranch || "Select a branch"}
-            </span>
-            <span class="text-[11px] text-muted">{existingSelectorOpen ? "▴" : "▾"}</span>
-          </button>
-          {#if existingSelectorOpen}
-            <div class="mt-2 rounded-lg border border-edge bg-surface/60">
-              <div class="border-b border-edge p-2">
-                <input
-                  bind:this={existingBranchSearchEl}
-                  type="text"
-                  class="w-full rounded-md border border-edge bg-surface px-2.5 py-1.5 text-[12px] text-primary placeholder:text-muted/50 outline-none focus:border-accent"
-                  placeholder="Search branches..."
-                  bind:value={branchSearchQuery}
-                  onkeydown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      if (filteredBranches[0]) {
-                        selectExistingBranch(filteredBranches[0].name);
-                      }
-                    }
-                    if (e.key === "Escape") {
-                      e.preventDefault();
-                      existingSelectorOpen = false;
-                      branchSearchQuery = "";
-                    }
-                  }}
-                />
-              </div>
-              {#if availableBranchesLoading}
-                <p class="px-3 py-2 text-xs text-muted">Loading branches...</p>
-              {:else if availableBranchesError}
-                <p class="px-3 py-2 text-xs text-muted">Failed to load branches: {availableBranchesError}</p>
-              {:else if filteredBranches.length === 0}
-                <p class="px-3 py-2 text-xs text-muted">No matching branches</p>
-              {:else}
-                <div class="border-b border-edge px-3 py-2 text-[11px] text-muted">
-                  {filteredBranches.length !== availableBranches.length
-                    ? `${filteredBranches.length}/${availableBranches.length}`
-                    : availableBranches.length}
-                  {" "}available
-                </div>
-                <ul class="max-h-48 overflow-y-auto py-1">
-                  {#each filteredBranches as branch (branch.name)}
-                    <li>
-                      <button
-                        type="button"
-                        class="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-[12px] transition-colors hover:bg-hover
-                          {selectedExistingBranch === branch.name ? 'bg-accent/10' : ''}"
-                        onclick={() => selectExistingBranch(branch.name)}
-                      >
-                        <span class="font-mono text-primary">{branch.name}</span>
-                        {#if selectedExistingBranch === branch.name}
-                          <span class="text-[10px] text-accent">Selected</span>
-                        {/if}
-                      </button>
-                    </li>
-                  {/each}
-                </ul>
-              {/if}
-            </div>
-          {/if}
-        </div>
+        <BranchSelector
+          label="Existing branch"
+          selected={selectedExistingBranch}
+          branches={availableBranches}
+          loading={availableBranchesLoading}
+          error={availableBranchesError}
+          placeholder="Select a branch"
+          initialOpen={true}
+          onselect={selectExistingBranch}
+        />
         <button
           type="button"
           class="mt-2 text-[11px] text-accent hover:underline"
@@ -336,6 +244,28 @@
         </p>
       {/if}
     </div>
+    {#if mode === "new"}
+      <div class="mb-4">
+        <BranchSelector
+          label="Base branch"
+          selected={selectedBaseBranch}
+          branches={baseBranches}
+          loading={baseBranchesLoading}
+          error={baseBranchesError}
+          placeholder="Project main branch (default)"
+          onselect={(branch) => (selectedBaseBranch = branch)}
+        />
+        {#if selectedBaseBranch}
+          <button
+            type="button"
+            class="mt-2 text-[11px] text-accent hover:underline"
+            onclick={() => (selectedBaseBranch = "")}
+          >
+            Use project default branch instead
+          </button>
+        {/if}
+      </div>
+    {/if}
     <StartupEnvFields {startupEnvs} bind:envValues />
     <div class="flex gap-2 mb-4">
       {#each AGENTS as a}

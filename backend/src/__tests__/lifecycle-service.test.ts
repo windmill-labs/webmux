@@ -311,6 +311,7 @@ describe("LifecycleService", () => {
 
     expect(created.branch).toBe("feature/search");
     expect(meta?.worktreeId).toBe(created.worktreeId);
+    expect(meta?.baseBranch).toBe("main");
     expect(meta?.startupEnvValues).toEqual({
       FEATURE_FLAG: "true",
       CUSTOM_TOKEN: "abc123",
@@ -551,6 +552,30 @@ describe("LifecycleService", () => {
     expect(tmux.commands[0]?.command).toContain("claude");
     expect(tmux.commands[0]?.command).not.toContain("--continue");
     expect(runtime.getWorktreeByBranch("feature-open")?.worktreeId).toBe(opened.worktreeId);
+  });
+
+  it("creates a managed worktree from an explicit base branch", async () => {
+    const repoRoot = await initRepo();
+    run(["git", "checkout", "-b", "release/base"], repoRoot);
+    await Bun.write(join(repoRoot, "README.md"), "# release base\n");
+    run(["git", "add", "README.md"], repoRoot);
+    run(["git", "commit", "-m", "release base"], repoRoot);
+    run(["git", "checkout", "main"], repoRoot);
+
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const lifecycle = makeLifecycleService(repoRoot, tmux, runtime);
+
+    await lifecycle.createWorktree({
+      branch: "feature/from-release",
+      baseBranch: "release/base",
+    });
+
+    const worktreePath = join(repoRoot, "__worktrees", "feature", "from-release");
+    const gitDir = new BunGitGateway().resolveWorktreeGitDir(worktreePath);
+
+    expect((await readWorktreeMeta(gitDir))?.baseBranch).toBe("release/base");
+    expect(await Bun.file(join(worktreePath, "README.md")).text()).toBe("# release base\n");
   });
 
   it("reopens a managed claude worktree with claude continue", async () => {

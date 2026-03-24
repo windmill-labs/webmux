@@ -44,6 +44,7 @@ function mapWorktreeSnapshot(
 ): WorktreeSnapshot {
   return {
     branch: state.branch,
+    ...(state.baseBranch ? { baseBranch: state.baseBranch } : {}),
     path: state.path,
     dir: state.path,
     profile: state.profile,
@@ -67,6 +68,7 @@ function mapCreatingWorktreeSnapshot(
 ): WorktreeSnapshot {
   return {
     branch: creating.branch,
+    ...(creating.baseBranch ? { baseBranch: creating.baseBranch } : {}),
     path: creating.path,
     dir: creating.path,
     profile: creating.profile,

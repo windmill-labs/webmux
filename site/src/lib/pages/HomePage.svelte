@@ -1,10 +1,16 @@
 <script lang="ts">
+  import CommandBlock from "../components/CommandBlock.svelte";
   import SiteNav from "../components/SiteNav.svelte";
+  import {
+    installCommand,
+    landingConfigPreview,
+    landingQuickStartSteps,
+  } from "../docs";
 
   let copied = $state(false);
 
   function copyInstall() {
-    navigator.clipboard.writeText("bun install -g webmux");
+    navigator.clipboard.writeText(installCommand);
     copied = true;
     setTimeout(() => (copied = false), 2000);
   }
@@ -29,9 +35,7 @@
         class="flex items-center rounded-lg border border-edge bg-sidebar px-4 py-3 font-mono text-sm"
       >
         <span class="text-muted select-none">$</span>
-        <span class="ml-2 flex-1 text-left text-accent"
-          >bun install -g webmux</span
-        >
+        <span class="ml-2 flex-1 text-left text-accent">{installCommand}</span>
         <button
           onclick={copyInstall}
           class="ml-3 cursor-pointer rounded border-none bg-transparent p-1.5 text-muted transition-colors hover:text-primary"
@@ -393,43 +397,8 @@
         <span class="h-3 w-3 rounded-full bg-success/60"></span>
         <span class="ml-2 text-xs text-muted">.webmux.yaml</span>
       </div>
-      <pre class="overflow-x-auto p-5 text-sm leading-relaxed"><code
-          class="text-primary"
-          ><span class="text-accent">name</span>: My Project
-
-<span class="text-accent">workspace</span>:
-  <span class="text-muted">mainBranch</span>: main
-  <span class="text-muted">worktreeRoot</span>: __worktrees
-  <span class="text-muted">defaultAgent</span>: claude
-
-<span class="text-accent">services</span>:
-  - <span class="text-muted">name</span>: Backend
-    <span class="text-muted">portEnv</span>: PORT
-    <span class="text-muted">portStart</span>: <span class="text-warning"
-            >5111</span
-          >
-  - <span class="text-muted">name</span>: Frontend
-    <span class="text-muted">portEnv</span>: FRONTEND_PORT
-    <span class="text-muted">portStart</span>: <span class="text-warning"
-            >5112</span
-          >
-
-<span class="text-accent">profiles</span>:
-  <span class="text-muted">default</span>:
-    <span class="text-muted">runtime</span>: host
-    <span class="text-muted">panes</span>:
-      - <span class="text-muted">kind</span>: agent
-        <span class="text-muted">focus</span>: <span class="text-warning"
-            >true</span
-          >
-      - <span class="text-muted">kind</span>: command
-        <span class="text-muted">command</span>: npm run dev
-
-  <span class="text-muted">sandbox</span>:
-    <span class="text-muted">runtime</span>: docker
-    <span class="text-muted">image</span>: my-sandbox
-    <span class="text-muted">yolo</span>: <span class="text-warning">true</span
-          ></code
+      <pre class="overflow-x-auto p-5 text-sm leading-relaxed text-primary"><code
+          >{landingConfigPreview}</code
         ></pre>
     </div>
   </div>
@@ -442,78 +411,27 @@
       Get started in 60 seconds
     </h2>
     <p class="mx-auto mb-12 max-w-xl text-center text-muted">
-      Four commands to go from zero to a running dashboard.
+      Four steps to go from zero to a running dashboard.
     </p>
 
     <div class="space-y-6">
-      <div class="flex gap-4">
-        <div
-          class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent/15 text-sm font-bold text-accent"
-        >
-          1
-        </div>
-        <div class="flex-1">
-          <p class="mb-2 font-medium text-primary">Install prerequisites</p>
+      {#each landingQuickStartSteps as step, index}
+        <div class="flex gap-4">
           <div
-            class="rounded-lg border border-edge bg-sidebar px-4 py-3 font-mono text-sm text-muted"
+            class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent/15 text-sm font-bold text-accent"
           >
-            sudo apt install tmux python3<br />
-            curl -fsSL https://bun.sh/install | bash
+            {index + 1}
+          </div>
+          <div class="flex-1">
+            <p class="mb-2 font-medium text-primary">{step.title}</p>
+            <p class="mb-3 text-sm text-muted">{step.description}</p>
+            <CommandBlock command={step.command} />
+            {#if step.outcome}
+              <p class="mt-2 text-sm text-muted">{step.outcome}</p>
+            {/if}
           </div>
         </div>
-      </div>
-
-      <div class="flex gap-4">
-        <div
-          class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent/15 text-sm font-bold text-accent"
-        >
-          2
-        </div>
-        <div class="flex-1">
-          <p class="mb-2 font-medium text-primary">Install webmux</p>
-          <div
-            class="rounded-lg border border-edge bg-sidebar px-4 py-3 font-mono text-sm text-accent"
-          >
-            bun install -g webmux
-          </div>
-        </div>
-      </div>
-
-      <div class="flex gap-4">
-        <div
-          class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent/15 text-sm font-bold text-accent"
-        >
-          3
-        </div>
-        <div class="flex-1">
-          <p class="mb-2 font-medium text-primary">Set up your project</p>
-          <div
-            class="rounded-lg border border-edge bg-sidebar px-4 py-3 font-mono text-sm text-muted"
-          >
-            cd /path/to/your/project<br />
-            <span class="text-accent">webmux init</span>
-          </div>
-        </div>
-      </div>
-
-      <div class="flex gap-4">
-        <div
-          class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent/15 text-sm font-bold text-accent"
-        >
-          4
-        </div>
-        <div class="flex-1">
-          <p class="mb-2 font-medium text-primary">Start the dashboard</p>
-          <div
-            class="rounded-lg border border-edge bg-sidebar px-4 py-3 font-mono text-sm text-accent"
-          >
-            webmux serve
-          </div>
-          <p class="mt-2 text-sm text-muted">
-            Opens on <span class="text-accent">http://localhost:5111</span>
-          </p>
-        </div>
-      </div>
+      {/each}
     </div>
   </div>
 </section>

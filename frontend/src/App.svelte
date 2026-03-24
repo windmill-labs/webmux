@@ -58,6 +58,10 @@
   let ciDetailsPr = $state<PrEntry | null>(null);
   let commentReviewPr = $state<PrEntry | null>(null);
   let showDiffDialog = $state(false);
+  let pullMainConfirm = $state(false);
+  let pullMainLoading = $state(false);
+  let pullMainError = $state("");
+  let pullMainForce = $state(false);
   let pendingCreateCount = $state(0);
   let latestAutoSelectCreateId = -1;
   let nextCreateRequestId = 0;
@@ -397,6 +401,27 @@
     }
   }
 
+  async function handlePullMain(): Promise<void> {
+    pullMainLoading = true;
+    pullMainError = "";
+    try {
+      const result = await api.pullMain(pullMainForce);
+      if (result.status === "updated" || result.status === "already_up_to_date") {
+        pullMainConfirm = false;
+        pullMainForce = false;
+      } else if (result.status === "merge_failed" && !pullMainForce) {
+        pullMainForce = true;
+        pullMainError = `Fast-forward failed: ${result.error ?? "unknown error"}.\nForce pull will discard local changes on main.`;
+      } else {
+        pullMainError = result.error ?? result.status;
+      }
+    } catch (err) {
+      pullMainError = errorMessage(err);
+    } finally {
+      pullMainLoading = false;
+    }
+  }
+
   async function openSelectedWorktree(): Promise<void> {
     const branch = selectedBranch;
     if (!branch) return;
@@ -442,7 +467,7 @@
 
   function handleKeydown(e: KeyboardEvent) {
     // Ignore shortcuts when a dialog is open (let dialog handle its own keys)
-    if (showCreateDialog || removeBranch || mergeBranch) return;
+    if (showCreateDialog || removeBranch || mergeBranch || pullMainConfirm) return;
 
     const mod = e.metaKey || e.ctrlKey;
     if (!mod) return;
@@ -619,6 +644,25 @@
         }}
         onremove={(b) => (removeBranch = b)}
       />
+      {#if config.projectDir}
+        {@const mainCursorUrl = sshHost
+          ? `cursor://vscode-remote/ssh-remote+${sshHost}${config.projectDir}`
+          : `cursor://file${config.projectDir}`}
+        <div class="shrink-0 border-t border-edge px-3 py-2 flex items-center gap-2">
+          <span class="text-[11px] text-muted font-medium truncate">{config.mainBranch ?? "main"}</span>
+          <a
+            href={mainCursorUrl}
+            class="shrink-0 text-[9px] px-1.5 py-0.5 rounded border border-accent/40 text-accent font-medium no-underline hover:opacity-80"
+            title="Open in Cursor"
+          >Cursor</a>
+          <button
+            type="button"
+            class="shrink-0 text-[9px] px-1.5 py-0.5 rounded border border-edge text-muted font-medium cursor-pointer hover:bg-hover hover:text-primary"
+            title="Pull latest from remote"
+            onclick={() => { pullMainConfirm = true; pullMainForce = false; pullMainError = ""; }}
+          >Pull</button>
+        </div>
+      {/if}
       {#if showLinearPanel}
         <LinearPanel
           issues={linearIssues}
@@ -780,6 +824,20 @@
     variant="accent"
     onconfirm={handleMerge}
     oncancel={() => (mergeBranch = null)}
+  />
+{/if}
+
+{#if pullMainConfirm}
+  <ConfirmDialog
+    message={pullMainForce
+      ? `Force pull "${config.mainBranch ?? "main"}"? This will discard any local commits on main.`
+      : `Pull latest "${config.mainBranch ?? "main"}" from remote?`}
+    confirmLabel={pullMainForce ? "Force Pull" : "Pull"}
+    variant={pullMainForce ? "danger" : "accent"}
+    loading={pullMainLoading}
+    error={pullMainError}
+    onconfirm={handlePullMain}
+    oncancel={() => { pullMainConfirm = false; pullMainForce = false; }}
   />
 {/if}
 

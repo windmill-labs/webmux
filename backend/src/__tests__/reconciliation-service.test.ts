@@ -75,6 +75,10 @@ class FakeGitGateway implements GitGateway {
   fastForwardMerge(_repoRoot: string, _ref: string): TryGitCommandResult {
     return { ok: true, stdout: "" };
   }
+
+  hardReset(_repoRoot: string, _ref: string): TryGitCommandResult {
+    return { ok: true, stdout: "" };
+  }
 }
 
 class FakeTmuxGateway implements TmuxGateway {

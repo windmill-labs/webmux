@@ -46,6 +46,29 @@ export function pullMainBranch(deps: AutoPullDependencies): AutoPullResult {
   return { status: "updated", from: beforeCommit ?? "unknown", to: afterCommit ?? "unknown" };
 }
 
+/** Force-pull the main branch via fetch + hard reset. Discards local state. */
+export function forcePullMainBranch(deps: AutoPullDependencies): AutoPullResult {
+  const { git, projectRoot, mainBranch } = deps;
+
+  const beforeCommit = git.readWorktreeStatus(projectRoot).currentCommit;
+
+  const fetchResult = git.fetchBranch(projectRoot, "origin", mainBranch);
+  if (!fetchResult.ok) {
+    return { status: "fetch_failed", error: fetchResult.stderr };
+  }
+
+  const resetResult = git.hardReset(projectRoot, `origin/${mainBranch}`);
+  if (!resetResult.ok) {
+    return { status: "merge_failed", error: resetResult.stderr };
+  }
+
+  const afterCommit = git.readWorktreeStatus(projectRoot).currentCommit;
+  if (beforeCommit === afterCommit) {
+    return { status: "already_up_to_date" };
+  }
+  return { status: "updated", from: beforeCommit ?? "unknown", to: afterCommit ?? "unknown" };
+}
+
 /** Start periodic auto-pull of the main branch.
  *  Returns a cleanup function that stops the monitor. */
 export function startAutoPullMonitor(

@@ -33,7 +33,7 @@ import { buildNativeTerminalLaunch, buildNativeTerminalTmuxCommand } from "./ser
 import { startPrMonitor } from "./services/pr-service";
 import { startLinearAutoCreateMonitor, resetProcessedIssues } from "./services/linear-auto-create-service";
 import { runAutoClose, type AutoCloseDependencies } from "./services/auto-close-service";
-import { startAutoPullMonitor } from "./services/auto-pull-service";
+import { pullMainBranch, forcePullMainBranch, startAutoPullMonitor } from "./services/auto-pull-service";
 import { buildProjectSnapshot } from "./services/snapshot-service";
 import { parseRuntimeEvent } from "./domain/events";
 import { isValidWorktreeName } from "./domain/policies";
@@ -98,6 +98,8 @@ function getFrontendConfig(): {
   linkedRepos: Array<{ alias: string; dir?: string }>;
   linearAutoCreateWorktrees: boolean;
   autoCloseOnMerge: boolean;
+  projectDir: string;
+  mainBranch: string;
 } {
   const defaultProfileName = getDefaultProfileName(config);
   const orderedProfileEntries = Object.entries(config.profiles).sort(([left], [right]) => {
@@ -123,6 +125,8 @@ function getFrontendConfig(): {
     })),
     linearAutoCreateWorktrees: linearAutoCreateEnabled,
     autoCloseOnMerge: autoCloseOnMergeEnabled,
+    projectDir: PROJECT_DIR,
+    mainBranch: config.workspace.mainBranch,
   };
 }
 
@@ -590,6 +594,18 @@ async function apiSetAutoCloseOnMerge(req: Request): Promise<Response> {
   return jsonResponse({ ok: true, enabled: autoCloseOnMergeEnabled });
 }
 
+async function apiPullMain(req: Request): Promise<Response> {
+  const raw: unknown = await req.json().catch(() => ({}));
+  const body = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
+  const force = body.force === true;
+
+  const deps = { git, projectRoot: PROJECT_DIR, mainBranch: config.workspace.mainBranch };
+  const result = force ? forcePullMainBranch(deps) : pullMainBranch(deps);
+
+  log.info(`[pull-main] ${force ? "force " : ""}pull: ${result.status}`);
+  return jsonResponse(result);
+}
+
 async function apiGetLinearIssues(): Promise<Response> {
   const apiKey = Bun.env.LINEAR_API_KEY;
   const fetchResult = config.integrations.linear.enabled && apiKey?.trim()
@@ -798,6 +814,10 @@ Bun.serve({
 
     "/api/github/auto-close-on-merge": {
       PUT: (req) => catching("PUT /api/github/auto-close-on-merge", () => apiSetAutoCloseOnMerge(req)),
+    },
+
+    "/api/pull-main": {
+      POST: (req) => catching("POST /api/pull-main", () => apiPullMain(req)),
     },
 
     "/api/ci-logs/:runId": {

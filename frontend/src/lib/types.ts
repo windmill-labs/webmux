@@ -205,4 +205,6 @@ export interface AppConfig {
   linkedRepos?: LinkedRepoInfo[];
   linearAutoCreateWorktrees?: boolean;
   autoCloseOnMerge?: boolean;
+  projectDir?: string;
+  mainBranch?: string;
 }

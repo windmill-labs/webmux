@@ -130,6 +130,20 @@ export function setLinearAutoCreate(enabled: boolean): Promise<{ ok: boolean; en
   });
 }
 
+export interface PullMainResult {
+  status: "updated" | "already_up_to_date" | "skipped_dirty" | "fetch_failed" | "merge_failed";
+  from?: string;
+  to?: string;
+  error?: string;
+}
+
+export function pullMain(force = false): Promise<PullMainResult> {
+  return api<PullMainResult>("pull-main", {
+    method: "POST",
+    body: JSON.stringify(force ? { force: true } : {}),
+  });
+}
+
 export function setAutoCloseOnMerge(enabled: boolean): Promise<{ ok: boolean; enabled: boolean }> {
   return api<{ ok: boolean; enabled: boolean }>("github/auto-close-on-merge", {
     method: "PUT",

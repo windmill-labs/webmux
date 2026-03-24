@@ -90,6 +90,24 @@
   function toggleInlineControl(): void {
     oninlinetoggle?.();
   }
+
+  function preserveMouseFocus(node: HTMLElement, enabled: boolean) {
+    function handleMouseDown(event: MouseEvent): void {
+      if (!enabled) return;
+      event.preventDefault();
+    }
+
+    node.addEventListener("mousedown", handleMouseDown);
+
+    return {
+      update(nextEnabled: boolean): void {
+        enabled = nextEnabled;
+      },
+      destroy(): void {
+        node.removeEventListener("mousedown", handleMouseDown);
+      },
+    };
+  }
 </script>
 
 <div bind:this={fieldEl} onfocusout={handleFocusOut}>
@@ -137,7 +155,10 @@
       {:else if filteredBranches.length === 0}
         <p class="px-3 py-2 text-xs text-muted">No matching branches</p>
       {:else}
-        <div class="border-b border-edge px-3 py-2 text-[11px] text-muted flex items-center justify-between gap-3">
+        <div
+          use:preserveMouseFocus={!!oninlinetoggle}
+          class="border-b border-edge px-3 py-2 text-[11px] text-muted flex items-center justify-between gap-3"
+        >
           <span>
             {filteredBranches.length !== branches.length
               ? `${filteredBranches.length}/${branches.length}`

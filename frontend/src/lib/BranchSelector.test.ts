@@ -72,7 +72,7 @@ describe("BranchSelector", () => {
     });
   });
 
-  it("keeps the selector open when the inline toggle control is clicked", async () => {
+  it("keeps the selector open when the inline toggle row is clicked", async () => {
     const onInlineToggle = vi.fn();
 
     render(BranchSelector, {
@@ -88,12 +88,12 @@ describe("BranchSelector", () => {
     });
 
     const search = await screen.findByLabelText("Existing branch search");
-    const labelButton = screen.getByRole("button", { name: "include remote" });
+    const availabilityRow = screen.getByText(/2 available/).parentElement as HTMLElement;
 
-    await fireEvent.mouseDown(labelButton);
-    await fireEvent.click(labelButton);
+    await fireEvent.mouseDown(availabilityRow);
+    await fireEvent.click(availabilityRow);
 
-    expect(onInlineToggle).toHaveBeenCalledTimes(1);
+    expect(onInlineToggle).not.toHaveBeenCalled();
     expect(search).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Existing branch" })).toHaveAttribute("aria-expanded", "true");
   });

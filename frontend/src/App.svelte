@@ -80,6 +80,11 @@
   let baseBranchesLoading = $state(false);
   let baseBranchesError = $state<string | null>(null);
   let includeRemoteBranches = $state(false);
+  type BranchCacheKey = "local" | "remote";
+  let availableBranchCache: Partial<Record<BranchCacheKey, AvailableBranch[]>> = {};
+  let availableBranchRequests: Partial<Record<BranchCacheKey, Promise<AvailableBranch[]>>> = {};
+  let baseBranchCache: AvailableBranch[] | null = null;
+  let baseBranchRequest: Promise<AvailableBranch[]> | null = null;
 
   // Linear integration
   let linearIssues = $state<LinearIssue[]>([]);
@@ -99,6 +104,54 @@
   const MAX_HISTORY = 10;
 
   let notifiedBranches = $state<Set<string>>(new Set());
+
+  function getAvailableBranchCacheKey(includeRemote: boolean): BranchCacheKey {
+    return includeRemote ? "remote" : "local";
+  }
+
+  function fetchAvailableBranchesCached(includeRemote: boolean): Promise<AvailableBranch[]> {
+    const key = getAvailableBranchCacheKey(includeRemote);
+    const cached = availableBranchCache[key];
+    if (cached) return Promise.resolve(cached);
+
+    const inFlight = availableBranchRequests[key];
+    if (inFlight) return inFlight;
+
+    const request = api.fetchAvailableBranches({ includeRemote })
+      .then((branches) => {
+        availableBranchCache[key] = branches;
+        return branches;
+      })
+      .finally(() => {
+        delete availableBranchRequests[key];
+      });
+
+    availableBranchRequests[key] = request;
+    return request;
+  }
+
+  function fetchBaseBranchesCached(): Promise<AvailableBranch[]> {
+    if (baseBranchCache) return Promise.resolve(baseBranchCache);
+    if (baseBranchRequest) return baseBranchRequest;
+
+    baseBranchRequest = api.fetchBaseBranches()
+      .then((branches) => {
+        baseBranchCache = branches;
+        return branches;
+      })
+      .finally(() => {
+        baseBranchRequest = null;
+      });
+
+    return baseBranchRequest;
+  }
+
+  function invalidateBranchCaches(): void {
+    availableBranchCache = {};
+    availableBranchRequests = {};
+    baseBranchCache = null;
+    baseBranchRequest = null;
+  }
 
   function handleNotification(n: AppNotification): void {
     notifications = [...notifications, n];
@@ -259,12 +312,20 @@
   $effect(() => {
     if (!showCreateDialog) return;
 
+    const cached = availableBranchCache[getAvailableBranchCacheKey(includeRemoteBranches)];
+    if (cached) {
+      availableBranches = cached;
+      availableBranchesLoading = false;
+      availableBranchesError = null;
+      return;
+    }
+
     const fetchId = ++nextAvailableBranchFetchId;
     availableBranches = [];
     availableBranchesLoading = true;
     availableBranchesError = null;
 
-    api.fetchAvailableBranches({ includeRemote: includeRemoteBranches })
+    fetchAvailableBranchesCached(includeRemoteBranches)
       .then((branches) => {
         if (fetchId !== nextAvailableBranchFetchId) return;
         availableBranches = branches;
@@ -282,12 +343,19 @@
   $effect(() => {
     if (!showCreateDialog) return;
 
+    if (baseBranchCache) {
+      baseBranches = baseBranchCache;
+      baseBranchesLoading = false;
+      baseBranchesError = null;
+      return;
+    }
+
     const fetchId = ++nextBaseBranchFetchId;
     baseBranches = [];
     baseBranchesLoading = true;
     baseBranchesError = null;
 
-    api.fetchBaseBranches()
+    fetchBaseBranchesCached()
       .then((branches) => {
         if (fetchId !== nextBaseBranchFetchId) return;
         baseBranches = branches;
@@ -366,6 +434,7 @@
       if (shouldAutoSelectCreatedWorktree) {
         pendingCreateBranchHint = result.branch;
       }
+      invalidateBranchCaches();
       await refresh();
       if (request.createLinearTicket) {
         linearLastFetch = 0;
@@ -408,6 +477,7 @@
     removingBranches = new Set([...removingBranches, branch]);
     try {
       await api.removeWorktree(branch);
+      invalidateBranchCaches();
       await refresh();
     } catch (err) {
       alert(`Failed to remove: ${errorMessage(err)}`);
@@ -427,6 +497,7 @@
     removingBranches = new Set([...removingBranches, branch]);
     try {
       await api.mergeWorktree(branch);
+      invalidateBranchCaches();
       await refresh();
     } catch (err) {
       alert(`Failed to merge: ${errorMessage(err)}`);

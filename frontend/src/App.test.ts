@@ -376,11 +376,12 @@ describe("App create selection", () => {
     });
   });
 
-  it("defaults branch fetching to local refs and refetches when remote inclusion is enabled", async () => {
+  it("caches branch lists across dialog openings and only fetches each mode once", async () => {
     vi.mocked(api.fetchWorktrees).mockResolvedValue([]);
     vi.mocked(api.fetchAvailableBranches)
       .mockResolvedValueOnce([{ name: "feature/local-only" }])
       .mockResolvedValueOnce([{ name: "feature/local-only" }, { name: "feature/remote-only" }]);
+    vi.mocked(api.fetchBaseBranches).mockResolvedValue([{ name: "main" }]);
 
     render(App);
 
@@ -388,14 +389,34 @@ describe("App create selection", () => {
     await screen.findByText("New Worktree");
 
     await waitFor(() => {
+      expect(api.fetchAvailableBranches).toHaveBeenCalledTimes(1);
       expect(api.fetchAvailableBranches).toHaveBeenCalledWith({ includeRemote: false });
+      expect(api.fetchBaseBranches).toHaveBeenCalledTimes(1);
     });
 
     await fireEvent.click(screen.getByRole("button", { name: "Use existing branch" }));
     await fireEvent.click(await screen.findByRole("switch", { name: /include remote branches/i }));
 
     await waitFor(() => {
+      expect(api.fetchAvailableBranches).toHaveBeenCalledTimes(2);
       expect(api.fetchAvailableBranches).toHaveBeenLastCalledWith({ includeRemote: true });
+    });
+
+    await fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await fireEvent.click(screen.getByTitle("New Worktree (Cmd+K)"));
+    await screen.findByText("New Worktree");
+
+    await waitFor(() => {
+      expect(api.fetchAvailableBranches).toHaveBeenCalledTimes(2);
+      expect(api.fetchBaseBranches).toHaveBeenCalledTimes(1);
+    });
+
+    await fireEvent.click(screen.getByRole("button", { name: "Use existing branch" }));
+    await fireEvent.click(await screen.findByRole("switch", { name: /include remote branches/i }));
+
+    await waitFor(() => {
+      expect(api.fetchAvailableBranches).toHaveBeenCalledTimes(2);
+      expect(api.fetchBaseBranches).toHaveBeenCalledTimes(1);
     });
   });
 });

@@ -419,4 +419,30 @@ describe("App create selection", () => {
       expect(api.fetchBaseBranches).toHaveBeenCalledTimes(1);
     });
   });
+
+  it("keeps the current branch list visible while remote branches are loading", async () => {
+    const remoteBranches = deferred<Array<{ name: string }>>();
+
+    vi.mocked(api.fetchWorktrees).mockResolvedValue([]);
+    vi.mocked(api.fetchAvailableBranches)
+      .mockResolvedValueOnce([{ name: "feature/local-only" }])
+      .mockReturnValueOnce(remoteBranches.promise);
+
+    render(App);
+
+    await fireEvent.click(screen.getByTitle("New Worktree (Cmd+K)"));
+    await screen.findByText("New Worktree");
+    await fireEvent.click(screen.getByRole("button", { name: "Use existing branch" }));
+
+    expect(await screen.findByRole("button", { name: "feature/local-only" })).toBeInTheDocument();
+
+    await fireEvent.click(await screen.findByRole("switch", { name: /include remote branches/i }));
+
+    expect(screen.getByRole("button", { name: "feature/local-only" })).toBeInTheDocument();
+    expect(screen.getByText("Updating...")).toBeInTheDocument();
+
+    remoteBranches.resolve([{ name: "feature/local-only" }, { name: "feature/remote-only" }]);
+
+    expect(await screen.findByRole("button", { name: "feature/remote-only" })).toBeInTheDocument();
+  });
 });

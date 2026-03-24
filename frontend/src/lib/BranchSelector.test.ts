@@ -97,4 +97,20 @@ describe("BranchSelector", () => {
     expect(search).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Existing branch" })).toHaveAttribute("aria-expanded", "true");
   });
+
+  it("keeps rendering the current branch list while a refresh is in flight", async () => {
+    render(BranchSelector, {
+      props: {
+        label: "Existing branch",
+        branches: BRANCHES,
+        loading: true,
+        initialOpen: true,
+        onselect: vi.fn(),
+      },
+    });
+
+    expect(await screen.findByRole("button", { name: "main" })).toBeInTheDocument();
+    expect(screen.getByText("Updating...")).toBeInTheDocument();
+    expect(screen.queryByText("Loading branches...")).not.toBeInTheDocument();
+  });
 });

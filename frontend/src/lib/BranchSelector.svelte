@@ -148,9 +148,9 @@
           }}
         />
       </div>
-      {#if loading}
+      {#if loading && filteredBranches.length === 0}
         <p class="px-3 py-2 text-xs text-muted">Loading branches...</p>
-      {:else if error}
+      {:else if error && filteredBranches.length === 0}
         <p class="px-3 py-2 text-xs text-muted">Failed to load branches: {error}</p>
       {:else if filteredBranches.length === 0}
         <p class="px-3 py-2 text-xs text-muted">No matching branches</p>
@@ -159,12 +159,19 @@
           use:preserveMouseFocus={!!oninlinetoggle}
           class="border-b border-edge px-3 py-2 text-[11px] text-muted flex items-center justify-between gap-3"
         >
-          <span>
-            {filteredBranches.length !== branches.length
-              ? `${filteredBranches.length}/${branches.length}`
-              : branches.length}
-            {" "}available
-          </span>
+          <div class="min-w-0 flex items-center gap-2">
+            <span>
+              {filteredBranches.length !== branches.length
+                ? `${filteredBranches.length}/${branches.length}`
+                : branches.length}
+              {" "}available
+            </span>
+            {#if loading}
+              <span class="shrink-0 text-[10px] text-warning">Updating...</span>
+            {:else if error}
+              <span class="shrink-0 text-[10px] text-danger">Update failed</span>
+            {/if}
+          </div>
           {#if inlineToggleLabel && oninlinetoggle}
             <div class="flex items-center gap-1.5 shrink-0">
               <button

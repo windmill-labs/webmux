@@ -151,6 +151,12 @@
     availableBranchRequests = {};
     baseBranchCache = null;
     baseBranchRequest = null;
+    availableBranches = [];
+    availableBranchesError = null;
+    availableBranchesLoading = false;
+    baseBranches = [];
+    baseBranchesError = null;
+    baseBranchesLoading = false;
   }
 
   function handleNotification(n: AppNotification): void {
@@ -321,7 +327,6 @@
     }
 
     const fetchId = ++nextAvailableBranchFetchId;
-    availableBranches = [];
     availableBranchesLoading = true;
     availableBranchesError = null;
 

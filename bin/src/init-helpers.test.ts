@@ -224,7 +224,10 @@ describe("buildStarterTemplate", () => {
     });
 
     expect(template).toContain("# autoPull:");
+    expect(template).toContain("# Git branch new worktrees start from.");
+    expect(template).toContain("# Services define the ports webmux allocates and tracks per worktree.");
     expect(template).toContain("#   urlTemplate: http://localhost:${PORT}");
+    expect(template).toContain("# Panes define the tmux layout created for each worktree session.");
     expect(template).toContain("# systemPrompt: >");
     expect(template).toContain("# yolo: true");
     expect(template).toContain("#   sizePct: 50");
@@ -232,6 +235,7 @@ describe("buildStarterTemplate", () => {
     expect(template).toContain("# sandbox:");
     expect(template).toContain("#   image: ghcr.io/your-org/your-image:latest");
     expect(template).toContain("#   mounts:");
+    expect(template).toContain("# Integrations connect webmux to external systems.");
     expect(template).toContain("#   dir: ../your-repo");
     expect(template).toContain("# autoRemoveOnMerge: true");
     expect(template).toContain("# autoCreateWorktrees: true");
@@ -239,6 +243,7 @@ describe("buildStarterTemplate", () => {
     expect(template).toContain("# teamId: team-123");
     expect(template).toContain("# lifecycleHooks:");
     expect(template).toContain("# auto_name:");
+    expect(template).toContain("# startupEnvs become runtime env vars for panes, agents, and hooks.");
     expect(template).toContain("#   provider: codex");
 
     await Bun.write(join(dir, ".webmux.yaml"), template);

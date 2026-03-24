@@ -535,105 +535,174 @@ export function buildStarterTemplate(input: {
 # Keep the active keys below as a minimal working setup, then uncomment
 # the examples to enable more services, profiles, integrations, or hooks.
 
-# Project display name in the dashboard
+# Project display name shown in the dashboard and browser title.
 name: ${input.projectName}
 
 workspace:
-  # Base branch used when creating new worktrees
+  # Git branch new worktrees start from.
   mainBranch: ${input.mainBranch}
-  # Relative or absolute directory for managed worktrees
+  # Relative or absolute directory where managed worktrees are created.
   worktreeRoot: ../worktrees
-  # Default agent for new worktrees
+  # Agent new worktrees use by default.
   defaultAgent: ${defaultAgent}
+  # Example background pull settings for keeping the main branch fresh.
   # autoPull:
+  #   # Turn automatic pulls on or off.
   #   enabled: false
+  #   # Seconds between pull attempts.
   #   intervalSeconds: 300
 
-# Each service defines a port env var that webmux injects into panes and
-# lifecycle hooks. Ports are auto-assigned as: portStart + (slot x portStep).
+# Services define the ports webmux allocates and tracks per worktree.
 services:
+  # Example app service with a predictable per-worktree port.
   # - name: app
+  #   # Label shown in the dashboard.
   #   portEnv: PORT
+  #   # Env var name injected into panes and hooks.
   #   portStart: 3000
+  #   # Starting port for the first worktree slot.
   #   portStep: 10
+  #   # Port increment between worktree slots.
   #   urlTemplate: http://localhost:\${PORT}
+  #   # Link shown in the dashboard when the service is running.
 
+# Profiles define runtime, permissions, and tmux pane layout.
 profiles:
   default:
+    # Run panes directly on the host machine.
     runtime: host
+    # Forward selected host env vars into the agent process.
     envPassthrough:
       # - ANTHROPIC_API_KEY
       # - OPENAI_API_KEY
+    # Extra system instructions for the agent in this profile.
     # systemPrompt: >
     #   You are working in \${WEBMUX_WORKTREE_PATH}
+    # Skip agent permission prompts in this profile.
     # yolo: true
+    # Panes define the tmux layout created for each worktree session.
     panes:
+      # Main AI coding pane.
       - id: agent
+        # Pane type: agent, command, or shell.
         kind: agent
+        # Focus this pane when the session opens.
         focus: true
+        # Place this pane to the right of the existing layout.
         # split: right
+        # Percent of the available space this pane should take.
         # sizePct: 50
+        # Start this pane in the repo root or managed worktree.
         # cwd: worktree
+      # Example dev server pane.
       # - id: app
+      #   # Pane type: agent, command, or shell.
       #   kind: command
+      #   # Place this pane to the right of the existing layout.
       #   split: right
+      #   # Percent of the available space this pane should take.
       #   sizePct: 50
+      #   # Start this pane in the repo root or managed worktree.
       #   cwd: worktree
+      #   # Change into a subdirectory before running the command.
       #   workingDir: frontend
+      #   # Command run when the pane starts. webmux injects $PORT.
       #   command: PORT=$PORT ${devCommand}
+      # Example shell pane for manual commands.
       # - id: shell
+      #   # Pane type: agent, command, or shell.
       #   kind: shell
+      #   # Place this pane below the existing layout.
       #   split: bottom
+      #   # Percent of the available space this pane should take.
       #   sizePct: 30
+      #   # Start this pane in the repo root or managed worktree.
       #   cwd: repo
 
+  # Example sandbox profile that runs panes inside Docker.
   # sandbox:
+  #   # Run panes inside a container instead of on the host.
   #   runtime: docker
+  #   # Docker image used for the sandbox container.
   #   image: ghcr.io/your-org/your-image:latest
+  #   # Forward selected host env vars into the container.
   #   envPassthrough:
   #     - ANTHROPIC_API_KEY
   #     - OPENAI_API_KEY
+  #   # Extra system instructions for the agent in this profile.
   #   systemPrompt: >
   #     Extra instructions for the sandbox profile.
+  #   # Skip agent permission prompts in this profile.
   #   yolo: true
+  #   # Extra host paths to mount into the container.
   #   mounts:
+  #     # Host path mounted into the sandbox.
   #     - hostPath: ~/.codex
+  #       # Path inside the container.
   #       guestPath: /root/.codex
+  #       # Allow writes through this mount.
   #       writable: true
+  #   # Panes define the tmux layout created for sandbox sessions.
   #   panes:
+  #     # Main AI coding pane.
   #     - id: agent
+  #       # Pane type: agent, command, or shell.
   #       kind: agent
+  #       # Focus this pane when the session opens.
   #       focus: true
+  #     # Example shell pane for manual commands.
   #     - id: shell
+  #       # Pane type: agent, command, or shell.
   #       kind: shell
+  #       # Place this pane to the right of the existing layout.
   #       split: right
+  #       # Start this pane in the repo root or managed worktree.
   #       cwd: repo
 
+# Integrations connect webmux to external systems.
 integrations:
   github:
+    # Additional local repos webmux should consider alongside the main repo.
     linkedRepos:
+      # GitHub slug for a related repo.
       # - repo: your-org/your-repo
+      #   # Short label shown in the UI.
       #   alias: repo
+      #   # Relative or absolute path to that local checkout.
       #   dir: ../your-repo
+    # Remove managed worktrees automatically when their PR merges.
     # autoRemoveOnMerge: true
   linear:
+    # Enable Linear issue lookup and linking in the UI.
     enabled: true
+    # Auto-create worktrees for assigned issues.
     # autoCreateWorktrees: true
+    # Show a create-ticket action in the dashboard.
     # createTicketOption: true
+    # Restrict issue sync to a specific Linear team id.
     # teamId: team-123
 
-# startupEnvs are added to the managed worktree runtime environment.
+# startupEnvs become runtime env vars for panes, agents, and hooks.
 startupEnvs:
+  # Example feature flag available in every worktree session.
   # FEATURE_FLAG: true
+  # Example service URL built from allocated ports.
   # API_BASE_URL: http://localhost:\${PORT}
 
+# lifecycleHooks run custom shell commands during worktree lifecycle events.
 # lifecycleHooks:
+#   # Runs after env setup and before panes start.
 #   postCreate: bun install
+#   # Runs before the worktree directory is removed.
 #   preRemove: tmux kill-session -t "$WEBMUX_WORKTREE_ID" || true
 
+# auto_name lets webmux generate a branch name when one is not provided.
 # auto_name:
+#   # Provider used for automatic branch naming.
 #   provider: ${defaultAgent}
+#   # Model used for automatic branch naming.
 #   model: ${defaultAgent === "codex" ? "gpt-5.1-codex" : "claude-3-5-haiku-latest"}
+#   # Prompt that tells the model how to name branches.
 #   system_prompt: >
 #     Generate a short kebab-case git branch name.
 `;

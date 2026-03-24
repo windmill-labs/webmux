@@ -7,7 +7,7 @@ import { isValidWorktreeName } from "../../backend/src/domain/policies";
 import { createWebmuxRuntime } from "../../backend/src/runtime";
 import type { CreateLifecycleWorktreeInput, PruneWorktreesResult } from "../../backend/src/services/lifecycle-service";
 
-export type WorktreeSubcommand = "add" | "list" | "open" | "close" | "remove" | "merge" | "prune";
+export type WorktreeSubcommand = "add" | "list" | "open" | "close" | "remove" | "merge" | "send" | "prune";
 
 interface LifecycleServiceLike {
   createWorktree(input: CreateLifecycleWorktreeInput): Promise<{ branch: string; worktreeId: string }>;
@@ -78,6 +78,16 @@ export function getWorktreeCommandUsage(command: WorktreeSubcommand): string {
       return "Usage:\n  webmux remove <branch>";
     case "merge":
       return "Usage:\n  webmux merge <branch>";
+    case "send":
+      return [
+        "Usage:",
+        "  webmux send <branch> <prompt> [--preamble <text>]",
+        "",
+        "Options:",
+        "  --prompt <text>          Prompt text (alternative to positional arg)",
+        "  --preamble <text>        Preamble text sent before the prompt",
+        "  --help                   Show this help message",
+      ].join("\n");
     case "prune":
       return "Usage:\n  webmux prune";
   }
@@ -226,6 +236,72 @@ export function parseBranchCommandArgs(args: string[]): string | null {
   }
 
   return branch;
+}
+
+export interface ParsedSendCommand {
+  branch: string;
+  text: string;
+  preamble?: string;
+}
+
+export function parseSendCommandArgs(args: string[]): ParsedSendCommand | null {
+  let branch: string | null = null;
+  let text: string | null = null;
+  let preamble: string | undefined;
+
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index];
+    if (!arg) continue;
+
+    if (arg === "--help" || arg === "-h") {
+      return null;
+    }
+
+    if (arg === "--prompt" || arg.startsWith("--prompt=")) {
+      if (text) throw new CommandUsageError("Cannot use --prompt with a positional prompt argument");
+      const { value, nextIndex } = readOptionValue(args, index, "--prompt");
+      text = value;
+      index = nextIndex;
+      continue;
+    }
+
+    if (arg === "--preamble" || arg.startsWith("--preamble=")) {
+      const { value, nextIndex } = readOptionValue(args, index, "--preamble");
+      preamble = value;
+      index = nextIndex;
+      continue;
+    }
+
+    if (arg.startsWith("-")) {
+      throw new CommandUsageError(`Unknown option: ${arg}`);
+    }
+
+    if (!branch) {
+      branch = arg;
+      continue;
+    }
+
+    if (!text) {
+      text = arg;
+      continue;
+    }
+
+    throw new CommandUsageError(`Unexpected argument: ${arg}. Use either a positional prompt or --prompt, not both`);
+  }
+
+  if (!branch) {
+    throw new CommandUsageError("Missing required argument: <branch>");
+  }
+
+  if (!isValidWorktreeName(branch)) {
+    throw new CommandUsageError("Invalid worktree name");
+  }
+
+  if (!text) {
+    throw new CommandUsageError("Missing required argument: <prompt>");
+  }
+
+  return { branch, text, preamble };
 }
 
 function parsePruneCommandArgs(args: string[]): boolean {
@@ -411,7 +487,43 @@ export async function runWorktreeCommand(
       return 0;
     }
 
-    const command: Exclude<WorktreeSubcommand, "add" | "list" | "prune"> = context.command;
+    if (context.command === "send") {
+      const parsed = parseSendCommandArgs(context.args);
+      if (!parsed) {
+        stdout(getWorktreeCommandUsage("send"));
+        return 0;
+      }
+
+      const url = `http://localhost:${context.port}/api/worktrees/${encodeURIComponent(parsed.branch)}/send`;
+      const body: Record<string, string> = { text: parsed.text };
+      if (parsed.preamble) body.preamble = parsed.preamble;
+
+      let response: Response;
+      try {
+        response = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+      } catch {
+        throw new Error(`Could not connect to webmux server on port ${context.port}. Is it running?`);
+      }
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        let message = `Server returned ${response.status}`;
+        try {
+          const json = JSON.parse(errorBody) as Record<string, unknown>;
+          if (typeof json.error === "string") message = json.error;
+        } catch {}
+        throw new Error(message);
+      }
+
+      stdout(`Sent prompt to ${parsed.branch}`);
+      return 0;
+    }
+
+    const command: Exclude<WorktreeSubcommand, "add" | "list" | "send" | "prune"> = context.command;
     const branch = parseBranchCommandArgs(context.args);
     if (!branch) {
       stdout(getWorktreeCommandUsage(command));

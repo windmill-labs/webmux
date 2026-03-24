@@ -11,7 +11,7 @@ interface ListBranchesDeps {
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
-const BRANCH_SUBCOMMANDS = new Set(["open", "close", "remove", "merge"]);
+const BRANCH_SUBCOMMANDS = new Set(["open", "close", "remove", "merge", "send"]);
 
 // ── Pure logic ─────────────────────────────────────────────────────────────
 
@@ -127,6 +127,7 @@ _webmux() {
     'close:Close a worktree session'
     'remove:Remove a worktree'
     'merge:Merge a worktree into main'
+    'send:Send a prompt to a running worktree agent'
     'prune:Remove all worktrees in the current project'
     'completion:Generate shell completion script'
   )
@@ -137,7 +138,7 @@ _webmux() {
   fi
 
   case "\${words[2]}" in
-    open|close|remove|merge)
+    open|close|remove|merge|send)
       if (( CURRENT == 3 )); then
         local -a branches
         branches=(\${(f)"$(webmux --completions "\${words[2]}" 2>/dev/null)"})
@@ -177,12 +178,12 @@ const BASH_SCRIPT = `_webmux() {
   prev="\${COMP_WORDS[COMP_CWORD-1]}"
 
   if [[ \${COMP_CWORD} -eq 1 ]]; then
-    COMPREPLY=($(compgen -W "serve init service update add list open close remove merge prune completion" -- "\${cur}"))
+    COMPREPLY=($(compgen -W "serve init service update add list open close remove merge send prune completion" -- "\${cur}"))
     return
   fi
 
   case "\${COMP_WORDS[1]}" in
-    open|close|remove|merge)
+    open|close|remove|merge|send)
       if [[ \${COMP_CWORD} -eq 2 ]]; then
         local branches
         branches=$(webmux --completions "\${COMP_WORDS[1]}" 2>/dev/null)

@@ -357,5 +357,10 @@ export async function sendPrompt(
     return { ok: false, error: `paste-buffer failed${paste.stderr ? `: ${paste.stderr}` : ""}` };
   }
 
+  const enter = await tmuxExec(["tmux", "send-keys", "-t", paneTarget, "Enter"]);
+  if (enter.exitCode !== 0) {
+    return { ok: false, error: `send-keys Enter failed${enter.stderr ? `: ${enter.stderr}` : ""}` };
+  }
+
   return { ok: true };
 }

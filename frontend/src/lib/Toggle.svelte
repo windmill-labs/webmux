@@ -3,11 +3,17 @@
     checked = $bindable(false),
     id,
     disabled = false,
+    size = "default",
+    preventMouseFocus = false,
+    ontoggle,
     "aria-label": ariaLabel,
   }: {
     checked: boolean;
     id?: string;
     disabled?: boolean;
+    size?: "default" | "sm";
+    preventMouseFocus?: boolean;
+    ontoggle?: (checked: boolean) => void;
     "aria-label"?: string;
   } = $props();
 </script>
@@ -19,9 +25,17 @@
   aria-label={ariaLabel}
   {id}
   {disabled}
-  onclick={() => { checked = !checked; }}
+  onmousedown={(event) => {
+    if (!preventMouseFocus) return;
+    event.preventDefault();
+  }}
+  onclick={() => {
+    checked = !checked;
+    ontoggle?.(checked);
+  }}
   class="toggle"
   class:on={checked}
+  class:sm={size === "sm"}
 >
   <span class="knob"></span>
 </button>
@@ -68,5 +82,22 @@
 
   .toggle.on .knob {
     transform: translateX(14px);
+  }
+
+  .toggle.sm {
+    width: 24px;
+    height: 14px;
+    border-radius: 7px;
+  }
+
+  .toggle.sm .knob {
+    top: 1px;
+    left: 1px;
+    width: 10px;
+    height: 10px;
+  }
+
+  .toggle.sm.on .knob {
+    transform: translateX(10px);
   }
 </style>

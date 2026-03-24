@@ -224,17 +224,6 @@
           </button>
         {/if}
       {:else}
-        <div class="mb-3 rounded-lg border border-edge bg-surface/40 p-3">
-          <div class="flex items-start justify-between gap-3">
-            <div>
-              <p class="text-[13px] text-primary">Include remote branches</p>
-              <p class="mt-1 text-[11px] text-muted">
-                Fetch branches from <span class="font-mono">origin</span> in addition to local branches.
-              </p>
-            </div>
-            <Toggle bind:checked={includeRemoteBranches} aria-label="Include remote branches" />
-          </div>
-        </div>
         <BranchSelector
           label="Existing branch"
           selected={selectedExistingBranch}
@@ -243,6 +232,10 @@
           error={availableBranchesError}
           placeholder="Select a branch"
           initialOpen={true}
+          inlineToggleLabel="include remote"
+          inlineToggleAriaLabel="Include remote branches"
+          inlineToggleChecked={includeRemoteBranches}
+          oninlinetoggle={() => (includeRemoteBranches = !includeRemoteBranches)}
           onselect={selectExistingBranch}
         />
         <button

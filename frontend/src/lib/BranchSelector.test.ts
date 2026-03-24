@@ -71,4 +71,30 @@ describe("BranchSelector", () => {
       expect(screen.getByLabelText("Base branch search")).toHaveFocus();
     });
   });
+
+  it("keeps the selector open when the inline toggle control is clicked", async () => {
+    const onInlineToggle = vi.fn();
+
+    render(BranchSelector, {
+      props: {
+        label: "Existing branch",
+        branches: BRANCHES,
+        initialOpen: true,
+        inlineToggleLabel: "include remote",
+        inlineToggleChecked: false,
+        oninlinetoggle: onInlineToggle,
+        onselect: vi.fn(),
+      },
+    });
+
+    const search = await screen.findByLabelText("Existing branch search");
+    const labelButton = screen.getByRole("button", { name: "include remote" });
+
+    await fireEvent.mouseDown(labelButton);
+    await fireEvent.click(labelButton);
+
+    expect(onInlineToggle).toHaveBeenCalledTimes(1);
+    expect(search).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Existing branch" })).toHaveAttribute("aria-expanded", "true");
+  });
 });

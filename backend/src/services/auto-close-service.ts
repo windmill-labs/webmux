@@ -25,7 +25,8 @@ export async function runAutoClose(deps: AutoCloseDependencies): Promise<void> {
     if (deps.isRemoving(branch)) continue;
 
     const prs = await readWorktreePrs(deps.git.resolveWorktreeGitDir(entry.path));
-    if (!prs.some((pr) => pr.state === "merged")) continue;
+    if (prs.length === 0) continue;
+    if (!prs.every((pr) => pr.state === "merged")) continue;
 
     if (deps.git.readWorktreeStatus(entry.path).dirty) {
       log.info(`[auto-close] skipping dirty worktree: ${branch}`);

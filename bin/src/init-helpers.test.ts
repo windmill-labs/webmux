@@ -185,6 +185,8 @@ describe("buildInitPromptSpec", () => {
 
     expect(prompt.systemPrompt).toContain("Set workspace.defaultAgent to codex");
     expect(prompt.systemPrompt).toContain("Infer the config from the repository contents.");
+    expect(prompt.systemPrompt).toContain("Do not remove other starter sections or their explanatory comments just because they are unused.");
+    expect(prompt.systemPrompt).toContain("Keep optional examples and comments in place so the user can uncomment and use them later.");
     expect(prompt.userPrompt).toBe("Adapt the existing starter `.webmux.yaml` for this repository.");
     expect(prompt.userPrompt).not.toContain("Project name:");
     expect(prompt.userPrompt).not.toContain("Main branch:");

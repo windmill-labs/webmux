@@ -115,7 +115,9 @@ export function buildInitPromptSpec(context: InitProjectContext): InitPromptSpec
     "Do not modify any other file.",
     "Do not ask the user questions. Infer the config from the repository contents.",
     "Be efficient: inspect only the files needed to determine the project name, main branch, service layout, dev commands, and ports.",
-    "The YAML must be valid and minimal.",
+    "The active, uncommented YAML must be valid and minimal.",
+    "Do not remove other starter sections or their explanatory comments just because they are unused.",
+    "Keep optional examples and comments in place so the user can uncomment and use them later.",
     `Set workspace.defaultAgent to ${context.defaultAgent}.`,
     "Use this config shape:",
     "name: infer from the repository",
@@ -130,6 +132,7 @@ export function buildInitPromptSpec(context: InitProjectContext): InitPromptSpec
     "Include integrations.github.linkedRepos as an empty list, integrations.linear.enabled as true, and startupEnvs as an empty object.",
     "Only include optional sections like auto_name, lifecycleHooks, sandbox/docker config, mounts, or systemPrompt if the repository gives clear evidence they are needed.",
     "Prefer editing the existing keys over replacing the file with a completely different shape.",
+    "Preserve the existing template structure and comments unless a specific change requires updating them.",
     "Before finishing, verify that `.webmux.yaml` exists and contains the final YAML.",
   ].join("\n");
 

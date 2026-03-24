@@ -112,52 +112,56 @@
   <!-- Left + middle: rows of repo groups -->
   <div class="flex-1 min-w-0 flex flex-col justify-center px-4 py-2.5 gap-1.5">
     <!-- Main row: branch name + worktree-level badges + main repo PR badges -->
-    <div class="flex items-center gap-3 min-w-0">
-      {#if isMobile && ontogglesidebar}
-        <button
-          type="button"
-          class="p-1 -ml-1 cursor-pointer bg-transparent border-none text-muted hover:text-primary"
-          onclick={ontogglesidebar}
-          title="Toggle sidebar"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
+    <div class="topbar-main-row flex items-start gap-3 min-w-0">
+      <div class="topbar-main-meta flex items-center gap-3 min-w-0">
+        {#if isMobile && ontogglesidebar}
+          <button
+            type="button"
+            class="p-1 -ml-1 cursor-pointer bg-transparent border-none text-muted hover:text-primary"
+            onclick={ontogglesidebar}
+            title="Toggle sidebar"
           >
-            <line x1="3" y1="6" x2="21" y2="6" />
-            <line x1="3" y1="12" x2="21" y2="12" />
-            <line x1="3" y1="18" x2="21" y2="18" />
-          </svg>
-        </button>
-      {/if}
-      <span class="text-sm font-semibold truncate" title={name ?? undefined}
-        >{displayName ?? "Select a worktree"}</span
-      >
-      {#if worktree?.dirty || worktree?.unpushed}
-        <button
-          type="button"
-          class="shrink-0 text-[10px] px-1.5 py-0.5 rounded border border-warning/40 text-warning bg-transparent cursor-pointer hover:bg-warning/10"
-          onclick={ondirtyclick}
-        >{worktree.dirty ? "dirty" : "unpushed"}</button>
-      {/if}
-      {#if worktree?.linearIssue}
-        <LinearBadge issue={worktree.linearIssue} clickable={true} />
-      {/if}
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <line x1="3" y1="6" x2="21" y2="6" />
+              <line x1="3" y1="12" x2="21" y2="12" />
+              <line x1="3" y1="18" x2="21" y2="18" />
+            </svg>
+          </button>
+        {/if}
+        <span class="min-w-0 text-sm font-semibold truncate" title={name ?? undefined}
+          >{displayName ?? "Select a worktree"}</span
+        >
+        {#if worktree?.dirty || worktree?.unpushed}
+          <button
+            type="button"
+            class="shrink-0 text-[10px] px-1.5 py-0.5 rounded border border-warning/40 text-warning bg-transparent cursor-pointer hover:bg-warning/10"
+            onclick={ondirtyclick}
+          >{worktree.dirty ? "dirty" : "unpushed"}</button>
+        {/if}
+        {#if worktree?.linearIssue}
+          <LinearBadge issue={worktree.linearIssue} clickable={true} />
+        {/if}
+      </div>
       {#if !isMobile}
-        <RepoGroup
-          prs={mainPrs}
-          services={worktree?.services ?? []}
-          {cursorUrl}
-          {onCiClick}
-          {onReviewsClick}
-        />
+        <div class="topbar-main-prs min-w-0 flex-1">
+          <RepoGroup
+            prs={mainPrs}
+            services={worktree?.services ?? []}
+            {cursorUrl}
+            {onCiClick}
+            {onReviewsClick}
+          />
+        </div>
       {/if}
     </div>
 

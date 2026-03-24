@@ -32,8 +32,8 @@ function createWorktree(
 function renderTopBar(
   branch: string,
   overrides: Partial<WorktreeInfo> = {},
-): void {
-  render(TopBar, {
+): ReturnType<typeof render> {
+  return render(TopBar, {
     props: {
       name: branch,
       worktree: createWorktree(branch, overrides),
@@ -92,5 +92,31 @@ describe("TopBar", () => {
       "href",
       linearIssue.url,
     );
+  });
+
+  it("keeps desktop PR badges inside a wrapping header container", () => {
+    const branch = "feature/header-wrap";
+    const { container } = renderTopBar(branch, {
+      prs: [
+        {
+          repo: "origin",
+          number: 42,
+          state: "open",
+          url: "https://github.com/example/repo/pull/42",
+          updatedAt: "2026-03-23T12:00:00.000Z",
+          ciStatus: "success",
+          ciChecks: [],
+          comments: [],
+        },
+      ],
+    });
+
+    const badgeContainer = container.querySelector(".topbar-main-prs");
+    const repoGroup = badgeContainer?.querySelector(".repo-group");
+
+    expect(badgeContainer).not.toBeNull();
+    expect(badgeContainer?.className).toContain("flex-1");
+    expect(repoGroup).not.toBeNull();
+    expect(repoGroup?.className).toContain("flex-wrap");
   });
 });

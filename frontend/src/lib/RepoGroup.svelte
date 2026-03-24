@@ -19,7 +19,7 @@
   } = $props();
 </script>
 
-<div class="flex items-center gap-2 min-w-0">
+<div class="repo-group flex flex-wrap items-center gap-x-2 gap-y-1.5 min-w-0">
   {#if label}
     <span class="shrink-0 text-[10px] font-medium text-muted">{label}:</span>
   {/if}

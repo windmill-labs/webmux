@@ -13,7 +13,7 @@ import type { AutoNameConfig } from "../domain/config";
 import { ProjectRuntime } from "../services/project-runtime";
 import type { AutoNameGenerator } from "../services/auto-name-service";
 import { ReconciliationService } from "../services/reconciliation-service";
-import { LifecycleService, type CreateWorktreeProgress } from "../services/lifecycle-service";
+import { LifecycleError, LifecycleService, type CreateWorktreeProgress } from "../services/lifecycle-service";
 
 function run(args: string[], cwd: string): string {
   const result = Bun.spawnSync(args, {
@@ -576,6 +576,54 @@ describe("LifecycleService", () => {
 
     expect((await readWorktreeMeta(gitDir))?.baseBranch).toBe("release/base");
     expect(await Bun.file(join(worktreePath, "README.md")).text()).toBe("# release base\n");
+  });
+
+  it("rejects invalid base branch names before creating a worktree", async () => {
+    const repoRoot = await initRepo();
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const lifecycle = makeLifecycleService(repoRoot, tmux, runtime);
+    const worktreePath = join(repoRoot, "__worktrees", "feature", "invalid-base");
+
+    try {
+      await lifecycle.createWorktree({
+        branch: "feature/invalid-base",
+        baseBranch: "release base",
+      });
+      throw new Error("expected createWorktree to reject");
+    } catch (error) {
+      expect(error).toBeInstanceOf(LifecycleError);
+      if (!(error instanceof LifecycleError)) throw error;
+      expect(error.message).toBe("Invalid base branch name");
+      expect(error.status).toBe(400);
+    }
+
+    expect(new BunGitGateway().listWorktrees(repoRoot).some((entry) => entry.path === worktreePath)).toBe(false);
+    expect(tmux.listWindows()).toEqual([]);
+  });
+
+  it("rejects self-referencing base branches before creating a worktree", async () => {
+    const repoRoot = await initRepo();
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const lifecycle = makeLifecycleService(repoRoot, tmux, runtime);
+    const worktreePath = join(repoRoot, "__worktrees", "feature", "loop");
+
+    try {
+      await lifecycle.createWorktree({
+        branch: "feature/loop",
+        baseBranch: "feature/loop",
+      });
+      throw new Error("expected createWorktree to reject");
+    } catch (error) {
+      expect(error).toBeInstanceOf(LifecycleError);
+      if (!(error instanceof LifecycleError)) throw error;
+      expect(error.message).toBe("Base branch must differ from branch name");
+      expect(error.status).toBe(400);
+    }
+
+    expect(new BunGitGateway().listWorktrees(repoRoot).some((entry) => entry.path === worktreePath)).toBe(false);
+    expect(tmux.listWindows()).toEqual([]);
   });
 
   it("reopens a managed claude worktree with claude continue", async () => {

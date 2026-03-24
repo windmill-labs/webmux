@@ -34,7 +34,7 @@ import { startPrMonitor } from "./services/pr-service";
 import { startLinearAutoCreateMonitor, resetProcessedIssues } from "./services/linear-auto-create-service";
 import { buildProjectSnapshot } from "./services/snapshot-service";
 import { parseRuntimeEvent } from "./domain/events";
-import { isValidWorktreeName } from "./domain/policies";
+import { isValidBranchName, isValidWorktreeName } from "./domain/policies";
 import { createWebmuxRuntime } from "./runtime";
 
 const PORT = parseInt(Bun.env.PORT || "5111", 10);
@@ -422,6 +422,10 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
     return errorResponse("Invalid worktree create mode", 400);
   }
 
+  if (baseBranch && !isValidBranchName(baseBranch)) {
+    return errorResponse("Invalid base branch name", 400);
+  }
+
   if (createLinearTicket && mode === "existing") {
     return errorResponse("Linear ticket creation is only supported for new branches", 400);
   }
@@ -470,6 +474,10 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
     );
   } else if (resolvedBranch) {
     ensureBranchNotCreating(resolvedBranch);
+  }
+
+  if (resolvedBranch && baseBranch && resolvedBranch === baseBranch) {
+    return errorResponse("Base branch must differ from branch name", 400);
   }
 
   log.info(

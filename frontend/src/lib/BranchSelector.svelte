@@ -51,19 +51,23 @@
     queueMicrotask(() => searchEl?.focus());
   }
 
+  function closeSelector(): void {
+    selectorOpen = false;
+    searchQuery = "";
+    autoFocused = false;
+  }
+
   function toggleSelector(): void {
-    selectorOpen = !selectorOpen;
-    if (!selectorOpen) {
-      searchQuery = "";
+    if (selectorOpen) {
+      closeSelector();
       return;
     }
-    focusSearch();
+    selectorOpen = true;
   }
 
   function selectBranch(name: string): void {
     onselect(name);
-    searchQuery = "";
-    selectorOpen = false;
+    closeSelector();
   }
 
   function handleFocusOut(event: FocusEvent): void {
@@ -71,8 +75,7 @@
     if (nextTarget instanceof Node && fieldEl?.contains(nextTarget)) {
       return;
     }
-    selectorOpen = false;
-    searchQuery = "";
+    closeSelector();
   }
 </script>
 
@@ -109,8 +112,7 @@
             }
             if (event.key === "Escape") {
               event.preventDefault();
-              selectorOpen = false;
-              searchQuery = "";
+              closeSelector();
             }
           }}
         />

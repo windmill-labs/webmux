@@ -13,11 +13,9 @@ describe("NotificationService", () => {
 
     const started = notifications.recordEvent(
       { worktreeId: "wt_search", branch: "feature/search", type: "agent_status_changed", lifecycle: "running" },
-      () => new Date("2026-03-06T10:00:00.000Z"),
     );
     const stopped = notifications.recordEvent(
       { worktreeId: "wt_search", branch: "feature/search", type: "agent_stopped" },
-      () => new Date("2026-03-06T10:01:00.000Z"),
     );
 
     expect(started).toBeNull();
@@ -30,11 +28,9 @@ describe("NotificationService", () => {
 
     const pr = notifications.recordEvent(
       { worktreeId: "wt_search", branch: "feature/search", type: "pr_opened", url: "https://github.com/org/repo/pull/123" },
-      () => new Date("2026-03-06T10:01:00.000Z"),
     );
     const error = notifications.recordEvent(
       { worktreeId: "wt_search", branch: "feature/search", type: "runtime_error", message: "agent crashed" },
-      () => new Date("2026-03-06T10:02:00.000Z"),
     );
 
     expect(pr?.url).toBe("https://github.com/org/repo/pull/123");
@@ -46,7 +42,6 @@ describe("NotificationService", () => {
     const notifications = new NotificationService();
     const item = notifications.recordEvent(
       { worktreeId: "wt_search", branch: "feature/search", type: "agent_stopped" },
-      () => new Date("2026-03-06T10:01:00.000Z"),
     );
 
     expect(item).not.toBeNull();
@@ -58,7 +53,6 @@ describe("NotificationService", () => {
     const notifications = new NotificationService();
     const initial = notifications.recordEvent(
       { worktreeId: "wt_search", branch: "feature/search", type: "agent_stopped" },
-      () => new Date("2026-03-06T10:01:00.000Z"),
     );
 
     const response = notifications.stream();
@@ -71,7 +65,6 @@ describe("NotificationService", () => {
     const liveChunkPromise = readChunk(reader);
     const live = notifications.recordEvent(
       { worktreeId: "wt_search", branch: "feature/search", type: "pr_opened", url: "https://github.com/org/repo/pull/123" },
-      () => new Date("2026-03-06T10:02:00.000Z"),
     );
     const liveChunk = await liveChunkPromise;
     expect(liveChunk).toContain("event: notification");

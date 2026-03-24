@@ -9,33 +9,14 @@ export interface RuntimeNotification {
   timestamp: number;
 }
 
-function buildNotification(event: RuntimeEvent, id: number, timestamp: number): RuntimeNotification | null {
+function eventToNotificationInput(event: RuntimeEvent): { branch: string; type: RuntimeNotification["type"]; message: string; url?: string } | null {
   switch (event.type) {
     case "agent_stopped":
-      return {
-        id,
-        branch: event.branch,
-        type: "agent_stopped",
-        message: `Agent stopped on ${event.branch}`,
-        timestamp,
-      };
+      return { branch: event.branch, type: "agent_stopped", message: `Agent stopped on ${event.branch}` };
     case "pr_opened":
-      return {
-        id,
-        branch: event.branch,
-        type: "pr_opened",
-        message: `PR opened on ${event.branch}`,
-        url: event.url,
-        timestamp,
-      };
+      return { branch: event.branch, type: "pr_opened", message: `PR opened on ${event.branch}`, url: event.url };
     case "runtime_error":
-      return {
-        id,
-        branch: event.branch,
-        type: "runtime_error",
-        message: `Runtime error on ${event.branch}: ${event.message}`,
-        timestamp,
-      };
+      return { branch: event.branch, type: "runtime_error", message: `Runtime error on ${event.branch}: ${event.message}` };
     default:
       return null;
   }
@@ -78,17 +59,10 @@ export class NotificationService {
     return notification;
   }
 
-  recordEvent(event: RuntimeEvent, now: () => Date = () => new Date()): RuntimeNotification | null {
-    const notification = buildNotification(event, this.nextId, now().getTime());
-    if (!notification) return null;
-
-    this.nextId += 1;
-    this.notifications.push(notification);
-    while (this.notifications.length > this.maxItems) {
-      this.notifications.shift();
-    }
-    this.broadcast("notification", notification);
-    return notification;
+  recordEvent(event: RuntimeEvent): RuntimeNotification | null {
+    const input = eventToNotificationInput(event);
+    if (!input) return null;
+    return this.notify(input);
   }
 
   stream(): Response {

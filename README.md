@@ -87,6 +87,9 @@ workspace:
   mainBranch: main
   worktreeRoot: __worktrees
   defaultAgent: claude
+  autoPull:
+    enabled: true
+    intervalSeconds: 300
 
 services:
   - name: BE
@@ -127,9 +130,12 @@ profiles:
       You are running inside a sandboxed container.
       Backend port: ${PORT}. Frontend port: ${FRONTEND_PORT}.
 
-linkedRepos:
-  - repo: myorg/related-service
-    alias: svc
+integrations:
+  github:
+    autoCloseOnMerge: true
+    linkedRepos:
+      - repo: myorg/related-service
+        alias: svc
 
 startupEnvs:
   NODE_ENV: development
@@ -156,6 +162,8 @@ lifecycleHooks:
 | `workspace.mainBranch` | string | no | Base branch used for new worktrees |
 | `workspace.worktreeRoot` | string | no | Relative or absolute directory for managed worktrees |
 | `workspace.defaultAgent` | string | no | Default agent for new worktrees |
+| `workspace.autoPull.enabled` | boolean | no | Periodically fetch and fast-forward merge the main branch (default: `false`) |
+| `workspace.autoPull.intervalSeconds` | number | no | Seconds between auto-pull attempts (default: `300`, minimum: `30`) |
 | `services[].name` | string | yes | Display name shown in the dashboard |
 | `services[].portEnv` | string | yes | Env var containing the service port |
 | `services[].portStart` | number | no | Base port for auto-allocation |
@@ -173,6 +181,7 @@ lifecycleHooks:
 | `profiles.sandbox.mounts[].hostPath` | string | yes | Host path to mount (`~` expands to `$HOME`) |
 | `profiles.sandbox.mounts[].guestPath` | string | no | Container mount path (defaults to `hostPath`) |
 | `profiles.sandbox.mounts[].writable` | boolean | no | `true` for read-write; omit or `false` for read-only |
+| `integrations.github.autoCloseOnMerge` | boolean | no | Automatically remove worktrees when their PR is merged (default: `false`) |
 | `integrations.github.linkedRepos[].repo` | string | yes | GitHub repo slug (e.g. `org/repo`) |
 | `integrations.github.linkedRepos[].alias` | string | no | Short label for the UI |
 | `startupEnvs.<KEY>` | string or boolean | no | Extra env vars materialized into worktree runtime env |

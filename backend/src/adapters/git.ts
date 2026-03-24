@@ -236,6 +236,7 @@ export function listRemoteGitBranches(cwd: string): string[] {
     .map((line) => line.trim())
     .filter((line) => line.length > 0)
     .map((line) => line.replace(/^origin\//, ""))
+    // Defensive: some repos expose a bare symbolic `origin` ref alongside origin/*.
     .filter((name) => name !== "HEAD" && name !== "origin");
 }
 

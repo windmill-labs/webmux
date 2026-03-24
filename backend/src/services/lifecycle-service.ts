@@ -132,7 +132,7 @@ export class LifecycleService {
       throw new LifecycleError("Base branch must differ from branch name", 400);
     }
     const baseBranch = mode === "new" ? (requestedBaseBranch || this.deps.config.workspace.mainBranch) : undefined;
-    const existingBranchResolution = this.resolveExistingBranch(branch, mode);
+    const branchAvailability = this.resolveBranchAvailability(branch, mode);
 
     const { profileName, profile } = this.resolveProfile(input.profile);
     const agent = this.resolveAgent(input.agent);
@@ -144,7 +144,7 @@ export class LifecycleService {
       profile: profileName,
       agent,
     } satisfies Omit<CreateWorktreeProgress, "phase">;
-    const deleteBranchOnRollback = mode === "new" || existingBranchResolution.deleteBranchOnRollback;
+    const deleteBranchOnRollback = mode === "new" || branchAvailability.deleteBranchOnRollback;
     let initialized: InitializeManagedWorktreeResult | null = null;
 
     try {
@@ -162,7 +162,7 @@ export class LifecycleService {
           branch,
           mode,
           ...(baseBranch ? { baseBranch } : {}),
-          ...(existingBranchResolution.startPoint ? { startPoint: existingBranchResolution.startPoint } : {}),
+          ...(branchAvailability.startPoint ? { startPoint: branchAvailability.startPoint } : {}),
           profile: profileName,
           agent,
           runtime: profile.runtime,
@@ -393,7 +393,7 @@ export class LifecycleService {
     return await this.deps.autoName.generateBranchName(this.deps.config.autoName, prompt);
   }
 
-  private resolveExistingBranch(branch: string, mode: CreateWorktreeMode): ExistingBranchResolution {
+  private resolveBranchAvailability(branch: string, mode: CreateWorktreeMode): ExistingBranchResolution {
     const localBranches = new Set(this.listLocalBranches());
     if (mode === "new") {
       if (localBranches.has(branch)) {
@@ -412,10 +412,6 @@ export class LifecycleService {
     const remoteBranches = new Set(this.listRemoteBranches());
     if (!remoteBranches.has(branch)) {
       throw new LifecycleError(`Branch not found: ${branch}`, 404);
-    }
-
-    if (this.listCheckedOutBranches().has(branch)) {
-      throw new LifecycleError(`Branch already has a worktree: ${branch}`, 409);
     }
 
     return {

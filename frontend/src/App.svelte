@@ -409,6 +409,8 @@
       if (result.status === "updated" || result.status === "already_up_to_date") {
         pullMainConfirm = false;
         pullMainForce = false;
+      } else if (result.status === "skipped_dirty") {
+        pullMainError = "Main worktree has uncommitted changes. Commit or stash them first.";
       } else if (result.status === "merge_failed" && !pullMainForce) {
         pullMainForce = true;
         pullMainError = `Fast-forward failed: ${result.error ?? "unknown error"}.\nForce pull will discard local changes on main.`;

@@ -66,7 +66,8 @@
   let pendingCreateCount = $state(0);
   let latestAutoSelectCreateId = -1;
   let nextCreateRequestId = 0;
-  let nextBranchFetchId = 0;
+  let nextAvailableBranchFetchId = 0;
+  let nextBaseBranchFetchId = 0;
   let sshHost = $state(localStorage.getItem(SSH_STORAGE_KEY) ?? "");
   let currentTheme = $state<ThemeKey>(loadSavedTheme());
   let terminalTheme = $derived(getTheme(currentTheme).terminal);
@@ -78,6 +79,12 @@
   let baseBranches = $state<AvailableBranch[]>([]);
   let baseBranchesLoading = $state(false);
   let baseBranchesError = $state<string | null>(null);
+  let includeRemoteBranches = $state(false);
+  type BranchCacheKey = "local" | "remote";
+  let availableBranchCache: Partial<Record<BranchCacheKey, AvailableBranch[]>> = {};
+  let availableBranchRequests: Partial<Record<BranchCacheKey, Promise<AvailableBranch[]>>> = {};
+  let baseBranchCache: AvailableBranch[] | null = null;
+  let baseBranchRequest: Promise<AvailableBranch[]> | null = null;
 
   // Linear integration
   let linearIssues = $state<LinearIssue[]>([]);
@@ -97,6 +104,60 @@
   const MAX_HISTORY = 10;
 
   let notifiedBranches = $state<Set<string>>(new Set());
+
+  function getAvailableBranchCacheKey(includeRemote: boolean): BranchCacheKey {
+    return includeRemote ? "remote" : "local";
+  }
+
+  function fetchAvailableBranchesCached(includeRemote: boolean): Promise<AvailableBranch[]> {
+    const key = getAvailableBranchCacheKey(includeRemote);
+    const cached = availableBranchCache[key];
+    if (cached) return Promise.resolve(cached);
+
+    const inFlight = availableBranchRequests[key];
+    if (inFlight) return inFlight;
+
+    const request = api.fetchAvailableBranches({ includeRemote })
+      .then((branches) => {
+        availableBranchCache[key] = branches;
+        return branches;
+      })
+      .finally(() => {
+        delete availableBranchRequests[key];
+      });
+
+    availableBranchRequests[key] = request;
+    return request;
+  }
+
+  function fetchBaseBranchesCached(): Promise<AvailableBranch[]> {
+    if (baseBranchCache) return Promise.resolve(baseBranchCache);
+    if (baseBranchRequest) return baseBranchRequest;
+
+    baseBranchRequest = api.fetchBaseBranches()
+      .then((branches) => {
+        baseBranchCache = branches;
+        return branches;
+      })
+      .finally(() => {
+        baseBranchRequest = null;
+      });
+
+    return baseBranchRequest;
+  }
+
+  function invalidateBranchCaches(): void {
+    availableBranchCache = {};
+    availableBranchRequests = {};
+    baseBranchCache = null;
+    baseBranchRequest = null;
+    availableBranches = [];
+    availableBranchesError = null;
+    availableBranchesLoading = false;
+    baseBranches = [];
+    baseBranchesError = null;
+    baseBranchesLoading = false;
+  }
 
   function handleNotification(n: AppNotification): void {
     notifications = [...notifications, n];
@@ -257,39 +318,59 @@
   $effect(() => {
     if (!showCreateDialog) return;
 
-    const fetchId = ++nextBranchFetchId;
-    availableBranches = [];
+    const cached = availableBranchCache[getAvailableBranchCacheKey(includeRemoteBranches)];
+    if (cached) {
+      availableBranches = cached;
+      availableBranchesLoading = false;
+      availableBranchesError = null;
+      return;
+    }
+
+    const fetchId = ++nextAvailableBranchFetchId;
     availableBranchesLoading = true;
     availableBranchesError = null;
+
+    fetchAvailableBranchesCached(includeRemoteBranches)
+      .then((branches) => {
+        if (fetchId !== nextAvailableBranchFetchId) return;
+        availableBranches = branches;
+      })
+      .catch((err: unknown) => {
+        if (fetchId !== nextAvailableBranchFetchId) return;
+        availableBranchesError = errorMessage(err);
+      })
+      .finally(() => {
+        if (fetchId !== nextAvailableBranchFetchId) return;
+        availableBranchesLoading = false;
+      });
+  });
+
+  $effect(() => {
+    if (!showCreateDialog) return;
+
+    if (baseBranchCache) {
+      baseBranches = baseBranchCache;
+      baseBranchesLoading = false;
+      baseBranchesError = null;
+      return;
+    }
+
+    const fetchId = ++nextBaseBranchFetchId;
     baseBranches = [];
     baseBranchesLoading = true;
     baseBranchesError = null;
 
-    api.fetchAvailableBranches()
+    fetchBaseBranchesCached()
       .then((branches) => {
-        if (fetchId !== nextBranchFetchId) return;
-        availableBranches = branches;
-      })
-      .catch((err: unknown) => {
-        if (fetchId !== nextBranchFetchId) return;
-        availableBranchesError = errorMessage(err);
-      })
-      .finally(() => {
-        if (fetchId !== nextBranchFetchId) return;
-        availableBranchesLoading = false;
-      });
-
-    api.fetchBaseBranches()
-      .then((branches) => {
-        if (fetchId !== nextBranchFetchId) return;
+        if (fetchId !== nextBaseBranchFetchId) return;
         baseBranches = branches;
       })
       .catch((err: unknown) => {
-        if (fetchId !== nextBranchFetchId) return;
+        if (fetchId !== nextBaseBranchFetchId) return;
         baseBranchesError = errorMessage(err);
       })
       .finally(() => {
-        if (fetchId !== nextBranchFetchId) return;
+        if (fetchId !== nextBaseBranchFetchId) return;
         baseBranchesLoading = false;
       });
   });
@@ -328,9 +409,14 @@
     refreshLinear();
   }
 
-  function handleAssignIssue(issue: LinearIssue): void {
+  function openCreateDialog(issue: LinearIssue | null = null): void {
+    includeRemoteBranches = false;
     assignIssue = issue;
     showCreateDialog = true;
+  }
+
+  function handleAssignIssue(issue: LinearIssue): void {
+    openCreateDialog(issue);
   }
 
   async function handleCreate(request: CreateWorktreeRequest) {
@@ -353,6 +439,7 @@
       if (shouldAutoSelectCreatedWorktree) {
         pendingCreateBranchHint = result.branch;
       }
+      invalidateBranchCaches();
       await refresh();
       if (request.createLinearTicket) {
         linearLastFetch = 0;
@@ -395,6 +482,7 @@
     removingBranches = new Set([...removingBranches, branch]);
     try {
       await api.removeWorktree(branch);
+      invalidateBranchCaches();
       await refresh();
     } catch (err) {
       alert(`Failed to remove: ${errorMessage(err)}`);
@@ -414,6 +502,7 @@
     removingBranches = new Set([...removingBranches, branch]);
     try {
       await api.mergeWorktree(branch);
+      invalidateBranchCaches();
       await refresh();
     } catch (err) {
       alert(`Failed to merge: ${errorMessage(err)}`);
@@ -503,7 +592,7 @@
       selectNeighborWorktree(1);
     } else if (e.key === "k" || e.key === "K") {
       e.preventDefault();
-      showCreateDialog = true;
+      openCreateDialog();
     } else if (e.key === "m" || e.key === "M") {
       e.preventDefault();
       if (selectedBranch) mergeBranch = selectedBranch;
@@ -634,7 +723,7 @@
           <div class="flex items-center gap-2">
             <button
               class="h-8 px-2 gap-1.5 rounded-md border border-edge bg-surface text-accent text-xs flex items-center justify-center cursor-pointer hover:bg-hover disabled:opacity-50 disabled:cursor-not-allowed"
-              onclick={() => (showCreateDialog = true)}
+              onclick={() => openCreateDialog()}
               title="New Worktree (Cmd+K)"
               ><span class="text-lg leading-none">+</span> New</button
             >
@@ -821,6 +910,7 @@
     autoNameEnabled={config.autoName}
     initialBranch={assignIssue?.branchName ?? ""}
     initialPrompt={assignIssue ? `${assignIssue.title}${assignIssue.description ? '\n\n' + assignIssue.description : ''}` : ""}
+    bind:includeRemoteBranches
     {availableBranches}
     {availableBranchesLoading}
     {availableBranchesError}

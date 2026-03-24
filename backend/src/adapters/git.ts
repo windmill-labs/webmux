@@ -24,6 +24,7 @@ export interface CreateNewGitWorktreeOptions extends BaseCreateGitWorktreeOption
 
 export interface CreateExistingGitWorktreeOptions extends BaseCreateGitWorktreeOptions {
   mode: "existing";
+  startPoint?: string;
 }
 
 export type CreateGitWorktreeOptions = CreateNewGitWorktreeOptions | CreateExistingGitWorktreeOptions;
@@ -235,7 +236,8 @@ export function listRemoteGitBranches(cwd: string): string[] {
     .map((line) => line.trim())
     .filter((line) => line.length > 0)
     .map((line) => line.replace(/^origin\//, ""))
-    .filter((name) => name !== "HEAD");
+    // Defensive: some repos expose a bare symbolic `origin` ref alongside origin/*.
+    .filter((name) => name !== "HEAD" && name !== "origin");
 }
 
 export function readGitWorktreeStatus(cwd: string): GitWorktreeStatus {
@@ -312,7 +314,11 @@ export class BunGitGateway implements GitGateway {
       args.push("-b", opts.branch, opts.worktreePath);
       if (opts.baseBranch) args.push(opts.baseBranch);
     } else {
-      args.push(opts.worktreePath, opts.branch);
+      if (opts.startPoint) {
+        args.push("-b", opts.branch, opts.worktreePath, opts.startPoint);
+      } else {
+        args.push(opts.worktreePath, opts.branch);
+      }
     }
     runGit(args, opts.repoRoot);
   }

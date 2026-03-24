@@ -71,4 +71,46 @@ describe("BranchSelector", () => {
       expect(screen.getByLabelText("Base branch search")).toHaveFocus();
     });
   });
+
+  it("keeps the selector open when the inline toggle row is clicked", async () => {
+    const onInlineToggle = vi.fn();
+
+    render(BranchSelector, {
+      props: {
+        label: "Existing branch",
+        branches: BRANCHES,
+        initialOpen: true,
+        inlineToggleLabel: "include remote",
+        inlineToggleChecked: false,
+        oninlinetoggle: onInlineToggle,
+        onselect: vi.fn(),
+      },
+    });
+
+    const search = await screen.findByLabelText("Existing branch search");
+    const availabilityRow = screen.getByText(/2 available/).parentElement as HTMLElement;
+
+    await fireEvent.mouseDown(availabilityRow);
+    await fireEvent.click(availabilityRow);
+
+    expect(onInlineToggle).not.toHaveBeenCalled();
+    expect(search).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Existing branch" })).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("keeps rendering the current branch list while a refresh is in flight", async () => {
+    render(BranchSelector, {
+      props: {
+        label: "Existing branch",
+        branches: BRANCHES,
+        loading: true,
+        initialOpen: true,
+        onselect: vi.fn(),
+      },
+    });
+
+    expect(await screen.findByRole("button", { name: "main" })).toBeInTheDocument();
+    expect(screen.getByText("Updating...")).toBeInTheDocument();
+    expect(screen.queryByText("Loading branches...")).not.toBeInTheDocument();
+  });
 });

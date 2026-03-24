@@ -94,6 +94,15 @@ export interface PruneWorktreesResult {
   removedBranches: string[];
 }
 
+export interface ListAvailableBranchesOptions {
+  includeRemote?: boolean;
+}
+
+interface ExistingBranchResolution {
+  startPoint?: string;
+  deleteBranchOnRollback: boolean;
+}
+
 export class LifecycleError extends Error {
   constructor(
     message: string,
@@ -123,7 +132,7 @@ export class LifecycleService {
       throw new LifecycleError("Base branch must differ from branch name", 400);
     }
     const baseBranch = mode === "new" ? (requestedBaseBranch || this.deps.config.workspace.mainBranch) : undefined;
-    this.ensureBranchAvailable(branch, mode);
+    const branchAvailability = this.resolveBranchAvailability(branch, mode);
 
     const { profileName, profile } = this.resolveProfile(input.profile);
     const agent = this.resolveAgent(input.agent);
@@ -135,7 +144,7 @@ export class LifecycleService {
       profile: profileName,
       agent,
     } satisfies Omit<CreateWorktreeProgress, "phase">;
-    const deleteBranchOnRollback = mode === "new";
+    const deleteBranchOnRollback = mode === "new" || branchAvailability.deleteBranchOnRollback;
     let initialized: InitializeManagedWorktreeResult | null = null;
 
     try {
@@ -153,6 +162,7 @@ export class LifecycleService {
           branch,
           mode,
           ...(baseBranch ? { baseBranch } : {}),
+          ...(branchAvailability.startPoint ? { startPoint: branchAvailability.startPoint } : {}),
           profile: profileName,
           agent,
           runtime: profile.runtime,
@@ -336,9 +346,11 @@ export class LifecycleService {
     }
   }
 
-  listAvailableBranches(): Array<{ name: string }> {
+  listAvailableBranches(options: ListAvailableBranchesOptions = {}): Array<{ name: string }> {
     const localBranches = this.listLocalBranches().filter((branch) => isValidBranchName(branch));
-    const remoteBranches = this.listRemoteBranches().filter((branch) => isValidBranchName(branch));
+    const remoteBranches = options.includeRemote
+      ? this.listRemoteBranches().filter((branch) => isValidBranchName(branch))
+      : [];
     const checkedOutBranches = this.listCheckedOutBranches();
 
     const allBranches = [...new Set([...localBranches, ...remoteBranches])];
@@ -381,22 +393,31 @@ export class LifecycleService {
     return await this.deps.autoName.generateBranchName(this.deps.config.autoName, prompt);
   }
 
-  private ensureBranchAvailable(branch: string, mode: CreateWorktreeMode): void {
+  private resolveBranchAvailability(branch: string, mode: CreateWorktreeMode): ExistingBranchResolution {
     const localBranches = new Set(this.listLocalBranches());
     if (mode === "new") {
       if (localBranches.has(branch)) {
         throw new LifecycleError(`Branch already exists: ${branch}`, 409);
       }
-      return;
+      return { deleteBranchOnRollback: false };
     }
 
-    if (!localBranches.has(branch)) {
+    if (localBranches.has(branch)) {
+      if (this.listCheckedOutBranches().has(branch)) {
+        throw new LifecycleError(`Branch already has a worktree: ${branch}`, 409);
+      }
+      return { deleteBranchOnRollback: false };
+    }
+
+    const remoteBranches = new Set(this.listRemoteBranches());
+    if (!remoteBranches.has(branch)) {
       throw new LifecycleError(`Branch not found: ${branch}`, 404);
     }
 
-    if (this.listCheckedOutBranches().has(branch)) {
-      throw new LifecycleError(`Branch already has a worktree: ${branch}`, 409);
-    }
+    return {
+      startPoint: `origin/${branch}`,
+      deleteBranchOnRollback: true,
+    };
   }
 
   private resolveProfile(profileName: string | undefined): {

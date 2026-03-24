@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { AvailableBranch } from "./types";
+  import Toggle from "./Toggle.svelte";
   import { searchMatch } from "./utils";
 
   let {
@@ -10,6 +11,10 @@
     error = null,
     placeholder = "Select a branch",
     initialOpen = false,
+    inlineToggleLabel,
+    inlineToggleAriaLabel,
+    inlineToggleChecked = false,
+    oninlinetoggle,
     onselect,
   }: {
     label: string;
@@ -19,6 +24,10 @@
     error?: string | null;
     placeholder?: string;
     initialOpen?: boolean;
+    inlineToggleLabel?: string;
+    inlineToggleAriaLabel?: string;
+    inlineToggleChecked?: boolean;
+    oninlinetoggle?: () => void;
     onselect: (branch: string) => void;
   } = $props();
 
@@ -77,6 +86,28 @@
     }
     closeSelector();
   }
+
+  function toggleInlineControl(): void {
+    oninlinetoggle?.();
+  }
+
+  function preserveMouseFocus(node: HTMLElement, enabled: boolean) {
+    function handleMouseDown(event: MouseEvent): void {
+      if (!enabled) return;
+      event.preventDefault();
+    }
+
+    node.addEventListener("mousedown", handleMouseDown);
+
+    return {
+      update(nextEnabled: boolean): void {
+        enabled = nextEnabled;
+      },
+      destroy(): void {
+        node.removeEventListener("mousedown", handleMouseDown);
+      },
+    };
+  }
 </script>
 
 <div bind:this={fieldEl} onfocusout={handleFocusOut}>
@@ -117,18 +148,49 @@
           }}
         />
       </div>
-      {#if loading}
+      {#if loading && filteredBranches.length === 0}
         <p class="px-3 py-2 text-xs text-muted">Loading branches...</p>
-      {:else if error}
+      {:else if error && filteredBranches.length === 0}
         <p class="px-3 py-2 text-xs text-muted">Failed to load branches: {error}</p>
       {:else if filteredBranches.length === 0}
         <p class="px-3 py-2 text-xs text-muted">No matching branches</p>
       {:else}
-        <div class="border-b border-edge px-3 py-2 text-[11px] text-muted">
-          {filteredBranches.length !== branches.length
-            ? `${filteredBranches.length}/${branches.length}`
-            : branches.length}
-          {" "}available
+        <div
+          use:preserveMouseFocus={!!oninlinetoggle}
+          class="border-b border-edge px-3 py-2 text-[11px] text-muted flex items-center justify-between gap-3"
+        >
+          <div class="min-w-0 flex items-center gap-2">
+            <span>
+              {filteredBranches.length !== branches.length
+                ? `${filteredBranches.length}/${branches.length}`
+                : branches.length}
+              {" "}available
+            </span>
+            {#if loading}
+              <span class="shrink-0 text-[10px] text-warning">Updating...</span>
+            {:else if error}
+              <span class="shrink-0 text-[10px] text-danger">Update failed</span>
+            {/if}
+          </div>
+          {#if inlineToggleLabel && oninlinetoggle}
+            <div class="flex items-center gap-1.5 shrink-0">
+              <button
+                type="button"
+                class="text-[10px] text-muted hover:text-primary transition-colors"
+                onmousedown={(event) => event.preventDefault()}
+                onclick={toggleInlineControl}
+              >
+                {inlineToggleLabel}
+              </button>
+              <Toggle
+                checked={inlineToggleChecked}
+                size="sm"
+                preventMouseFocus={true}
+                aria-label={inlineToggleAriaLabel ?? inlineToggleLabel}
+                ontoggle={toggleInlineControl}
+              />
+            </div>
+          {/if}
         </div>
         <ul class="max-h-48 overflow-y-auto py-1">
           {#each filteredBranches as branch (branch.name)}

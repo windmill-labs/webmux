@@ -396,9 +396,10 @@ async function apiRuntimeEvent(req: Request): Promise<Response> {
   });
 }
 
-async function apiListBranches(): Promise<Response> {
+async function apiListBranches(req: Request): Promise<Response> {
+  const includeRemote = new URL(req.url).searchParams.get("includeRemote") === "true";
   return jsonResponse({
-    branches: lifecycleService.listAvailableBranches(),
+    branches: lifecycleService.listAvailableBranches({ includeRemote }),
   });
 }
 
@@ -745,7 +746,7 @@ Bun.serve({
     },
 
     "/api/branches": {
-      GET: () => catching("GET /api/branches", () => apiListBranches()),
+      GET: (req) => catching("GET /api/branches", () => apiListBranches(req)),
     },
 
     "/api/base-branches": {

@@ -24,6 +24,7 @@
     baseBranches = [],
     baseBranchesLoading = false,
     baseBranchesError = null,
+    includeRemoteBranches = $bindable(false),
     startupEnvs = {},
     linearCreateTicketOption = false,
     openedFromLinearIssue = false,
@@ -41,6 +42,7 @@
     baseBranches?: AvailableBranch[];
     baseBranchesLoading?: boolean;
     baseBranchesError?: string | null;
+    includeRemoteBranches: boolean;
     startupEnvs?: Record<string, string | boolean>;
     linearCreateTicketOption?: boolean;
     openedFromLinearIssue?: boolean;
@@ -230,6 +232,10 @@
           error={availableBranchesError}
           placeholder="Select a branch"
           initialOpen={true}
+          inlineToggleLabel="include remote"
+          inlineToggleAriaLabel="Include remote branches"
+          inlineToggleChecked={includeRemoteBranches}
+          oninlinetoggle={() => (includeRemoteBranches = !includeRemoteBranches)}
           onselect={selectExistingBranch}
         />
         <button

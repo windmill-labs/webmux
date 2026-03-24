@@ -501,6 +501,132 @@ describe("LifecycleService", () => {
     ]);
   });
 
+  it("lists local branches by default and includes remote branches when requested", async () => {
+    const repoRoot = await initRepo();
+    const remoteRoot = await mkdtemp(join(tmpdir(), "webmux-lifecycle-remote-"));
+    const cloneRoot = await mkdtemp(join(tmpdir(), "webmux-lifecycle-clone-"));
+    tempDirs.push(remoteRoot, cloneRoot);
+
+    run(["git", "init", "--bare"], remoteRoot);
+    run(["git", "symbolic-ref", "HEAD", "refs/heads/main"], remoteRoot);
+    run(["git", "remote", "add", "origin", remoteRoot], repoRoot);
+    run(["git", "push", "-u", "origin", "main"], repoRoot);
+
+    run(["git", "clone", remoteRoot, cloneRoot], repoRoot);
+    run(["git", "config", "user.name", "Remote User"], cloneRoot);
+    run(["git", "config", "user.email", "remote@example.com"], cloneRoot);
+    run(["git", "checkout", "-b", "feature-remote-only"], cloneRoot);
+    await Bun.write(join(cloneRoot, "remote.txt"), "remote branch\n");
+    run(["git", "add", "remote.txt"], cloneRoot);
+    run(["git", "commit", "-m", "remote branch"], cloneRoot);
+    run(["git", "push", "-u", "origin", "feature-remote-only"], cloneRoot);
+
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const lifecycle = makeLifecycleService(repoRoot, tmux, runtime);
+    const git = new BunGitGateway();
+
+    run(["git", "branch", "feature-local-only", "main"], repoRoot);
+    run(["git", "branch", "feature-in-use", "main"], repoRoot);
+    git.createWorktree({
+      repoRoot,
+      worktreePath: join(repoRoot, "__worktrees", "feature-in-use"),
+      branch: "feature-in-use",
+      mode: "existing",
+    });
+
+    expect(lifecycle.listAvailableBranches()).toEqual([
+      { name: "feature-local-only" },
+    ]);
+
+    expect(lifecycle.listAvailableBranches({ includeRemote: true })).toEqual([
+      { name: "feature-local-only" },
+      { name: "feature-remote-only" },
+    ]);
+  });
+
+  it("creates a managed worktree from an existing remote-only branch", async () => {
+    const repoRoot = await initRepo();
+    const remoteRoot = await mkdtemp(join(tmpdir(), "webmux-lifecycle-remote-existing-"));
+    const cloneRoot = await mkdtemp(join(tmpdir(), "webmux-lifecycle-clone-existing-"));
+    tempDirs.push(remoteRoot, cloneRoot);
+
+    run(["git", "init", "--bare"], remoteRoot);
+    run(["git", "symbolic-ref", "HEAD", "refs/heads/main"], remoteRoot);
+    run(["git", "remote", "add", "origin", remoteRoot], repoRoot);
+    run(["git", "push", "-u", "origin", "main"], repoRoot);
+
+    run(["git", "clone", remoteRoot, cloneRoot], repoRoot);
+    run(["git", "config", "user.name", "Remote User"], cloneRoot);
+    run(["git", "config", "user.email", "remote@example.com"], cloneRoot);
+    run(["git", "checkout", "-b", "feature-remote-existing"], cloneRoot);
+    await Bun.write(join(cloneRoot, "remote.txt"), "remote branch\n");
+    run(["git", "add", "remote.txt"], cloneRoot);
+    run(["git", "commit", "-m", "remote branch"], cloneRoot);
+    run(["git", "push", "-u", "origin", "feature-remote-existing"], cloneRoot);
+
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const lifecycle = makeLifecycleService(repoRoot, tmux, runtime);
+
+    const created = await lifecycle.createWorktree({
+      mode: "existing",
+      branch: "feature-remote-existing",
+    });
+
+    const worktreePath = join(repoRoot, "__worktrees", "feature-remote-existing");
+    expect(created.branch).toBe("feature-remote-existing");
+    expect(new BunGitGateway().listWorktrees(repoRoot).some((entry) =>
+      entry.branch === "feature-remote-existing" && entry.path === worktreePath
+    )).toBe(true);
+    expect(run(["git", "branch", "--show-current"], worktreePath)).toBe("feature-remote-existing");
+    expect(
+      run(["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], worktreePath),
+    ).toBe("origin/feature-remote-existing");
+  });
+
+  it("removes the temporary local branch when remote-only worktree creation fails", async () => {
+    const repoRoot = await initRepo();
+    const remoteRoot = await mkdtemp(join(tmpdir(), "webmux-lifecycle-remote-rollback-"));
+    const cloneRoot = await mkdtemp(join(tmpdir(), "webmux-lifecycle-clone-rollback-"));
+    tempDirs.push(remoteRoot, cloneRoot);
+
+    run(["git", "init", "--bare"], remoteRoot);
+    run(["git", "symbolic-ref", "HEAD", "refs/heads/main"], remoteRoot);
+    run(["git", "remote", "add", "origin", remoteRoot], repoRoot);
+    run(["git", "push", "-u", "origin", "main"], repoRoot);
+
+    run(["git", "clone", remoteRoot, cloneRoot], repoRoot);
+    run(["git", "config", "user.name", "Remote User"], cloneRoot);
+    run(["git", "config", "user.email", "remote@example.com"], cloneRoot);
+    run(["git", "checkout", "-b", "feature-remote-rollback"], cloneRoot);
+    await Bun.write(join(cloneRoot, "remote.txt"), "remote branch\n");
+    run(["git", "add", "remote.txt"], cloneRoot);
+    run(["git", "commit", "-m", "remote branch"], cloneRoot);
+    run(["git", "push", "-u", "origin", "feature-remote-rollback"], cloneRoot);
+
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const hooks = new FakeHookRunner(() => {
+      throw new Error("post-create failed");
+    });
+    const lifecycle = makeLifecycleService(repoRoot, tmux, runtime, new FakeDockerGateway(), hooks);
+
+    await expect(
+      lifecycle.createWorktree({
+        mode: "existing",
+        branch: "feature-remote-rollback",
+      }),
+    ).rejects.toThrow("post-create failed");
+
+    const worktreePath = join(repoRoot, "__worktrees", "feature-remote-rollback");
+    expect(new BunGitGateway().listWorktrees(repoRoot).some((entry) => entry.path === worktreePath)).toBe(false);
+    expect(run(["git", "branch", "--list", "feature-remote-rollback"], repoRoot)).toBe("");
+    expect(run(["git", "branch", "--remotes", "--list", "origin/feature-remote-rollback"], repoRoot)).toContain(
+      "origin/feature-remote-rollback",
+    );
+  });
+
   it("keeps an existing branch when creation fails after the worktree is created", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();

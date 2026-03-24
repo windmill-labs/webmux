@@ -1,8 +1,10 @@
 import type {
   AvailableBranch,
+  AvailableBranchesQuery,
   WorktreeInfo,
   AppConfig,
   AppNotification,
+  BranchListResponse,
   CreateWorktreeRequest,
   CreateWorktreeResponse,
   FileUploadResult,
@@ -81,13 +83,19 @@ export async function fetchWorktrees(): Promise<WorktreeInfo[]> {
   return snapshot.worktrees.map((worktree) => mapWorktree(worktree));
 }
 
-export async function fetchAvailableBranches(): Promise<AvailableBranch[]> {
-  const data = await api<{ branches: AvailableBranch[] }>("branches");
+export async function fetchAvailableBranches(options: AvailableBranchesQuery = {}): Promise<AvailableBranch[]> {
+  const params = new URLSearchParams();
+  if (options.includeRemote) {
+    params.set("includeRemote", "true");
+  }
+
+  const path = params.size > 0 ? `branches?${params.toString()}` : "branches";
+  const data = await api<BranchListResponse>(path);
   return data.branches;
 }
 
 export async function fetchBaseBranches(): Promise<AvailableBranch[]> {
-  const data = await api<{ branches: AvailableBranch[] }>("base-branches");
+  const data = await api<BranchListResponse>("base-branches");
   return data.branches;
 }
 

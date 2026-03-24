@@ -3,10 +3,16 @@ export type RuntimeKind = "host" | "docker";
 export type PaneKind = "agent" | "shell" | "command";
 export type PaneSplit = "right" | "bottom";
 
+export interface AutoPullConfig {
+  enabled: boolean;
+  intervalSeconds: number;
+}
+
 export interface WorkspaceConfig {
   mainBranch: string;
   worktreeRoot: string;
   defaultAgent: AgentKind;
+  autoPull: AutoPullConfig;
 }
 
 export interface PaneTemplate {
@@ -52,6 +58,7 @@ export interface LinkedRepoConfig {
 
 export interface GitHubIntegrationConfig {
   linkedRepos: LinkedRepoConfig[];
+  autoRemoveOnMerge: boolean;
 }
 
 export interface LinearIntegrationConfig {

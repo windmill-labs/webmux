@@ -147,7 +147,7 @@ export interface ProfileConfig {
 export interface AppNotification {
   id: number;
   branch: string;
-  type: "agent_stopped" | "pr_opened" | "runtime_error";
+  type: "agent_stopped" | "pr_opened" | "runtime_error" | "worktree_auto_removed";
   message: string;
   url?: string;
   timestamp: number;
@@ -212,4 +212,7 @@ export interface AppConfig {
   startupEnvs?: Record<string, string | boolean>;
   linkedRepos?: LinkedRepoInfo[];
   linearAutoCreateWorktrees?: boolean;
+  autoRemoveOnMerge?: boolean;
+  projectDir?: string;
+  mainBranch?: string;
 }

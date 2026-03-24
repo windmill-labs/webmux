@@ -4,6 +4,8 @@ import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import type {
   AgentKind,
   AutoNameConfig,
+  AutoPullConfig,
+  GitHubIntegrationConfig,
   LifecycleHooksConfig,
   LinearIntegrationConfig,
   LinkedRepoConfig,
@@ -27,6 +29,8 @@ interface LocalProjectConfigOverlay {
   profiles: Record<string, ProfileConfig>;
   lifecycleHooks: LifecycleHooksConfig;
   linear: Partial<LinearIntegrationConfig> | null;
+  github: Partial<GitHubIntegrationConfig> | null;
+  autoPull: Partial<AutoPullConfig> | null;
 }
 
 const DEFAULT_PANES: PaneTemplate[] = [
@@ -40,6 +44,7 @@ const DEFAULT_CONFIG: ProjectConfig = {
     mainBranch: "main",
     worktreeRoot: "../worktrees",
     defaultAgent: "claude",
+    autoPull: { enabled: false, intervalSeconds: 300 },
   },
   profiles: {
     default: {
@@ -51,7 +56,7 @@ const DEFAULT_CONFIG: ProjectConfig = {
   services: [],
   startupEnvs: {},
   integrations: {
-    github: { linkedRepos: [] },
+    github: { linkedRepos: [], autoRemoveOnMerge: false },
     linear: { enabled: true, autoCreateWorktrees: false, createTicketOption: false },
   },
   lifecycleHooks: {},
@@ -247,6 +252,15 @@ function parseAutoName(raw: unknown): AutoNameConfig | null {
   };
 }
 
+function parseAutoPull(raw: unknown): AutoPullConfig {
+  if (!isRecord(raw)) return DEFAULT_CONFIG.workspace.autoPull;
+  const enabled = typeof raw.enabled === "boolean" ? raw.enabled : false;
+  const interval = typeof raw.intervalSeconds === "number" && Number.isFinite(raw.intervalSeconds) && raw.intervalSeconds >= 30
+    ? raw.intervalSeconds
+    : 300;
+  return { enabled, intervalSeconds: interval };
+}
+
 function parseLinkedRepos(raw: unknown): LinkedRepoConfig[] {
   if (!Array.isArray(raw)) return [];
 
@@ -299,6 +313,9 @@ function parseProjectConfig(parsed: Record<string, unknown>): ProjectConfig {
       defaultAgent: isRecord(parsed.workspace)
         ? parseAgentKind(parsed.workspace.defaultAgent)
         : DEFAULT_CONFIG.workspace.defaultAgent,
+      autoPull: isRecord(parsed.workspace)
+        ? parseAutoPull(parsed.workspace.autoPull)
+        : DEFAULT_CONFIG.workspace.autoPull,
     },
     profiles: parseProfiles(parsed.profiles, true),
     services: parseServices(parsed.services),
@@ -310,6 +327,9 @@ function parseProjectConfig(parsed: Record<string, unknown>): ProjectConfig {
           : isRecord(parsed.integrations) && Array.isArray(parsed.integrations.github)
             ? parseLinkedRepos(parsed.integrations.github)
             : [],
+        autoRemoveOnMerge: isRecord(parsed.integrations) && isRecord(parsed.integrations.github) && typeof parsed.integrations.github.autoRemoveOnMerge === "boolean"
+          ? parsed.integrations.github.autoRemoveOnMerge
+          : DEFAULT_CONFIG.integrations.github.autoRemoveOnMerge,
       },
       linear: {
         enabled: isRecord(parsed.integrations) && isRecord(parsed.integrations.linear) && typeof parsed.integrations.linear.enabled === "boolean"
@@ -353,11 +373,34 @@ function parseLocalLinearOverlay(parsed: Record<string, unknown>): Partial<Linea
   return Object.keys(overlay).length > 0 ? overlay : null;
 }
 
+function parseLocalGitHubOverlay(parsed: Record<string, unknown>): Partial<GitHubIntegrationConfig> | null {
+  if (!isRecord(parsed.integrations)) return null;
+  const github = parsed.integrations.github;
+  if (!isRecord(github)) return null;
+
+  const overlay: Partial<GitHubIntegrationConfig> = {};
+  if (typeof github.autoRemoveOnMerge === "boolean") overlay.autoRemoveOnMerge = github.autoRemoveOnMerge;
+  return Object.keys(overlay).length > 0 ? overlay : null;
+}
+
+function parseLocalAutoPullOverlay(parsed: Record<string, unknown>): Partial<AutoPullConfig> | null {
+  if (!isRecord(parsed.workspace)) return null;
+  const autoPull = parsed.workspace.autoPull;
+  if (!isRecord(autoPull)) return null;
+
+  const overlay: Partial<AutoPullConfig> = {};
+  if (typeof autoPull.enabled === "boolean") overlay.enabled = autoPull.enabled;
+  if (typeof autoPull.intervalSeconds === "number" && Number.isFinite(autoPull.intervalSeconds) && autoPull.intervalSeconds >= 30) {
+    overlay.intervalSeconds = autoPull.intervalSeconds;
+  }
+  return Object.keys(overlay).length > 0 ? overlay : null;
+}
+
 function loadLocalProjectConfigOverlay(root: string): LocalProjectConfigOverlay {
   try {
     const text = readLocalConfigFile(root).trim();
     if (!text) {
-      return { worktreeRoot: null, profiles: {}, lifecycleHooks: {}, linear: null };
+      return { worktreeRoot: null, profiles: {}, lifecycleHooks: {}, linear: null, github: null, autoPull: null };
     }
 
     const parsed = parseConfigDocument(text);
@@ -367,9 +410,11 @@ function loadLocalProjectConfigOverlay(root: string): LocalProjectConfigOverlay 
       profiles: parseProfiles(parsed.profiles, false),
       lifecycleHooks: parseLifecycleHooks(parsed.lifecycleHooks),
       linear: parseLocalLinearOverlay(parsed),
+      github: parseLocalGitHubOverlay(parsed),
+      autoPull: parseLocalAutoPullOverlay(parsed),
     };
   } catch {
-    return { worktreeRoot: null, profiles: {}, lifecycleHooks: {}, linear: null };
+    return { worktreeRoot: null, profiles: {}, lifecycleHooks: {}, linear: null, github: null, autoPull: null };
   }
 }
 
@@ -425,22 +470,32 @@ export function loadConfig(dir: string, options: LoadConfigOptions = {}): Projec
 
   const localOverlay = loadLocalProjectConfigOverlay(root);
 
+  const workspace = localOverlay.worktreeRoot !== null || localOverlay.autoPull
+    ? {
+        ...projectConfig.workspace,
+        ...(localOverlay.worktreeRoot !== null ? { worktreeRoot: localOverlay.worktreeRoot } : {}),
+        ...(localOverlay.autoPull ? { autoPull: { ...projectConfig.workspace.autoPull, ...localOverlay.autoPull } } : {}),
+      }
+    : projectConfig.workspace;
+
+  const hasIntegrationOverlay = localOverlay.linear || localOverlay.github;
+  const integrations = hasIntegrationOverlay
+    ? {
+        ...projectConfig.integrations,
+        ...(localOverlay.linear ? { linear: { ...projectConfig.integrations.linear, ...localOverlay.linear } } : {}),
+        ...(localOverlay.github ? { github: { ...projectConfig.integrations.github, ...localOverlay.github } } : {}),
+      }
+    : projectConfig.integrations;
+
   return {
     ...projectConfig,
-    ...(localOverlay.worktreeRoot !== null ? {
-      workspace: { ...projectConfig.workspace, worktreeRoot: localOverlay.worktreeRoot },
-    } : {}),
+    workspace,
     profiles: {
       ...cloneProfiles(projectConfig.profiles),
       ...cloneProfiles(localOverlay.profiles),
     },
     lifecycleHooks: mergeLifecycleHooks(projectConfig.lifecycleHooks, localOverlay.lifecycleHooks),
-    ...(localOverlay.linear ? {
-      integrations: {
-        ...projectConfig.integrations,
-        linear: { ...projectConfig.integrations.linear, ...localOverlay.linear },
-      },
-    } : {}),
+    integrations,
   };
 }
 
@@ -463,6 +518,29 @@ export async function persistLocalLinearConfig(
   const linear = isRecord(integrations.linear) ? { ...integrations.linear } : {};
   Object.assign(linear, changes);
   integrations.linear = linear;
+  existing.integrations = integrations;
+
+  await Bun.write(localPath, stringifyYaml(existing));
+}
+
+/** Persist a partial GitHub integration config override into `.webmux.local.yaml`. */
+export async function persistLocalGitHubConfig(
+  dir: string,
+  changes: Partial<GitHubIntegrationConfig>,
+): Promise<void> {
+  const root = projectRoot(dir);
+  const localPath = join(root, ".webmux.local.yaml");
+
+  let existing: Record<string, unknown> = {};
+  try {
+    const text = readFileSync(localPath, "utf8").trim();
+    if (text) existing = parseConfigDocument(text);
+  } catch { /* file doesn't exist yet */ }
+
+  const integrations = isRecord(existing.integrations) ? { ...existing.integrations } : {};
+  const github = isRecord(integrations.github) ? { ...integrations.github } : {};
+  Object.assign(github, changes);
+  integrations.github = github;
   existing.integrations = integrations;
 
   await Bun.write(localPath, stringifyYaml(existing));

@@ -3,39 +3,20 @@ import type { RuntimeEvent } from "../domain/events";
 export interface RuntimeNotification {
   id: number;
   branch: string;
-  type: "agent_stopped" | "pr_opened" | "runtime_error";
+  type: "agent_stopped" | "pr_opened" | "runtime_error" | "worktree_auto_removed";
   message: string;
   url?: string;
   timestamp: number;
 }
 
-function buildNotification(event: RuntimeEvent, id: number, timestamp: number): RuntimeNotification | null {
+function eventToNotificationInput(event: RuntimeEvent): { branch: string; type: RuntimeNotification["type"]; message: string; url?: string } | null {
   switch (event.type) {
     case "agent_stopped":
-      return {
-        id,
-        branch: event.branch,
-        type: "agent_stopped",
-        message: `Agent stopped on ${event.branch}`,
-        timestamp,
-      };
+      return { branch: event.branch, type: "agent_stopped", message: `Agent stopped on ${event.branch}` };
     case "pr_opened":
-      return {
-        id,
-        branch: event.branch,
-        type: "pr_opened",
-        message: `PR opened on ${event.branch}`,
-        url: event.url,
-        timestamp,
-      };
+      return { branch: event.branch, type: "pr_opened", message: `PR opened on ${event.branch}`, url: event.url };
     case "runtime_error":
-      return {
-        id,
-        branch: event.branch,
-        type: "runtime_error",
-        message: `Runtime error on ${event.branch}: ${event.message}`,
-        timestamp,
-      };
+      return { branch: event.branch, type: "runtime_error", message: `Runtime error on ${event.branch}: ${event.message}` };
     default:
       return null;
   }
@@ -60,10 +41,15 @@ export class NotificationService {
     return true;
   }
 
-  recordEvent(event: RuntimeEvent, now: () => Date = () => new Date()): RuntimeNotification | null {
-    const notification = buildNotification(event, this.nextId, now().getTime());
-    if (!notification) return null;
-
+  notify(input: { branch: string; type: RuntimeNotification["type"]; message: string; url?: string }): RuntimeNotification {
+    const notification: RuntimeNotification = {
+      id: this.nextId,
+      branch: input.branch,
+      type: input.type,
+      message: input.message,
+      ...(input.url ? { url: input.url } : {}),
+      timestamp: Date.now(),
+    };
     this.nextId += 1;
     this.notifications.push(notification);
     while (this.notifications.length > this.maxItems) {
@@ -71,6 +57,12 @@ export class NotificationService {
     }
     this.broadcast("notification", notification);
     return notification;
+  }
+
+  recordEvent(event: RuntimeEvent): RuntimeNotification | null {
+    const input = eventToNotificationInput(event);
+    if (!input) return null;
+    return this.notify(input);
   }
 
   stream(): Response {

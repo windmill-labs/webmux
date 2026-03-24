@@ -165,6 +165,7 @@ const TEST_CONFIG: ProjectConfig = {
     mainBranch: "main",
     worktreeRoot: "__worktrees",
     defaultAgent: "claude",
+    autoPull: { enabled: false, intervalSeconds: 300 },
   },
   profiles: {
     default: {
@@ -196,7 +197,7 @@ const TEST_CONFIG: ProjectConfig = {
     FEATURE_FLAG: true,
   },
   integrations: {
-    github: { linkedRepos: [] },
+    github: { linkedRepos: [], autoRemoveOnMerge: false },
     linear: { enabled: true, autoCreateWorktrees: false, createTicketOption: false },
   },
   lifecycleHooks: {

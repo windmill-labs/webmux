@@ -18,7 +18,7 @@ import {
   type TerminalAttachTarget,
 } from "./adapters/terminal";
 import { loadControlToken } from "./adapters/control-token";
-import { getDefaultProfileName, persistLocalLinearConfig, type ProjectConfig } from "./adapters/config";
+import { getDefaultProfileName, persistLocalLinearConfig, persistLocalGitHubConfig, type ProjectConfig } from "./adapters/config";
 import { jsonResponse, errorResponse } from "./lib/http";
 import { hasRecentDashboardActivity, touchDashboardActivity } from "./services/dashboard-activity";
 import {
@@ -32,6 +32,8 @@ import { LifecycleError } from "./services/lifecycle-service";
 import { buildNativeTerminalLaunch, buildNativeTerminalTmuxCommand } from "./services/native-terminal-service";
 import { startPrMonitor } from "./services/pr-service";
 import { startLinearAutoCreateMonitor, resetProcessedIssues } from "./services/linear-auto-create-service";
+import { runAutoRemove, type AutoRemoveDependencies } from "./services/auto-remove-service";
+import { pullMainBranch, forcePullMainBranch, startAutoPullMonitor } from "./services/auto-pull-service";
 import { buildProjectSnapshot } from "./services/snapshot-service";
 import { parseRuntimeEvent } from "./domain/events";
 import { isValidBranchName, isValidWorktreeName } from "./domain/policies";
@@ -55,6 +57,7 @@ const removingBranches = new Set<string>();
 const lifecycleService = runtime.lifecycleService;
 let linearAutoCreateEnabled = config.integrations.linear.autoCreateWorktrees;
 let stopLinearAutoCreate: (() => void) | null = null;
+let autoRemoveOnMergeEnabled = config.integrations.github.autoRemoveOnMerge;
 
 /** Safe to call multiple times — the guard prevents duplicate monitors. */
 function startLinearAutoCreate(): void {
@@ -74,6 +77,16 @@ function stopLinearAutoCreateMonitor(): void {
   }
 }
 
+const autoRemoveDeps: AutoRemoveDependencies = {
+  lifecycleService,
+  git,
+  projectRoot: PROJECT_DIR,
+  notifications: runtimeNotifications,
+  isRemoving: (branch: string) => removingBranches.has(branch),
+  markRemoving: (branch: string) => removingBranches.add(branch),
+  unmarkRemoving: (branch: string) => removingBranches.delete(branch),
+};
+
 function getFrontendConfig(): {
   name: string;
   services: ProjectConfig["services"];
@@ -84,6 +97,9 @@ function getFrontendConfig(): {
   startupEnvs: ProjectConfig["startupEnvs"];
   linkedRepos: Array<{ alias: string; dir?: string }>;
   linearAutoCreateWorktrees: boolean;
+  autoRemoveOnMerge: boolean;
+  projectDir: string;
+  mainBranch: string;
 } {
   const defaultProfileName = getDefaultProfileName(config);
   const orderedProfileEntries = Object.entries(config.profiles).sort(([left], [right]) => {
@@ -108,6 +124,9 @@ function getFrontendConfig(): {
       ...(lr.dir ? { dir: resolve(PROJECT_DIR, lr.dir) } : {}),
     })),
     linearAutoCreateWorktrees: linearAutoCreateEnabled,
+    autoRemoveOnMerge: autoRemoveOnMergeEnabled,
+    projectDir: PROJECT_DIR,
+    mainBranch: config.workspace.mainBranch,
   };
 }
 
@@ -577,6 +596,36 @@ async function apiSetLinearAutoCreate(req: Request): Promise<Response> {
   return jsonResponse({ ok: true, enabled: linearAutoCreateEnabled });
 }
 
+async function apiSetAutoRemoveOnMerge(req: Request): Promise<Response> {
+  const raw: unknown = await req.json();
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return errorResponse("Invalid request body", 400);
+  }
+  const body = raw as Record<string, unknown>;
+  if (typeof body.enabled !== "boolean") {
+    return errorResponse("Missing boolean 'enabled' field", 400);
+  }
+
+  autoRemoveOnMergeEnabled = body.enabled;
+  log.info(`[config] Auto-remove on merge ${autoRemoveOnMergeEnabled ? "enabled" : "disabled"}`);
+
+  await persistLocalGitHubConfig(PROJECT_DIR, { autoRemoveOnMerge: autoRemoveOnMergeEnabled });
+
+  return jsonResponse({ ok: true, enabled: autoRemoveOnMergeEnabled });
+}
+
+async function apiPullMain(req: Request): Promise<Response> {
+  const raw: unknown = await req.json().catch(() => ({}));
+  const body = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
+  const force = body.force === true;
+
+  const deps = { git, projectRoot: PROJECT_DIR, mainBranch: config.workspace.mainBranch };
+  const result = force ? forcePullMainBranch(deps) : pullMainBranch(deps);
+
+  log.info(`[pull-main] ${force ? "force " : ""}pull: ${result.status}`);
+  return jsonResponse(result);
+}
+
 async function apiGetLinearIssues(): Promise<Response> {
   const apiKey = Bun.env.LINEAR_API_KEY;
   const fetchResult = config.integrations.linear.enabled && apiKey?.trim()
@@ -787,6 +836,14 @@ Bun.serve({
       PUT: (req) => catching("PUT /api/linear/auto-create", () => apiSetLinearAutoCreate(req)),
     },
 
+    "/api/github/auto-remove-on-merge": {
+      PUT: (req) => catching("PUT /api/github/auto-remove-on-merge", () => apiSetAutoRemoveOnMerge(req)),
+    },
+
+    "/api/pull-main": {
+      POST: (req) => catching("POST /api/pull-main", () => apiPullMain(req)),
+    },
+
     "/api/ci-logs/:runId": {
       GET: (req) => catching(`GET /api/ci-logs/${req.params.runId}`, () => apiCiLogs(req.params.runId)),
     },
@@ -940,9 +997,19 @@ if (tmuxCheck.exitCode !== 0) {
 }
 
 cleanupStaleSessions();
-startPrMonitor(getWorktreeGitDirs, config.integrations.github.linkedRepos, PROJECT_DIR, undefined, hasRecentDashboardActivity);
+startPrMonitor(getWorktreeGitDirs, config.integrations.github.linkedRepos, PROJECT_DIR, undefined, hasRecentDashboardActivity, async () => {
+  if (autoRemoveOnMergeEnabled) {
+    await runAutoRemove(autoRemoveDeps);
+  }
+});
 if (linearAutoCreateEnabled) {
   startLinearAutoCreate();
+}
+if (config.workspace.autoPull.enabled) {
+  startAutoPullMonitor(
+    { git, projectRoot: PROJECT_DIR, mainBranch: config.workspace.mainBranch },
+    config.workspace.autoPull.intervalSeconds * 1000,
+  );
 }
 
 log.info(`Dev Dashboard API running at http://localhost:${PORT}`);

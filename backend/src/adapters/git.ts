@@ -75,6 +75,9 @@ export interface GitGateway {
   currentBranch(repoRoot: string): string;
   readDiff(cwd: string): string;
   listUnpushedCommits(cwd: string): UnpushedCommit[];
+  fetchBranch(repoRoot: string, remote: string, branch: string): TryGitCommandResult;
+  fastForwardMerge(repoRoot: string, ref: string): TryGitCommandResult;
+  hardReset(repoRoot: string, ref: string): TryGitCommandResult;
 }
 
 function runGit(args: string[], cwd: string): string {
@@ -385,5 +388,17 @@ export class BunGitGateway implements GitGateway {
           message: line.slice(spaceIdx + 1),
         };
       });
+  }
+
+  fetchBranch(repoRoot: string, remote: string, branch: string): TryGitCommandResult {
+    return tryRunGit(["fetch", remote, branch], repoRoot);
+  }
+
+  fastForwardMerge(repoRoot: string, ref: string): TryGitCommandResult {
+    return tryRunGit(["merge", "--ff-only", ref], repoRoot);
+  }
+
+  hardReset(repoRoot: string, ref: string): TryGitCommandResult {
+    return tryRunGit(["reset", "--hard", ref], repoRoot);
   }
 }

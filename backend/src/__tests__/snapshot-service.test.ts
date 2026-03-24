@@ -61,7 +61,6 @@ describe("buildProjectSnapshot", () => {
     const notifications = new NotificationService();
     notifications.recordEvent(
       { worktreeId: "wt_search", branch: "feature/search", type: "pr_opened", url: "https://github.com/org/repo/pull/123" },
-      () => new Date("2026-03-06T10:02:00.000Z"),
     );
 
     const snapshot = buildProjectSnapshot({

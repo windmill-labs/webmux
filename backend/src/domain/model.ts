@@ -141,7 +141,7 @@ export interface ManagedWorktreeRuntimeState {
 export interface NotificationView {
   id: number;
   branch: string;
-  type: "agent_stopped" | "pr_opened" | "runtime_error";
+  type: "agent_stopped" | "pr_opened" | "runtime_error" | "worktree_auto_removed";
   message: string;
   url?: string;
   timestamp: number;

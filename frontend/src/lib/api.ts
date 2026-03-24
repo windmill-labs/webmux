@@ -137,6 +137,27 @@ export function setLinearAutoCreate(enabled: boolean): Promise<{ ok: boolean; en
   });
 }
 
+export interface PullMainResult {
+  status: "updated" | "already_up_to_date" | "fetch_failed" | "merge_failed";
+  from?: string;
+  to?: string;
+  error?: string;
+}
+
+export function pullMain(force = false): Promise<PullMainResult> {
+  return api<PullMainResult>("pull-main", {
+    method: "POST",
+    body: JSON.stringify(force ? { force: true } : {}),
+  });
+}
+
+export function setAutoRemoveOnMerge(enabled: boolean): Promise<{ ok: boolean; enabled: boolean }> {
+  return api<{ ok: boolean; enabled: boolean }>("github/auto-remove-on-merge", {
+    method: "PUT",
+    body: JSON.stringify({ enabled }),
+  });
+}
+
 export async function fetchCiLogs(runId: number): Promise<string> {
   const data = await api<{ logs: string }>(`ci-logs/${runId}`);
   return data.logs;

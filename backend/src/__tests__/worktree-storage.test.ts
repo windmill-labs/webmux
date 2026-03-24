@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { BunGitGateway, type GitGateway, type UnpushedCommit } from "../adapters/git";
+import { BunGitGateway, type GitGateway, type TryGitCommandResult, type UnpushedCommit } from "../adapters/git";
 import type { TmuxGateway } from "../adapters/tmux";
 import {
   buildRuntimeEnvMap,
@@ -97,6 +97,18 @@ class FakeGitGateway implements GitGateway {
 
   listUnpushedCommits(): UnpushedCommit[] {
     return [];
+  }
+
+  fetchBranch(_repoRoot: string, _remote: string, _branch: string): TryGitCommandResult {
+    return { ok: true, stdout: "" };
+  }
+
+  fastForwardMerge(_repoRoot: string, _ref: string): TryGitCommandResult {
+    return { ok: true, stdout: "" };
+  }
+
+  hardReset(_repoRoot: string, _ref: string): TryGitCommandResult {
+    return { ok: true, stdout: "" };
   }
 }
 

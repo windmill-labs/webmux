@@ -66,6 +66,7 @@ export interface GitGateway {
   resolveWorktreeGitDir(cwd: string): string;
   listWorktrees(cwd: string): GitWorktreeEntry[];
   listLocalBranches(cwd: string): string[];
+  listRemoteBranches(cwd: string): string[];
   readWorktreeStatus(cwd: string): GitWorktreeStatus;
   createWorktree(opts: CreateGitWorktreeOptions): void;
   removeWorktree(opts: RemoveGitWorktreeOptions): void;
@@ -219,6 +220,16 @@ export function listLocalGitBranches(cwd: string): string[] {
     .filter((line) => line.length > 0);
 }
 
+export function listRemoteGitBranches(cwd: string): string[] {
+  const output = runGit(["for-each-ref", "--format=%(refname:short)", "refs/remotes/origin"], cwd);
+  return output
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((line) => line.replace(/^origin\//, ""))
+    .filter((name) => name !== "HEAD");
+}
+
 export function readGitWorktreeStatus(cwd: string): GitWorktreeStatus {
   const dirtyOutput = runGit(["status", "--porcelain"], cwd);
   const commit = tryRunGit(["rev-parse", "HEAD"], cwd);
@@ -277,6 +288,10 @@ export class BunGitGateway implements GitGateway {
 
   listLocalBranches(cwd: string): string[] {
     return listLocalGitBranches(cwd);
+  }
+
+  listRemoteBranches(cwd: string): string[] {
+    return listRemoteGitBranches(cwd);
   }
 
   readWorktreeStatus(cwd: string): GitWorktreeStatus {

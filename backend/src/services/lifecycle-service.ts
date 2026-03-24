@@ -333,9 +333,12 @@ export class LifecycleService {
 
   listAvailableBranches(): Array<{ name: string }> {
     const localBranches = this.listLocalBranches().filter((branch) => isValidBranchName(branch));
+    const remoteBranches = this.listRemoteBranches().filter((branch) => isValidBranchName(branch));
     const checkedOutBranches = this.listCheckedOutBranches();
 
-    return localBranches
+    const allBranches = [...new Set([...localBranches, ...remoteBranches])];
+
+    return allBranches
       .filter((branch) => !checkedOutBranches.has(branch))
       .sort((left, right) => left.localeCompare(right))
       .map((name) => ({ name }));
@@ -435,6 +438,10 @@ export class LifecycleService {
 
   private listLocalBranches(): string[] {
     return this.deps.git.listLocalBranches(resolve(this.deps.projectRoot));
+  }
+
+  private listRemoteBranches(): string[] {
+    return this.deps.git.listRemoteBranches(resolve(this.deps.projectRoot));
   }
 
   private listCheckedOutBranches(): Set<string> {

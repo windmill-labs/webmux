@@ -253,6 +253,7 @@ profiles:
         kind: command
         split: bottom
         cwd: repo
+        workingDir: frontend
         command: FRONTEND_PORT=$FRONTEND_PORT bun run dev
 
   sandbox:
@@ -459,6 +460,12 @@ export const configGroups: ConfigGroup[] = [
         type: "string",
         required: "conditional",
         description: "Startup command for command panes.",
+      },
+      {
+        key: "panes[].workingDir",
+        type: "string",
+        required: "no",
+        description: "Directory to cd into before running a command pane startup command.",
       },
       {
         key: "panes[].cwd",

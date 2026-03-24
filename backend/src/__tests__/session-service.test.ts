@@ -62,7 +62,14 @@ describe("planSessionLayout", () => {
       [
         { id: "agent", kind: "agent", focus: true },
         { id: "shell", kind: "shell", split: "right", sizePct: 25 },
-        { id: "dev", kind: "command", command: "npm run dev", split: "bottom", cwd: "repo" },
+        {
+          id: "dev",
+          kind: "command",
+          command: "npm run dev",
+          split: "bottom",
+          cwd: "repo",
+          workingDir: "apps/web",
+        },
       ],
       {
         repoRoot: "/repo/project",
@@ -99,12 +106,37 @@ describe("planSessionLayout", () => {
         index: 2,
         kind: "command",
         cwd: "/repo/project",
-        startupCommand: "npm run dev",
+        startupCommand: "cd -- '/repo/project/apps/web' && npm run dev",
         focus: false,
         split: "bottom",
       },
     ]);
     expect(plan.focusPaneIndex).toBe(0);
+  });
+
+  it("keeps absolute command workingDir values intact", () => {
+    const plan = planSessionLayout(
+      "/repo/project",
+      "feature/search",
+      [
+        {
+          id: "dev",
+          kind: "command",
+          command: "bun run dev",
+          workingDir: "/repo/shared/frontend",
+        },
+      ],
+      {
+        repoRoot: "/repo/project",
+        worktreePath: "/repo/project/__worktrees/feature-search",
+        paneCommands: {
+          agent: "agent",
+          shell: "shell",
+        },
+      },
+    );
+
+    expect(plan.panes[0]?.startupCommand).toBe("cd -- '/repo/shared/frontend' && bun run dev");
   });
 
   it("throws when a command pane has no command", () => {

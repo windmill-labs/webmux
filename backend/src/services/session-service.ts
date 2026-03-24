@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import type { PaneTemplate, PaneKind } from "../domain/config";
 import type { TmuxGateway } from "../adapters/tmux";
 import { buildProjectSessionName, buildWorktreeWindowName } from "../adapters/tmux";
@@ -32,21 +33,34 @@ export interface SessionLayoutPlan {
   focusPaneIndex: number;
 }
 
+function quoteShell(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
 function resolvePaneCwd(template: PaneTemplate, ctx: SessionLayoutContext): string {
   return template.cwd === "repo" ? ctx.repoRoot : ctx.worktreePath;
 }
 
-function resolvePaneStartupCommand(template: PaneTemplate, commands: PaneCommandSet): string | undefined {
+function buildCommandPaneStartupCommand(template: PaneTemplate, ctx: SessionLayoutContext): string {
+  if (!template.command) {
+    throw new Error(`Pane "${template.id}" is kind=command but has no command`);
+  }
+  if (!template.workingDir) {
+    return template.command;
+  }
+
+  const workingDir = resolve(resolvePaneCwd(template, ctx), template.workingDir);
+  return `cd -- ${quoteShell(workingDir)} && ${template.command}`;
+}
+
+function resolvePaneStartupCommand(template: PaneTemplate, ctx: SessionLayoutContext): string | undefined {
   switch (template.kind) {
     case "agent":
-      return commands.agent;
+      return ctx.paneCommands.agent;
     case "shell":
       return undefined;
     case "command":
-      if (!template.command) {
-        throw new Error(`Pane "${template.id}" is kind=command but has no command`);
-      }
-      return template.command;
+      return buildCommandPaneStartupCommand(template, ctx);
   }
 }
 
@@ -61,7 +75,7 @@ export function planSessionLayout(
   }
 
   const panes = templates.map((template, index) => {
-    const startupCommand = resolvePaneStartupCommand(template, ctx.paneCommands);
+    const startupCommand = resolvePaneStartupCommand(template, ctx);
     return {
       id: template.id,
       index,

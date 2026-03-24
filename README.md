@@ -110,6 +110,7 @@ profiles:
       - id: frontend
         kind: command
         split: right
+        workingDir: frontend
         command: FRONTEND_PORT=$FRONTEND_PORT npm run dev
 
   sandbox:
@@ -165,6 +166,7 @@ lifecycleHooks:
 | `profiles.<name>.panes[]` | array | yes | Pane layout for that profile |
 | `profiles.<name>.panes[].kind` | string | yes | `agent`, `shell`, or `command` |
 | `profiles.<name>.panes[].command` | string | yes (for `command`) | Startup command run inside the pane |
+| `profiles.<name>.panes[].workingDir` | string | no | Directory to `cd` into before running a command pane startup command |
 | `profiles.default.systemPrompt` | string | no | Agent system prompt; `${VAR}` placeholders expanded at runtime |
 | `profiles.default.envPassthrough` | string[] | no | Env vars passed to the agent process |
 | `profiles.sandbox.image` | string | yes (if used) | Docker image for containers |

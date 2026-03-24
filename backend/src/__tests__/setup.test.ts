@@ -145,6 +145,41 @@ describe("loadConfig", () => {
     expect(getDefaultProfileName(config)).toBe("slim");
   });
 
+  it("preserves command pane workingDir values from config", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "webmux-config-"));
+    tempDirs.push(dir);
+    Bun.spawnSync(["git", "init"], { cwd: dir });
+
+    await Bun.write(
+      join(dir, ".webmux.yaml"),
+      [
+        "profiles:",
+        "  default:",
+        "    runtime: host",
+        "    envPassthrough: []",
+        "    panes:",
+        "      - id: app",
+        "        kind: command",
+        "        cwd: repo",
+        "        workingDir: frontend",
+        "        command: bun run dev",
+        "",
+      ].join("\n"),
+    );
+
+    const config = loadConfig(dir);
+
+    expect(config.profiles.default.panes).toEqual([
+      {
+        id: "app",
+        kind: "command",
+        cwd: "repo",
+        workingDir: "frontend",
+        command: "bun run dev",
+      },
+    ]);
+  });
+
   it("defaults Linear ticket creation option to false", async () => {
     const dir = await mkdtemp(join(tmpdir(), "webmux-config-"));
     tempDirs.push(dir);

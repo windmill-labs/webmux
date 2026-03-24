@@ -409,11 +409,11 @@
       if (result.status === "updated" || result.status === "already_up_to_date") {
         pullMainConfirm = false;
         pullMainForce = false;
-      } else if (result.status === "skipped_dirty") {
-        pullMainError = "Main worktree has uncommitted changes. Commit or stash them first.";
-      } else if (result.status === "merge_failed" && !pullMainForce) {
+      } else if ((result.status === "skipped_dirty" || result.status === "merge_failed") && !pullMainForce) {
         pullMainForce = true;
-        pullMainError = `Fast-forward failed: ${result.error ?? "unknown error"}.\nForce pull will discard local changes on main.`;
+        pullMainError = result.status === "skipped_dirty"
+          ? "Main worktree has uncommitted changes.\nForce pull will discard them."
+          : `Fast-forward failed: ${result.error ?? "unknown error"}.\nForce pull will reset main to match remote.`;
       } else {
         pullMainError = result.error ?? result.status;
       }

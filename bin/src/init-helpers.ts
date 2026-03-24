@@ -556,15 +556,14 @@ workspace:
 services:
   # Example app service with a predictable per-worktree port.
   # - name: app
-  #   # Label shown in the dashboard.
-  #   portEnv: PORT
   #   # Env var name injected into panes and hooks.
-  #   portStart: 3000
+  #   portEnv: PORT
   #   # Starting port for the first worktree slot.
-  #   portStep: 10
+  #   portStart: 3000
   #   # Port increment between worktree slots.
-  #   urlTemplate: http://localhost:\${PORT}
+  #   portStep: 10
   #   # Link shown in the dashboard when the service is running.
+  #   urlTemplate: http://localhost:\${PORT}
 
 # Profiles define runtime, permissions, and tmux pane layout.
 profiles:

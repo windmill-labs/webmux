@@ -35,6 +35,7 @@
     loadSavedSidebarWidth,
     saveSidebarWidth,
   } from "./lib/utils";
+  import { buildWorktreeListRows } from "./lib/worktree-list";
   import { getTheme } from "./lib/themes";
   import type { ThemeKey } from "./lib/themes";
   import * as api from "./lib/api";
@@ -70,6 +71,9 @@
   let availableBranches = $state<AvailableBranch[]>([]);
   let availableBranchesLoading = $state(false);
   let availableBranchesError = $state<string | null>(null);
+  let baseBranches = $state<AvailableBranch[]>([]);
+  let baseBranchesLoading = $state(false);
+  let baseBranchesError = $state<string | null>(null);
 
   // Linear integration
   let linearIssues = $state<LinearIssue[]>([]);
@@ -184,6 +188,7 @@
 
   let openingBranches = $state<Set<string>>(new Set());
   let visibleWorktrees = $derived(worktrees);
+  let visibleWorktreeRows = $derived(buildWorktreeListRows(visibleWorktrees));
   let creatingWorktrees = $derived(visibleWorktrees.filter((w) => w.creating));
   let backendCreatingCount = $derived(visibleWorktrees.filter((w) => w.creating).length);
   let activeCreateCount = $derived(Math.max(pendingCreateCount, backendCreatingCount));
@@ -252,6 +257,9 @@
     availableBranches = [];
     availableBranchesLoading = true;
     availableBranchesError = null;
+    baseBranches = [];
+    baseBranchesLoading = true;
+    baseBranchesError = null;
 
     api.fetchAvailableBranches()
       .then((branches) => {
@@ -265,6 +273,20 @@
       .finally(() => {
         if (fetchId !== nextBranchFetchId) return;
         availableBranchesLoading = false;
+      });
+
+    api.fetchBaseBranches()
+      .then((branches) => {
+        if (fetchId !== nextBranchFetchId) return;
+        baseBranches = branches;
+      })
+      .catch((err: unknown) => {
+        if (fetchId !== nextBranchFetchId) return;
+        baseBranchesError = errorMessage(err);
+      })
+      .finally(() => {
+        if (fetchId !== nextBranchFetchId) return;
+        baseBranchesLoading = false;
       });
   });
 
@@ -349,9 +371,10 @@
 
   function selectNeighborOf(branch: string) {
     if (selectedBranch !== branch) return;
-    const idx = visibleWorktrees.findIndex((w) => w.branch === branch);
-    const previous = visibleWorktrees[idx - 1];
-    const next = visibleWorktrees[idx + 1];
+    const orderedWorktrees = visibleWorktreeRows.map((row) => row.worktree);
+    const idx = orderedWorktrees.findIndex((w) => w.branch === branch);
+    const previous = orderedWorktrees[idx - 1];
+    const next = orderedWorktrees[idx + 1];
     const neighbor = [previous, next].find((candidate) =>
       candidate
       && !removingBranches.has(candidate.branch)
@@ -607,7 +630,7 @@
         {/if}
       </div>
       <WorktreeList
-        worktrees={visibleWorktrees}
+        rows={visibleWorktreeRows}
         selected={selectedBranch}
         removing={removingBranches}
         initializing={openingBranches}
@@ -757,6 +780,9 @@
     {availableBranches}
     {availableBranchesLoading}
     {availableBranchesError}
+    {baseBranches}
+    {baseBranchesLoading}
+    {baseBranchesError}
     startupEnvs={config.startupEnvs ?? {}}
     linearCreateTicketOption={config.linearCreateTicketOption}
     openedFromLinearIssue={assignIssue !== null}

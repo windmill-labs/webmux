@@ -182,6 +182,7 @@ describe("ReconciliationService", () => {
       schemaVersion: 1,
       worktreeId: "wt_feature",
       branch: "feature/search",
+      baseBranch: "main",
       createdAt: "2026-03-06T00:00:00.000Z",
       profile: "default",
       agent: "claude",
@@ -239,6 +240,7 @@ describe("ReconciliationService", () => {
     const state = runtime.getWorktree("wt_feature");
     expect(state).not.toBeNull();
     expect(state?.branch).toBe("feature/search");
+    expect(state?.baseBranch).toBe("main");
     expect(state?.profile).toBe("default");
     expect(state?.git.dirty).toBe(true);
     expect(state?.git.aheadCount).toBe(2);

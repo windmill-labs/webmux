@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/svelte";
 import { describe, expect, it, vi } from "vitest";
 import WorktreeList from "./WorktreeList.svelte";
-import type { WorktreeInfo } from "./types";
+import type { WorktreeInfo, WorktreeListRow } from "./types";
 
 function createWorktree(branch: string): WorktreeInfo {
   return {
@@ -33,11 +33,15 @@ function createWorktree(branch: string): WorktreeInfo {
   };
 }
 
+function createRow(worktree: WorktreeInfo, depth = 0): WorktreeListRow {
+  return { worktree, depth };
+}
+
 describe("WorktreeList", () => {
   it("renders the Linear badge as static text in the list", () => {
     render(WorktreeList, {
       props: {
-        worktrees: [createWorktree("feature/list-linear")],
+        rows: [createRow(createWorktree("feature/list-linear"))],
         selected: null,
         removing: new Set<string>(),
         initializing: new Set<string>(),

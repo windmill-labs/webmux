@@ -22,6 +22,7 @@ import type { TmuxGateway } from "../adapters/tmux";
 export interface InitializeManagedWorktreeOptions {
   gitDir: string;
   branch: string;
+  baseBranch?: string;
   profile: string;
   agent: AgentKind;
   runtime: RuntimeKind;
@@ -148,6 +149,7 @@ export async function initializeManagedWorktree(
     schemaVersion: WORKTREE_META_SCHEMA_VERSION,
     worktreeId: opts.worktreeId ?? randomUUID(),
     branch: opts.branch,
+    ...(opts.baseBranch ? { baseBranch: opts.baseBranch } : {}),
     createdAt,
     profile: opts.profile,
     agent: opts.agent,
@@ -204,6 +206,7 @@ export async function createManagedWorktree(
     const initialized = await initializeManagedWorktree({
       gitDir,
       branch: opts.branch,
+      baseBranch: opts.baseBranch,
       profile: opts.profile,
       agent: opts.agent,
       runtime: opts.runtime,

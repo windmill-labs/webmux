@@ -57,9 +57,10 @@ export function getWorktreeCommandUsage(command: WorktreeSubcommand): string {
     case "add":
       return [
         "Usage:",
-        "  webmux add [branch] [--profile <name>] [--agent <claude|codex>] [--prompt <text>] [--env KEY=VALUE] [--detach]",
+        "  webmux add [branch] [--base <branch>] [--profile <name>] [--agent <claude|codex>] [--prompt <text>] [--env KEY=VALUE] [--detach]",
         "",
         "Options:",
+        "  --base <branch>         Base branch for a new worktree (defaults to config)",
         "  --profile <name>         Worktree profile from .webmux.yaml",
         "  --agent <claude|codex>   Agent to launch in the worktree",
         "  --prompt <text>          Initial agent prompt",
@@ -143,6 +144,13 @@ export function parseAddCommandArgs(args: string[]): ParsedAddCommand | null {
     if (arg === "--profile" || arg.startsWith("--profile=")) {
       const { value, nextIndex } = readOptionValue(args, index, "--profile");
       input.profile = value;
+      index = nextIndex;
+      continue;
+    }
+
+    if (arg === "--base" || arg.startsWith("--base=")) {
+      const { value, nextIndex } = readOptionValue(args, index, "--base");
+      input.baseBranch = value;
       index = nextIndex;
       continue;
     }

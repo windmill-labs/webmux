@@ -63,6 +63,8 @@ describe("parseAddCommandArgs", () => {
   it("parses the CLI add contract into lifecycle input", () => {
     expect(parseAddCommandArgs([
       "feature/search",
+      "--base",
+      "release/2026.03",
       "--profile",
       "sandbox",
       "--agent=codex",
@@ -74,6 +76,7 @@ describe("parseAddCommandArgs", () => {
     ])).toEqual({
       input: {
         branch: "feature/search",
+        baseBranch: "release/2026.03",
         profile: "sandbox",
         agent: "codex",
         prompt: "Fix the search ranking",
@@ -129,7 +132,7 @@ describe("runWorktreeCommand", () => {
     const exitCode = await runWorktreeCommand(
       {
         command: "add",
-        args: ["feature/search", "--agent", "codex", "--env", "FOO=bar"],
+        args: ["feature/search", "--base", "release/base", "--agent", "codex", "--env", "FOO=bar"],
         projectDir: "/repo",
         port: 5111,
       },
@@ -147,6 +150,7 @@ describe("runWorktreeCommand", () => {
         method: "createWorktree",
         value: {
           branch: "feature/search",
+          baseBranch: "release/base",
           agent: "codex",
           envOverrides: { FOO: "bar" },
         },

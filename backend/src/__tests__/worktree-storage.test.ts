@@ -155,6 +155,7 @@ function makeMeta(): WorktreeMeta {
     schemaVersion: 1,
     worktreeId: "wt_test",
     branch: "feature/search-panel",
+    baseBranch: "main",
     createdAt: "2026-03-06T00:00:00.000Z",
     profile: "default",
     agent: "claude",
@@ -311,6 +312,7 @@ describe("initializeManagedWorktree", () => {
     const result = await initializeManagedWorktree({
       gitDir,
       branch: "feature/search-panel",
+      baseBranch: "main",
       profile: "default",
       agent: "claude",
       runtime: "host",
@@ -331,6 +333,7 @@ describe("initializeManagedWorktree", () => {
     expect(result.paths).toEqual(paths);
     expect(meta).not.toBeNull();
     expect(meta?.worktreeId).toBe("wt_test");
+    expect(meta?.baseBranch).toBe("main");
     expect(meta?.allocatedPorts.FRONTEND_PORT).toBe(3010);
 
     expect(runtimeEnvText).toContain("FRONTEND_PORT=3010");
@@ -438,6 +441,7 @@ describe("initializeManagedWorktree", () => {
 
     const meta = await readWorktreeMeta(gitDir);
     expect(meta?.branch).toBe("feature/search-panel");
+    expect(meta?.baseBranch).toBe("main");
   });
 
   it("rolls back the git worktree and branch when initialization fails after creation", async () => {

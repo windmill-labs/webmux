@@ -3,6 +3,7 @@ import type { CreatingWorktreeState, WorktreeCreationPhase } from "../domain/mod
 
 export interface WorktreeCreationProgress {
   branch: string;
+  baseBranch?: string;
   path: string;
   profile: string;
   agent: AgentKind;
@@ -15,6 +16,7 @@ export class WorktreeCreationTracker {
   set(progress: WorktreeCreationProgress): void {
     const next: CreatingWorktreeState = {
       branch: progress.branch,
+      ...(progress.baseBranch ? { baseBranch: progress.baseBranch } : {}),
       path: progress.path,
       profile: progress.profile,
       agentName: progress.agent,

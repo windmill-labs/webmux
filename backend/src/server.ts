@@ -34,7 +34,7 @@ import { startPrMonitor } from "./services/pr-service";
 import { startLinearAutoCreateMonitor, resetProcessedIssues } from "./services/linear-auto-create-service";
 import { buildProjectSnapshot } from "./services/snapshot-service";
 import { parseRuntimeEvent } from "./domain/events";
-import { isValidWorktreeName } from "./domain/policies";
+import { isValidBranchName, isValidWorktreeName } from "./domain/policies";
 import { createWebmuxRuntime } from "./runtime";
 
 const PORT = parseInt(Bun.env.PORT || "5111", 10);
@@ -383,6 +383,12 @@ async function apiListBranches(): Promise<Response> {
   });
 }
 
+async function apiListBaseBranches(): Promise<Response> {
+  return jsonResponse({
+    branches: lifecycleService.listBaseBranches(),
+  });
+}
+
 async function apiCreateWorktree(req: Request): Promise<Response> {
   const raw: unknown = await req.json();
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
@@ -402,6 +408,7 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
   }
 
   const branch = typeof body.branch === "string" && body.branch.trim() ? body.branch.trim() : undefined;
+  const baseBranch = typeof body.baseBranch === "string" && body.baseBranch.trim() ? body.baseBranch.trim() : undefined;
   const prompt = typeof body.prompt === "string" && body.prompt.trim() ? body.prompt.trim() : undefined;
   const profile = typeof body.profile === "string" ? body.profile : undefined;
   const agent = body.agent === "claude" || body.agent === "codex" ? body.agent : undefined;
@@ -415,8 +422,16 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
     return errorResponse("Invalid worktree create mode", 400);
   }
 
+  if (baseBranch && !isValidBranchName(baseBranch)) {
+    return errorResponse("Invalid base branch name", 400);
+  }
+
   if (createLinearTicket && mode === "existing") {
     return errorResponse("Linear ticket creation is only supported for new branches", 400);
+  }
+
+  if (baseBranch && mode === "existing") {
+    return errorResponse("Base branch is only supported for new branches", 400);
   }
 
   if (createLinearTicket && !config.integrations.linear.enabled) {
@@ -461,12 +476,17 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
     ensureBranchNotCreating(resolvedBranch);
   }
 
+  if (resolvedBranch && baseBranch && resolvedBranch === baseBranch) {
+    return errorResponse("Base branch must differ from branch name", 400);
+  }
+
   log.info(
-    `[worktree:add] mode=${mode ?? "new"}${resolvedBranch ? ` branch=${resolvedBranch}` : ""}${profile ? ` profile=${profile}` : ""}${agent ? ` agent=${agent}` : ""}${createLinearTicket ? " linearTicket=true" : ""}${prompt ? ` prompt="${prompt.slice(0, 80)}"` : ""}`,
+    `[worktree:add] mode=${mode ?? "new"}${resolvedBranch ? ` branch=${resolvedBranch}` : ""}${baseBranch ? ` base=${baseBranch}` : ""}${profile ? ` profile=${profile}` : ""}${agent ? ` agent=${agent}` : ""}${createLinearTicket ? " linearTicket=true" : ""}${prompt ? ` prompt="${prompt.slice(0, 80)}"` : ""}`,
   );
   const result = await lifecycleService.createWorktree({
     mode,
     branch: resolvedBranch,
+    baseBranch,
     prompt,
     profile,
     agent,
@@ -677,6 +697,10 @@ Bun.serve({
 
     "/api/branches": {
       GET: () => catching("GET /api/branches", () => apiListBranches()),
+    },
+
+    "/api/base-branches": {
+      GET: () => catching("GET /api/base-branches", () => apiListBaseBranches()),
     },
 
     "/api/project": {

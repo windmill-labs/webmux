@@ -58,6 +58,7 @@ interface ResolvedLifecycleWorktree {
 
 export interface CreateWorktreeProgress {
   branch: string;
+  baseBranch?: string;
   path: string;
   profile: string;
   agent: AgentKind;
@@ -82,6 +83,7 @@ export interface LifecycleServiceDependencies {
 export interface CreateLifecycleWorktreeInput {
   mode?: CreateWorktreeMode;
   branch?: string;
+  baseBranch?: string;
   prompt?: string;
   profile?: string;
   agent?: AgentKind;
@@ -109,21 +111,36 @@ export class LifecycleService {
     worktreeId: string;
   }> {
     const mode = input.mode ?? "new";
+    const requestedBaseBranch = input.baseBranch?.trim();
+    if (requestedBaseBranch && !isValidBranchName(requestedBaseBranch)) {
+      throw new LifecycleError("Invalid base branch name", 400);
+    }
+    if (requestedBaseBranch && mode === "existing") {
+      throw new LifecycleError("Base branch is only supported for new worktrees", 400);
+    }
     const branch = await this.resolveBranch(input.branch, input.prompt, mode);
+    if (requestedBaseBranch && requestedBaseBranch === branch) {
+      throw new LifecycleError("Base branch must differ from branch name", 400);
+    }
+    const baseBranch = mode === "new" ? (requestedBaseBranch || this.deps.config.workspace.mainBranch) : undefined;
     this.ensureBranchAvailable(branch, mode);
 
     const { profileName, profile } = this.resolveProfile(input.profile);
     const agent = this.resolveAgent(input.agent);
     const worktreePath = this.resolveWorktreePath(branch);
+    const createProgressBase = {
+      branch,
+      ...(baseBranch ? { baseBranch } : {}),
+      path: worktreePath,
+      profile: profileName,
+      agent,
+    } satisfies Omit<CreateWorktreeProgress, "phase">;
     const deleteBranchOnRollback = mode === "new";
     let initialized: InitializeManagedWorktreeResult | null = null;
 
     try {
       await this.reportCreateProgress({
-        branch,
-        path: worktreePath,
-        profile: profileName,
-        agent,
+        ...createProgressBase,
         phase: "creating_worktree",
       });
 
@@ -135,7 +152,7 @@ export class LifecycleService {
           worktreePath,
           branch,
           mode,
-          ...(mode === "new" ? { baseBranch: this.deps.config.workspace.mainBranch } : {}),
+          ...(baseBranch ? { baseBranch } : {}),
           profile: profileName,
           agent,
           runtime: profile.runtime,
@@ -152,10 +169,7 @@ export class LifecycleService {
       );
 
       await this.reportCreateProgress({
-        branch,
-        path: worktreePath,
-        profile: profileName,
-        agent,
+        ...createProgressBase,
         phase: "running_post_create_hook",
       });
       await this.runLifecycleHook({
@@ -171,10 +185,7 @@ export class LifecycleService {
         worktreePath,
       });
       await this.reportCreateProgress({
-        branch,
-        path: worktreePath,
-        profile: profileName,
-        agent,
+        ...createProgressBase,
         phase: "preparing_runtime",
       });
       await ensureAgentRuntimeArtifacts({
@@ -182,10 +193,7 @@ export class LifecycleService {
         worktreePath,
       });
       await this.reportCreateProgress({
-        branch,
-        path: worktreePath,
-        profile: profileName,
-        agent,
+        ...createProgressBase,
         phase: "starting_session",
       });
       await this.materializeRuntimeSession({
@@ -199,10 +207,7 @@ export class LifecycleService {
       });
 
       await this.reportCreateProgress({
-        branch,
-        path: worktreePath,
-        profile: profileName,
-        agent,
+        ...createProgressBase,
         phase: "reconciling",
       });
       await this.deps.reconciliation.reconcile(this.deps.projectRoot, { force: true });
@@ -337,6 +342,13 @@ export class LifecycleService {
 
     return localBranches
       .filter((branch) => !checkedOutBranches.has(branch))
+      .sort((left, right) => left.localeCompare(right))
+      .map((name) => ({ name }));
+  }
+
+  listBaseBranches(): Array<{ name: string }> {
+    return this.listLocalBranches()
+      .filter((branch) => isValidBranchName(branch))
       .sort((left, right) => left.localeCompare(right))
       .map((name) => ({ name }));
   }

@@ -89,6 +89,7 @@ export interface AvailableBranch {
 export interface CreateWorktreeRequest {
   mode: WorktreeCreateMode;
   branch?: string;
+  baseBranch?: string;
   profile: string;
   agent: AgentKind;
   prompt?: string;
@@ -114,6 +115,7 @@ export interface WorktreeCreationState {
 
 export interface WorktreeInfo {
   branch: string;
+  baseBranch?: string;
   agent: string;
   mux: string;
   path: string;
@@ -153,6 +155,7 @@ export interface AppNotification {
 
 export interface ProjectWorktreeSnapshot {
   branch: string;
+  baseBranch?: string;
   path: string;
   dir: string;
   profile: string | null;
@@ -176,6 +179,11 @@ export interface ProjectSnapshot {
   };
   worktrees: ProjectWorktreeSnapshot[];
   notifications: AppNotification[];
+}
+
+export interface WorktreeListRow {
+  worktree: WorktreeInfo;
+  depth: number;
 }
 
 export interface LinkedRepoInfo {

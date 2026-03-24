@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { loadConfig } from "../../backend/src/adapters/config.ts";
 import {
   buildInitAgentCommand,
   buildInitPromptSpec,
@@ -192,7 +193,13 @@ describe("buildInitPromptSpec", () => {
 });
 
 describe("buildStarterTemplate", () => {
-  it("uses the detected package manager in the starter command", () => {
+  const tempDirs: string[] = [];
+
+  afterEach(async () => {
+    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+  });
+
+  it("uses the detected package manager in the commented command example", () => {
     const template = buildStarterTemplate({
       projectName: "example",
       mainBranch: "main",
@@ -202,6 +209,54 @@ describe("buildStarterTemplate", () => {
 
     expect(template).toContain("defaultAgent: codex");
     expect(template).toContain("mainBranch: main");
-    expect(template).toContain("command: PORT=$PORT bun run dev");
+    expect(template).toContain("#   command: PORT=$PORT bun run dev");
+  });
+
+  it("includes commented examples for the full config surface and still loads", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "webmux-starter-template-"));
+    tempDirs.push(dir);
+
+    const template = buildStarterTemplate({
+      projectName: "example",
+      mainBranch: "main",
+      defaultAgent: "codex",
+      packageManager: "bun",
+    });
+
+    expect(template).toContain("# autoPull:");
+    expect(template).toContain("#   urlTemplate: http://localhost:${PORT}");
+    expect(template).toContain("# systemPrompt: >");
+    expect(template).toContain("# yolo: true");
+    expect(template).toContain("#   sizePct: 50");
+    expect(template).toContain("#   cwd: repo");
+    expect(template).toContain("# sandbox:");
+    expect(template).toContain("#   image: ghcr.io/your-org/your-image:latest");
+    expect(template).toContain("#   mounts:");
+    expect(template).toContain("#   dir: ../your-repo");
+    expect(template).toContain("# autoRemoveOnMerge: true");
+    expect(template).toContain("# autoCreateWorktrees: true");
+    expect(template).toContain("# createTicketOption: true");
+    expect(template).toContain("# teamId: team-123");
+    expect(template).toContain("# lifecycleHooks:");
+    expect(template).toContain("# auto_name:");
+    expect(template).toContain("#   provider: codex");
+
+    await Bun.write(join(dir, ".webmux.yaml"), template);
+
+    const config = loadConfig(dir, { resolvedRoot: true });
+
+    expect(config.name).toBe("example");
+    expect(config.workspace.mainBranch).toBe("main");
+    expect(config.workspace.defaultAgent).toBe("codex");
+    expect(config.services).toEqual([]);
+    expect(config.profiles.default.panes).toEqual([
+      {
+        id: "agent",
+        kind: "agent",
+        focus: true,
+      },
+    ]);
+    expect(config.integrations.github.linkedRepos).toEqual([]);
+    expect(config.integrations.linear.enabled).toBe(true);
   });
 });

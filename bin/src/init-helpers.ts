@@ -531,43 +531,110 @@ export function buildStarterTemplate(input: {
   const packageManager = input.packageManager ?? "npm";
   const devCommand = buildRunScriptCommand(packageManager, "dev");
 
-  return `# Project display name in the dashboard
+  return `# Starter config for webmux.
+# Keep the active keys below as a minimal working setup, then uncomment
+# the examples to enable more services, profiles, integrations, or hooks.
+
+# Project display name in the dashboard
 name: ${input.projectName}
 
 workspace:
+  # Base branch used when creating new worktrees
   mainBranch: ${input.mainBranch}
+  # Relative or absolute directory for managed worktrees
   worktreeRoot: ../worktrees
+  # Default agent for new worktrees
   defaultAgent: ${defaultAgent}
+  # autoPull:
+  #   enabled: false
+  #   intervalSeconds: 300
 
-# Each service defines a port env var that webmux injects into pane and agent
-# process environments when creating a worktree. Ports are auto-assigned:
-# base + (slot x step).
+# Each service defines a port env var that webmux injects into panes and
+# lifecycle hooks. Ports are auto-assigned as: portStart + (slot x portStep).
 services:
-  - name: app
-    portEnv: PORT
-    portStart: 3000
-    portStep: 10
+  # - name: app
+  #   portEnv: PORT
+  #   portStart: 3000
+  #   portStep: 10
+  #   urlTemplate: http://localhost:\${PORT}
 
 profiles:
   default:
     runtime: host
-    yolo: false
-    envPassthrough: []
+    envPassthrough:
+      # - ANTHROPIC_API_KEY
+      # - OPENAI_API_KEY
+    # systemPrompt: >
+    #   You are working in \${WEBMUX_WORKTREE_PATH}
+    # yolo: true
     panes:
       - id: agent
         kind: agent
         focus: true
-      - id: app
-        kind: command
-        split: right
-        command: PORT=$PORT ${devCommand}
+        # split: right
+        # sizePct: 50
+        # cwd: worktree
+      # - id: app
+      #   kind: command
+      #   split: right
+      #   sizePct: 50
+      #   cwd: worktree
+      #   workingDir: frontend
+      #   command: PORT=$PORT ${devCommand}
+      # - id: shell
+      #   kind: shell
+      #   split: bottom
+      #   sizePct: 30
+      #   cwd: repo
+
+  # sandbox:
+  #   runtime: docker
+  #   image: ghcr.io/your-org/your-image:latest
+  #   envPassthrough:
+  #     - ANTHROPIC_API_KEY
+  #     - OPENAI_API_KEY
+  #   systemPrompt: >
+  #     Extra instructions for the sandbox profile.
+  #   yolo: true
+  #   mounts:
+  #     - hostPath: ~/.codex
+  #       guestPath: /root/.codex
+  #       writable: true
+  #   panes:
+  #     - id: agent
+  #       kind: agent
+  #       focus: true
+  #     - id: shell
+  #       kind: shell
+  #       split: right
+  #       cwd: repo
 
 integrations:
   github:
-    linkedRepos: []
+    linkedRepos:
+      # - repo: your-org/your-repo
+      #   alias: repo
+      #   dir: ../your-repo
+    # autoRemoveOnMerge: true
   linear:
     enabled: true
+    # autoCreateWorktrees: true
+    # createTicketOption: true
+    # teamId: team-123
 
-startupEnvs: {}
+# startupEnvs are added to the managed worktree runtime environment.
+startupEnvs:
+  # FEATURE_FLAG: true
+  # API_BASE_URL: http://localhost:\${PORT}
+
+# lifecycleHooks:
+#   postCreate: bun install
+#   preRemove: tmux kill-session -t "$WEBMUX_WORKTREE_ID" || true
+
+# auto_name:
+#   provider: ${defaultAgent}
+#   model: ${defaultAgent === "codex" ? "gpt-5.1-codex" : "claude-3-5-haiku-latest"}
+#   system_prompt: >
+#     Generate a short kebab-case git branch name.
 `;
 }

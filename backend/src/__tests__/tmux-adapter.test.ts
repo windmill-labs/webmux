@@ -168,18 +168,12 @@ describe("parseWindowSummaries", () => {
 describe("ensureSessionLayout", () => {
   it("keeps the tmux global default at 1 while forcing the workmux window to 0-based panes", async () => {
     const testRoot = await mkdtemp(join(tmpdir(), "webmux-tmux-"));
-    const homeDir = join(testRoot, "home");
+    const configPath = join(testRoot, "tmux.conf");
     const projectRoot = join(testRoot, "repo");
     const worktreePath = join(projectRoot, "__worktrees", "feature-search");
-    await mkdir(homeDir, { recursive: true });
     await mkdir(worktreePath, { recursive: true });
 
-    await Bun.write(join(homeDir, ".tmux.conf"), "set -g base-index 1\nsetw -g pane-base-index 1\n");
-    const env = buildEnv({
-      HOME: homeDir,
-      TMUX: "",
-      TMUX_TMPDIR: testRoot,
-    });
+    await Bun.write(configPath, "set -g base-index 1\nsetw -g pane-base-index 1\n");
     const runnerPath = join(testRoot, "run-layout.ts");
     const tmuxModuleUrl = new URL("../adapters/tmux.ts", import.meta.url).href;
     const sessionServiceModuleUrl = new URL("../services/session-service.ts", import.meta.url).href;
@@ -243,14 +237,14 @@ describe("ensureSessionLayout", () => {
     );
 
     try {
-      const result = parseLayoutResult(read(["bun", runnerPath, projectRoot, worktreePath], env));
+      const result = parseLayoutResult(readWithIsolatedTmux(
+        ["bun", runnerPath, projectRoot, worktreePath],
+        buildEnv({ WEBMUX_ISOLATED_TMUX_CONFIG: configPath }),
+      ));
       expect(result.globalPaneBaseIndex).toBe("1");
       expect(result.relatedPaneIndexes).toEqual(["0", "1"]);
       expect(result.unrelatedPaneIndexes).toEqual(["1"]);
     } finally {
-      try {
-        run(["tmux", "kill-server"], env);
-      } catch {}
       await rm(testRoot, { recursive: true, force: true });
     }
   });

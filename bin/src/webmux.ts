@@ -25,6 +25,7 @@ Usage:
   webmux close        Close a worktree session without removing it
   webmux remove       Remove a worktree
   webmux merge        Merge a worktree into the main branch and remove it
+  webmux send         Send a prompt to a running worktree agent
   webmux prune        Remove all worktrees in the current project
   webmux completion   Generate shell completion script (bash, zsh)
 
@@ -40,7 +41,7 @@ Environment:
 `);
 }
 
-type RootCommand = "serve" | "init" | "service" | "update" | "add" | "list" | "open" | "close" | "remove" | "merge" | "prune" | "completion" | null;
+type RootCommand = "serve" | "init" | "service" | "update" | "add" | "list" | "open" | "close" | "remove" | "merge" | "send" | "prune" | "completion" | null;
 
 interface ParsedRootArgs {
   port: number;
@@ -61,6 +62,7 @@ function isRootCommand(value: string): value is NonNullable<RootCommand> {
     || value === "close"
     || value === "remove"
     || value === "merge"
+    || value === "send"
     || value === "prune"
     || value === "completion";
 }
@@ -130,13 +132,14 @@ export function parseRootArgs(args: string[]): ParsedRootArgs {
   };
 }
 
-function isWorktreeCommand(command: RootCommand): command is "add" | "list" | "open" | "close" | "remove" | "merge" | "prune" {
+function isWorktreeCommand(command: RootCommand): command is "add" | "list" | "open" | "close" | "remove" | "merge" | "send" | "prune" {
   return command === "add"
     || command === "list"
     || command === "open"
     || command === "close"
     || command === "remove"
     || command === "merge"
+    || command === "send"
     || command === "prune";
 }
 

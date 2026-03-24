@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { buildProjectSessionName, buildWorktreeWindowName } from "../../backend/src/adapters/tmux";
 import type { CreateLifecycleWorktreeInput } from "../../backend/src/services/lifecycle-service";
-import { parseAddCommandArgs, parseBranchCommandArgs, runWorktreeCommand, type ParsedAddCommand } from "./worktree-commands";
+import { parseAddCommandArgs, parseBranchCommandArgs, parseSendCommandArgs, runWorktreeCommand, type ParsedAddCommand, type ParsedSendCommand } from "./worktree-commands";
 
 function stubLifecycleService(calls: Array<{ method: string; value: unknown }>) {
   return {
@@ -116,6 +116,46 @@ describe("parseBranchCommandArgs", () => {
 
   it("rejects invalid worktree names", () => {
     expect(() => parseBranchCommandArgs(["feature..search"])).toThrow("Invalid worktree name");
+  });
+});
+
+describe("parseSendCommandArgs", () => {
+  it("parses positional branch and prompt", () => {
+    expect(parseSendCommandArgs(["feature/search", "Fix the bug"])).toEqual({
+      branch: "feature/search",
+      text: "Fix the bug",
+    } satisfies ParsedSendCommand);
+  });
+
+  it("parses --prompt flag instead of positional", () => {
+    expect(parseSendCommandArgs(["feature/search", "--prompt", "Fix the bug"])).toEqual({
+      branch: "feature/search",
+      text: "Fix the bug",
+    });
+  });
+
+  it("parses --preamble flag", () => {
+    expect(parseSendCommandArgs(["feature/search", "Fix the bug", "--preamble", "You are a helpful assistant"])).toEqual({
+      branch: "feature/search",
+      text: "Fix the bug",
+      preamble: "You are a helpful assistant",
+    });
+  });
+
+  it("returns null for help", () => {
+    expect(parseSendCommandArgs(["--help"])).toBeNull();
+  });
+
+  it("throws on missing branch", () => {
+    expect(() => parseSendCommandArgs([])).toThrow("Missing required argument: <branch>");
+  });
+
+  it("throws on missing prompt", () => {
+    expect(() => parseSendCommandArgs(["feature/search"])).toThrow("Missing required argument: <prompt>");
+  });
+
+  it("throws on invalid branch name", () => {
+    expect(() => parseSendCommandArgs(["feature..search", "Fix it"])).toThrow("Invalid worktree name");
   });
 });
 

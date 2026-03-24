@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "bun:test";
 import { buildProjectSessionName, buildWorktreeWindowName } from "../../backend/src/adapters/tmux";
 import type { CreateLifecycleWorktreeInput } from "../../backend/src/services/lifecycle-service";
 import { parseAddCommandArgs, parseBranchCommandArgs, parseSendCommandArgs, runWorktreeCommand, type ParsedAddCommand, type ParsedSendCommand } from "./worktree-commands";
@@ -156,6 +156,10 @@ describe("parseSendCommandArgs", () => {
 
   it("throws on invalid branch name", () => {
     expect(() => parseSendCommandArgs(["feature..search", "Fix it"])).toThrow("Invalid worktree name");
+  });
+
+  it("rejects --prompt when positional prompt is already set", () => {
+    expect(() => parseSendCommandArgs(["feature/search", "Fix the bug", "--prompt", "other"])).toThrow("Cannot use --prompt with a positional prompt argument");
   });
 });
 
@@ -521,5 +525,117 @@ describe("runWorktreeCommand", () => {
     expect(exitCode).toBe(0);
     expect(createRuntimeCalled).toBe(false);
     expect(stdout).toEqual(["Usage:\n  webmux prune"]);
+  });
+
+  describe("send", () => {
+    const originalFetch = globalThis.fetch;
+
+    afterEach(() => {
+      globalThis.fetch = originalFetch;
+    });
+
+    it("sends the correct HTTP request to the server", async () => {
+      const fetchCalls: Array<{ url: string; init: RequestInit }> = [];
+      globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+        fetchCalls.push({ url: String(input), init: init! });
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      }) as typeof fetch;
+
+      const stdout: string[] = [];
+      const exitCode = await runWorktreeCommand(
+        {
+          command: "send",
+          args: ["feature/search", "Fix the bug", "--preamble", "Be concise"],
+          projectDir: "/repo",
+          port: 5111,
+        },
+        {
+          createRuntime: () => { throw new Error("unexpected"); },
+          stdout: (msg) => stdout.push(msg),
+        },
+      );
+
+      expect(exitCode).toBe(0);
+      expect(stdout).toEqual(["Sent prompt to feature/search"]);
+      expect(fetchCalls).toHaveLength(1);
+      expect(fetchCalls[0].url).toBe("http://localhost:5111/api/worktrees/feature%2Fsearch/send");
+      expect(fetchCalls[0].init.method).toBe("POST");
+      expect(JSON.parse(fetchCalls[0].init.body as string)).toEqual({
+        text: "Fix the bug",
+        preamble: "Be concise",
+      });
+    });
+
+    it("reports server errors with the error message", async () => {
+      globalThis.fetch = (async () => {
+        return new Response(JSON.stringify({ error: "Worktree not found: no-such" }), { status: 404 });
+      }) as typeof fetch;
+
+      const stderr: string[] = [];
+      const exitCode = await runWorktreeCommand(
+        {
+          command: "send",
+          args: ["no-such", "Fix it"],
+          projectDir: "/repo",
+          port: 5111,
+        },
+        {
+          createRuntime: () => { throw new Error("unexpected"); },
+          stderr: (msg) => stderr.push(msg),
+        },
+      );
+
+      expect(exitCode).toBe(1);
+      expect(stderr).toEqual(["Error: Worktree not found: no-such"]);
+    });
+
+    it("shows a friendly message when the server is unreachable", async () => {
+      globalThis.fetch = (async () => {
+        throw new TypeError("fetch failed");
+      }) as typeof fetch;
+
+      const stderr: string[] = [];
+      const exitCode = await runWorktreeCommand(
+        {
+          command: "send",
+          args: ["feature/search", "Fix it"],
+          projectDir: "/repo",
+          port: 9999,
+        },
+        {
+          createRuntime: () => { throw new Error("unexpected"); },
+          stderr: (msg) => stderr.push(msg),
+        },
+      );
+
+      expect(exitCode).toBe(1);
+      expect(stderr).toEqual(["Error: Could not connect to webmux server on port 9999. Is it running?"]);
+    });
+
+    it("prints send help without making a request", async () => {
+      let fetchCalled = false;
+      globalThis.fetch = (async () => {
+        fetchCalled = true;
+        return new Response("", { status: 200 });
+      }) as typeof fetch;
+
+      const stdout: string[] = [];
+      const exitCode = await runWorktreeCommand(
+        {
+          command: "send",
+          args: ["--help"],
+          projectDir: "/repo",
+          port: 5111,
+        },
+        {
+          createRuntime: () => { throw new Error("unexpected"); },
+          stdout: (msg) => stdout.push(msg),
+        },
+      );
+
+      expect(exitCode).toBe(0);
+      expect(fetchCalled).toBe(false);
+      expect(stdout[0]).toContain("webmux send");
+    });
   });
 });

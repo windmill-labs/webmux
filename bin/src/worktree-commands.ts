@@ -250,6 +250,7 @@ export function parseSendCommandArgs(args: string[]): ParsedSendCommand | null {
     }
 
     if (arg === "--prompt" || arg.startsWith("--prompt=")) {
+      if (text) throw new CommandUsageError("Cannot use --prompt with a positional prompt argument");
       const { value, nextIndex } = readOptionValue(args, index, "--prompt");
       text = value;
       index = nextIndex;
@@ -277,7 +278,7 @@ export function parseSendCommandArgs(args: string[]): ParsedSendCommand | null {
       continue;
     }
 
-    throw new CommandUsageError(`Unexpected argument: ${arg}`);
+    throw new CommandUsageError(`Unexpected argument: ${arg}. Use either a positional prompt or --prompt, not both`);
   }
 
   if (!branch) {
@@ -489,11 +490,16 @@ export async function runWorktreeCommand(
       const body: Record<string, string> = { text: parsed.text };
       if (parsed.preamble) body.preamble = parsed.preamble;
 
-      const response = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
+      let response: Response;
+      try {
+        response = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+      } catch {
+        throw new Error(`Could not connect to webmux server on port ${context.port}. Is it running?`);
+      }
 
       if (!response.ok) {
         const errorBody = await response.text();

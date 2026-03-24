@@ -14,15 +14,19 @@
 </script>
 
 {#if notifications.length > 0}
-  <div class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm">
+  <div class="fixed bottom-4 right-4 z-50 flex flex-col items-end gap-2">
     {#each notifications as n (n.id)}
-      <div class="toast" role="alert">
+      <div
+        class="toast"
+        role="alert"
+        style="inline-size: fit-content; max-inline-size: min(48ch, calc(100vw - 2rem));"
+      >
         <button
           type="button"
-          class="flex-1 flex items-center gap-2 text-left bg-transparent border-none text-inherit cursor-pointer p-0"
+          class="min-w-0 flex items-start gap-2 text-left bg-transparent border-none text-inherit cursor-pointer p-0"
           onclick={() => { ondismiss(n.id); onselect(n.branch); }}
         >
-          <NotificationItem notification={n} large />
+          <NotificationItem notification={n} large wrap />
         </button>
         <button
           type="button"

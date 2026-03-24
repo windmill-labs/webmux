@@ -5,10 +5,12 @@
     notification,
     showTimestamp = false,
     large = false,
+    wrap = false,
   }: {
     notification: AppNotification;
     showTimestamp?: boolean;
     large?: boolean;
+    wrap?: boolean;
   } = $props();
 </script>
 
@@ -20,10 +22,18 @@
   {/if}
 </span>
 <span class="flex flex-col gap-0.5 min-w-0">
-  <span class="{large ? 'text-sm' : 'text-xs'} text-primary truncate">{notification.message}</span>
+  <span
+    class="{large ? 'text-sm' : 'text-xs'} text-primary {wrap
+      ? 'whitespace-normal break-words'
+      : 'truncate'}"
+  >
+    {notification.message}
+  </span>
   {#if showTimestamp}
     <span class="text-[10px] text-muted">{new Date(notification.timestamp).toLocaleTimeString()}</span>
   {:else if notification.url}
-    <span class="text-xs text-accent truncate">{notification.url}</span>
+    <span class="text-xs text-accent {wrap ? 'whitespace-normal break-all' : 'truncate'}">
+      {notification.url}
+    </span>
   {/if}
 </span>

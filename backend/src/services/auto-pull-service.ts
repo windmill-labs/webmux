@@ -5,7 +5,6 @@ import { log } from "../lib/log";
 export type AutoPullResult =
   | { status: "updated"; from: string; to: string }
   | { status: "already_up_to_date" }
-  | { status: "skipped_dirty" }
   | { status: "fetch_failed"; error: string }
   | { status: "merge_failed"; error: string };
 
@@ -19,12 +18,7 @@ export interface AutoPullDependencies {
 export function pullMainBranch(deps: AutoPullDependencies): AutoPullResult {
   const { git, projectRoot, mainBranch } = deps;
 
-  const status = git.readWorktreeStatus(projectRoot);
-  if (status.dirty) {
-    return { status: "skipped_dirty" };
-  }
-
-  const beforeCommit = status.currentCommit;
+  const beforeCommit = git.readWorktreeStatus(projectRoot).currentCommit;
 
   const fetchResult = git.fetchBranch(projectRoot, "origin", mainBranch);
   if (!fetchResult.ok) {
@@ -85,9 +79,6 @@ export function startAutoPullMonitor(
         break;
       case "already_up_to_date":
         log.debug("[auto-pull] already up to date");
-        break;
-      case "skipped_dirty":
-        log.warn("[auto-pull] skipped: main worktree has uncommitted changes");
         break;
       case "fetch_failed":
         log.warn(`[auto-pull] fetch failed: ${result.error}`);

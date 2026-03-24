@@ -131,7 +131,7 @@ export function setLinearAutoCreate(enabled: boolean): Promise<{ ok: boolean; en
 }
 
 export interface PullMainResult {
-  status: "updated" | "already_up_to_date" | "skipped_dirty" | "fetch_failed" | "merge_failed";
+  status: "updated" | "already_up_to_date" | "fetch_failed" | "merge_failed";
   from?: string;
   to?: string;
   error?: string;

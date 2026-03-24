@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.20.0](https://github.com/windmill-labs/webmux/compare/v0.19.0...v0.20.0) (2026-03-24)
+
+
+### Features
+
+* add `webmux send` CLI command ([#172](https://github.com/windmill-labs/webmux/issues/172)) ([4a915dc](https://github.com/windmill-labs/webmux/commit/4a915dc8e8e816a139e45641815242b9e71624c0))
+* add auto-close on merge and auto-pull main ([#173](https://github.com/windmill-labs/webmux/issues/173)) ([c6ae6f1](https://github.com/windmill-labs/webmux/commit/c6ae6f1d69262180751fefcf0f4b105ac19c4c00))
+* add command pane workingDir ([#169](https://github.com/windmill-labs/webmux/issues/169)) ([84fcb2e](https://github.com/windmill-labs/webmux/commit/84fcb2e2b5d609f76424c1f261b74dd6e4f9c701))
+* add worktree base branch support ([#170](https://github.com/windmill-labs/webmux/issues/170)) ([8d9a04b](https://github.com/windmill-labs/webmux/commit/8d9a04b3f88704404f37cc96ee3f975d81db2c82))
+
+
+### Bug Fixes
+
+* fall back to python3 pty.spawn when script is not in PATH ([#166](https://github.com/windmill-labs/webmux/issues/166)) ([8188e5a](https://github.com/windmill-labs/webmux/commit/8188e5a0bbc569b2a75c5fbeaa72702d6ecc4002))
+* include remote branches in worktree branch selector ([#171](https://github.com/windmill-labs/webmux/issues/171)) ([fe2948a](https://github.com/windmill-labs/webmux/commit/fe2948ad59a5d42270463d4c02b3e059845a093b))
+* wrap topbar badges before action buttons ([#168](https://github.com/windmill-labs/webmux/issues/168)) ([2bace2f](https://github.com/windmill-labs/webmux/commit/2bace2f18f3aa7f651c40df653bff0e295aadcb7))
+
 ## [0.19.0](https://github.com/windmill-labs/webmux/compare/v0.18.0...v0.19.0) (2026-03-19)
 
 

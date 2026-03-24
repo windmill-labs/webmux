@@ -86,6 +86,14 @@ export interface AvailableBranch {
   name: string;
 }
 
+export interface AvailableBranchesQuery {
+  includeRemote?: boolean;
+}
+
+export interface BranchListResponse {
+  branches: AvailableBranch[];
+}
+
 export interface CreateWorktreeRequest {
   mode: WorktreeCreateMode;
   branch?: string;

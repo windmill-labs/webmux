@@ -375,4 +375,27 @@ describe("App create selection", () => {
       });
     });
   });
+
+  it("defaults branch fetching to local refs and refetches when remote inclusion is enabled", async () => {
+    vi.mocked(api.fetchWorktrees).mockResolvedValue([]);
+    vi.mocked(api.fetchAvailableBranches)
+      .mockResolvedValueOnce([{ name: "feature/local-only" }])
+      .mockResolvedValueOnce([{ name: "feature/local-only" }, { name: "feature/remote-only" }]);
+
+    render(App);
+
+    await fireEvent.click(screen.getByTitle("New Worktree (Cmd+K)"));
+    await screen.findByText("New Worktree");
+
+    await waitFor(() => {
+      expect(api.fetchAvailableBranches).toHaveBeenCalledWith({ includeRemote: false });
+    });
+
+    await fireEvent.click(screen.getByRole("button", { name: "Use existing branch" }));
+    await fireEvent.click(await screen.findByRole("switch", { name: /include remote branches/i }));
+
+    await waitFor(() => {
+      expect(api.fetchAvailableBranches).toHaveBeenLastCalledWith({ includeRemote: true });
+    });
+  });
 });

@@ -49,6 +49,7 @@ export interface CreateManagedWorktreeOptions {
   branch: string;
   mode: CreateWorktreeMode;
   baseBranch?: string;
+  startPoint?: string;
   profile: string;
   agent: AgentKind;
   runtime: RuntimeKind;
@@ -198,6 +199,7 @@ export async function createManagedWorktree(
       branch: opts.branch,
       mode: opts.mode,
       baseBranch: opts.baseBranch,
+      startPoint: opts.startPoint,
     });
     worktreeCreated = true;
 

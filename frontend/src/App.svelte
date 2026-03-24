@@ -66,7 +66,8 @@
   let pendingCreateCount = $state(0);
   let latestAutoSelectCreateId = -1;
   let nextCreateRequestId = 0;
-  let nextBranchFetchId = 0;
+  let nextAvailableBranchFetchId = 0;
+  let nextBaseBranchFetchId = 0;
   let sshHost = $state(localStorage.getItem(SSH_STORAGE_KEY) ?? "");
   let currentTheme = $state<ThemeKey>(loadSavedTheme());
   let terminalTheme = $derived(getTheme(currentTheme).terminal);
@@ -78,6 +79,7 @@
   let baseBranches = $state<AvailableBranch[]>([]);
   let baseBranchesLoading = $state(false);
   let baseBranchesError = $state<string | null>(null);
+  let includeRemoteBranches = $state(false);
 
   // Linear integration
   let linearIssues = $state<LinearIssue[]>([]);
@@ -257,39 +259,45 @@
   $effect(() => {
     if (!showCreateDialog) return;
 
-    const fetchId = ++nextBranchFetchId;
+    const fetchId = ++nextAvailableBranchFetchId;
     availableBranches = [];
     availableBranchesLoading = true;
     availableBranchesError = null;
+
+    api.fetchAvailableBranches({ includeRemote: includeRemoteBranches })
+      .then((branches) => {
+        if (fetchId !== nextAvailableBranchFetchId) return;
+        availableBranches = branches;
+      })
+      .catch((err: unknown) => {
+        if (fetchId !== nextAvailableBranchFetchId) return;
+        availableBranchesError = errorMessage(err);
+      })
+      .finally(() => {
+        if (fetchId !== nextAvailableBranchFetchId) return;
+        availableBranchesLoading = false;
+      });
+  });
+
+  $effect(() => {
+    if (!showCreateDialog) return;
+
+    const fetchId = ++nextBaseBranchFetchId;
     baseBranches = [];
     baseBranchesLoading = true;
     baseBranchesError = null;
 
-    api.fetchAvailableBranches()
-      .then((branches) => {
-        if (fetchId !== nextBranchFetchId) return;
-        availableBranches = branches;
-      })
-      .catch((err: unknown) => {
-        if (fetchId !== nextBranchFetchId) return;
-        availableBranchesError = errorMessage(err);
-      })
-      .finally(() => {
-        if (fetchId !== nextBranchFetchId) return;
-        availableBranchesLoading = false;
-      });
-
     api.fetchBaseBranches()
       .then((branches) => {
-        if (fetchId !== nextBranchFetchId) return;
+        if (fetchId !== nextBaseBranchFetchId) return;
         baseBranches = branches;
       })
       .catch((err: unknown) => {
-        if (fetchId !== nextBranchFetchId) return;
+        if (fetchId !== nextBaseBranchFetchId) return;
         baseBranchesError = errorMessage(err);
       })
       .finally(() => {
-        if (fetchId !== nextBranchFetchId) return;
+        if (fetchId !== nextBaseBranchFetchId) return;
         baseBranchesLoading = false;
       });
   });
@@ -328,9 +336,14 @@
     refreshLinear();
   }
 
-  function handleAssignIssue(issue: LinearIssue): void {
+  function openCreateDialog(issue: LinearIssue | null = null): void {
+    includeRemoteBranches = false;
     assignIssue = issue;
     showCreateDialog = true;
+  }
+
+  function handleAssignIssue(issue: LinearIssue): void {
+    openCreateDialog(issue);
   }
 
   async function handleCreate(request: CreateWorktreeRequest) {
@@ -503,7 +516,7 @@
       selectNeighborWorktree(1);
     } else if (e.key === "k" || e.key === "K") {
       e.preventDefault();
-      showCreateDialog = true;
+      openCreateDialog();
     } else if (e.key === "m" || e.key === "M") {
       e.preventDefault();
       if (selectedBranch) mergeBranch = selectedBranch;
@@ -634,7 +647,7 @@
           <div class="flex items-center gap-2">
             <button
               class="h-8 px-2 gap-1.5 rounded-md border border-edge bg-surface text-accent text-xs flex items-center justify-center cursor-pointer hover:bg-hover disabled:opacity-50 disabled:cursor-not-allowed"
-              onclick={() => (showCreateDialog = true)}
+              onclick={() => openCreateDialog()}
               title="New Worktree (Cmd+K)"
               ><span class="text-lg leading-none">+</span> New</button
             >
@@ -821,6 +834,7 @@
     autoNameEnabled={config.autoName}
     initialBranch={assignIssue?.branchName ?? ""}
     initialPrompt={assignIssue ? `${assignIssue.title}${assignIssue.description ? '\n\n' + assignIssue.description : ''}` : ""}
+    bind:includeRemoteBranches
     {availableBranches}
     {availableBranchesLoading}
     {availableBranchesError}

@@ -69,9 +69,10 @@ class FakeGitGateway implements GitGateway {
     branch: string;
     mode: "new" | "existing";
     baseBranch?: string;
+    startPoint?: string;
   }): void {
     this.calls.push(
-      `createWorktree:${opts.repoRoot}:${opts.worktreePath}:${opts.branch}:${opts.mode}:${opts.baseBranch ?? ""}`,
+      `createWorktree:${opts.repoRoot}:${opts.worktreePath}:${opts.branch}:${opts.mode}:${opts.baseBranch ?? ""}:${opts.startPoint ?? ""}`,
     );
   }
 
@@ -451,7 +452,7 @@ describe("initializeManagedWorktree", () => {
       { git, tmux },
     );
 
-    expect(calls[0]).toBe(`createWorktree:/repo/project:${worktreePath}:feature/search-panel:new:main`);
+    expect(calls[0]).toBe(`createWorktree:/repo/project:${worktreePath}:feature/search-panel:new:main:`);
     expect(calls).toContain("ensureServer");
     expect(calls.some((call) => call.startsWith("createWindow:wm-project-12345678:wm-feature/search-panel"))).toBe(true);
 

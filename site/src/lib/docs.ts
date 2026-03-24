@@ -53,20 +53,52 @@ export const featureHighlights: DocFeature[] = [
   },
 ];
 
+export const installCommand = "bun install -g webmux";
+
 export const defaultsAtAGlance: DocFact[] = [
   { label: "Dashboard command", value: "webmux serve" },
   { label: "Default port", value: "5111 via --port or PORT" },
   { label: "Main branch default", value: "main" },
   { label: "Worktree root default", value: "../worktrees" },
   { label: "Default agent", value: "claude" },
+  { label: "Auto-pull default", value: "disabled" },
   { label: "Linear integration default", value: "enabled: true" },
+];
+
+export const landingQuickStartSteps: DocStep[] = [
+  {
+    title: "Install prerequisites",
+    description: "Install Bun and the required local tools webmux checks during setup.",
+    command: "sudo apt install tmux python3\ncurl -fsSL https://bun.sh/install | bash",
+    outcome: "On macOS, install tmux and python3 with Homebrew instead.",
+  },
+  {
+    title: "Install the CLI",
+    description: "Install the global webmux binary with Bun.",
+    command: installCommand,
+    outcome: "This places the webmux CLI in your global Bun bin directory.",
+  },
+  {
+    title: "Initialize your repo",
+    description: "Create a starter .webmux.yaml in the repository you want to manage.",
+    command: "cd /path/to/your/project\nwebmux init",
+    outcome:
+      "webmux init requires a git repository and verifies git, bun, python3, and tmux before setup.",
+  },
+  {
+    title: "Start the dashboard",
+    description: "Launch the local dashboard server for the current project.",
+    command: "webmux serve",
+    outcome:
+      "The dashboard runs on http://localhost:5111 by default. Add --app for Chromium app mode or use --port / PORT to override the port.",
+  },
 ];
 
 export const quickStartSteps: DocStep[] = [
   {
     title: "Install the CLI",
     description: "webmux runs on Bun and launches your dashboard locally.",
-    command: "bun install -g webmux",
+    command: installCommand,
     outcome: "Installs the webmux binary into your global Bun bin directory.",
   },
   {
@@ -81,14 +113,14 @@ export const quickStartSteps: DocStep[] = [
     description: "Launch the local app and open the UI in your browser.",
     command: "webmux serve",
     outcome:
-      "Starts the dashboard on http://localhost:5111 unless you override the port with --port or PORT.",
+      "Starts the dashboard on http://localhost:5111 unless you override the port with --port or PORT. Add --app to open it in Chromium app mode.",
   },
   {
     title: "Create your first worktree",
-    description: "Use the dashboard to spin up an agent, terminal panes, and ports.",
-    command: "Open http://localhost:5111",
+    description: "Create a managed worktree from the CLI or from the dashboard UI.",
+    command: "webmux add my-change --prompt \"ship the change\"",
     outcome:
-      "Each managed worktree gets metadata, runtime env materialization, and a tmux layout based on the selected profile.",
+      "webmux creates the worktree, allocates ports, runs lifecycle hooks, and starts the tmux session unless you pass --detach.",
   },
 ];
 
@@ -126,12 +158,13 @@ export const prerequisites: DocTool[] = [
 export const rootCommands: DocCommand[] = [
   {
     title: "serve",
-    usage: "webmux serve [--port <number>] [--debug]",
+    usage: "webmux serve [--port <number>] [--app] [--debug]",
     description: "Start the dashboard server for the current project.",
     details: [
-      "Requires .webmux.yaml at the git root.",
+      "Requires .webmux.yaml in the current directory.",
       "Reads .env.local first, then .env, before launching.",
       "Uses PORT as a fallback when --port is omitted.",
+      "Use --app to open a Chromium-based app window after the backend starts.",
     ],
   },
   {
@@ -140,17 +173,18 @@ export const rootCommands: DocCommand[] = [
     description: "Interactive project setup for .webmux.yaml.",
     details: [
       "Must run inside a git repository.",
-      "Checks dependencies and Bun version, then offers Claude, Codex, or manual starter generation.",
+      "Checks git, bun, python3, and tmux, enforces Bun >= 1.3.5, then offers Claude, Codex, or manual starter generation.",
       "If gh is installed, warns when gh auth login is still needed.",
     ],
   },
   {
     title: "service",
-    usage: "webmux service <install|uninstall|status|logs> [--port <number>]",
+    usage:
+      "webmux service install [--port <number>]\nwebmux service uninstall\nwebmux service status\nwebmux service logs",
     description: "Manage webmux as a user-level service on Linux or macOS.",
     details: [
       "Uses systemctl --user on Linux and launchctl on macOS.",
-      "Writes a service file pointed at webmux serve --port ...",
+      "install writes a service file that runs webmux serve --port ... from the git root.",
       "Not supported on other platforms.",
     ],
   },
@@ -165,7 +199,7 @@ export const rootCommands: DocCommand[] = [
     usage: "webmux completion <bash|zsh>",
     description: "Emit shell completion setup for bash or zsh.",
     details: [
-      "Completions include worktree branch names for open, close, remove, and merge.",
+      "Completions include worktree branch names for open, close, remove, merge, and send.",
       "Add the output to your shell config with eval \"$(webmux completion zsh)\" or the bash equivalent.",
     ],
   },
@@ -175,12 +209,13 @@ export const worktreeCommands: DocCommand[] = [
   {
     title: "add",
     usage:
-      "webmux add [branch] [--profile <name>] [--agent <claude|codex>] [--prompt <text>] [--env KEY=VALUE]",
+      "webmux add [branch] [--base <branch>] [--profile <name>] [--agent <claude|codex>] [--prompt <text>] [--env KEY=VALUE] [--detach]",
     description: "Create a managed worktree through the same lifecycle the dashboard uses.",
     details: [
-      "Branch is optional when your setup can infer or auto-name it from the prompt.",
+      "Branch is optional. When omitted, webmux uses auto_name if configured, otherwise it generates a change-<id> branch name.",
+      "Use --base to override workspace.mainBranch for a new worktree.",
       "Repeat --env KEY=VALUE to override runtime env values for that worktree.",
-      "After creation, webmux switches tmux to the new worktree window.",
+      "After creation, webmux switches tmux to the new worktree window unless you pass --detach.",
     ],
   },
   {
@@ -208,7 +243,64 @@ export const worktreeCommands: DocCommand[] = [
     usage: "webmux merge <branch>",
     description: "Merge the worktree branch into workspace.mainBranch and remove the worktree.",
   },
+  {
+    title: "send",
+    usage:
+      "webmux send <branch> <prompt> [--preamble <text>]\nwebmux send <branch> --prompt <text> [--preamble <text>]",
+    description: "Send a prompt to a running worktree agent through the local webmux server.",
+    details: [
+      "Use --prompt as an alternative to the positional prompt argument, but not both.",
+      "Use --preamble to prepend extra context before the prompt body.",
+      "This command posts to the current server port, so webmux serve must be running.",
+    ],
+  },
+  {
+    title: "prune",
+    usage: "webmux prune",
+    description: "Confirm and remove every managed worktree in the current project.",
+    details: [
+      "Prompts before deleting anything.",
+      "Removes only the current project's managed worktrees.",
+    ],
+  },
 ];
+
+export const landingConfigPreview = `name: My Project
+
+workspace:
+  mainBranch: main
+  worktreeRoot: ../worktrees
+  defaultAgent: claude
+  autoPull:
+    enabled: true
+    intervalSeconds: 300
+
+services:
+  - name: API
+    portEnv: PORT
+    portStart: 3000
+  - name: Frontend
+    portEnv: FRONTEND_PORT
+    portStart: 5173
+
+profiles:
+  default:
+    runtime: host
+    panes:
+      - id: agent
+        kind: agent
+        focus: true
+      - id: web
+        kind: command
+        split: right
+        cwd: repo
+        workingDir: frontend
+        command: FRONTEND_PORT=$FRONTEND_PORT bun run dev
+
+  sandbox:
+    runtime: docker
+    image: ghcr.io/your-org/your-image:latest
+    yolo: true`;
 
 export const keyboardShortcuts: Shortcut[] = [
   { keys: "Cmd+Up / Cmd+Down", action: "Move between worktrees" },
@@ -223,6 +315,9 @@ workspace:
   mainBranch: main
   worktreeRoot: ../worktrees
   defaultAgent: claude
+  autoPull:
+    enabled: true
+    intervalSeconds: 300
 
 services:
   - name: API
@@ -239,6 +334,8 @@ services:
 profiles:
   default:
     runtime: host
+    systemPrompt: >
+      You are working in \${WEBMUX_WORKTREE_PATH}
     envPassthrough:
       - GITHUB_TOKEN
     panes:
@@ -259,6 +356,7 @@ profiles:
   sandbox:
     runtime: docker
     image: webmux-sandbox
+    yolo: true
     envPassthrough:
       - AWS_ACCESS_KEY_ID
       - AWS_SECRET_ACCESS_KEY
@@ -277,12 +375,16 @@ startupEnvs:
 
 integrations:
   github:
+    autoRemoveOnMerge: true
     linkedRepos:
       - repo: myorg/related-service
         alias: related
         dir: ../related-service
   linear:
     enabled: true
+    autoCreateWorktrees: true
+    createTicketOption: true
+    teamId: eng
 
 lifecycleHooks:
   postCreate: scripts/post-create.sh
@@ -328,6 +430,20 @@ export const configGroups: ConfigGroup[] = [
         required: "no",
         defaultValue: "claude",
         description: "Default agent kind used when a worktree does not specify one explicitly.",
+      },
+      {
+        key: "workspace.autoPull.enabled",
+        type: "boolean",
+        required: "no",
+        defaultValue: "false",
+        description: "Periodically fetches and fast-forwards workspace.mainBranch when enabled.",
+      },
+      {
+        key: "workspace.autoPull.intervalSeconds",
+        type: "number",
+        required: "no",
+        defaultValue: "300 (minimum 30)",
+        description: "Seconds between auto-pull attempts when autoPull is enabled.",
       },
     ],
   },
@@ -377,7 +493,8 @@ export const configGroups: ConfigGroup[] = [
       {
         key: "profiles.<name>.runtime",
         type: "host | docker",
-        required: "yes",
+        required: "no",
+        defaultValue: "host (or docker for a sandbox profile)",
         description: "Execution runtime for the profile.",
       },
       {
@@ -397,6 +514,7 @@ export const configGroups: ConfigGroup[] = [
         key: "profiles.<name>.yolo",
         type: "boolean",
         required: "no",
+        defaultValue: "false",
         description: "Enables permissive execution flags for compatible agent CLIs.",
       },
       {
@@ -414,7 +532,8 @@ export const configGroups: ConfigGroup[] = [
       {
         key: "profiles.<name>.panes[]",
         type: "PaneTemplate[]",
-        required: "yes",
+        required: "no",
+        defaultValue: "[agent, shell]",
         description: "Ordered tmux pane layout for the worktree session.",
       },
     ],
@@ -441,6 +560,7 @@ export const configGroups: ConfigGroup[] = [
         key: "panes[].split",
         type: "right | bottom",
         required: "no",
+        defaultValue: "right (after the first pane)",
         description: "Split direction relative to the previously created pane.",
       },
       {
@@ -453,6 +573,7 @@ export const configGroups: ConfigGroup[] = [
         key: "panes[].focus",
         type: "boolean",
         required: "no",
+        defaultValue: "false",
         description: "Marks the pane that should receive initial focus.",
       },
       {
@@ -471,6 +592,7 @@ export const configGroups: ConfigGroup[] = [
         key: "panes[].cwd",
         type: "repo | worktree",
         required: "no",
+        defaultValue: "worktree",
         description: "Whether the pane starts in the repository root or the worktree root.",
       },
       {
@@ -483,6 +605,7 @@ export const configGroups: ConfigGroup[] = [
         key: "mounts[].guestPath",
         type: "string",
         required: "no",
+        defaultValue: "hostPath",
         description: "Container mount path. When omitted, the host path is reused.",
       },
       {
@@ -525,11 +648,38 @@ export const configGroups: ConfigGroup[] = [
         description: "Optional repo path used for editor or deep-link integrations.",
       },
       {
+        key: "integrations.github.autoRemoveOnMerge",
+        type: "boolean",
+        required: "no",
+        defaultValue: "false",
+        description: "Automatically removes managed worktrees when their PRs merge.",
+      },
+      {
         key: "integrations.linear.enabled",
         type: "boolean",
         required: "no",
         defaultValue: "true",
         description: "Turns Linear issue fetching on or off globally.",
+      },
+      {
+        key: "integrations.linear.autoCreateWorktrees",
+        type: "boolean",
+        required: "no",
+        defaultValue: "false",
+        description: "Automatically creates worktrees for eligible assigned Linear issues.",
+      },
+      {
+        key: "integrations.linear.createTicketOption",
+        type: "boolean",
+        required: "no",
+        defaultValue: "false",
+        description: "Shows the create-ticket action in the dashboard when Linear integration is enabled.",
+      },
+      {
+        key: "integrations.linear.teamId",
+        type: "string",
+        required: "no",
+        description: "Restricts Linear issue sync to a specific team id.",
       },
     ],
   },
@@ -553,7 +703,7 @@ export const configGroups: ConfigGroup[] = [
       {
         key: "auto_name.provider",
         type: "claude | codex",
-        required: "yes",
+        required: "yes (if auto_name is set)",
         description: "CLI backend used for branch-name generation.",
       },
       {
@@ -576,7 +726,7 @@ export const runtimeEnvGroups: ConfigGroup[] = [
   {
     title: "Managed runtime variables",
     description:
-      "webmux writes runtime env files for managed worktrees and injects these variables into panes and lifecycle hooks.",
+      "webmux writes runtime env files for managed worktrees and injects these variables into panes and lifecycle hooks, alongside startupEnvs, allocated service ports, and worktree-local .env.local values.",
     fields: [
       {
         key: "WEBMUX_WORKTREE_ID",

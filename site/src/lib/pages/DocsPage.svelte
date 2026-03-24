@@ -8,6 +8,7 @@
     defaultsAtAGlance,
     docsNav,
     featureHighlights,
+    installCommand,
     keyboardShortcuts,
     prerequisites,
     quickStartSteps,
@@ -42,7 +43,7 @@
           rel="noopener"
           class="inline-flex items-center justify-center rounded-lg border border-edge px-5 py-3 text-sm font-medium text-primary no-underline transition-colors hover:bg-hover"
         >
-          View full README
+          View GitHub repo
         </a>
         <a
           href="#quickstart"
@@ -123,7 +124,7 @@
           <p class="mt-3 leading-7 text-muted">
             webmux init expects a git repository and checks the local toolchain
             before it writes configuration. The dashboard itself is started with
-            webmux serve.
+            webmux serve, optionally with --app or --port.
           </p>
         </div>
         <div class="grid gap-8 xl:grid-cols-[0.9fr_1.1fr]">
@@ -154,7 +155,7 @@
                 <div class="mb-3 text-sm font-medium text-muted">
                   Install the CLI
                 </div>
-                <CommandBlock command={"bun install -g webmux"} />
+                <CommandBlock command={installCommand} />
               </div>
               <div>
                 <div class="mb-3 text-sm font-medium text-muted">
@@ -178,7 +179,8 @@
           <h2 class="text-3xl font-bold text-primary md:text-4xl">Quick start</h2>
           <p class="mt-3 leading-7 text-muted">
             This is the shortest path from a fresh machine to a working browser
-            dashboard on http://localhost:5111.
+            dashboard on http://localhost:5111, with an actual worktree created
+            through the CLI surface.
           </p>
         </div>
         <div class="grid gap-6 xl:grid-cols-2">
@@ -265,9 +267,11 @@
           <h2 class="text-3xl font-bold text-primary md:text-4xl">Configuration</h2>
           <p class="mt-3 leading-7 text-muted">
             .webmux.yaml is loaded from the git root and normalized into the
-            final project config shape. The example below includes services,
-            profiles, docker mounts, startup envs, integrations, lifecycle
-            hooks, and auto naming.
+            final project config shape. .webmux.local.yaml can locally override
+            worktreeRoot, profiles, lifecycle hooks, auto-pull, and selected
+            integration toggles. The example below includes services, profiles,
+            docker mounts, startup envs, integrations, lifecycle hooks, and
+            auto naming.
           </p>
         </div>
         <div class="max-w-5xl">
@@ -309,7 +313,8 @@
           <p class="mt-3 leading-7 text-muted">
             The details below are the implementation-level behaviors that matter
             when you automate webmux, write lifecycle hooks, or rely on
-            generated branch names and port allocation.
+            generated branch names, startup envs, and per-worktree port
+            allocation.
           </p>
         </div>
         <div class="max-w-5xl">

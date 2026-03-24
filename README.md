@@ -132,7 +132,7 @@ profiles:
 
 integrations:
   github:
-    autoCloseOnMerge: true
+    autoRemoveOnMerge: true
     linkedRepos:
       - repo: myorg/related-service
         alias: svc
@@ -181,7 +181,7 @@ lifecycleHooks:
 | `profiles.sandbox.mounts[].hostPath` | string | yes | Host path to mount (`~` expands to `$HOME`) |
 | `profiles.sandbox.mounts[].guestPath` | string | no | Container mount path (defaults to `hostPath`) |
 | `profiles.sandbox.mounts[].writable` | boolean | no | `true` for read-write; omit or `false` for read-only |
-| `integrations.github.autoCloseOnMerge` | boolean | no | Automatically remove worktrees when their PR is merged (default: `false`) |
+| `integrations.github.autoRemoveOnMerge` | boolean | no | Automatically remove worktrees when their PR is merged (default: `false`) |
 | `integrations.github.linkedRepos[].repo` | string | yes | GitHub repo slug (e.g. `org/repo`) |
 | `integrations.github.linkedRepos[].alias` | string | no | Short label for the UI |
 | `startupEnvs.<KEY>` | string or boolean | no | Extra env vars materialized into worktree runtime env |

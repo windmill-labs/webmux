@@ -10,19 +10,19 @@
   let {
     currentTheme,
     linearAutoCreate,
-    autoCloseOnMerge,
+    autoRemoveOnMerge,
     onthemechange,
     onlinearautocreatechange,
-    onautoclosechange,
+    onautoremovechange,
     onsave,
     onclose,
   }: {
     currentTheme: ThemeKey;
     linearAutoCreate: boolean;
-    autoCloseOnMerge: boolean;
+    autoRemoveOnMerge: boolean;
     onthemechange: (key: ThemeKey) => void;
     onlinearautocreatechange: (enabled: boolean) => void;
-    onautoclosechange: (enabled: boolean) => void;
+    onautoremovechange: (enabled: boolean) => void;
     onsave: (sshHost: string) => void;
     onclose: () => void;
   } = $props();
@@ -33,10 +33,10 @@
   let autoCreateSaving = $state(false);
   let lastSyncedAutoCreate = initialAutoCreate;
 
-  const initialAutoClose = autoCloseOnMerge;
-  let autoClose = $state(initialAutoClose);
-  let autoCloseSaving = $state(false);
-  let lastSyncedAutoClose = initialAutoClose;
+  const initialAutoRemove = autoRemoveOnMerge;
+  let autoRemove = $state(initialAutoRemove);
+  let autoRemoveSaving = $state(false);
+  let lastSyncedAutoRemove = initialAutoRemove;
 
   $effect(() => {
     if (autoCreate === lastSyncedAutoCreate) return;
@@ -59,22 +59,22 @@
   });
 
   $effect(() => {
-    if (autoClose === lastSyncedAutoClose) return;
-    const desired = autoClose;
-    lastSyncedAutoClose = desired;
-    autoCloseSaving = true;
-    api.setAutoCloseOnMerge(desired)
+    if (autoRemove === lastSyncedAutoRemove) return;
+    const desired = autoRemove;
+    lastSyncedAutoRemove = desired;
+    autoRemoveSaving = true;
+    api.setAutoRemoveOnMerge(desired)
       .then((result) => {
-        autoClose = result.enabled;
-        lastSyncedAutoClose = result.enabled;
-        onautoclosechange(result.enabled);
+        autoRemove = result.enabled;
+        lastSyncedAutoRemove = result.enabled;
+        onautoremovechange(result.enabled);
       })
       .catch(() => {
-        autoClose = !desired;
-        lastSyncedAutoClose = !desired;
+        autoRemove = !desired;
+        lastSyncedAutoRemove = !desired;
       })
       .finally(() => {
-        autoCloseSaving = false;
+        autoRemoveSaving = false;
       });
   });
 
@@ -138,13 +138,13 @@
       <span class="block text-xs text-muted mb-2">GitHub</span>
       <div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md border border-edge bg-surface">
         <div>
-          <span class="text-[13px] text-primary">Auto-close on merge</span>
+          <span class="text-[13px] text-primary">Auto-remove on merge</span>
           <p class="text-[11px] text-muted mt-0.5">
             Automatically remove worktrees when their PR is merged on GitHub.
           </p>
         </div>
 
-        <Toggle bind:checked={autoClose} disabled={autoCloseSaving} aria-label="Auto-close worktrees on PR merge" />
+        <Toggle bind:checked={autoRemove} disabled={autoRemoveSaving} aria-label="Auto-remove worktrees on PR merge" />
       </div>
     </div>
 

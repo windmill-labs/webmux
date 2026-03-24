@@ -4,7 +4,7 @@ import { log } from "../lib/log";
 import type { LifecycleService } from "./lifecycle-service";
 import type { NotificationService } from "./notification-service";
 
-export interface AutoCloseDependencies {
+export interface AutoRemoveDependencies {
   lifecycleService: LifecycleService;
   git: GitGateway;
   projectRoot: string;
@@ -15,8 +15,8 @@ export interface AutoCloseDependencies {
 }
 
 /** Check all worktrees for merged PRs and remove clean ones.
- *  Called after PR sync completes — reads the PR files that sync just wrote. */
-export async function runAutoClose(deps: AutoCloseDependencies): Promise<void> {
+ *  Called after PR sync completes -- reads the PR files that sync just wrote. */
+export async function runAutoRemove(deps: AutoRemoveDependencies): Promise<void> {
   const worktrees = deps.git.listWorktrees(deps.projectRoot)
     .filter((e) => !e.bare && e.branch !== null && e.path !== deps.projectRoot);
 
@@ -29,23 +29,23 @@ export async function runAutoClose(deps: AutoCloseDependencies): Promise<void> {
     if (!prs.every((pr) => pr.state === "merged")) continue;
 
     if (deps.git.readWorktreeStatus(entry.path).dirty) {
-      log.info(`[auto-close] skipping dirty worktree: ${branch}`);
+      log.info(`[auto-remove] skipping dirty worktree: ${branch}`);
       continue;
     }
 
     deps.markRemoving(branch);
     try {
-      log.info(`[auto-close] removing merged worktree: ${branch}`);
+      log.info(`[auto-remove] removing merged worktree: ${branch}`);
       await deps.lifecycleService.removeWorktree(branch);
       deps.notifications.notify({
         branch,
         type: "worktree_auto_removed",
         message: `Worktree auto-removed after merge: ${branch}`,
       });
-      log.info(`[auto-close] removed worktree: ${branch}`);
+      log.info(`[auto-remove] removed worktree: ${branch}`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      log.error(`[auto-close] failed to remove worktree ${branch}: ${msg}`);
+      log.error(`[auto-remove] failed to remove worktree ${branch}: ${msg}`);
     } finally {
       deps.unmarkRemoving(branch);
     }

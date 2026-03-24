@@ -57,7 +57,7 @@ export interface LinkedRepoConfig {
 
 export interface GitHubIntegrationConfig {
   linkedRepos: LinkedRepoConfig[];
-  autoCloseOnMerge: boolean;
+  autoRemoveOnMerge: boolean;
 }
 
 export interface LinearIntegrationConfig {

@@ -197,7 +197,7 @@ const TEST_CONFIG: ProjectConfig = {
     FEATURE_FLAG: true,
   },
   integrations: {
-    github: { linkedRepos: [], autoCloseOnMerge: false },
+    github: { linkedRepos: [], autoRemoveOnMerge: false },
     linear: { enabled: true, autoCreateWorktrees: false, createTicketOption: false },
   },
   lifecycleHooks: {

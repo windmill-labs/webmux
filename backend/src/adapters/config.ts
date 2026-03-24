@@ -56,7 +56,7 @@ const DEFAULT_CONFIG: ProjectConfig = {
   services: [],
   startupEnvs: {},
   integrations: {
-    github: { linkedRepos: [], autoCloseOnMerge: false },
+    github: { linkedRepos: [], autoRemoveOnMerge: false },
     linear: { enabled: true, autoCreateWorktrees: false, createTicketOption: false },
   },
   lifecycleHooks: {},
@@ -324,9 +324,9 @@ function parseProjectConfig(parsed: Record<string, unknown>): ProjectConfig {
           : isRecord(parsed.integrations) && Array.isArray(parsed.integrations.github)
             ? parseLinkedRepos(parsed.integrations.github)
             : [],
-        autoCloseOnMerge: isRecord(parsed.integrations) && isRecord(parsed.integrations.github) && typeof parsed.integrations.github.autoCloseOnMerge === "boolean"
-          ? parsed.integrations.github.autoCloseOnMerge
-          : DEFAULT_CONFIG.integrations.github.autoCloseOnMerge,
+        autoRemoveOnMerge: isRecord(parsed.integrations) && isRecord(parsed.integrations.github) && typeof parsed.integrations.github.autoRemoveOnMerge === "boolean"
+          ? parsed.integrations.github.autoRemoveOnMerge
+          : DEFAULT_CONFIG.integrations.github.autoRemoveOnMerge,
       },
       linear: {
         enabled: isRecord(parsed.integrations) && isRecord(parsed.integrations.linear) && typeof parsed.integrations.linear.enabled === "boolean"
@@ -376,7 +376,7 @@ function parseLocalGitHubOverlay(parsed: Record<string, unknown>): Partial<GitHu
   if (!isRecord(github)) return null;
 
   const overlay: Partial<GitHubIntegrationConfig> = {};
-  if (typeof github.autoCloseOnMerge === "boolean") overlay.autoCloseOnMerge = github.autoCloseOnMerge;
+  if (typeof github.autoRemoveOnMerge === "boolean") overlay.autoRemoveOnMerge = github.autoRemoveOnMerge;
   return Object.keys(overlay).length > 0 ? overlay : null;
 }
 

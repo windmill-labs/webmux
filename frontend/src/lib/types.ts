@@ -204,7 +204,7 @@ export interface AppConfig {
   startupEnvs?: Record<string, string | boolean>;
   linkedRepos?: LinkedRepoInfo[];
   linearAutoCreateWorktrees?: boolean;
-  autoCloseOnMerge?: boolean;
+  autoRemoveOnMerge?: boolean;
   projectDir?: string;
   mainBranch?: string;
 }

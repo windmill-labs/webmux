@@ -32,7 +32,7 @@ import { LifecycleError } from "./services/lifecycle-service";
 import { buildNativeTerminalLaunch, buildNativeTerminalTmuxCommand } from "./services/native-terminal-service";
 import { startPrMonitor } from "./services/pr-service";
 import { startLinearAutoCreateMonitor, resetProcessedIssues } from "./services/linear-auto-create-service";
-import { runAutoClose, type AutoCloseDependencies } from "./services/auto-close-service";
+import { runAutoRemove, type AutoRemoveDependencies } from "./services/auto-remove-service";
 import { pullMainBranch, forcePullMainBranch, startAutoPullMonitor } from "./services/auto-pull-service";
 import { buildProjectSnapshot } from "./services/snapshot-service";
 import { parseRuntimeEvent } from "./domain/events";
@@ -57,7 +57,7 @@ const removingBranches = new Set<string>();
 const lifecycleService = runtime.lifecycleService;
 let linearAutoCreateEnabled = config.integrations.linear.autoCreateWorktrees;
 let stopLinearAutoCreate: (() => void) | null = null;
-let autoCloseOnMergeEnabled = config.integrations.github.autoCloseOnMerge;
+let autoRemoveOnMergeEnabled = config.integrations.github.autoRemoveOnMerge;
 
 /** Safe to call multiple times — the guard prevents duplicate monitors. */
 function startLinearAutoCreate(): void {
@@ -77,7 +77,7 @@ function stopLinearAutoCreateMonitor(): void {
   }
 }
 
-const autoCloseDeps: AutoCloseDependencies = {
+const autoRemoveDeps: AutoRemoveDependencies = {
   lifecycleService,
   git,
   projectRoot: PROJECT_DIR,
@@ -97,7 +97,7 @@ function getFrontendConfig(): {
   startupEnvs: ProjectConfig["startupEnvs"];
   linkedRepos: Array<{ alias: string; dir?: string }>;
   linearAutoCreateWorktrees: boolean;
-  autoCloseOnMerge: boolean;
+  autoRemoveOnMerge: boolean;
   projectDir: string;
   mainBranch: string;
 } {
@@ -124,7 +124,7 @@ function getFrontendConfig(): {
       ...(lr.dir ? { dir: resolve(PROJECT_DIR, lr.dir) } : {}),
     })),
     linearAutoCreateWorktrees: linearAutoCreateEnabled,
-    autoCloseOnMerge: autoCloseOnMergeEnabled,
+    autoRemoveOnMerge: autoRemoveOnMergeEnabled,
     projectDir: PROJECT_DIR,
     mainBranch: config.workspace.mainBranch,
   };
@@ -576,7 +576,7 @@ async function apiSetLinearAutoCreate(req: Request): Promise<Response> {
   return jsonResponse({ ok: true, enabled: linearAutoCreateEnabled });
 }
 
-async function apiSetAutoCloseOnMerge(req: Request): Promise<Response> {
+async function apiSetAutoRemoveOnMerge(req: Request): Promise<Response> {
   const raw: unknown = await req.json();
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return errorResponse("Invalid request body", 400);
@@ -586,12 +586,12 @@ async function apiSetAutoCloseOnMerge(req: Request): Promise<Response> {
     return errorResponse("Missing boolean 'enabled' field", 400);
   }
 
-  autoCloseOnMergeEnabled = body.enabled;
-  log.info(`[config] Auto-close on merge ${autoCloseOnMergeEnabled ? "enabled" : "disabled"}`);
+  autoRemoveOnMergeEnabled = body.enabled;
+  log.info(`[config] Auto-remove on merge ${autoRemoveOnMergeEnabled ? "enabled" : "disabled"}`);
 
-  await persistLocalGitHubConfig(PROJECT_DIR, { autoCloseOnMerge: autoCloseOnMergeEnabled });
+  await persistLocalGitHubConfig(PROJECT_DIR, { autoRemoveOnMerge: autoRemoveOnMergeEnabled });
 
-  return jsonResponse({ ok: true, enabled: autoCloseOnMergeEnabled });
+  return jsonResponse({ ok: true, enabled: autoRemoveOnMergeEnabled });
 }
 
 async function apiPullMain(req: Request): Promise<Response> {
@@ -812,8 +812,8 @@ Bun.serve({
       PUT: (req) => catching("PUT /api/linear/auto-create", () => apiSetLinearAutoCreate(req)),
     },
 
-    "/api/github/auto-close-on-merge": {
-      PUT: (req) => catching("PUT /api/github/auto-close-on-merge", () => apiSetAutoCloseOnMerge(req)),
+    "/api/github/auto-remove-on-merge": {
+      PUT: (req) => catching("PUT /api/github/auto-remove-on-merge", () => apiSetAutoRemoveOnMerge(req)),
     },
 
     "/api/pull-main": {
@@ -974,8 +974,8 @@ if (tmuxCheck.exitCode !== 0) {
 
 cleanupStaleSessions();
 startPrMonitor(getWorktreeGitDirs, config.integrations.github.linkedRepos, PROJECT_DIR, undefined, hasRecentDashboardActivity, async () => {
-  if (autoCloseOnMergeEnabled) {
-    await runAutoClose(autoCloseDeps);
+  if (autoRemoveOnMergeEnabled) {
+    await runAutoRemove(autoRemoveDeps);
   }
 });
 if (linearAutoCreateEnabled) {

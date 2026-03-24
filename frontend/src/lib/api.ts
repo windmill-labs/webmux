@@ -144,8 +144,8 @@ export function pullMain(force = false): Promise<PullMainResult> {
   });
 }
 
-export function setAutoCloseOnMerge(enabled: boolean): Promise<{ ok: boolean; enabled: boolean }> {
-  return api<{ ok: boolean; enabled: boolean }>("github/auto-close-on-merge", {
+export function setAutoRemoveOnMerge(enabled: boolean): Promise<{ ok: boolean; enabled: boolean }> {
+  return api<{ ok: boolean; enabled: boolean }>("github/auto-remove-on-merge", {
     method: "PUT",
     body: JSON.stringify({ enabled }),
   });

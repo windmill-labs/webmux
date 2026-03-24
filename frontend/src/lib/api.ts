@@ -130,6 +130,13 @@ export function setLinearAutoCreate(enabled: boolean): Promise<{ ok: boolean; en
   });
 }
 
+export function setAutoCloseOnMerge(enabled: boolean): Promise<{ ok: boolean; enabled: boolean }> {
+  return api<{ ok: boolean; enabled: boolean }>("github/auto-close-on-merge", {
+    method: "PUT",
+    body: JSON.stringify({ enabled }),
+  });
+}
+
 export async function fetchCiLogs(runId: number): Promise<string> {
   const data = await api<{ logs: string }>(`ci-logs/${runId}`);
   return data.logs;

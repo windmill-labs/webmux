@@ -13,7 +13,7 @@
 </script>
 
 <span class="shrink-0 {large ? 'text-base' : 'text-sm'}">
-  {#if notification.type === "agent_stopped"}
+  {#if notification.type === "agent_stopped" || notification.type === "worktree_auto_removed"}
     <span class="text-success">&#10003;</span>
   {:else}
     <span class="text-accent">&#9741;</span>

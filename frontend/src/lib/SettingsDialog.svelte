@@ -7,11 +7,22 @@
   import Toggle from "./Toggle.svelte";
   import * as api from "./api";
 
-  let { currentTheme, linearAutoCreate, onthemechange, onlinearautocreatechange, onsave, onclose }: {
+  let {
+    currentTheme,
+    linearAutoCreate,
+    autoCloseOnMerge,
+    onthemechange,
+    onlinearautocreatechange,
+    onautoclosechange,
+    onsave,
+    onclose,
+  }: {
     currentTheme: ThemeKey;
     linearAutoCreate: boolean;
+    autoCloseOnMerge: boolean;
     onthemechange: (key: ThemeKey) => void;
     onlinearautocreatechange: (enabled: boolean) => void;
+    onautoclosechange: (enabled: boolean) => void;
     onsave: (sshHost: string) => void;
     onclose: () => void;
   } = $props();
@@ -21,6 +32,11 @@
   let autoCreate = $state(initialAutoCreate);
   let autoCreateSaving = $state(false);
   let lastSyncedAutoCreate = initialAutoCreate;
+
+  const initialAutoClose = autoCloseOnMerge;
+  let autoClose = $state(initialAutoClose);
+  let autoCloseSaving = $state(false);
+  let lastSyncedAutoClose = initialAutoClose;
 
   $effect(() => {
     if (autoCreate === lastSyncedAutoCreate) return;
@@ -39,6 +55,26 @@
       })
       .finally(() => {
         autoCreateSaving = false;
+      });
+  });
+
+  $effect(() => {
+    if (autoClose === lastSyncedAutoClose) return;
+    const desired = autoClose;
+    lastSyncedAutoClose = desired;
+    autoCloseSaving = true;
+    api.setAutoCloseOnMerge(desired)
+      .then((result) => {
+        autoClose = result.enabled;
+        lastSyncedAutoClose = result.enabled;
+        onautoclosechange(result.enabled);
+      })
+      .catch(() => {
+        autoClose = !desired;
+        lastSyncedAutoClose = !desired;
+      })
+      .finally(() => {
+        autoCloseSaving = false;
       });
   });
 
@@ -95,6 +131,20 @@
         </div>
 
         <Toggle bind:checked={autoCreate} disabled={autoCreateSaving} aria-label="Auto-create worktrees for Linear tickets" />
+      </div>
+    </div>
+
+    <div class="mb-5">
+      <span class="block text-xs text-muted mb-2">GitHub</span>
+      <div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md border border-edge bg-surface">
+        <div>
+          <span class="text-[13px] text-primary">Auto-close on merge</span>
+          <p class="text-[11px] text-muted mt-0.5">
+            Automatically remove worktrees when their PR is merged on GitHub.
+          </p>
+        </div>
+
+        <Toggle bind:checked={autoClose} disabled={autoCloseSaving} aria-label="Auto-close worktrees on PR merge" />
       </div>
     </div>
 

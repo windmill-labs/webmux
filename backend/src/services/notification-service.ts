@@ -3,7 +3,7 @@ import type { RuntimeEvent } from "../domain/events";
 export interface RuntimeNotification {
   id: number;
   branch: string;
-  type: "agent_stopped" | "pr_opened" | "runtime_error";
+  type: "agent_stopped" | "pr_opened" | "runtime_error" | "worktree_auto_removed";
   message: string;
   url?: string;
   timestamp: number;
@@ -58,6 +58,24 @@ export class NotificationService {
     this.notifications.splice(index, 1);
     this.broadcast("dismiss", { id });
     return true;
+  }
+
+  notify(input: { branch: string; type: RuntimeNotification["type"]; message: string; url?: string }): RuntimeNotification {
+    const notification: RuntimeNotification = {
+      id: this.nextId,
+      branch: input.branch,
+      type: input.type,
+      message: input.message,
+      ...(input.url ? { url: input.url } : {}),
+      timestamp: Date.now(),
+    };
+    this.nextId += 1;
+    this.notifications.push(notification);
+    while (this.notifications.length > this.maxItems) {
+      this.notifications.shift();
+    }
+    this.broadcast("notification", notification);
+    return notification;
   }
 
   recordEvent(event: RuntimeEvent, now: () => Date = () => new Date()): RuntimeNotification | null {

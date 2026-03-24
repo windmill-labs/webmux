@@ -787,8 +787,10 @@
   <SettingsDialog
     {currentTheme}
     linearAutoCreate={config.linearAutoCreateWorktrees ?? false}
+    autoCloseOnMerge={config.autoCloseOnMerge ?? false}
     onthemechange={(key) => (currentTheme = key)}
     onlinearautocreatechange={(enabled) => { config.linearAutoCreateWorktrees = enabled; }}
+    onautoclosechange={(enabled) => { config.autoCloseOnMerge = enabled; }}
     onsave={(host) => {
       sshHost = host;
       showSettingsDialog = false;

@@ -18,7 +18,7 @@ import {
   type TerminalAttachTarget,
 } from "./adapters/terminal";
 import { loadControlToken } from "./adapters/control-token";
-import { getDefaultProfileName, persistLocalLinearConfig, type ProjectConfig } from "./adapters/config";
+import { getDefaultProfileName, persistLocalLinearConfig, persistLocalGitHubConfig, type ProjectConfig } from "./adapters/config";
 import { jsonResponse, errorResponse } from "./lib/http";
 import { hasRecentDashboardActivity, touchDashboardActivity } from "./services/dashboard-activity";
 import {
@@ -32,6 +32,8 @@ import { LifecycleError } from "./services/lifecycle-service";
 import { buildNativeTerminalLaunch, buildNativeTerminalTmuxCommand } from "./services/native-terminal-service";
 import { startPrMonitor } from "./services/pr-service";
 import { startLinearAutoCreateMonitor, resetProcessedIssues } from "./services/linear-auto-create-service";
+import { startAutoCloseMonitor, resetProcessedBranches } from "./services/auto-close-service";
+import { startAutoPullMonitor } from "./services/auto-pull-service";
 import { buildProjectSnapshot } from "./services/snapshot-service";
 import { parseRuntimeEvent } from "./domain/events";
 import { isValidWorktreeName } from "./domain/policies";
@@ -55,6 +57,8 @@ const removingBranches = new Set<string>();
 const lifecycleService = runtime.lifecycleService;
 let linearAutoCreateEnabled = config.integrations.linear.autoCreateWorktrees;
 let stopLinearAutoCreate: (() => void) | null = null;
+let autoCloseOnMergeEnabled = config.integrations.github.autoCloseOnMerge;
+let stopAutoClose: (() => void) | null = null;
 
 /** Safe to call multiple times — the guard prevents duplicate monitors. */
 function startLinearAutoCreate(): void {
@@ -74,6 +78,27 @@ function stopLinearAutoCreateMonitor(): void {
   }
 }
 
+function startAutoCloseOnMerge(): void {
+  if (stopAutoClose) return;
+  stopAutoClose = startAutoCloseMonitor({
+    lifecycleService,
+    git,
+    projectRoot: PROJECT_DIR,
+    notifications: runtimeNotifications,
+    isActive: hasRecentDashboardActivity,
+    isRemoving: (branch) => removingBranches.has(branch),
+    markRemoving: (branch) => removingBranches.add(branch),
+    unmarkRemoving: (branch) => removingBranches.delete(branch),
+  });
+}
+
+function stopAutoCloseOnMergeMonitor(): void {
+  if (stopAutoClose) {
+    stopAutoClose();
+    stopAutoClose = null;
+  }
+}
+
 function getFrontendConfig(): {
   name: string;
   services: ProjectConfig["services"];
@@ -84,6 +109,7 @@ function getFrontendConfig(): {
   startupEnvs: ProjectConfig["startupEnvs"];
   linkedRepos: Array<{ alias: string; dir?: string }>;
   linearAutoCreateWorktrees: boolean;
+  autoCloseOnMerge: boolean;
 } {
   const defaultProfileName = getDefaultProfileName(config);
   const orderedProfileEntries = Object.entries(config.profiles).sort(([left], [right]) => {
@@ -108,6 +134,7 @@ function getFrontendConfig(): {
       ...(lr.dir ? { dir: resolve(PROJECT_DIR, lr.dir) } : {}),
     })),
     linearAutoCreateWorktrees: linearAutoCreateEnabled,
+    autoCloseOnMerge: autoCloseOnMergeEnabled,
   };
 }
 
@@ -557,6 +584,31 @@ async function apiSetLinearAutoCreate(req: Request): Promise<Response> {
   return jsonResponse({ ok: true, enabled: linearAutoCreateEnabled });
 }
 
+async function apiSetAutoCloseOnMerge(req: Request): Promise<Response> {
+  const raw: unknown = await req.json();
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return errorResponse("Invalid request body", 400);
+  }
+  const body = raw as Record<string, unknown>;
+  if (typeof body.enabled !== "boolean") {
+    return errorResponse("Missing boolean 'enabled' field", 400);
+  }
+
+  autoCloseOnMergeEnabled = body.enabled;
+  if (autoCloseOnMergeEnabled) {
+    resetProcessedBranches();
+    startAutoCloseOnMerge();
+    log.info("[config] Auto-close on merge enabled");
+  } else {
+    stopAutoCloseOnMergeMonitor();
+    log.info("[config] Auto-close on merge disabled");
+  }
+
+  await persistLocalGitHubConfig(PROJECT_DIR, { autoCloseOnMerge: autoCloseOnMergeEnabled });
+
+  return jsonResponse({ ok: true, enabled: autoCloseOnMergeEnabled });
+}
+
 async function apiGetLinearIssues(): Promise<Response> {
   const apiKey = Bun.env.LINEAR_API_KEY;
   const fetchResult = config.integrations.linear.enabled && apiKey?.trim()
@@ -763,6 +815,10 @@ Bun.serve({
       PUT: (req) => catching("PUT /api/linear/auto-create", () => apiSetLinearAutoCreate(req)),
     },
 
+    "/api/github/auto-close-on-merge": {
+      PUT: (req) => catching("PUT /api/github/auto-close-on-merge", () => apiSetAutoCloseOnMerge(req)),
+    },
+
     "/api/ci-logs/:runId": {
       GET: (req) => catching(`GET /api/ci-logs/${req.params.runId}`, () => apiCiLogs(req.params.runId)),
     },
@@ -919,6 +975,15 @@ cleanupStaleSessions();
 startPrMonitor(getWorktreeGitDirs, config.integrations.github.linkedRepos, PROJECT_DIR, undefined, hasRecentDashboardActivity);
 if (linearAutoCreateEnabled) {
   startLinearAutoCreate();
+}
+if (autoCloseOnMergeEnabled) {
+  startAutoCloseOnMerge();
+}
+if (config.workspace.autoPull.enabled) {
+  startAutoPullMonitor(
+    { git, projectRoot: PROJECT_DIR, mainBranch: config.workspace.mainBranch },
+    config.workspace.autoPull.intervalSeconds * 1000,
+  );
 }
 
 log.info(`Dev Dashboard API running at http://localhost:${PORT}`);

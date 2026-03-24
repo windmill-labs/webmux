@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ProjectConfig } from "../domain/config";
-import type { GitGateway, GitWorktreeEntry, GitWorktreeStatus, UnpushedCommit } from "../adapters/git";
+import type { GitGateway, GitWorktreeEntry, GitWorktreeStatus, TryGitCommandResult, UnpushedCommit } from "../adapters/git";
 import type { PortProbe } from "../adapters/port-probe";
 import type { TmuxGateway, TmuxWindowSummary } from "../adapters/tmux";
 import { buildProjectSessionName, buildWorktreeWindowName } from "../adapters/tmux";
@@ -66,6 +66,14 @@ class FakeGitGateway implements GitGateway {
 
   listUnpushedCommits(): UnpushedCommit[] {
     return [];
+  }
+
+  fetchBranch(_repoRoot: string, _remote: string, _branch: string): TryGitCommandResult {
+    return { ok: true, stdout: "" };
+  }
+
+  fastForwardMerge(_repoRoot: string, _ref: string): TryGitCommandResult {
+    return { ok: true, stdout: "" };
   }
 }
 
@@ -141,6 +149,7 @@ const TEST_CONFIG: ProjectConfig = {
     mainBranch: "main",
     worktreeRoot: "__worktrees",
     defaultAgent: "claude",
+    autoPull: { enabled: false, intervalSeconds: 300 },
   },
   profiles: {
     default: {
@@ -158,7 +167,7 @@ const TEST_CONFIG: ProjectConfig = {
   ],
   startupEnvs: {},
   integrations: {
-    github: { linkedRepos: [] },
+    github: { linkedRepos: [], autoCloseOnMerge: false },
     linear: { enabled: true, autoCreateWorktrees: false, createTicketOption: false },
   },
   lifecycleHooks: {},

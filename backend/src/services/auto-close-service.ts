@@ -1,18 +1,14 @@
 import { readWorktreePrs } from "../adapters/fs";
 import type { GitGateway } from "../adapters/git";
-import { startSerializedInterval } from "../lib/async";
 import { log } from "../lib/log";
 import type { LifecycleService } from "./lifecycle-service";
 import type { NotificationService } from "./notification-service";
-
-const POLL_INTERVAL_MS = 15_000;
 
 export interface AutoCloseDependencies {
   lifecycleService: LifecycleService;
   git: GitGateway;
   projectRoot: string;
   notifications: NotificationService;
-  isActive: () => boolean;
   isRemoving: (branch: string) => boolean;
   markRemoving: (branch: string) => void;
   unmarkRemoving: (branch: string) => void;
@@ -22,14 +18,13 @@ export interface AutoCloseDependencies {
 const processedBranches = new Set<string>();
 
 /** Find worktree branches that have a merged PR.
- *  Pure function — reads per-worktree PR files and returns branches eligible for auto-close. */
+ *  Reads per-worktree PR files and returns branches eligible for auto-close. */
 export async function findMergedWorktrees(
   git: GitGateway,
   projectRoot: string,
 ): Promise<string[]> {
-  const resolvedRoot = projectRoot;
-  const entries = git.listWorktrees(resolvedRoot)
-    .filter((e) => !e.bare && e.branch !== null && e.path !== resolvedRoot);
+  const entries = git.listWorktrees(projectRoot)
+    .filter((e) => !e.bare && e.branch !== null && e.path !== projectRoot);
 
   const merged: string[] = [];
   for (const entry of entries) {
@@ -42,12 +37,8 @@ export async function findMergedWorktrees(
   return merged;
 }
 
-async function runAutoClose(deps: AutoCloseDependencies): Promise<void> {
-  if (!deps.isActive()) {
-    log.debug("[auto-close] skipping: no active clients");
-    return;
-  }
-
+/** Run a single auto-close cycle. Called after PR sync completes. */
+export async function runAutoClose(deps: AutoCloseDependencies): Promise<void> {
   const mergedBranches = await findMergedWorktrees(deps.git, deps.projectRoot);
   const candidates = mergedBranches.filter((b) => !processedBranches.has(b) && !deps.isRemoving(b));
 
@@ -58,12 +49,15 @@ async function runAutoClose(deps: AutoCloseDependencies): Promise<void> {
 
   log.info(`[auto-close] found ${candidates.length} merged worktree(s) to remove`);
 
+  const currentWorktrees = deps.git.listWorktrees(deps.projectRoot);
   for (const branch of candidates) {
-    const status = deps.git.readWorktreeStatus(
-      deps.git.listWorktrees(deps.projectRoot)
-        .find((e) => e.branch === branch)!.path,
-    );
+    const entry = currentWorktrees.find((e) => e.branch === branch);
+    if (!entry) {
+      log.warn(`[auto-close] worktree disappeared before status check: ${branch}`);
+      continue;
+    }
 
+    const status = deps.git.readWorktreeStatus(entry.path);
     if (status.dirty) {
       log.info(`[auto-close] skipping dirty worktree: ${branch}`);
       continue;
@@ -87,19 +81,17 @@ async function runAutoClose(deps: AutoCloseDependencies): Promise<void> {
       deps.unmarkRemoving(branch);
     }
   }
+
+  // Prune processed branches that no longer have worktrees
+  const activeBranches = new Set(currentWorktrees.map((e) => e.branch).filter(Boolean));
+  for (const branch of processedBranches) {
+    if (!activeBranches.has(branch)) {
+      processedBranches.delete(branch);
+    }
+  }
 }
 
-/** Start periodic polling for merged worktrees and auto-remove them.
- *  Returns a cleanup function that stops the monitor. */
-export function startAutoCloseMonitor(deps: AutoCloseDependencies): () => void {
-  log.info("[auto-close] monitor started");
-  return startSerializedInterval(
-    () => runAutoClose(deps),
-    POLL_INTERVAL_MS,
-  );
-}
-
-/** Clear the processed branches set. Useful when re-enabling the monitor. */
+/** Clear the processed branches set. Useful when re-enabling. */
 export function resetProcessedBranches(): void {
   processedBranches.clear();
 }

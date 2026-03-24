@@ -492,6 +492,7 @@ export function startPrMonitor(
   projectDir?: string,
   intervalMs: number = 10_000,
   isActive?: () => boolean,
+  onAfterSync?: () => Promise<void>,
 ): () => void {
   const run = async (): Promise<void> => {
     if (isActive && !isActive()) {
@@ -503,6 +504,11 @@ export function startPrMonitor(
         log.error(`[pr] sync error: ${err}`);
       },
     );
+    if (onAfterSync) {
+      await onAfterSync().catch((err: unknown) => {
+        log.error(`[pr] after-sync hook error: ${err}`);
+      });
+    }
   };
 
   return startSerializedInterval(run, intervalMs);

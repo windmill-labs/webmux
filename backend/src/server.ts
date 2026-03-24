@@ -32,7 +32,7 @@ import { LifecycleError } from "./services/lifecycle-service";
 import { buildNativeTerminalLaunch, buildNativeTerminalTmuxCommand } from "./services/native-terminal-service";
 import { startPrMonitor } from "./services/pr-service";
 import { startLinearAutoCreateMonitor, resetProcessedIssues } from "./services/linear-auto-create-service";
-import { startAutoCloseMonitor, resetProcessedBranches } from "./services/auto-close-service";
+import { runAutoClose, resetProcessedBranches, type AutoCloseDependencies } from "./services/auto-close-service";
 import { startAutoPullMonitor } from "./services/auto-pull-service";
 import { buildProjectSnapshot } from "./services/snapshot-service";
 import { parseRuntimeEvent } from "./domain/events";
@@ -58,7 +58,6 @@ const lifecycleService = runtime.lifecycleService;
 let linearAutoCreateEnabled = config.integrations.linear.autoCreateWorktrees;
 let stopLinearAutoCreate: (() => void) | null = null;
 let autoCloseOnMergeEnabled = config.integrations.github.autoCloseOnMerge;
-let stopAutoClose: (() => void) | null = null;
 
 /** Safe to call multiple times — the guard prevents duplicate monitors. */
 function startLinearAutoCreate(): void {
@@ -78,26 +77,15 @@ function stopLinearAutoCreateMonitor(): void {
   }
 }
 
-function startAutoCloseOnMerge(): void {
-  if (stopAutoClose) return;
-  stopAutoClose = startAutoCloseMonitor({
-    lifecycleService,
-    git,
-    projectRoot: PROJECT_DIR,
-    notifications: runtimeNotifications,
-    isActive: hasRecentDashboardActivity,
-    isRemoving: (branch) => removingBranches.has(branch),
-    markRemoving: (branch) => removingBranches.add(branch),
-    unmarkRemoving: (branch) => removingBranches.delete(branch),
-  });
-}
-
-function stopAutoCloseOnMergeMonitor(): void {
-  if (stopAutoClose) {
-    stopAutoClose();
-    stopAutoClose = null;
-  }
-}
+const autoCloseDeps: AutoCloseDependencies = {
+  lifecycleService,
+  git,
+  projectRoot: PROJECT_DIR,
+  notifications: runtimeNotifications,
+  isRemoving: (branch: string) => removingBranches.has(branch),
+  markRemoving: (branch: string) => removingBranches.add(branch),
+  unmarkRemoving: (branch: string) => removingBranches.delete(branch),
+};
 
 function getFrontendConfig(): {
   name: string;
@@ -597,10 +585,8 @@ async function apiSetAutoCloseOnMerge(req: Request): Promise<Response> {
   autoCloseOnMergeEnabled = body.enabled;
   if (autoCloseOnMergeEnabled) {
     resetProcessedBranches();
-    startAutoCloseOnMerge();
     log.info("[config] Auto-close on merge enabled");
   } else {
-    stopAutoCloseOnMergeMonitor();
     log.info("[config] Auto-close on merge disabled");
   }
 
@@ -972,12 +958,13 @@ if (tmuxCheck.exitCode !== 0) {
 }
 
 cleanupStaleSessions();
-startPrMonitor(getWorktreeGitDirs, config.integrations.github.linkedRepos, PROJECT_DIR, undefined, hasRecentDashboardActivity);
+startPrMonitor(getWorktreeGitDirs, config.integrations.github.linkedRepos, PROJECT_DIR, undefined, hasRecentDashboardActivity, async () => {
+  if (autoCloseOnMergeEnabled) {
+    await runAutoClose(autoCloseDeps);
+  }
+});
 if (linearAutoCreateEnabled) {
   startLinearAutoCreate();
-}
-if (autoCloseOnMergeEnabled) {
-  startAutoCloseOnMerge();
 }
 if (config.workspace.autoPull.enabled) {
   startAutoPullMonitor(

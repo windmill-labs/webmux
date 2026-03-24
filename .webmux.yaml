@@ -47,11 +47,13 @@ profiles:
       - id: backend
         kind: command
         split: right
-        command: cd backend && bun install && bun run dev
+        workingDir: backend
+        command: bun install && bun run dev
       - id: frontend
         kind: command
         split: bottom
-        command: cd frontend && bun install && bun run dev
+        workingDir: frontend
+        command: bun install && bun run dev
     systemPrompt: >
       You are working inside a project managed by webmux.
       Backend port: ${PORT}. Frontend port: ${FRONTEND_PORT}.
@@ -75,11 +77,13 @@ profiles:
       - id: backend
         kind: command
         split: bottom
-        command: cd backend && bun run dev
+        workingDir: backend
+        command: bun run dev
       - id: frontend
         kind: command
         split: bottom
-        command: cd frontend && bun run dev
+        workingDir: frontend
+        command: bun run dev
     systemPrompt: >
       You are running inside a sandboxed container with full permissions.
       IMPORTANT: Read docs/autonomous-mode.md before starting any work.

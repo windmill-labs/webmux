@@ -17,6 +17,7 @@ export interface PaneTemplate {
   focus?: boolean;
   command?: string;
   cwd?: "worktree" | "repo";
+  workingDir?: string;
 }
 
 export interface MountSpec {

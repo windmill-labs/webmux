@@ -124,6 +124,9 @@ function parsePane(raw: unknown, index: number): PaneTemplate | null {
   if (raw.kind === "command") {
     if (typeof raw.command !== "string" || !raw.command.trim()) return null;
     pane.command = raw.command.trim();
+    if (typeof raw.workingDir === "string" && raw.workingDir.trim()) {
+      pane.workingDir = raw.workingDir.trim();
+    }
   }
 
   return pane;

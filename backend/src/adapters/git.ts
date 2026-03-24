@@ -221,6 +221,11 @@ export function listLocalGitBranches(cwd: string): string[] {
 }
 
 export function listRemoteGitBranches(cwd: string): string[] {
+  try {
+    runGit(["fetch", "--prune", "origin"], cwd);
+  } catch {
+    // Fetch failed (e.g. no network) — list whatever is cached locally
+  }
   const output = runGit(["for-each-ref", "--format=%(refname:short)", "refs/remotes/origin"], cwd);
   return output
     .split("\n")

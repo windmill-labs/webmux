@@ -152,10 +152,10 @@ export interface PullMainResult {
   error?: string;
 }
 
-export function pullMain(force = false): Promise<PullMainResult> {
+export function pullMain(force = false, repo?: string): Promise<PullMainResult> {
   return api<PullMainResult>("pull-main", {
     method: "POST",
-    body: JSON.stringify(force ? { force: true } : {}),
+    body: JSON.stringify({ ...(force ? { force: true } : {}), ...(repo ? { repo } : {}) }),
   });
 }
 

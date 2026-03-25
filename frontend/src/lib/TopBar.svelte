@@ -9,6 +9,7 @@
   import RepoGroup from "./RepoGroup.svelte";
   import Btn from "./Btn.svelte";
   import NotificationItem from "./NotificationItem.svelte";
+  import { makeCursorUrl } from "./utils";
 
   let {
     name,
@@ -66,14 +67,6 @@
     }
   }
 
-  function makeCursorUrl(dir: string | null | undefined): string | null {
-    if (!dir) return null;
-    if (sshHost) {
-      return `cursor://vscode-remote/ssh-remote+${sshHost}${dir}`;
-    }
-    return `cursor://file${dir}`;
-  }
-
   function truncateWorktreeName(
     value: string | null,
     maxLength: number,
@@ -82,7 +75,7 @@
     return `${value.slice(0, maxLength - 3)}...`;
   }
 
-  let cursorUrl = $derived(makeCursorUrl(worktree?.dir));
+  let cursorUrl = $derived(makeCursorUrl(worktree?.dir, sshHost));
   let displayName = $derived(truncateWorktreeName(name, 30));
 
   // Split PRs into main repo vs linked repo groups
@@ -97,7 +90,7 @@
       .map((lr) => ({
         alias: lr.alias,
         dir: lr.dir,
-        cursorUrl: makeCursorUrl(lr.dir && name ? `${lr.dir}/${name}` : null),
+        cursorUrl: makeCursorUrl(lr.dir && name ? `${lr.dir}/${name}` : null, sshHost),
         prs: (worktree?.prs ?? []).filter((pr) => pr.repo === lr.alias),
       }))
       .filter((g) => g.prs.length > 0 || g.cursorUrl),

@@ -619,11 +619,20 @@ async function apiPullMain(req: Request): Promise<Response> {
   const raw: unknown = await req.json().catch(() => ({}));
   const body = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
   const force = body.force === true;
+  const repo = typeof body.repo === "string" ? body.repo : "";
 
-  const deps = { git, projectRoot: PROJECT_DIR, mainBranch: config.workspace.mainBranch };
+  let projectRoot = PROJECT_DIR;
+  if (repo) {
+    const linkedRepo = config.integrations.github.linkedRepos.find((lr) => lr.alias === repo);
+    if (!linkedRepo) return errorResponse(`Unknown linked repo: ${repo}`, 404);
+    if (!linkedRepo.dir) return errorResponse(`Linked repo "${repo}" has no dir configured`, 400);
+    projectRoot = resolve(PROJECT_DIR, linkedRepo.dir);
+  }
+
+  const deps = { git, projectRoot, mainBranch: config.workspace.mainBranch };
   const result = force ? forcePullMainBranch(deps) : pullMainBranch(deps);
 
-  log.info(`[pull-main] ${force ? "force " : ""}pull: ${result.status}`);
+  log.info(`[pull-main] ${repo || "main"} ${force ? "force " : ""}pull: ${result.status}`);
   return jsonResponse(result);
 }
 

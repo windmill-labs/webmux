@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { PrEntry, ServiceStatus } from "./types";
+  import CursorButton from "./CursorButton.svelte";
   import PrStatusGroup from "./PrStatusGroup.svelte";
 
   let {
@@ -39,10 +40,6 @@
     {/if}
   {/each}
   {#if cursorUrl}
-    <a
-      href={cursorUrl}
-      class="shrink-0 text-[9px] px-1.5 py-0.5 rounded border border-accent/40 text-accent font-medium no-underline hover:opacity-80"
-      title="Open in Cursor"
-    >Cursor</a>
+    <CursorButton url={cursorUrl} />
   {/if}
 </div>

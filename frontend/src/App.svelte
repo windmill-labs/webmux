@@ -13,6 +13,7 @@
   import NotificationToast from "./lib/NotificationToast.svelte";
   import LinearPanel from "./lib/LinearPanel.svelte";
   import LinearDetailDialog from "./lib/LinearDetailDialog.svelte";
+  import CursorButton from "./lib/CursorButton.svelte";
   import type {
     AvailableBranch,
     AppConfig,
@@ -25,6 +26,7 @@
   } from "./lib/types";
   import {
     SSH_STORAGE_KEY,
+    makeCursorUrl,
     errorMessage,
     worktreeCreationPhaseLabel,
     loadSavedTheme,
@@ -63,6 +65,10 @@
   let pullMainLoading = $state(false);
   let pullMainError = $state("");
   let pullMainForce = $state(false);
+  let pullLinkedRepoAlias = $state<string | null>(null);
+  let pullLinkedRepoLoading = $state(false);
+  let pullLinkedRepoError = $state("");
+  let pullLinkedRepoForce = $state(false);
   let pendingCreateCount = $state(0);
   let latestAutoSelectCreateId = -1;
   let nextCreateRequestId = 0;
@@ -534,6 +540,28 @@
     }
   }
 
+  async function handlePullLinkedRepo(): Promise<void> {
+    if (!pullLinkedRepoAlias) return;
+    pullLinkedRepoLoading = true;
+    pullLinkedRepoError = "";
+    try {
+      const result = await api.pullMain(pullLinkedRepoForce, pullLinkedRepoAlias);
+      if (result.status === "updated" || result.status === "already_up_to_date") {
+        pullLinkedRepoAlias = null;
+        pullLinkedRepoForce = false;
+      } else if (result.status === "merge_failed" && !pullLinkedRepoForce) {
+        pullLinkedRepoForce = true;
+        pullLinkedRepoError = `Fast-forward failed: ${result.error ?? "unknown error"}.\nForce pull will reset to match remote.`;
+      } else {
+        pullLinkedRepoError = result.error ?? result.status;
+      }
+    } catch (err) {
+      pullLinkedRepoError = errorMessage(err);
+    } finally {
+      pullLinkedRepoLoading = false;
+    }
+  }
+
   async function openSelectedWorktree(): Promise<void> {
     const branch = selectedBranch;
     if (!branch) return;
@@ -579,7 +607,7 @@
 
   function handleKeydown(e: KeyboardEvent) {
     // Ignore shortcuts when a dialog is open (let dialog handle its own keys)
-    if (showCreateDialog || removeBranch || mergeBranch || pullMainConfirm) return;
+    if (showCreateDialog || removeBranch || mergeBranch || pullMainConfirm || pullLinkedRepoAlias) return;
 
     const mod = e.metaKey || e.ctrlKey;
     if (!mod) return;
@@ -757,16 +785,12 @@
         onremove={(b) => (removeBranch = b)}
       />
       {#if config.projectDir}
-        {@const mainCursorUrl = sshHost
-          ? `cursor://vscode-remote/ssh-remote+${sshHost}${config.projectDir}`
-          : `cursor://file${config.projectDir}`}
+        {@const mainCursorUrl = makeCursorUrl(config.projectDir, sshHost)}
         <div class="shrink-0 border-t border-edge px-3 py-2 flex items-center gap-2">
           <span class="text-[11px] text-muted font-medium truncate">{config.mainBranch ?? "main"}</span>
-          <a
-            href={mainCursorUrl}
-            class="shrink-0 text-[9px] px-1.5 py-0.5 rounded border border-accent/40 text-accent font-medium no-underline hover:opacity-80"
-            title="Open in Cursor"
-          >Cursor</a>
+          {#if mainCursorUrl}
+            <CursorButton url={mainCursorUrl} />
+          {/if}
           <button
             type="button"
             class="shrink-0 text-[9px] px-1.5 py-0.5 rounded border border-edge text-muted font-medium cursor-pointer hover:bg-hover hover:text-primary"
@@ -775,6 +799,21 @@
           >Pull</button>
         </div>
       {/if}
+      {#each (config.linkedRepos ?? []).filter((lr) => lr.dir) as lr (lr.alias)}
+        {@const lrCursorUrl = makeCursorUrl(lr.dir, sshHost)}
+        <div class="shrink-0 border-t border-edge px-3 py-2 flex items-center gap-2">
+          <span class="text-[11px] text-muted font-medium truncate">{lr.alias}</span>
+          {#if lrCursorUrl}
+            <CursorButton url={lrCursorUrl} />
+          {/if}
+          <button
+            type="button"
+            class="shrink-0 text-[9px] px-1.5 py-0.5 rounded border border-edge text-muted font-medium cursor-pointer hover:bg-hover hover:text-primary"
+            title="Pull latest from remote"
+            onclick={() => { pullLinkedRepoAlias = lr.alias; pullLinkedRepoForce = false; pullLinkedRepoError = ""; }}
+          >Pull</button>
+        </div>
+      {/each}
       {#if showLinearPanel}
         <LinearPanel
           issues={linearIssues}
@@ -954,6 +993,20 @@
     error={pullMainError}
     onconfirm={handlePullMain}
     oncancel={() => { pullMainConfirm = false; pullMainForce = false; }}
+  />
+{/if}
+
+{#if pullLinkedRepoAlias}
+  <ConfirmDialog
+    message={pullLinkedRepoForce
+      ? `Force pull "${pullLinkedRepoAlias}"? This will discard any local commits.`
+      : `Pull latest "${pullLinkedRepoAlias}" from remote?`}
+    confirmLabel={pullLinkedRepoForce ? "Force Pull" : "Pull"}
+    variant={pullLinkedRepoForce ? "danger" : "accent"}
+    loading={pullLinkedRepoLoading}
+    error={pullLinkedRepoError}
+    onconfirm={handlePullLinkedRepo}
+    oncancel={() => { pullLinkedRepoAlias = null; pullLinkedRepoForce = false; }}
   />
 {/if}
 

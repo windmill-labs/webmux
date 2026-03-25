@@ -50,6 +50,12 @@ export function prStatusShellClass(pr: Pick<PrEntry, "ciChecks" | "ciStatus" | "
   return "border-edge bg-surface";
 }
 
+export function makeCursorUrl(dir: string | null | undefined, sshHost: string | null): string | null {
+  if (!dir) return null;
+  if (sshHost) return `cursor://vscode-remote/ssh-remote+${sshHost}${dir}`;
+  return `cursor://file${dir}`;
+}
+
 export function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }

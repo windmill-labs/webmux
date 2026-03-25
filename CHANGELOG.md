@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.22.1](https://github.com/windmill-labs/webmux/compare/v0.22.0...v0.22.1) (2026-03-25)
+
+
+### Bug Fixes
+
+* remove hardcoded fake-repo from linked repos ([#184](https://github.com/windmill-labs/webmux/issues/184)) ([4859a80](https://github.com/windmill-labs/webmux/commit/4859a80d34fabfd4881408f1526ba9a16db7265b))
+
 ## [0.22.0](https://github.com/windmill-labs/webmux/compare/v0.21.0...v0.22.0) (2026-03-25)
 
 

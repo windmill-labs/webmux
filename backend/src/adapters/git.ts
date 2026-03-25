@@ -1,5 +1,5 @@
-import { rmSync } from "node:fs";
-import { resolve } from "node:path";
+import { readdirSync, rmSync, statSync } from "node:fs";
+import { resolve, join } from "node:path";
 
 export interface GitWorktreeEntry {
   path: string;
@@ -63,6 +63,7 @@ export interface RemoveGitWorktreeDeps {
 }
 
 export interface GitGateway {
+  resolveRepoRoot(dir: string): string | null;
   resolveWorktreeRoot(cwd: string): string;
   resolveWorktreeGitDir(cwd: string): string;
   listWorktrees(cwd: string): GitWorktreeEntry[];
@@ -145,6 +146,36 @@ function currentCheckoutRef(cwd: string): { ref: string; branch: string | null }
     ref: runGit(["rev-parse", "--verify", "HEAD"], cwd),
     branch: null,
   };
+}
+
+/**
+ * Resolve the git repo root for a directory. If `dir` is already inside a git
+ * repo, returns its toplevel. If not (e.g. a worktree-root container), scans
+ * immediate children for a git worktree and resolves the main repo from there.
+ * Returns null when no repo can be found.
+ */
+export function resolveRepoRoot(dir: string): string | null {
+  const direct = tryRunGit(["rev-parse", "--show-toplevel"], dir);
+  if (direct.ok) return resolve(dir, direct.stdout);
+
+  // dir is not a git repo — check if it's a worktree container
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return null;
+  }
+  for (const entry of entries) {
+    const child = join(dir, entry);
+    try {
+      if (!statSync(child).isDirectory()) continue;
+    } catch {
+      continue;
+    }
+    const childResult = tryRunGit(["rev-parse", "--show-toplevel"], child);
+    if (childResult.ok) return resolve(child, childResult.stdout);
+  }
+  return null;
 }
 
 export function resolveWorktreeRoot(cwd: string): string {
@@ -284,6 +315,10 @@ export function removeGitWorktree(
 }
 
 export class BunGitGateway implements GitGateway {
+  resolveRepoRoot(dir: string): string | null {
+    return resolveRepoRoot(dir);
+  }
+
   resolveWorktreeRoot(cwd: string): string {
     return resolveWorktreeRoot(cwd);
   }

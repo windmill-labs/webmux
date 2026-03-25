@@ -33,6 +33,11 @@ class FakeGitGateway implements GitGateway {
     private readonly calls: string[],
   ) {}
 
+  resolveRepoRoot(dir: string): string | null {
+    this.calls.push(`resolveRepoRoot:${dir}`);
+    return dir;
+  }
+
   resolveWorktreeRoot(cwd: string): string {
     this.calls.push(`resolveWorktreeRoot:${cwd}`);
     return cwd;

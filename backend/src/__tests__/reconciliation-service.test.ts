@@ -18,6 +18,10 @@ class FakeGitGateway implements GitGateway {
     private readonly statuses: Map<string, GitWorktreeStatus>,
   ) {}
 
+  resolveRepoRoot(dir: string): string | null {
+    return dir;
+  }
+
   resolveWorktreeRoot(cwd: string): string {
     return cwd;
   }

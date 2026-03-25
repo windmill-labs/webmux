@@ -626,10 +626,10 @@ async function apiPullMain(req: Request): Promise<Response> {
     const linkedRepo = config.integrations.github.linkedRepos.find((lr) => lr.alias === repo);
     if (!linkedRepo) return errorResponse(`Unknown linked repo: ${repo}`, 404);
     if (!linkedRepo.dir) return errorResponse(`Linked repo "${repo}" has no dir configured`, 400);
-    projectRoot = resolve(PROJECT_DIR, linkedRepo.dir);
-    if (!projectRoot.startsWith(PROJECT_DIR)) {
-      return errorResponse("Invalid linked repo directory", 400);
-    }
+    const resolvedDir = resolve(PROJECT_DIR, linkedRepo.dir);
+    const repoRoot = git.resolveRepoRoot(resolvedDir);
+    if (!repoRoot) return errorResponse(`Linked repo "${repo}" dir is not a git repository: ${resolvedDir}`, 400);
+    projectRoot = repoRoot;
   }
 
   // NOTE: linked repos inherit the project's mainBranch setting — if a linked

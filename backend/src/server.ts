@@ -627,8 +627,13 @@ async function apiPullMain(req: Request): Promise<Response> {
     if (!linkedRepo) return errorResponse(`Unknown linked repo: ${repo}`, 404);
     if (!linkedRepo.dir) return errorResponse(`Linked repo "${repo}" has no dir configured`, 400);
     projectRoot = resolve(PROJECT_DIR, linkedRepo.dir);
+    if (!projectRoot.startsWith(PROJECT_DIR)) {
+      return errorResponse("Invalid linked repo directory", 400);
+    }
   }
 
+  // NOTE: linked repos inherit the project's mainBranch setting — if a linked
+  // repo uses a different default branch this will need a per-repo override.
   const deps = { git, projectRoot, mainBranch: config.workspace.mainBranch };
   const result = force ? forcePullMainBranch(deps) : pullMainBranch(deps);
 

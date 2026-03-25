@@ -13,7 +13,7 @@
   import NotificationToast from "./lib/NotificationToast.svelte";
   import LinearPanel from "./lib/LinearPanel.svelte";
   import LinearDetailDialog from "./lib/LinearDetailDialog.svelte";
-  import CursorButton from "./lib/CursorButton.svelte";
+  import SidebarRepoRow from "./lib/SidebarRepoRow.svelte";
   import type {
     AvailableBranch,
     AppConfig,
@@ -645,6 +645,7 @@
     api
       .fetchConfig()
       .then((c) => {
+        c.linkedRepos = [...(c.linkedRepos ?? []), { alias: "fake-repo", dir: "/tmp/fake-repo" }];
         config = c;
       })
       .catch(() => {});
@@ -785,34 +786,18 @@
         onremove={(b) => (removeBranch = b)}
       />
       {#if config.projectDir}
-        {@const mainCursorUrl = makeCursorUrl(config.projectDir, sshHost)}
-        <div class="shrink-0 border-t border-edge px-3 py-2 flex items-center gap-2">
-          <span class="text-[11px] text-muted font-medium truncate">{config.mainBranch ?? "main"}</span>
-          {#if mainCursorUrl}
-            <CursorButton url={mainCursorUrl} />
-          {/if}
-          <button
-            type="button"
-            class="shrink-0 text-[9px] px-1.5 py-0.5 rounded border border-edge text-muted font-medium cursor-pointer hover:bg-hover hover:text-primary"
-            title="Pull latest from remote"
-            onclick={() => { pullMainConfirm = true; pullMainForce = false; pullMainError = ""; }}
-          >Pull</button>
-        </div>
+        <SidebarRepoRow
+          label={config.mainBranch ?? "main"}
+          cursorUrl={makeCursorUrl(config.projectDir, sshHost) ?? ""}
+          onpull={() => { pullMainConfirm = true; pullMainForce = false; pullMainError = ""; }}
+        />
       {/if}
       {#each (config.linkedRepos ?? []).filter((lr) => lr.dir) as lr (lr.alias)}
-        {@const lrCursorUrl = makeCursorUrl(lr.dir, sshHost)}
-        <div class="shrink-0 border-t border-edge px-3 py-2 flex items-center gap-2">
-          <span class="text-[11px] text-muted font-medium truncate">{lr.alias}</span>
-          {#if lrCursorUrl}
-            <CursorButton url={lrCursorUrl} />
-          {/if}
-          <button
-            type="button"
-            class="shrink-0 text-[9px] px-1.5 py-0.5 rounded border border-edge text-muted font-medium cursor-pointer hover:bg-hover hover:text-primary"
-            title="Pull latest from remote"
-            onclick={() => { pullLinkedRepoAlias = lr.alias; pullLinkedRepoForce = false; pullLinkedRepoError = ""; }}
-          >Pull</button>
-        </div>
+        <SidebarRepoRow
+          label={lr.alias}
+          cursorUrl={makeCursorUrl(lr.dir, sshHost) ?? ""}
+          onpull={() => { pullLinkedRepoAlias = lr.alias; pullLinkedRepoForce = false; pullLinkedRepoError = ""; }}
+        />
       {/each}
       {#if showLinearPanel}
         <LinearPanel

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.22.0](https://github.com/windmill-labs/webmux/compare/v0.21.0...v0.22.0) (2026-03-25)
+
+
+### Features
+
+* show linked repos inline in sidebar ([#182](https://github.com/windmill-labs/webmux/issues/182)) ([fa1cb0f](https://github.com/windmill-labs/webmux/commit/fa1cb0f014491c513c642819834f5278846574a8))
+
 ## [0.21.0](https://github.com/windmill-labs/webmux/compare/v0.20.0...v0.21.0) (2026-03-25)
 
 

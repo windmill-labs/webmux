@@ -645,7 +645,6 @@
     api
       .fetchConfig()
       .then((c) => {
-        c.linkedRepos = [...(c.linkedRepos ?? []), { alias: "fake-repo", dir: "/tmp/fake-repo" }];
         config = c;
       })
       .catch(() => {});

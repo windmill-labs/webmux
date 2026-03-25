@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.21.0](https://github.com/windmill-labs/webmux/compare/v0.20.0...v0.21.0) (2026-03-25)
+
+
+### Features
+
+* add remote branch toggle for existing branches ([#176](https://github.com/windmill-labs/webmux/issues/176)) ([d55448e](https://github.com/windmill-labs/webmux/commit/d55448e2f1b4115a57cd35d4d9933dfb0b3dfd28))
+* expand init starter template ([#174](https://github.com/windmill-labs/webmux/issues/174)) ([c4f022e](https://github.com/windmill-labs/webmux/commit/c4f022e475607a3b389215e48582ed60e98fc585))
+
+
+### Bug Fixes
+
+* preserve init template config comments ([#178](https://github.com/windmill-labs/webmux/issues/178)) ([c1c325d](https://github.com/windmill-labs/webmux/commit/c1c325dd20bbbb4129110ea9d939dbe83c29cf63))
+* show remote toggle when no branches match in selector ([#180](https://github.com/windmill-labs/webmux/issues/180)) ([f767d3a](https://github.com/windmill-labs/webmux/commit/f767d3af1d9196019f28f565c50265d076d88dfc))
+* wrap notification toast text ([#177](https://github.com/windmill-labs/webmux/issues/177)) ([9224da9](https://github.com/windmill-labs/webmux/commit/9224da9fb4b105216e0fd5ce1f5d4918e36076ec))
+
 ## [0.20.0](https://github.com/windmill-labs/webmux/compare/v0.19.0...v0.20.0) (2026-03-24)
 
 

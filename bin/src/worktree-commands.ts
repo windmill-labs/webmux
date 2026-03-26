@@ -446,7 +446,7 @@ export async function runWorktreeCommand(
         projectDir: context.projectDir,
         port: context.port,
         onCreateProgress: (progress) => {
-          stderr(PHASE_LABELS[progress.phase] ?? progress.phase);
+          stdout(PHASE_LABELS[progress.phase] ?? progress.phase);
         },
       });
       const result = await runtime.lifecycleService.createWorktree(parsed.input);

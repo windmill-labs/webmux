@@ -205,6 +205,7 @@
                 type="button"
                 class="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-[12px] transition-colors hover:bg-hover
                   {selected === branch.name ? 'bg-accent/10' : ''}"
+                onmousedown={(e) => e.preventDefault()}
                 onclick={() => selectBranch(branch.name)}
               >
                 <span class="font-mono text-primary">{branch.name}</span>

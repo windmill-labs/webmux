@@ -6,7 +6,7 @@ import { BunLifecycleHookRunner } from "./adapters/hooks";
 import { BunPortProbe } from "./adapters/port-probe";
 import { BunTmuxGateway } from "./adapters/tmux";
 import { AutoNameService } from "./services/auto-name-service";
-import { LifecycleService } from "./services/lifecycle-service";
+import { LifecycleService, type CreateWorktreeProgress } from "./services/lifecycle-service";
 import { NotificationService as RuntimeNotificationService } from "./services/notification-service";
 import { ProjectRuntime } from "./services/project-runtime";
 import { ReconciliationService } from "./services/reconciliation-service";
@@ -15,6 +15,7 @@ import { WorktreeCreationTracker } from "./services/worktree-creation-service";
 export interface WebmuxRuntimeOptions {
   projectDir?: string;
   port?: number;
+  onCreateProgress?: (progress: CreateWorktreeProgress) => void | Promise<void>;
 }
 
 export interface WebmuxRuntime {
@@ -67,6 +68,7 @@ export function createWebmuxRuntime(options: WebmuxRuntimeOptions = {}): WebmuxR
     autoName,
     onCreateProgress: (progress) => {
       worktreeCreationTracker.set(progress);
+      options.onCreateProgress?.(progress);
     },
     onCreateFinished: (branch) => {
       worktreeCreationTracker.clear(branch);

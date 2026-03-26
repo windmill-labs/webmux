@@ -3,9 +3,18 @@ import { basename, resolve } from "node:path";
 import { readWorktreeMeta } from "../../backend/src/adapters/fs";
 import { buildProjectSessionName, buildWorktreeWindowName } from "../../backend/src/adapters/tmux";
 import type { AgentKind } from "../../backend/src/domain/config";
+import type { WorktreeCreationPhase } from "../../backend/src/domain/model";
 import { isValidWorktreeName } from "../../backend/src/domain/policies";
 import { createWebmuxRuntime } from "../../backend/src/runtime";
-import type { CreateLifecycleWorktreeInput, PruneWorktreesResult } from "../../backend/src/services/lifecycle-service";
+import type { CreateLifecycleWorktreeInput, CreateWorktreeProgress, PruneWorktreesResult } from "../../backend/src/services/lifecycle-service";
+
+const PHASE_LABELS: Record<WorktreeCreationPhase, string> = {
+  creating_worktree: "Creating worktree",
+  running_post_create_hook: "Running post-create hook",
+  preparing_runtime: "Preparing runtime",
+  starting_session: "Starting session",
+  reconciling: "Reconciling",
+};
 
 export type WorktreeSubcommand = "add" | "list" | "open" | "close" | "remove" | "merge" | "send" | "prune";
 
@@ -43,7 +52,11 @@ interface WorktreeCommandContext {
 }
 
 interface WorktreeCommandDependencies {
-  createRuntime?: (options: { projectDir: string; port: number }) => WorktreeRuntimeLike;
+  createRuntime?: (options: {
+    projectDir: string;
+    port: number;
+    onCreateProgress?: (progress: CreateWorktreeProgress) => void;
+  }) => WorktreeRuntimeLike;
   stdout?: (message: string) => void;
   stderr?: (message: string) => void;
   switchToTmuxWindow?: (projectDir: string, branch: string) => void;
@@ -432,6 +445,9 @@ export async function runWorktreeCommand(
       const runtime = createRuntime({
         projectDir: context.projectDir,
         port: context.port,
+        onCreateProgress: (progress) => {
+          stderr(PHASE_LABELS[progress.phase] ?? progress.phase);
+        },
       });
       const result = await runtime.lifecycleService.createWorktree(parsed.input);
       stdout(`Created worktree ${result.branch}`);

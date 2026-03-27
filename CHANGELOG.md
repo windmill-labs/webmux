@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.23.0](https://github.com/windmill-labs/webmux/compare/v0.22.1...v0.23.0) (2026-03-27)
+
+
+### Features
+
+* show creation status logs in CLI add command ([#186](https://github.com/windmill-labs/webmux/issues/186)) ([2d8a82f](https://github.com/windmill-labs/webmux/commit/2d8a82f5e7a75f13b0985b8802927e73bd8eb1e7))
+
+
+### Bug Fixes
+
+* collapse newlines in agent command quoteShell to prevent tmux send-keys splitting ([#189](https://github.com/windmill-labs/webmux/issues/189)) ([fdec1ac](https://github.com/windmill-labs/webmux/commit/fdec1acba9134dde25bb1b202aef76fe5eb0667d))
+* prevent Safari from closing branch selector before selection ([#188](https://github.com/windmill-labs/webmux/issues/188)) ([74bc422](https://github.com/windmill-labs/webmux/commit/74bc422bea4e339325d7720dc8c3bd1a161a833b))
+* send creation status logs to stdout instead of stderr ([4aab7fb](https://github.com/windmill-labs/webmux/commit/4aab7fbb14270c2e0f92926c7629ee85f485518d))
+
 ## [0.22.1](https://github.com/windmill-labs/webmux/compare/v0.22.0...v0.22.1) (2026-03-25)
 
 

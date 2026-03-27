@@ -89,17 +89,29 @@ describe("agent-service command builders", () => {
     expect(command).not.toContain("stay focused");
   });
 
-  it("collapses newlines in prompt and systemPrompt to avoid tmux send-keys splitting", () => {
+  it("uses -- before the prompt so dash-prefixed prompts are not parsed as flags", () => {
+    const claude = buildAgentPaneCommand({
+      agent: "claude",
+      runtimeEnvPath: "/tmp/gitdir/webmux/runtime.env",
+      prompt: "--- fix the bug",
+    });
+    expect(claude).toContain("-- '--- fix the bug'");
+
+    const codex = buildAgentPaneCommand({
+      agent: "codex",
+      runtimeEnvPath: "/tmp/gitdir/webmux/runtime.env",
+      prompt: "--help",
+    });
+    expect(codex).toContain("-- '--help'");
+  });
+
+  it("omits -- when no prompt is provided", () => {
     const command = buildAgentPaneCommand({
       agent: "claude",
       runtimeEnvPath: "/tmp/gitdir/webmux/runtime.env",
-      systemPrompt: "line one\nline two",
-      prompt: "fix\nthe\ntests",
+      systemPrompt: "be helpful",
     });
-
-    expect(command).toContain("'line one line two'");
-    expect(command).toContain("'fix the tests'");
-    expect(command).not.toContain("\n");
+    expect(command).not.toContain(" -- ");
   });
 
   it("adds the claude permissions bypass flag only when profile yolo is enabled", () => {

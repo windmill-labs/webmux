@@ -3,7 +3,9 @@ import type { AgentKind } from "../domain/config";
 export type AgentLaunchMode = "fresh" | "resume";
 
 function quoteShell(value: string): string {
-  return `'${value.replaceAll("'", "'\\''")}'`;
+  // Collapse newlines to spaces: commands built here are sent to tmux panes
+  // via `send-keys -l`, which treats embedded newlines as Enter key-presses.
+  return `'${value.replaceAll(/\r?\n/g, " ").replaceAll("'", "'\\''")}'`;
 }
 
 function buildRuntimeBootstrap(runtimeEnvPath: string): string {

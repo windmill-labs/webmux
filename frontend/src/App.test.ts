@@ -10,6 +10,7 @@ vi.mock("./lib/api", () => ({
   fetchBaseBranches: vi.fn(),
   fetchCiLogs: vi.fn(),
   fetchConfig: vi.fn(),
+  fetchWorktreeDiff: vi.fn(),
   fetchLinearIssues: vi.fn(),
   fetchWorktrees: vi.fn(),
   mergeWorktree: vi.fn(),
@@ -184,6 +185,12 @@ describe("App create selection", () => {
     vi.mocked(api.fetchAvailableBranches).mockResolvedValue([]);
     vi.mocked(api.fetchBaseBranches).mockResolvedValue([]);
     vi.mocked(api.fetchLinearIssues).mockResolvedValue(createLinearIssuesResponse());
+    vi.mocked(api.fetchWorktreeDiff).mockResolvedValue({
+      uncommitted: "",
+      uncommittedTruncated: false,
+      gitStatus: "",
+      unpushedCommits: [],
+    });
     vi.mocked(api.subscribeNotifications).mockReturnValue(() => {});
     vi.mocked(api.openWorktree).mockResolvedValue(undefined);
     vi.mocked(api.closeWorktree).mockResolvedValue(undefined);

@@ -302,6 +302,25 @@ describe("BunGitGateway", () => {
     expect(dirtyStatus.aheadCount).toBe(1);
     expect(dirtyStatus.currentCommit).toBe(cleanStatus.currentCommit);
   });
+
+  it("reads short git status output for added and deleted files", async () => {
+    repoRoot = await mkdtemp(join(tmpdir(), "webmux-status-lines-"));
+    run(["git", "init", "-b", "main"], repoRoot);
+    run(["git", "config", "user.name", "Test User"], repoRoot);
+    run(["git", "config", "user.email", "test@example.com"], repoRoot);
+    await Bun.write(join(repoRoot, "README.md"), "# repo\n");
+    await Bun.write(join(repoRoot, "removed.txt"), "remove me\n");
+    run(["git", "add", "README.md", "removed.txt"], repoRoot);
+    run(["git", "commit", "-m", "init"], repoRoot);
+
+    await Bun.write(join(repoRoot, "added.txt"), "add me\n");
+    run(["git", "add", "added.txt"], repoRoot);
+    run(["git", "rm", "removed.txt"], repoRoot);
+
+    const status = new BunGitGateway().readStatus(repoRoot);
+    expect(status).toContain("A  added.txt");
+    expect(status).toContain("D  removed.txt");
+  });
 });
 
 describe("removeGitWorktree", () => {

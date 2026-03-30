@@ -48,6 +48,10 @@ class FakeGitGateway implements GitGateway {
     return this.statuses.get(cwd) ?? { dirty: false, aheadCount: 0, currentCommit: null };
   }
 
+  readStatus(): string {
+    return "";
+  }
+
   createWorktree(): void {
     throw new Error("not implemented");
   }

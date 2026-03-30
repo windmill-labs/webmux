@@ -7,17 +7,21 @@
   import { errorMessage } from "./utils";
   import BaseDialog from "./BaseDialog.svelte";
   import Btn from "./Btn.svelte";
+  import CursorButton from "./CursorButton.svelte";
 
   let {
     branch,
+    cursorUrl = null,
     onclose,
   }: {
     branch: string;
+    cursorUrl?: string | null;
     onclose: () => void;
   } = $props();
 
   let uncommitted = $state("");
   let uncommittedTruncated = $state(false);
+  let gitStatus = $state("");
   let unpushedCommits = $state<UnpushedCommit[]>([]);
   let loading = $state(true);
   let error = $state("");
@@ -29,6 +33,7 @@
       .then((res) => {
         uncommitted = res.uncommitted;
         uncommittedTruncated = res.uncommittedTruncated;
+        gitStatus = res.gitStatus;
         unpushedCommits = res.unpushedCommits;
       })
       .catch((err: unknown) => {
@@ -46,22 +51,32 @@
   };
 
   let renderedUncommitted = $derived(uncommitted ? diff2html(uncommitted, diffOpts) : "");
-  let hasContent = $derived(!!uncommitted || unpushedCommits.length > 0);
+  let gitStatusLineCount = $derived(
+    gitStatus
+      ? gitStatus.split("\n").filter((line) => line.length > 0).length
+      : 0,
+  );
+  let hasContent = $derived(!!uncommitted || gitStatusLineCount > 0 || unpushedCommits.length > 0);
 
-  type DiffTab = "diff" | "unpushed";
+  type DiffTab = "diff" | "status" | "unpushed";
   let activeTab = $state<DiffTab>("diff");
 
   let initialTabSet = false;
   $effect(() => {
     if (!loading && !error && !initialTabSet) {
       initialTabSet = true;
-      activeTab = uncommitted ? "diff" : "unpushed";
+      activeTab = uncommitted ? "diff" : gitStatusLineCount > 0 ? "status" : "unpushed";
     }
   });
 </script>
 
 <BaseDialog {onclose} wide maxWidth="90vw" className="diff-dialog">
-  <h2 class="text-base mb-4">Changes &mdash; <span class="font-mono text-sm">{branch}</span></h2>
+  <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+    <h2 class="text-base">Changes &mdash; <span class="font-mono text-sm">{branch}</span></h2>
+    {#if cursorUrl}
+      <CursorButton url={cursorUrl} />
+    {/if}
+  </div>
 
   {#if loading}
     <div class="text-sm text-muted py-8 text-center">Loading diff...</div>
@@ -81,6 +96,13 @@
       <button
         type="button"
         class="tab-btn"
+        class:active={activeTab === "status"}
+        disabled={gitStatusLineCount === 0}
+        onclick={() => (activeTab = "status")}
+      >Git status ({gitStatusLineCount})</button>
+      <button
+        type="button"
+        class="tab-btn"
         class:active={activeTab === "unpushed"}
         disabled={unpushedCommits.length === 0}
         onclick={() => (activeTab = "unpushed")}
@@ -93,6 +115,13 @@
           <div class="text-[11px] text-warning px-3 py-1">Truncated (exceeded 200KB)</div>
         {/if}
         {@html renderedUncommitted}
+      </div>
+    {:else if activeTab === "status" && gitStatusLineCount > 0}
+      <div class="overflow-auto max-h-[60vh] md:max-h-[70vh] rounded-md border border-edge">
+        <div class="px-3 py-2 text-[11px] text-muted border-b border-edge bg-surface font-mono">
+          git status --short
+        </div>
+        <pre class="git-status-output">{gitStatus}</pre>
       </div>
     {:else if activeTab === "unpushed" && unpushedCommits.length > 0}
       <ul class="commit-list overflow-auto max-h-[60vh] md:max-h-[70vh] rounded-md border border-edge list-none m-0 p-0">
@@ -153,6 +182,16 @@
 
   .diff-container {
     font-size: 12px;
+  }
+
+  .git-status-output {
+    margin: 0;
+    padding: 12px;
+    font-size: 12px;
+    color: var(--color-primary);
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   }
 
   .diff-container :global(.d2h-wrapper) {

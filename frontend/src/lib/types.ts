@@ -207,6 +207,7 @@ export interface UnpushedCommit {
 export interface WorktreeDiffResponse {
   uncommitted: string;
   uncommittedTruncated: boolean;
+  gitStatus: string;
   unpushedCommits: UnpushedCommit[];
 }
 

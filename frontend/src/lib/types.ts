@@ -80,6 +80,7 @@ export interface FileUploadResult {
 }
 
 export type AgentKind = "claude" | "codex";
+export type CreateWorktreeAgentSelection = AgentKind | "both";
 export type WorktreeCreateMode = "new" | "existing";
 
 export interface AvailableBranch {
@@ -99,7 +100,7 @@ export interface CreateWorktreeRequest {
   branch?: string;
   baseBranch?: string;
   profile: string;
-  agent: AgentKind;
+  agent: CreateWorktreeAgentSelection;
   prompt?: string;
   envOverrides?: Record<string, string>;
   createLinearTicket?: boolean;
@@ -107,7 +108,8 @@ export interface CreateWorktreeRequest {
 }
 
 export interface CreateWorktreeResponse {
-  branch: string;
+  primaryBranch: string;
+  branches: string[];
 }
 
 export type WorktreeCreationPhase =

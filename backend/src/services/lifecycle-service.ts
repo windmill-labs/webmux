@@ -16,7 +16,7 @@ import {
 import { expandTemplate, getDefaultProfileName, isDockerProfile, type DockerProfileConfig } from "../adapters/config";
 import { type DockerGateway } from "../adapters/docker";
 import { buildProjectSessionName, buildWorktreeWindowName, type TmuxGateway } from "../adapters/tmux";
-import type { AgentKind, ProfileConfig, ProjectConfig, RuntimeKind } from "../domain/config";
+import type { AgentKind, CreateWorktreeAgentSelection, ProfileConfig, ProjectConfig, RuntimeKind } from "../domain/config";
 import type { WorktreeCreationPhase, WorktreeMeta } from "../domain/model";
 import { allocateServicePorts, isValidBranchName, isValidEnvKey } from "../domain/policies";
 import type { AutoNameGenerator } from "./auto-name-service";
@@ -48,6 +48,29 @@ function toErrorMessage(error: unknown): string {
 
 function stringifyStartupEnvValue(value: string | boolean): string {
   return typeof value === "boolean" ? String(value) : value;
+}
+
+export interface CreateWorktreeTarget {
+  branch: string;
+  agent: AgentKind;
+}
+
+export function prefixAgentBranch(agent: AgentKind, branch: string): string {
+  return `${agent}-${branch}`;
+}
+
+export function buildCreateWorktreeTargets(
+  branch: string,
+  agentSelection: CreateWorktreeAgentSelection,
+): CreateWorktreeTarget[] {
+  if (agentSelection === "both") {
+    return [
+      { branch: prefixAgentBranch("claude", branch), agent: "claude" },
+      { branch: prefixAgentBranch("codex", branch), agent: "codex" },
+    ];
+  }
+
+  return [{ branch, agent: agentSelection }];
 }
 
 interface ResolvedLifecycleWorktree {
@@ -90,6 +113,15 @@ export interface CreateLifecycleWorktreeInput {
   envOverrides?: Record<string, string>;
 }
 
+export interface CreateLifecycleWorktreesInput extends Omit<CreateLifecycleWorktreeInput, "agent"> {
+  agent?: CreateWorktreeAgentSelection;
+}
+
+export interface CreateLifecycleWorktreesResult {
+  primaryBranch: string;
+  branches: string[];
+}
+
 export interface PruneWorktreesResult {
   removedBranches: string[];
 }
@@ -114,6 +146,41 @@ export class LifecycleError extends Error {
 
 export class LifecycleService {
   constructor(private readonly deps: LifecycleServiceDependencies) {}
+
+  async createWorktrees(input: CreateLifecycleWorktreesInput): Promise<CreateLifecycleWorktreesResult> {
+    const mode = input.mode ?? "new";
+    const agentSelection = input.agent ?? this.deps.config.workspace.defaultAgent;
+    if (agentSelection === "both" && mode === "existing") {
+      throw new LifecycleError("Creating both agents is only supported for new worktrees", 400);
+    }
+
+    const branch = await this.resolveBranch(input.branch, input.prompt, mode);
+    const targets = buildCreateWorktreeTargets(branch, agentSelection);
+    const createdBranches: string[] = [];
+
+    try {
+      for (const target of targets) {
+        const created = await this.createWorktree({
+          ...input,
+          mode,
+          branch: target.branch,
+          agent: target.agent,
+        });
+        createdBranches.push(created.branch);
+      }
+    } catch (error) {
+      const rollbackError = await this.rollbackCreatedWorktrees(createdBranches);
+      if (rollbackError) {
+        throw this.wrapOperationError(new Error(`${toErrorMessage(error)}; ${rollbackError}`));
+      }
+      throw this.wrapOperationError(error);
+    }
+
+    return {
+      primaryBranch: createdBranches[0],
+      branches: createdBranches,
+    };
+  }
 
   async createWorktree(input: CreateLifecycleWorktreeInput): Promise<{
     branch: string;
@@ -813,6 +880,20 @@ export class LifecycleService {
 
   private async finishCreateProgress(branch: string): Promise<void> {
     await this.deps.onCreateFinished?.(branch);
+  }
+
+  private async rollbackCreatedWorktrees(branches: string[]): Promise<string | null> {
+    const cleanupErrors: string[] = [];
+
+    for (const branch of [...branches].reverse()) {
+      try {
+        await this.removeWorktree(branch);
+      } catch (error) {
+        cleanupErrors.push(`rollback failed for ${branch}: ${toErrorMessage(error)}`);
+      }
+    }
+
+    return cleanupErrors.length > 0 ? cleanupErrors.join("; ") : null;
   }
 
   private wrapOperationError(error: unknown): LifecycleError {

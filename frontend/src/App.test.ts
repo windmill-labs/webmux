@@ -206,7 +206,7 @@ describe("App create selection", () => {
       creationPhase: "creating_worktree",
     });
     const newWorktree = createWorktree("feature/new");
-    const createResult = deferred<{ branch: string }>();
+    const createResult = deferred<{ primaryBranch: string; branches: string[] }>();
 
     vi.mocked(api.fetchWorktrees)
       .mockResolvedValueOnce([existingWorktree])
@@ -228,7 +228,7 @@ describe("App create selection", () => {
     expect(screen.getByTitle("main")).toBeInTheDocument();
     expect(screen.queryByTitle("feature/new")).not.toBeInTheDocument();
 
-    createResult.resolve({ branch: "feature/new" });
+    createResult.resolve({ primaryBranch: "feature/new", branches: ["feature/new"] });
 
     await waitFor(() => {
       expect(api.fetchWorktrees).toHaveBeenCalledTimes(3);
@@ -243,7 +243,7 @@ describe("App create selection", () => {
       creationPhase: "creating_worktree",
     });
     const newWorktree = createWorktree("feature/new");
-    const createResult = deferred<{ branch: string }>();
+    const createResult = deferred<{ primaryBranch: string; branches: string[] }>();
 
     vi.mocked(api.fetchWorktrees)
       .mockResolvedValueOnce([])
@@ -257,7 +257,7 @@ describe("App create selection", () => {
     await screen.findByText("Select a worktree");
 
     await openCreateDialogAndSubmit("feature/new");
-    createResult.resolve({ branch: "feature/new" });
+    createResult.resolve({ primaryBranch: "feature/new", branches: ["feature/new"] });
 
     await waitFor(() => {
       expect(api.fetchWorktrees).toHaveBeenCalledTimes(3);
@@ -319,7 +319,10 @@ describe("App create selection", () => {
       linearCreateTicketOption: true,
     }));
     vi.mocked(api.fetchWorktrees).mockResolvedValue([]);
-    vi.mocked(api.createWorktree).mockResolvedValue({ branch: "eng-123-new-flow" });
+    vi.mocked(api.createWorktree).mockResolvedValue({
+      primaryBranch: "eng-123-new-flow",
+      branches: ["eng-123-new-flow"],
+    });
 
     render(App);
 
@@ -356,10 +359,45 @@ describe("App create selection", () => {
     });
   });
 
+  it("submits paired worktree creation when Both is selected", async () => {
+    vi.mocked(api.fetchWorktrees).mockResolvedValue([]);
+    vi.mocked(api.createWorktree).mockResolvedValue({
+      primaryBranch: "claude-feature/new",
+      branches: ["claude-feature/new", "codex-feature/new"],
+    });
+
+    render(App);
+
+    await fireEvent.click(screen.getByTitle("New Worktree (Cmd+K)"));
+    await screen.findByText("New Worktree");
+
+    await fireEvent.click(screen.getByRole("radio", { name: "Both" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "Use existing branch" })).not.toBeInTheDocument();
+    });
+
+    await fireEvent.input(screen.getByLabelText(/Branch name/i), {
+      target: { value: "feature/new" },
+    });
+    await fireEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() => {
+      expect(api.createWorktree).toHaveBeenCalledWith({
+        mode: "new",
+        branch: "feature/new",
+        profile: "default",
+        agent: "both",
+      });
+    });
+  });
+
   it("submits an explicit base branch when provided", async () => {
     vi.mocked(api.fetchWorktrees).mockResolvedValue([]);
     vi.mocked(api.fetchBaseBranches).mockResolvedValue([{ name: "release/base" }]);
-    vi.mocked(api.createWorktree).mockResolvedValue({ branch: "feature/from-release" });
+    vi.mocked(api.createWorktree).mockResolvedValue({
+      primaryBranch: "feature/from-release",
+      branches: ["feature/from-release"],
+    });
 
     render(App);
 

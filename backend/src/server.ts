@@ -28,7 +28,7 @@ import {
   deriveLinearIssueTitle,
   fetchAssignedIssues,
 } from "./services/linear-service";
-import { LifecycleError } from "./services/lifecycle-service";
+import { buildCreateWorktreeTargets, LifecycleError } from "./services/lifecycle-service";
 import { buildNativeTerminalLaunch, buildNativeTerminalTmuxCommand } from "./services/native-terminal-service";
 import { startPrMonitor } from "./services/pr-service";
 import { startLinearAutoCreateMonitor, resetProcessedIssues } from "./services/linear-auto-create-service";
@@ -36,6 +36,7 @@ import { runAutoRemove, type AutoRemoveDependencies } from "./services/auto-remo
 import { pullMainBranch, forcePullMainBranch, startAutoPullMonitor } from "./services/auto-pull-service";
 import { buildProjectSnapshot } from "./services/snapshot-service";
 import { parseRuntimeEvent } from "./domain/events";
+import type { CreateWorktreeAgentSelection } from "./domain/config";
 import { isValidBranchName, isValidWorktreeName } from "./domain/policies";
 import { createWebmuxRuntime } from "./runtime";
 
@@ -431,15 +432,24 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
   const baseBranch = typeof body.baseBranch === "string" && body.baseBranch.trim() ? body.baseBranch.trim() : undefined;
   const prompt = typeof body.prompt === "string" && body.prompt.trim() ? body.prompt.trim() : undefined;
   const profile = typeof body.profile === "string" ? body.profile : undefined;
-  const agent = body.agent === "claude" || body.agent === "codex" ? body.agent : undefined;
+  const agent: CreateWorktreeAgentSelection | undefined = body.agent === "claude"
+      || body.agent === "codex"
+      || body.agent === "both"
+    ? body.agent
+    : undefined;
   const createLinearTicket = body.createLinearTicket === true;
   const linearTitle = typeof body.linearTitle === "string" && body.linearTitle.trim()
     ? body.linearTitle.trim()
     : undefined;
   const mode = body.mode === "new" || body.mode === "existing" ? body.mode : undefined;
+  const agentSelection = agent ?? config.workspace.defaultAgent;
 
   if (body.mode !== undefined && body.mode !== "new" && body.mode !== "existing") {
     return errorResponse("Invalid worktree create mode", 400);
+  }
+
+  if (body.agent !== undefined && body.agent !== "claude" && body.agent !== "codex" && body.agent !== "both") {
+    return errorResponse("Invalid agent selection", 400);
   }
 
   if (baseBranch && !isValidBranchName(baseBranch)) {
@@ -488,22 +498,26 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
     }
 
     resolvedBranch = linearResult.data.branchName;
-    ensureBranchNotCreating(resolvedBranch);
     log.info(
       `[linear] created ticket ${linearResult.data.identifier} branch=${linearResult.data.branchName} title="${linearResult.data.title.slice(0, 80)}"`,
     );
-  } else if (resolvedBranch) {
-    ensureBranchNotCreating(resolvedBranch);
   }
 
-  if (resolvedBranch && baseBranch && resolvedBranch === baseBranch) {
-    return errorResponse("Base branch must differ from branch name", 400);
+  if (resolvedBranch) {
+    const targetBranches = buildCreateWorktreeTargets(resolvedBranch, agentSelection).map((target) => target.branch);
+    for (const targetBranch of targetBranches) {
+      ensureBranchNotCreating(targetBranch);
+    }
+
+    if (baseBranch && targetBranches.some((targetBranch) => targetBranch === baseBranch)) {
+      return errorResponse("Base branch must differ from branch name", 400);
+    }
   }
 
   log.info(
     `[worktree:add] mode=${mode ?? "new"}${resolvedBranch ? ` branch=${resolvedBranch}` : ""}${baseBranch ? ` base=${baseBranch}` : ""}${profile ? ` profile=${profile}` : ""}${agent ? ` agent=${agent}` : ""}${createLinearTicket ? " linearTicket=true" : ""}${prompt ? ` prompt="${prompt.slice(0, 80)}"` : ""}`,
   );
-  const result = await lifecycleService.createWorktree({
+  const result = await lifecycleService.createWorktrees({
     mode,
     branch: resolvedBranch,
     baseBranch,
@@ -512,8 +526,11 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
     agent,
     envOverrides,
   });
-  log.debug(`[worktree:add] done branch=${result.branch} worktreeId=${result.worktreeId}`);
-  return jsonResponse({ branch: result.branch }, 201);
+  log.debug(`[worktree:add] done branches=${result.branches.join(",")}`);
+  return jsonResponse({
+    primaryBranch: result.primaryBranch,
+    branches: result.branches,
+  }, 201);
 }
 
 async function apiDeleteWorktree(name: string): Promise<Response> {

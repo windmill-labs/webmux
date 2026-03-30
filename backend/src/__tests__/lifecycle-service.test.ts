@@ -13,7 +13,12 @@ import type { AutoNameConfig } from "../domain/config";
 import { ProjectRuntime } from "../services/project-runtime";
 import type { AutoNameGenerator } from "../services/auto-name-service";
 import { ReconciliationService } from "../services/reconciliation-service";
-import { LifecycleError, LifecycleService, type CreateWorktreeProgress } from "../services/lifecycle-service";
+import {
+  buildCreateWorktreeTargets,
+  LifecycleError,
+  LifecycleService,
+  type CreateWorktreeProgress,
+} from "../services/lifecycle-service";
 
 function run(args: string[], cwd: string): string {
   const result = Bun.spawnSync(args, {
@@ -288,6 +293,13 @@ describe("LifecycleService", () => {
     return repoRoot;
   }
 
+  it("builds paired claude and codex targets from one task branch", () => {
+    expect(buildCreateWorktreeTargets("feature/search", "both")).toEqual([
+      { branch: "claude-feature/search", agent: "claude" },
+      { branch: "codex-feature/search", agent: "codex" },
+    ]);
+  });
+
   it("creates a managed host worktree with metadata, env files, and tmux layout", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
@@ -349,6 +361,64 @@ describe("LifecycleService", () => {
     const state = runtime.getWorktreeByBranch("feature/search");
     expect(state?.session.exists).toBe(true);
     expect(state?.session.paneCount).toBe(2);
+  });
+
+  it("creates paired managed worktrees for both agents from one task branch", async () => {
+    const repoRoot = await initRepo();
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const lifecycle = makeLifecycleService(repoRoot, tmux, runtime);
+    const git = new BunGitGateway();
+
+    const created = await lifecycle.createWorktrees({
+      branch: "feature/search",
+      prompt: "fix the search flow",
+      agent: "both",
+    });
+
+    const claudeBranch = "claude-feature/search";
+    const codexBranch = "codex-feature/search";
+    const claudePath = join(repoRoot, "__worktrees", "claude-feature", "search");
+    const codexPath = join(repoRoot, "__worktrees", "codex-feature", "search");
+    const claudeMeta = await readWorktreeMeta(git.resolveWorktreeGitDir(claudePath));
+    const codexMeta = await readWorktreeMeta(git.resolveWorktreeGitDir(codexPath));
+
+    expect(created).toEqual({
+      primaryBranch: claudeBranch,
+      branches: [claudeBranch, codexBranch],
+    });
+    expect(claudeMeta?.agent).toBe("claude");
+    expect(codexMeta?.agent).toBe("codex");
+    expect(claudeMeta?.baseBranch).toBe("main");
+    expect(codexMeta?.baseBranch).toBe("main");
+    expect(runtime.getWorktreeByBranch(claudeBranch)?.session.exists).toBe(true);
+    expect(runtime.getWorktreeByBranch(codexBranch)?.session.exists).toBe(true);
+    expect(tmux.listWindows().map((window) => window.windowName).sort()).toEqual([
+      buildWorktreeWindowName(claudeBranch),
+      buildWorktreeWindowName(codexBranch),
+    ]);
+  });
+
+  it("rolls back the first paired worktree when the second branch cannot be created", async () => {
+    const repoRoot = await initRepo();
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const lifecycle = makeLifecycleService(repoRoot, tmux, runtime);
+    const git = new BunGitGateway();
+
+    run(["git", "branch", "codex-feature/search", "main"], repoRoot);
+
+    await expect(lifecycle.createWorktrees({
+      branch: "feature/search",
+      agent: "both",
+    })).rejects.toThrow("Branch already exists: codex-feature/search");
+
+    expect(git.listWorktrees(repoRoot).some((entry) => entry.branch === "claude-feature/search")).toBe(false);
+    expect(runtime.getWorktreeByBranch("claude-feature/search")).toBeNull();
+    expect(tmux.hasWindow(
+      buildProjectSessionName(repoRoot),
+      buildWorktreeWindowName("claude-feature/search"),
+    )).toBe(false);
   });
 
   it("refreshes runtime env after postCreate so system prompts see .env.local values", async () => {

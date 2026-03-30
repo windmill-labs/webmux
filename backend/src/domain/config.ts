@@ -1,4 +1,5 @@
 export type AgentKind = "claude" | "codex";
+export type CreateWorktreeAgentSelection = AgentKind | "both";
 export type RuntimeKind = "host" | "docker";
 export type PaneKind = "agent" | "shell" | "command";
 export type PaneSplit = "right" | "bottom";

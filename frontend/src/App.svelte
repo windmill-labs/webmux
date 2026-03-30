@@ -428,12 +428,13 @@
   async function handleCreate(request: CreateWorktreeRequest) {
     const requestId = nextCreateRequestId++;
     const shouldAutoSelectCreatedWorktree = selectedWorktree == null;
+    const expectedCreatedCount = request.agent === "both" ? 2 : 1;
     if (shouldAutoSelectCreatedWorktree) {
       latestAutoSelectCreateId = requestId;
     }
-    pendingCreateCount += 1;
+    pendingCreateCount += expectedCreatedCount;
     if (shouldAutoSelectCreatedWorktree) {
-      pendingCreateBranchHint = request.branch ?? null;
+      pendingCreateBranchHint = request.agent === "both" ? null : request.branch ?? null;
     }
     showCreateDialog = false;
     assignIssue = null;
@@ -443,7 +444,7 @@
       void refresh();
       const result = await createPromise;
       if (shouldAutoSelectCreatedWorktree) {
-        pendingCreateBranchHint = result.branch;
+        pendingCreateBranchHint = result.primaryBranch;
       }
       invalidateBranchCaches();
       await refresh();
@@ -452,13 +453,13 @@
         refreshLinear();
       }
       if (shouldAutoSelectCreatedWorktree && requestId === latestAutoSelectCreateId) {
-        selectedBranch = result.branch;
+        selectedBranch = result.primaryBranch;
         if (isMobile) sidebarOpen = false;
       }
     } catch (err) {
       alert(`Failed to create: ${errorMessage(err)}`);
     } finally {
-      pendingCreateCount = Math.max(0, pendingCreateCount - 1);
+      pendingCreateCount = Math.max(0, pendingCreateCount - expectedCreatedCount);
       if (shouldAutoSelectCreatedWorktree && requestId === latestAutoSelectCreateId) {
         pendingCreateBranchHint = null;
         latestAutoSelectCreateId = -1;

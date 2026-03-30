@@ -1,7 +1,7 @@
 <script lang="ts">
   import type {
-    AgentKind,
     AvailableBranch,
+    CreateWorktreeAgentSelection,
     CreateWorktreeRequest,
     ProfileConfig,
     WorktreeCreateMode,
@@ -50,9 +50,10 @@
     oncancel: () => void;
   } = $props();
 
-  const AGENTS: Array<{ value: AgentKind; label: string }> = [
+  const AGENTS: Array<{ value: CreateWorktreeAgentSelection; label: string }> = [
     { value: "claude", label: "Claude" },
     { value: "codex", label: "Codex" },
+    { value: "both", label: "Both" },
   ];
 
   const STORAGE_KEY = "wt-default-profile";
@@ -70,7 +71,9 @@
   let prompt = $state(initialPrompt);
   let selectedExistingBranch = $state("");
   let selectedBaseBranch = $state("");
-  let agent = $state<AgentKind>(savedAgent === "codex" ? "codex" : "claude");
+  let agent = $state<CreateWorktreeAgentSelection>(
+    savedAgent === "codex" || savedAgent === "both" ? savedAgent : "claude",
+  );
   let profile = $state(savedProfile ?? "");
   let createLinearTicket = $state(false);
   let linearTitle = $state("");
@@ -99,6 +102,7 @@
   let showLinearTicketOption = $derived(
     linearCreateTicketOption && !openedFromLinearIssue && mode === "new",
   );
+  let creatingBothAgents = $derived(agent === "both");
   let promptRequired = $derived(showLinearTicketOption && createLinearTicket);
   let canSubmit = $derived(
     (mode === "new" || selectedExistingBranch.length > 0) &&
@@ -115,6 +119,12 @@
     if (!showLinearTicketOption) {
       createLinearTicket = false;
       linearTitle = "";
+    }
+  });
+
+  $effect(() => {
+    if (creatingBothAgents && mode === "existing") {
+      mode = "new";
     }
   });
 
@@ -213,6 +223,10 @@
         {#if createLinearTicket}
           <p class="mt-2 text-[11px] text-muted">
             The worktree branch will use the Linear ticket branch name.
+          </p>
+        {:else if creatingBothAgents}
+          <p class="mt-2 text-[11px] text-muted">
+            Creates paired <span class="font-mono">claude-...</span> and <span class="font-mono">codex-...</span> branches from this task name.
           </p>
         {:else}
           <button

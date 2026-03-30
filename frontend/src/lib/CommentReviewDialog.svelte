@@ -74,7 +74,7 @@
     sendError = "";
     const preamble =
       [
-        "Review the PR comments (including inline review comments) and elaborate a plan to address them.",
+        "Review these comments and elaborate a plan to address the ones you find relevant.",
         `PR: ${label}`,
         "",
         "Comments:",

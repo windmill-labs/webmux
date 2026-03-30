@@ -3,9 +3,7 @@ import type { AgentKind } from "../domain/config";
 export type AgentLaunchMode = "fresh" | "resume";
 
 function quoteShell(value: string): string {
-  // Collapse newlines to spaces: commands built here are sent to tmux panes
-  // via `send-keys -l`, which treats embedded newlines as Enter key-presses.
-  return `'${value.replaceAll(/\r?\n/g, " ").replaceAll("'", "'\\''")}'`;
+  return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
 function buildRuntimeBootstrap(runtimeEnvPath: string): string {
@@ -24,7 +22,8 @@ function buildAgentInvocation(input: {
     if (input.launchMode === "resume") {
       return `codex${yoloFlag} resume --last`;
     }
-    const promptSuffix = input.prompt ? ` ${quoteShell(input.prompt)}` : "";
+    // Use -- to prevent prompts starting with dashes from being parsed as flags.
+    const promptSuffix = input.prompt ? ` -- ${quoteShell(input.prompt)}` : "";
     if (input.systemPrompt) {
       return `codex${yoloFlag} -c ${quoteShell(`developer_instructions=${input.systemPrompt}`)}${promptSuffix}`;
     }
@@ -35,7 +34,8 @@ function buildAgentInvocation(input: {
   if (input.launchMode === "resume") {
     return `claude${yoloFlag} --continue`;
   }
-  const promptSuffix = input.prompt ? ` ${quoteShell(input.prompt)}` : "";
+  // Use -- to prevent prompts starting with dashes from being parsed as flags.
+  const promptSuffix = input.prompt ? ` -- ${quoteShell(input.prompt)}` : "";
   if (input.systemPrompt) {
     return `claude${yoloFlag} --append-system-prompt ${quoteShell(input.systemPrompt)}${promptSuffix}`;
   }

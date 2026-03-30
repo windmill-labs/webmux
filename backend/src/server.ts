@@ -506,7 +506,7 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
   if (resolvedBranch) {
     const targetBranches = buildCreateWorktreeTargets(resolvedBranch, agentSelection).map((target) => target.branch);
     for (const targetBranch of targetBranches) {
-      ensureBranchNotCreating(targetBranch);
+      ensureBranchNotBusy(targetBranch);
     }
 
     if (baseBranch && targetBranches.some((targetBranch) => targetBranch === baseBranch)) {
@@ -515,7 +515,7 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
   }
 
   log.info(
-    `[worktree:add] mode=${mode ?? "new"}${resolvedBranch ? ` branch=${resolvedBranch}` : ""}${baseBranch ? ` base=${baseBranch}` : ""}${profile ? ` profile=${profile}` : ""}${agent ? ` agent=${agent}` : ""}${createLinearTicket ? " linearTicket=true" : ""}${prompt ? ` prompt="${prompt.slice(0, 80)}"` : ""}`,
+    `[worktree:add] mode=${mode ?? "new"}${resolvedBranch ? ` branch=${resolvedBranch}` : ""}${baseBranch ? ` base=${baseBranch}` : ""}${profile ? ` profile=${profile}` : ""} agent=${agentSelection}${createLinearTicket ? " linearTicket=true" : ""}${prompt ? ` prompt="${prompt.slice(0, 80)}"` : ""}`,
   );
   const result = await lifecycleService.createWorktrees({
     mode,
@@ -523,7 +523,7 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
     baseBranch,
     prompt,
     profile,
-    agent,
+    agent: agentSelection,
     envOverrides,
   });
   log.debug(`[worktree:add] done branches=${result.branches.join(",")}`);

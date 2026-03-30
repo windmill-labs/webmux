@@ -122,6 +122,12 @@ export interface CreateLifecycleWorktreesResult {
   branches: string[];
 }
 
+interface ResolvedCreateLifecycleWorktreeInput extends Omit<CreateLifecycleWorktreeInput, "mode" | "branch" | "agent"> {
+  mode: CreateWorktreeMode;
+  branch: string;
+  agent: AgentKind;
+}
+
 export interface PruneWorktreesResult {
   removedBranches: string[];
 }
@@ -160,7 +166,7 @@ export class LifecycleService {
 
     try {
       for (const target of targets) {
-        const created = await this.createWorktree({
+        const created = await this.createResolvedWorktree({
           ...input,
           mode,
           branch: target.branch,
@@ -187,128 +193,14 @@ export class LifecycleService {
     worktreeId: string;
   }> {
     const mode = input.mode ?? "new";
-    const requestedBaseBranch = input.baseBranch?.trim();
-    if (requestedBaseBranch && !isValidBranchName(requestedBaseBranch)) {
-      throw new LifecycleError("Invalid base branch name", 400);
-    }
-    if (requestedBaseBranch && mode === "existing") {
-      throw new LifecycleError("Base branch is only supported for new worktrees", 400);
-    }
     const branch = await this.resolveBranch(input.branch, input.prompt, mode);
-    if (requestedBaseBranch && requestedBaseBranch === branch) {
-      throw new LifecycleError("Base branch must differ from branch name", 400);
-    }
-    const baseBranch = mode === "new" ? (requestedBaseBranch || this.deps.config.workspace.mainBranch) : undefined;
-    const branchAvailability = this.resolveBranchAvailability(branch, mode);
-
-    const { profileName, profile } = this.resolveProfile(input.profile);
     const agent = this.resolveAgent(input.agent);
-    const worktreePath = this.resolveWorktreePath(branch);
-    const createProgressBase = {
+    return await this.createResolvedWorktree({
+      ...input,
+      mode,
       branch,
-      ...(baseBranch ? { baseBranch } : {}),
-      path: worktreePath,
-      profile: profileName,
       agent,
-    } satisfies Omit<CreateWorktreeProgress, "phase">;
-    const deleteBranchOnRollback = mode === "new" || branchAvailability.deleteBranchOnRollback;
-    let initialized: InitializeManagedWorktreeResult | null = null;
-
-    try {
-      await this.reportCreateProgress({
-        ...createProgressBase,
-        phase: "creating_worktree",
-      });
-
-      await mkdir(dirname(worktreePath), { recursive: true });
-
-      initialized = await createManagedWorktree(
-        {
-          repoRoot: this.deps.projectRoot,
-          worktreePath,
-          branch,
-          mode,
-          ...(baseBranch ? { baseBranch } : {}),
-          ...(branchAvailability.startPoint ? { startPoint: branchAvailability.startPoint } : {}),
-          profile: profileName,
-          agent,
-          runtime: profile.runtime,
-          startupEnvValues: await this.buildStartupEnvValues(input.envOverrides),
-          allocatedPorts: await this.allocatePorts(),
-          runtimeEnvExtras: { WEBMUX_WORKTREE_PATH: worktreePath },
-          controlUrl: this.controlUrl(),
-          controlToken: await this.deps.getControlToken(),
-          deleteBranchOnRollback,
-        },
-        {
-          git: this.deps.git,
-        },
-      );
-
-      await this.reportCreateProgress({
-        ...createProgressBase,
-        phase: "running_post_create_hook",
-      });
-      await this.runLifecycleHook({
-        name: "postCreate",
-        command: this.deps.config.lifecycleHooks.postCreate,
-        meta: initialized.meta,
-        worktreePath,
-      });
-
-      initialized = await this.refreshManagedArtifactsFromMeta({
-        gitDir: initialized.paths.gitDir,
-        meta: initialized.meta,
-        worktreePath,
-      });
-      await this.reportCreateProgress({
-        ...createProgressBase,
-        phase: "preparing_runtime",
-      });
-      await ensureAgentRuntimeArtifacts({
-        gitDir: initialized.paths.gitDir,
-        worktreePath,
-      });
-      await this.reportCreateProgress({
-        ...createProgressBase,
-        phase: "starting_session",
-      });
-      await this.materializeRuntimeSession({
-        branch,
-        profile,
-        agent,
-        initialized,
-        worktreePath,
-        prompt: input.prompt,
-        launchMode: "fresh",
-      });
-
-      await this.reportCreateProgress({
-        ...createProgressBase,
-        phase: "reconciling",
-      });
-      await this.deps.reconciliation.reconcile(this.deps.projectRoot, { force: true });
-
-      return {
-        branch,
-        worktreeId: initialized.meta.worktreeId,
-      };
-    } catch (error) {
-      if (initialized) {
-        const cleanupError = await this.cleanupFailedCreate(
-          branch,
-          worktreePath,
-          profile.runtime,
-          deleteBranchOnRollback,
-        );
-        if (cleanupError) {
-          throw this.wrapOperationError(new Error(`${toErrorMessage(error)}; ${cleanupError}`));
-        }
-      }
-      throw this.wrapOperationError(error);
-    } finally {
-      await this.finishCreateProgress(branch);
-    }
+    });
   }
 
   async openWorktree(branch: string): Promise<{
@@ -894,6 +786,132 @@ export class LifecycleService {
     }
 
     return cleanupErrors.length > 0 ? cleanupErrors.join("; ") : null;
+  }
+
+  private async createResolvedWorktree(input: ResolvedCreateLifecycleWorktreeInput): Promise<{
+    branch: string;
+    worktreeId: string;
+  }> {
+    const requestedBaseBranch = input.baseBranch?.trim();
+    if (requestedBaseBranch && !isValidBranchName(requestedBaseBranch)) {
+      throw new LifecycleError("Invalid base branch name", 400);
+    }
+    if (requestedBaseBranch && input.mode === "existing") {
+      throw new LifecycleError("Base branch is only supported for new worktrees", 400);
+    }
+    if (requestedBaseBranch && requestedBaseBranch === input.branch) {
+      throw new LifecycleError("Base branch must differ from branch name", 400);
+    }
+
+    const baseBranch = input.mode === "new" ? (requestedBaseBranch || this.deps.config.workspace.mainBranch) : undefined;
+    const branchAvailability = this.resolveBranchAvailability(input.branch, input.mode);
+    const { profileName, profile } = this.resolveProfile(input.profile);
+    const worktreePath = this.resolveWorktreePath(input.branch);
+    const createProgressBase = {
+      branch: input.branch,
+      ...(baseBranch ? { baseBranch } : {}),
+      path: worktreePath,
+      profile: profileName,
+      agent: input.agent,
+    } satisfies Omit<CreateWorktreeProgress, "phase">;
+    const deleteBranchOnRollback = input.mode === "new" || branchAvailability.deleteBranchOnRollback;
+    let initialized: InitializeManagedWorktreeResult | null = null;
+
+    try {
+      await this.reportCreateProgress({
+        ...createProgressBase,
+        phase: "creating_worktree",
+      });
+
+      await mkdir(dirname(worktreePath), { recursive: true });
+
+      initialized = await createManagedWorktree(
+        {
+          repoRoot: this.deps.projectRoot,
+          worktreePath,
+          branch: input.branch,
+          mode: input.mode,
+          ...(baseBranch ? { baseBranch } : {}),
+          ...(branchAvailability.startPoint ? { startPoint: branchAvailability.startPoint } : {}),
+          profile: profileName,
+          agent: input.agent,
+          runtime: profile.runtime,
+          startupEnvValues: await this.buildStartupEnvValues(input.envOverrides),
+          allocatedPorts: await this.allocatePorts(),
+          runtimeEnvExtras: { WEBMUX_WORKTREE_PATH: worktreePath },
+          controlUrl: this.controlUrl(),
+          controlToken: await this.deps.getControlToken(),
+          deleteBranchOnRollback,
+        },
+        {
+          git: this.deps.git,
+        },
+      );
+
+      await this.reportCreateProgress({
+        ...createProgressBase,
+        phase: "running_post_create_hook",
+      });
+      await this.runLifecycleHook({
+        name: "postCreate",
+        command: this.deps.config.lifecycleHooks.postCreate,
+        meta: initialized.meta,
+        worktreePath,
+      });
+
+      initialized = await this.refreshManagedArtifactsFromMeta({
+        gitDir: initialized.paths.gitDir,
+        meta: initialized.meta,
+        worktreePath,
+      });
+      await this.reportCreateProgress({
+        ...createProgressBase,
+        phase: "preparing_runtime",
+      });
+      await ensureAgentRuntimeArtifacts({
+        gitDir: initialized.paths.gitDir,
+        worktreePath,
+      });
+      await this.reportCreateProgress({
+        ...createProgressBase,
+        phase: "starting_session",
+      });
+      await this.materializeRuntimeSession({
+        branch: input.branch,
+        profile,
+        agent: input.agent,
+        initialized,
+        worktreePath,
+        prompt: input.prompt,
+        launchMode: "fresh",
+      });
+
+      await this.reportCreateProgress({
+        ...createProgressBase,
+        phase: "reconciling",
+      });
+      await this.deps.reconciliation.reconcile(this.deps.projectRoot, { force: true });
+
+      return {
+        branch: input.branch,
+        worktreeId: initialized.meta.worktreeId,
+      };
+    } catch (error) {
+      if (initialized) {
+        const cleanupError = await this.cleanupFailedCreate(
+          input.branch,
+          worktreePath,
+          profile.runtime,
+          deleteBranchOnRollback,
+        );
+        if (cleanupError) {
+          throw this.wrapOperationError(new Error(`${toErrorMessage(error)}; ${cleanupError}`));
+        }
+      }
+      throw this.wrapOperationError(error);
+    } finally {
+      await this.finishCreateProgress(input.branch);
+    }
   }
 
   private wrapOperationError(error: unknown): LifecycleError {

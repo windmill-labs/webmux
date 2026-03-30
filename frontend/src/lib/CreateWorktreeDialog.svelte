@@ -125,6 +125,7 @@
   $effect(() => {
     if (creatingBothAgents && mode === "existing") {
       mode = "new";
+      selectedExistingBranch = "";
     }
   });
 

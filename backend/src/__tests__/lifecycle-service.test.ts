@@ -413,6 +413,7 @@ describe("LifecycleService", () => {
       agent: "both",
     })).rejects.toThrow("Branch already exists: codex-feature/search");
 
+    expect(run(["git", "branch", "--list", "codex-feature/search"], repoRoot)).toContain("codex-feature/search");
     expect(git.listWorktrees(repoRoot).some((entry) => entry.branch === "claude-feature/search")).toBe(false);
     expect(runtime.getWorktreeByBranch("claude-feature/search")).toBeNull();
     expect(tmux.hasWindow(
@@ -1050,6 +1051,48 @@ describe("LifecycleService", () => {
     });
 
     expect(created.branch).toBe("fix-login-flow");
+    expect(autoName.calls).toEqual([
+      {
+        config: {
+          provider: "claude",
+          systemPrompt: "Generate a branch name",
+        },
+        task: "Fix the login flow for OAuth redirects",
+      },
+    ]);
+  });
+
+  it("uses auto_name once when creating paired worktrees without an explicit branch", async () => {
+    const repoRoot = await initRepo();
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const autoName = new FakeAutoNameService("fix-login-flow");
+    const lifecycle = makeLifecycleService(
+      repoRoot,
+      tmux,
+      runtime,
+      new FakeDockerGateway(),
+      new FakeHookRunner(),
+      {
+        ...TEST_CONFIG,
+        autoName: {
+          provider: "claude" as const,
+          systemPrompt: "Generate a branch name",
+        },
+      },
+      new BunGitGateway(),
+      autoName,
+    );
+
+    const created = await lifecycle.createWorktrees({
+      prompt: "Fix the login flow for OAuth redirects",
+      agent: "both",
+    });
+
+    expect(created).toEqual({
+      primaryBranch: "claude-fix-login-flow",
+      branches: ["claude-fix-login-flow", "codex-fix-login-flow"],
+    });
     expect(autoName.calls).toEqual([
       {
         config: {

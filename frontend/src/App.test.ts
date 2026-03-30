@@ -265,6 +265,49 @@ describe("App create selection", () => {
     expect(screen.getByTitle("feature/new")).toBeInTheDocument();
   });
 
+  it("selects the primary paired worktree when Both is created without a prior selection", async () => {
+    const creatingClaude = createWorktree("claude-feature/new", {
+      creating: true,
+      creationPhase: "creating_worktree",
+    });
+    const creatingCodex = createWorktree("codex-feature/new", {
+      creating: true,
+      creationPhase: "creating_worktree",
+    });
+    const createdClaude = createWorktree("claude-feature/new");
+    const createdCodex = createWorktree("codex-feature/new");
+    const createResult = deferred<{ primaryBranch: string; branches: string[] }>();
+
+    vi.mocked(api.fetchWorktrees)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([creatingClaude, creatingCodex])
+      .mockResolvedValueOnce([createdClaude, createdCodex])
+      .mockResolvedValue([createdClaude, createdCodex]);
+    vi.mocked(api.createWorktree).mockReturnValueOnce(createResult.promise);
+
+    render(App);
+
+    await screen.findByText("Select a worktree");
+
+    await fireEvent.click(screen.getByTitle("New Worktree (Cmd+K)"));
+    await screen.findByText("New Worktree");
+    await fireEvent.click(screen.getByRole("radio", { name: "Both" }));
+    await fireEvent.input(screen.getByLabelText(/Branch name/i), {
+      target: { value: "feature/new" },
+    });
+    await fireEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    createResult.resolve({
+      primaryBranch: "claude-feature/new",
+      branches: ["claude-feature/new", "codex-feature/new"],
+    });
+
+    await waitFor(() => {
+      expect(api.fetchWorktrees).toHaveBeenCalledTimes(3);
+    });
+    expect(screen.getByTitle("claude-feature/new")).toBeInTheDocument();
+  });
+
   it("shows a setup message in the Linear panel when LINEAR_API_KEY is missing", async () => {
     vi.mocked(api.fetchWorktrees).mockResolvedValue([]);
     vi.mocked(api.fetchLinearIssues).mockResolvedValue(

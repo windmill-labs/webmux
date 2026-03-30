@@ -1037,6 +1037,7 @@
 {#if showDiffDialog && selectedBranch}
   <DiffDialog
     branch={selectedBranch}
+    cursorUrl={makeCursorUrl(selectedWorktree?.dir, sshHost)}
     onclose={() => (showDiffDialog = false)}
   />
 {/if}

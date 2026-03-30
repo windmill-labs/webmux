@@ -663,12 +663,14 @@ async function apiGetWorktreeDiff(name: string): Promise<Response> {
   if (!state) return errorResponse(`Worktree not found: ${name}`, 404);
 
   const uncommitted = git.readDiff(state.path);
+  const gitStatus = git.readStatus(state.path);
   const unpushedCommits = git.listUnpushedCommits(state.path);
 
   const truncated = uncommitted.length > MAX_DIFF_BYTES;
   return jsonResponse({
     uncommitted: truncated ? uncommitted.slice(0, MAX_DIFF_BYTES) : uncommitted,
     uncommittedTruncated: truncated,
+    gitStatus,
     unpushedCommits,
   });
 }

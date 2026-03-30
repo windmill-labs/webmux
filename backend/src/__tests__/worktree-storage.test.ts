@@ -68,6 +68,10 @@ class FakeGitGateway implements GitGateway {
     };
   }
 
+  readStatus(): string {
+    return "";
+  }
+
   createWorktree(opts: {
     repoRoot: string;
     worktreePath: string;

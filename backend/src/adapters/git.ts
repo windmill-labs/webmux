@@ -70,6 +70,7 @@ export interface GitGateway {
   listLocalBranches(cwd: string): string[];
   listRemoteBranches(cwd: string): string[];
   readWorktreeStatus(cwd: string): GitWorktreeStatus;
+  readStatus(cwd: string): string;
   createWorktree(opts: CreateGitWorktreeOptions): void;
   removeWorktree(opts: RemoveGitWorktreeOptions): void;
   deleteBranch(repoRoot: string, branch: string, force?: boolean): void;
@@ -341,6 +342,10 @@ export class BunGitGateway implements GitGateway {
 
   readWorktreeStatus(cwd: string): GitWorktreeStatus {
     return readGitWorktreeStatus(cwd);
+  }
+
+  readStatus(cwd: string): string {
+    return runGit(["status", "--short", "--untracked-files=all"], cwd);
   }
 
   createWorktree(opts: CreateGitWorktreeOptions): void {

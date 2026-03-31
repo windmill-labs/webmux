@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.24.1](https://github.com/windmill-labs/webmux/compare/v0.24.0...v0.24.1) (2026-03-31)
+
+
+### Bug Fixes
+
+* remove --max-tokens use ([e42e175](https://github.com/windmill-labs/webmux/commit/e42e175fa97492b1e47f6a7144ebffb79c2710de))
+
 ## [0.24.0](https://github.com/windmill-labs/webmux/compare/v0.23.0...v0.24.0) (2026-03-31)
 
 

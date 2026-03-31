@@ -27,6 +27,8 @@ describe("AutoNameService", () => {
       "--system-prompt", "Generate a branch name",
       "--output-format", "text",
       "--no-session-persistence",
+      "--model", "claude-haiku-4-5-20251001",
+      "--max-tokens", "50",
       "Here is the task description: Fix the login flow. You MUST return the branch name only, no other text or comments. Be fast, make it simple, and concise.",
     ]);
   });
@@ -44,7 +46,7 @@ describe("AutoNameService", () => {
     expect(calls[0]).toContain("haiku");
   });
 
-  it("omits --model from claude when model is not specified", async () => {
+  it("uses default haiku model when model is not specified", async () => {
     const { calls, spawnImpl } = fakeSpawn("add-search");
     const service = new AutoNameService({ spawnImpl });
 
@@ -53,7 +55,8 @@ describe("AutoNameService", () => {
       "Add search",
     );
 
-    expect(calls[0]).not.toContain("--model");
+    expect(calls[0]).toContain("--model");
+    expect(calls[0]).toContain("claude-haiku-4-5-20251001");
   });
 
   it("spawns codex exec with correct args", async () => {
@@ -139,7 +142,7 @@ describe("AutoNameService", () => {
 
     await expect(
       service.generateBranchName({ provider: "codex" }, "Fix bug"),
-    ).rejects.toThrow("codex failed: authentication required");
+    ).rejects.toThrow(/codex failed \(command: .*\): authentication required/);
   });
 
   it("throws on empty output", async () => {

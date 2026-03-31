@@ -449,6 +449,9 @@ export async function runWorktreeCommand(
           stdout(PHASE_LABELS[progress.phase] ?? progress.phase);
         },
       });
+      if (!parsed.input.branch && parsed.input.prompt && runtime.config.autoName) {
+        stdout("Generating branch name...");
+      }
       const result = await runtime.lifecycleService.createWorktree(parsed.input);
       stdout(`Created worktree ${result.branch}`);
       if (!parsed.detach) {

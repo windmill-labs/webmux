@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.25.0](https://github.com/windmill-labs/webmux/compare/v0.24.1...v0.25.0) (2026-03-31)
+
+
+### Features
+
+* add --existing flag to `wm add` for resuming work on remote branches ([0cae50c](https://github.com/windmill-labs/webmux/commit/0cae50c86286b8859143e15e90000a4c98c27a54))
+
 ## [0.24.1](https://github.com/windmill-labs/webmux/compare/v0.24.0...v0.24.1) (2026-03-31)
 
 

@@ -27,56 +27,40 @@
     onclose: () => void;
   } = $props();
 
-  const initialAutoCreate = linearAutoCreate;
   let sshHost = $state(localStorage.getItem(SSH_STORAGE_KEY) ?? "");
-  let autoCreate = $state(initialAutoCreate);
+  let pendingAutoCreate = $state<boolean | null>(null);
+  let autoCreate = $derived(pendingAutoCreate ?? linearAutoCreate);
   let autoCreateSaving = $state(false);
-  let lastSyncedAutoCreate = initialAutoCreate;
 
-  const initialAutoRemove = autoRemoveOnMerge;
-  let autoRemove = $state(initialAutoRemove);
+  let pendingAutoRemove = $state<boolean | null>(null);
+  let autoRemove = $derived(pendingAutoRemove ?? autoRemoveOnMerge);
   let autoRemoveSaving = $state(false);
-  let lastSyncedAutoRemove = initialAutoRemove;
 
-  $effect(() => {
-    if (autoCreate === lastSyncedAutoCreate) return;
-    const desired = autoCreate;
-    lastSyncedAutoCreate = desired;
+  function handleAutoCreateToggle(enabled: boolean) {
+    pendingAutoCreate = enabled;
     autoCreateSaving = true;
-    api.setLinearAutoCreate(desired)
+    api.setLinearAutoCreate(enabled)
       .then((result) => {
-        autoCreate = result.enabled;
-        lastSyncedAutoCreate = result.enabled;
         onlinearautocreatechange(result.enabled);
       })
-      .catch(() => {
-        autoCreate = !desired;
-        lastSyncedAutoCreate = !desired;
-      })
       .finally(() => {
+        pendingAutoCreate = null;
         autoCreateSaving = false;
       });
-  });
+  }
 
-  $effect(() => {
-    if (autoRemove === lastSyncedAutoRemove) return;
-    const desired = autoRemove;
-    lastSyncedAutoRemove = desired;
+  function handleAutoRemoveToggle(enabled: boolean) {
+    pendingAutoRemove = enabled;
     autoRemoveSaving = true;
-    api.setAutoRemoveOnMerge(desired)
+    api.setAutoRemoveOnMerge(enabled)
       .then((result) => {
-        autoRemove = result.enabled;
-        lastSyncedAutoRemove = result.enabled;
         onautoremovechange(result.enabled);
       })
-      .catch(() => {
-        autoRemove = !desired;
-        lastSyncedAutoRemove = !desired;
-      })
       .finally(() => {
+        pendingAutoRemove = null;
         autoRemoveSaving = false;
       });
-  });
+  }
 
   function handleSave() {
     const trimmed = sshHost.trim();
@@ -130,7 +114,12 @@
           </p>
         </div>
 
-        <Toggle bind:checked={autoCreate} disabled={autoCreateSaving} aria-label="Auto-create worktrees for Linear tickets" />
+        <Toggle
+          checked={autoCreate}
+          disabled={autoCreateSaving}
+          ontoggle={handleAutoCreateToggle}
+          aria-label="Auto-create worktrees for Linear tickets"
+        />
       </div>
     </div>
 
@@ -144,7 +133,12 @@
           </p>
         </div>
 
-        <Toggle bind:checked={autoRemove} disabled={autoRemoveSaving} aria-label="Auto-remove worktrees on PR merge" />
+        <Toggle
+          checked={autoRemove}
+          disabled={autoRemoveSaving}
+          ontoggle={handleAutoRemoveToggle}
+          aria-label="Auto-remove worktrees on PR merge"
+        />
       </div>
     </div>
 

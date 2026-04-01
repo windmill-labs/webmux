@@ -827,12 +827,14 @@
       {/if}
     </aside>
     {#if !isMobile}
+      <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions (focusable ARIA separator used for keyboard-resizable sidebar) -->
       <div
         class="w-1 shrink-0 cursor-col-resize hover:bg-accent/50 transition-colors"
         class:bg-accent={isResizingSidebar}
         onpointerdown={handleResizeStart}
         onkeydown={handleResizeKeydown}
         role="separator"
+        aria-label="Resize sidebar"
         aria-orientation="vertical"
         aria-valuenow={sidebarWidth}
         aria-valuemin={MIN_SIDEBAR_WIDTH}

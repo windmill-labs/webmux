@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.26.0](https://github.com/windmill-labs/webmux/compare/v0.25.0...v0.26.0) (2026-04-03)
+
+
+### Features
+
+* support `--agent=both` in the CLI ([#200](https://github.com/windmill-labs/webmux/issues/200)) ([1a8b32b](https://github.com/windmill-labs/webmux/commit/1a8b32b34cd5454b9439b1a6c2b70062cb4812a6))
+
+
+### Bug Fixes
+
+* remove svelte build warnings ([#198](https://github.com/windmill-labs/webmux/issues/198)) ([8c679bb](https://github.com/windmill-labs/webmux/commit/8c679bbba7ca0f6499d0c3c82a8c24a645c19115))
+
 ## [0.25.0](https://github.com/windmill-labs/webmux/compare/v0.24.1...v0.25.0) (2026-03-31)
 
 

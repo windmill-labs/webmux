@@ -18,19 +18,30 @@ Read the relevant CLAUDE.md before writing any code:
 2. Define the API contract — endpoint path, request body, response shape — before implementing either side.
 3. On the frontend, add the typed fetch call to `frontend/src/lib/api.ts` before building UI.
 
-### 3. Build incrementally
+### 3. Parity across all surfaces
+
+Every user-facing feature must work in **both the frontend and the CLI**. When adding a new option, mode, or capability:
+
+- Add it to the API/backend first.
+- Wire it into the frontend UI.
+- Wire it into the CLI (`bin/src/worktree-commands.ts`) — update parsing, help text, and the runtime handler.
+- Add tests for both surfaces.
+
+Do not ship a feature that only works from one surface.
+
+### 4. Build incrementally
 
 - **Backend**: implement the handler, delegate logic to pure testable functions, wire it into `server.ts` routing.
 - **Frontend**: build the component with mock data first, then connect the real API.
 - Test each layer independently before integrating.
 
-### 4. DRY — no exceptions
+### 5. DRY — no exceptions
 
 - If a UI pattern already exists in another component, extract it into a shared component immediately. Do not copy-paste.
 - If a helper function is needed in more than one file, put it in a shared `lib/` utility. Never duplicate logic across files.
 - Check existing components and utilities before creating new ones.
 
-### 5. Keep it minimal
+### 6. Keep it minimal
 
 - Only implement what was asked for. No speculative features, no extra configurability, no "while I'm here" refactors.
 - Don't add comments, docstrings, or type annotations to code you didn't change.

@@ -2,11 +2,11 @@ import * as p from "@clack/prompts";
 import { basename, resolve } from "node:path";
 import { readWorktreeMeta } from "../../backend/src/adapters/fs";
 import { buildProjectSessionName, buildWorktreeWindowName } from "../../backend/src/adapters/tmux";
-import type { AgentKind } from "../../backend/src/domain/config";
+import type { AgentKind, CreateWorktreeAgentSelection } from "../../backend/src/domain/config";
 import type { WorktreeCreationPhase } from "../../backend/src/domain/model";
 import { isValidWorktreeName } from "../../backend/src/domain/policies";
 import { createWebmuxRuntime } from "../../backend/src/runtime";
-import type { CreateLifecycleWorktreeInput, CreateWorktreeProgress, PruneWorktreesResult } from "../../backend/src/services/lifecycle-service";
+import type { CreateLifecycleWorktreeInput, CreateLifecycleWorktreesInput, CreateLifecycleWorktreesResult, CreateWorktreeProgress, PruneWorktreesResult } from "../../backend/src/services/lifecycle-service";
 
 const PHASE_LABELS: Record<WorktreeCreationPhase, string> = {
   creating_worktree: "Creating worktree",
@@ -20,6 +20,7 @@ export type WorktreeSubcommand = "add" | "list" | "open" | "close" | "remove" | 
 
 interface LifecycleServiceLike {
   createWorktree(input: CreateLifecycleWorktreeInput): Promise<{ branch: string; worktreeId: string }>;
+  createWorktrees(input: CreateLifecycleWorktreesInput): Promise<CreateLifecycleWorktreesResult>;
   openWorktree(branch: string): Promise<{ branch: string; worktreeId: string }>;
   closeWorktree(branch: string): Promise<void>;
   removeWorktree(branch: string): Promise<void>;
@@ -70,13 +71,13 @@ export function getWorktreeCommandUsage(command: WorktreeSubcommand): string {
     case "add":
       return [
         "Usage:",
-        "  webmux add [branch] [--existing] [--base <branch>] [--profile <name>] [--agent <claude|codex>] [--prompt <text>] [--env KEY=VALUE] [--detach]",
+        "  webmux add [branch] [--existing] [--base <branch>] [--profile <name>] [--agent <claude|codex|both>] [--prompt <text>] [--env KEY=VALUE] [--detach]",
         "",
         "Options:",
         "  --existing               Use an existing local or remote branch instead of creating a new one",
         "  --base <branch>         Base branch for a new worktree (defaults to config)",
         "  --profile <name>         Worktree profile from .webmux.yaml",
-        "  --agent <claude|codex>   Agent to launch in the worktree",
+        "  --agent <claude|codex|both> Agent to launch (both creates paired worktrees)",
         "  --prompt <text>          Initial agent prompt",
         "  --env KEY=VALUE          Runtime env override (repeatable)",
         "  -d, --detach             Create worktree without switching to it",
@@ -135,20 +136,20 @@ function readOptionValue(args: string[], index: number, flag: string): {
   };
 }
 
-function parseAgent(value: string): AgentKind {
-  if (value === "claude" || value === "codex") {
+function parseAgent(value: string): CreateWorktreeAgentSelection {
+  if (value === "claude" || value === "codex" || value === "both") {
     return value;
   }
   throw new CommandUsageError(`Unknown agent: ${value}`);
 }
 
 export interface ParsedAddCommand {
-  input: CreateLifecycleWorktreeInput;
+  input: CreateLifecycleWorktreesInput;
   detach: boolean;
 }
 
 export function parseAddCommandArgs(args: string[]): ParsedAddCommand | null {
-  const input: CreateLifecycleWorktreeInput = {};
+  const input: CreateLifecycleWorktreesInput = {};
   const envOverrides: Record<string, string> = {};
   let detach = false;
 
@@ -458,10 +459,22 @@ export async function runWorktreeCommand(
       if (!parsed.input.branch && parsed.input.prompt && runtime.config.autoName) {
         stdout("Generating branch name...");
       }
-      const result = await runtime.lifecycleService.createWorktree(parsed.input);
-      stdout(`Created worktree ${result.branch}`);
-      if (!parsed.detach) {
-        switchToTmuxWindow(runtime.projectDir, result.branch);
+
+      if (parsed.input.agent === "both") {
+        const result = await runtime.lifecycleService.createWorktrees(parsed.input);
+        for (const branch of result.branches) {
+          stdout(`Created worktree ${branch}`);
+        }
+        if (!parsed.detach) {
+          switchToTmuxWindow(runtime.projectDir, result.primaryBranch);
+        }
+      } else {
+        const { agent, ...rest } = parsed.input;
+        const result = await runtime.lifecycleService.createWorktree({ ...rest, agent: agent as AgentKind | undefined });
+        stdout(`Created worktree ${result.branch}`);
+        if (!parsed.detach) {
+          switchToTmuxWindow(runtime.projectDir, result.branch);
+        }
       }
       return 0;
     }

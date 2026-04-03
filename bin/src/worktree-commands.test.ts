@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { buildProjectSessionName, buildWorktreeWindowName } from "../../backend/src/adapters/tmux";
-import type { CreateLifecycleWorktreeInput } from "../../backend/src/services/lifecycle-service";
+import type { CreateLifecycleWorktreeInput, CreateLifecycleWorktreesInput } from "../../backend/src/services/lifecycle-service";
 import { parseAddCommandArgs, parseBranchCommandArgs, parseSendCommandArgs, runWorktreeCommand, type ParsedAddCommand, type ParsedSendCommand } from "./worktree-commands";
 
 function stubLifecycleService(calls: Array<{ method: string; value: unknown }>) {
@@ -8,6 +8,11 @@ function stubLifecycleService(calls: Array<{ method: string; value: unknown }>) 
     async createWorktree(input: CreateLifecycleWorktreeInput): Promise<{ branch: string; worktreeId: string }> {
       calls.push({ method: "createWorktree", value: input });
       return { branch: input.branch ?? "generated-branch", worktreeId: "wt-1" };
+    },
+    async createWorktrees(input: CreateLifecycleWorktreesInput): Promise<{ primaryBranch: string; branches: string[] }> {
+      calls.push({ method: "createWorktrees", value: input });
+      const branch = input.branch ?? "generated-branch";
+      return { primaryBranch: `claude/${branch}`, branches: [`claude/${branch}`, `codex/${branch}`] };
     },
     async openWorktree(branch: string): Promise<{ branch: string; worktreeId: string }> {
       calls.push({ method: "openWorktree", value: branch });
@@ -114,6 +119,13 @@ describe("parseAddCommandArgs", () => {
     expect(parseAddCommandArgs(["-d", "feature/search"])).toEqual({
       input: { branch: "feature/search" },
       detach: true,
+    });
+  });
+
+  it("parses --agent=both", () => {
+    expect(parseAddCommandArgs(["feature/search", "--agent=both"])).toEqual({
+      input: { branch: "feature/search", agent: "both" },
+      detach: false,
     });
   });
 
@@ -274,6 +286,42 @@ describe("runWorktreeCommand", () => {
     expect(switchCalls).toEqual([]);
   });
 
+  it("dispatches add --agent=both through createWorktrees and switches to primary branch", async () => {
+    const { runtime, calls } = makeRuntime();
+    const stdout: string[] = [];
+    const switchCalls: Array<{ projectDir: string; branch: string }> = [];
+
+    const exitCode = await runWorktreeCommand(
+      {
+        command: "add",
+        args: ["feature/search", "--agent=both"],
+        projectDir: "/repo",
+        port: 5111,
+      },
+      {
+        createRuntime: () => runtime,
+        stdout: (message) => stdout.push(message),
+        switchToTmuxWindow: (projectDir, branch) => switchCalls.push({ projectDir, branch }),
+      },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(calls).toEqual([
+      {
+        method: "createWorktrees",
+        value: {
+          branch: "feature/search",
+          agent: "both",
+        },
+      },
+    ]);
+    expect(stdout).toEqual([
+      "Created worktree claude/feature/search",
+      "Created worktree codex/feature/search",
+    ]);
+    expect(switchCalls).toEqual([{ projectDir: "/repo", branch: "claude/feature/search" }]);
+  });
+
   it("dispatches open through the lifecycle service and switches to tmux", async () => {
     const { runtime, calls } = makeRuntime();
     const stdout: string[] = [];
@@ -429,6 +477,9 @@ describe("runWorktreeCommand", () => {
           tmux: stubTmux(),
           lifecycleService: {
             async createWorktree(): Promise<{ branch: string; worktreeId: string }> {
+              throw new Error("not used");
+            },
+            async createWorktrees(): Promise<{ primaryBranch: string; branches: string[] }> {
               throw new Error("not used");
             },
             async openWorktree(): Promise<{ branch: string; worktreeId: string }> {

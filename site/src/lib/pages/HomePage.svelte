@@ -303,12 +303,16 @@
         </p>
       </div>
       <div class="flex-1 overflow-hidden rounded-xl border border-edge">
-        <img
-          src="https://github.com/user-attachments/assets/7f084d27-448c-47e4-aadf-8ab25154c096"
-          alt="Creating and managing worktrees demo"
+        <video
+          src="/videos/create.mp4"
+          autoplay
+          loop
+          muted
+          playsinline
           class="w-full"
-          loading="lazy"
-        />
+        >
+          Creating and managing worktrees demo
+        </video>
       </div>
     </div>
 
@@ -325,12 +329,16 @@
         </p>
       </div>
       <div class="flex-1 overflow-hidden rounded-xl border border-edge">
-        <img
-          src="https://github.com/user-attachments/assets/395f8471-f9ff-412a-87e2-1347bfadb387"
-          alt="PR, CI checks and comments demo"
+        <video
+          src="/videos/ci.mp4"
+          autoplay
+          loop
+          muted
+          playsinline
           class="w-full"
-          loading="lazy"
-        />
+        >
+          PR, CI checks and comments demo
+        </video>
       </div>
     </div>
 
@@ -347,12 +355,16 @@
         </p>
       </div>
       <div class="flex-1 overflow-hidden rounded-xl border border-edge">
-        <img
-          src="https://github.com/user-attachments/assets/b2cf535a-0242-4c15-bdb9-344dfde5f75e"
-          alt="Service health monitoring demo"
+        <video
+          src="/videos/health.mp4"
+          autoplay
+          loop
+          muted
+          playsinline
           class="w-full"
-          loading="lazy"
-        />
+        >
+          Service health monitoring demo
+        </video>
       </div>
     </div>
 
@@ -369,12 +381,16 @@
         </p>
       </div>
       <div class="flex-1 overflow-hidden rounded-xl border border-edge">
-        <img
-          src="https://github.com/user-attachments/assets/3187fbe2-eeee-4a33-8780-c51c3575b72a"
-          alt="Linear integration demo"
+        <video
+          src="/videos/linear.mp4"
+          autoplay
+          loop
+          muted
+          playsinline
           class="w-full"
-          loading="lazy"
-        />
+        >
+          Linear integration demo
+        </video>
       </div>
     </div>
   </div>

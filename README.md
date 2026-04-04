@@ -2,13 +2,13 @@
 
 A web dashboard for managing parallel AI coding agents. webmux owns git worktree lifecycle, tmux layout, agent runtime events, service health monitoring, and sandbox containers directly.
 
-https://github.com/user-attachments/assets/48c9564f-42a5-404f-97e2-c5ee0138f15d
+<video src="https://webmux.dev/videos/demo.mp4" autoplay loop muted playsinline></video>
 
 ## Features
 
 ### Create & Manage Worktrees
 
-![createanddelete-1 5x](https://github.com/user-attachments/assets/7f084d27-448c-47e4-aadf-8ab25154c096)
+<video src="https://webmux.dev/videos/create.mp4" autoplay loop muted playsinline></video>
 
 Spin up new worktrees with one click. Pick a profile, type a prompt, and webmux creates the worktree, starts the agent, and begins streaming output. Merge or remove worktrees when you're done.
 
@@ -18,25 +18,24 @@ View and interact with your agents directly in the browser. Each worktree gets i
 
 ### PR, CI & Comments
 
-![commentsandci-1 5x](https://github.com/user-attachments/assets/395f8471-f9ff-412a-87e2-1347bfadb387)
+<video src="https://webmux.dev/videos/ci.mp4" autoplay loop muted playsinline></video>
 
 See pull request status, CI check results, and review comments right next to each worktree. No more switching to GitHub to check if your agent's PR passed CI.
 
 ### Service Health Monitoring
 
-![monitor-1 5x](https://github.com/user-attachments/assets/b2cf535a-0242-4c15-bdb9-344dfde5f75e)
+<video src="https://webmux.dev/videos/health.mp4" autoplay loop muted playsinline></video>
 
 Track dev server ports across worktrees. webmux polls configured services and shows live health badges so you know which worktrees have their servers running.
 
 ### Docker Sandbox Mode
 
-<!-- gif -->
 
 Run agents in isolated Docker containers for untrusted or experimental work. webmux manages the container lifecycle, port forwarding, and volume mounts automatically.
 
 ### Linear Integration
 
-![linear-1 5x](https://github.com/user-attachments/assets/3187fbe2-eeee-4a33-8780-c51c3575b72a)
+<video src="https://webmux.dev/videos/linear.mp4" autoplay loop muted playsinline></video>
 
 See your assigned Linear issues alongside your worktrees. Webmux matches branches to issues automatically, so you can browse your backlog, pick an issue, and spin up a worktree for it in one click.
 

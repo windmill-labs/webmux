@@ -10,11 +10,10 @@ import type {
   FileUploadResult,
   LinearIssue,
   LinearIssuesResponse,
-  PrEntry,
-  ProjectSnapshot,
   ProjectWorktreeSnapshot,
   SetWorktreeArchivedRequest,
   SetWorktreeArchivedResponse,
+  WorktreeListResponse,
   WorktreeDiffResponse,
 } from "./types";
 
@@ -49,14 +48,6 @@ function mapAgentStatus(status: string): string {
   }
 }
 
-function clonePrEntry(pr: PrEntry): PrEntry {
-  return {
-    ...pr,
-    ciChecks: pr.ciChecks.map((check) => ({ ...check })),
-    comments: pr.comments.map((comment) => ({ ...comment })),
-  };
-}
-
 function mapWorktree(snapshot: ProjectWorktreeSnapshot): WorktreeInfo {
   return {
     branch: snapshot.branch,
@@ -72,9 +63,9 @@ function mapWorktree(snapshot: ProjectWorktreeSnapshot): WorktreeInfo {
     elapsed: snapshot.elapsed,
     profile: snapshot.profile,
     agentName: snapshot.agentName,
-    services: snapshot.services.map((service) => ({ ...service })),
+    services: snapshot.services,
     paneCount: snapshot.paneCount,
-    prs: snapshot.prs.map((pr) => clonePrEntry(pr)),
+    prs: snapshot.prs,
     linearIssue: snapshot.linearIssue,
     creating: snapshot.creation !== null,
     creationPhase: snapshot.creation?.phase ?? null,
@@ -82,8 +73,8 @@ function mapWorktree(snapshot: ProjectWorktreeSnapshot): WorktreeInfo {
 }
 
 export async function fetchWorktrees(): Promise<WorktreeInfo[]> {
-  const snapshot = await api<ProjectSnapshot>("project");
-  return snapshot.worktrees.map((worktree) => mapWorktree(worktree));
+  const response = await api<WorktreeListResponse>("worktrees");
+  return response.worktrees.map((worktree) => mapWorktree(worktree));
 }
 
 export async function fetchAvailableBranches(options: AvailableBranchesQuery = {}): Promise<AvailableBranch[]> {

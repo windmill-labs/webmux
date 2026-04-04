@@ -11,6 +11,11 @@ import { writeWorktreeMeta, writeWorktreePrs } from "../adapters/fs";
 import { ProjectRuntime } from "../services/project-runtime";
 import { ReconciliationService } from "../services/reconciliation-service";
 
+interface Deferred {
+  promise: Promise<void>;
+  resolve: () => void;
+}
+
 class FakeGitGateway implements GitGateway {
   constructor(
     private readonly worktrees: GitWorktreeEntry[],
@@ -152,11 +157,14 @@ class FakePortProbe implements PortProbe {
   }
 }
 
-function resolveProbe(fn: (() => void) | undefined, label: string): void {
-  if (!fn) {
-    throw new Error(`expected ${label} to be available`);
-  }
-  fn();
+function deferred(): Deferred {
+  let resolve!: () => void;
+  return {
+    promise: new Promise<void>((res) => {
+      resolve = res;
+    }),
+    resolve,
+  };
 }
 
 const TEST_CONFIG: ProjectConfig = {
@@ -346,12 +354,25 @@ describe("ReconciliationService", () => {
       allocatedPorts: { FRONTEND_PORT: 3010 },
     });
 
-    const probeState: { release?: () => void } = {};
+    let probeCount = 0;
+    const firstProbeReached = deferred();
+    const firstProbeRelease = deferred();
+    const secondProbeReached = deferred();
+    const secondProbeRelease = deferred();
     let nowMs = 10_000;
     const portProbe = new FakePortProbe(new Set([3010]), async () => {
-      await new Promise<void>((resolve) => {
-        probeState.release = resolve;
-      });
+      probeCount += 1;
+      if (probeCount === 1) {
+        firstProbeReached.resolve();
+        await firstProbeRelease.promise;
+        return;
+      }
+      if (probeCount === 2) {
+        secondProbeReached.resolve();
+        await secondProbeRelease.promise;
+        return;
+      }
+      throw new Error(`unexpected port probe ${probeCount}`);
     });
     const runtime = new ProjectRuntime();
     const git = new FakeGitGateway(
@@ -378,12 +399,10 @@ describe("ReconciliationService", () => {
 
     const first = service.reconcile(repoRoot);
     const second = service.reconcile(repoRoot);
-    while (probeState.release === undefined) {
-      await Promise.resolve();
-    }
+    await firstProbeReached.promise;
 
     expect(portProbe.calls).toEqual([3010]);
-    resolveProbe(probeState.release, "the first probe release");
+    firstProbeRelease.resolve();
     await Promise.all([first, second]);
     expect(portProbe.calls).toEqual([3010]);
 
@@ -391,13 +410,10 @@ describe("ReconciliationService", () => {
     expect(portProbe.calls).toEqual([3010]);
 
     nowMs += 1001;
-    probeState.release = undefined;
     const third = service.reconcile(repoRoot);
-    while (probeState.release === undefined) {
-      await Promise.resolve();
-    }
+    await secondProbeReached.promise;
     expect(portProbe.calls).toEqual([3010, 3010]);
-    resolveProbe(probeState.release, "the second probe release");
+    secondProbeRelease.resolve();
     await third;
   });
 });

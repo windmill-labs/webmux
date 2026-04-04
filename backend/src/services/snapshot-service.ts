@@ -90,16 +90,15 @@ function mapCreatingWorktreeSnapshot(
   };
 }
 
-export function buildProjectSnapshot(input: {
-  projectName: string;
-  mainBranch: string;
+interface BuildWorktreeSnapshotsInput {
   runtime: ProjectRuntime;
-  notifications: RuntimeNotification[];
   creatingWorktrees?: CreatingWorktreeState[];
   isArchived?: (path: string) => boolean;
   findLinearIssue?: (branch: string) => WorktreeSnapshot["linearIssue"];
   now?: () => Date;
-}): ProjectSnapshot {
+}
+
+export function buildWorktreeSnapshots(input: BuildWorktreeSnapshotsInput): WorktreeSnapshot[] {
   const now = input.now ?? (() => new Date());
   const isArchived = input.isArchived ?? (() => false);
   const creatingWorktrees = input.creatingWorktrees ?? [];
@@ -118,12 +117,20 @@ export function buildProjectSnapshot(input: {
 
   worktrees.sort((left, right) => left.branch.localeCompare(right.branch));
 
+  return worktrees;
+}
+
+export function buildProjectSnapshot(input: BuildWorktreeSnapshotsInput & {
+  projectName: string;
+  mainBranch: string;
+  notifications: RuntimeNotification[];
+}): ProjectSnapshot {
   return {
     project: {
       name: input.projectName,
       mainBranch: input.mainBranch,
     },
-    worktrees,
+    worktrees: buildWorktreeSnapshots(input),
     notifications: input.notifications.map((notification) => ({ ...notification })),
   };
 }

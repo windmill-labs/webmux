@@ -19,7 +19,7 @@ export interface PrComment {
 export interface CiCheck {
   name: string;
   status: "pending" | "success" | "failed" | "skipped";
-  url: string;
+  url: string | null;
   runId: number | null;
 }
 
@@ -222,6 +222,10 @@ export interface ProjectSnapshot {
   };
   worktrees: ProjectWorktreeSnapshot[];
   notifications: AppNotification[];
+}
+
+export interface WorktreeListResponse {
+  worktrees: ProjectWorktreeSnapshot[];
 }
 
 export interface WorktreeListRow {

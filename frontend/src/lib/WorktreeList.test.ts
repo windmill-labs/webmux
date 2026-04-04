@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/svelte";
+import { fireEvent, render, screen, within } from "@testing-library/svelte";
 import { describe, expect, it, vi } from "vitest";
 import WorktreeList from "./WorktreeList.svelte";
 import type { WorktreeInfo, WorktreeListRow } from "./types";
@@ -39,12 +39,39 @@ function createRow(worktree: WorktreeInfo, depth = 0): WorktreeListRow {
 }
 
 describe("WorktreeList", () => {
-  it("renders the Linear badge as static text in the list", () => {
-    render(WorktreeList, {
+  it("calls onremove without selecting the row when the remove button is clicked", async () => {
+    const onselect = vi.fn();
+    const onremove = vi.fn();
+
+    const { container } = render(WorktreeList, {
       props: {
-        rows: [createRow(createWorktree("feature/list-linear"))],
+        rows: [createRow(createWorktree("feature/list-actions"))],
         selected: null,
         removing: new Set<string>(),
+        initializing: new Set<string>(),
+        archiving: new Set<string>(),
+        notifiedBranches: new Set<string>(),
+        onselect,
+        onclose: vi.fn(),
+        onarchive: vi.fn(),
+        onmerge: vi.fn(),
+        onremove,
+      },
+    });
+
+    await fireEvent.click(within(container).getByRole("button", { name: /actions for feature\/list-actions/i }));
+    await fireEvent.click(within(container).getByRole("button", { name: "Remove" }));
+
+    expect(onremove).toHaveBeenCalledWith("feature/list-actions");
+    expect(onselect).not.toHaveBeenCalled();
+  });
+
+  it("disables row actions while a worktree is being removed", () => {
+    const { container } = render(WorktreeList, {
+      props: {
+        rows: [createRow(createWorktree("feature/list-removing"))],
+        selected: null,
+        removing: new Set(["feature/list-removing"]),
         initializing: new Set<string>(),
         archiving: new Set<string>(),
         notifiedBranches: new Set<string>(),
@@ -56,10 +83,8 @@ describe("WorktreeList", () => {
       },
     });
 
-    expect(screen.getByText("ENG-42")).toBeInTheDocument();
-    expect(
-      screen.queryByRole("link", { name: "ENG-42" }),
-    ).not.toBeInTheDocument();
+    expect(within(container).getByRole("button", { name: /feature\/list-removing/i })).toBeDisabled();
+    expect(within(container).getByRole("button", { name: /actions for feature\/list-removing/i })).toBeDisabled();
   });
 
   it("shows a three-dot menu with row actions", async () => {

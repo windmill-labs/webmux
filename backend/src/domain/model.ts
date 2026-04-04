@@ -187,6 +187,10 @@ export interface ProjectSnapshot {
   notifications: NotificationView[];
 }
 
+export interface WorktreeListResponse {
+  worktrees: WorktreeSnapshot[];
+}
+
 export interface NativeTerminalLaunch {
   worktreeId: string;
   branch: string;

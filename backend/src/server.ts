@@ -35,9 +35,10 @@ import { startPrMonitor } from "./services/pr-service";
 import { startLinearAutoCreateMonitor, resetProcessedIssues } from "./services/linear-auto-create-service";
 import { runAutoRemove, type AutoRemoveDependencies } from "./services/auto-remove-service";
 import { pullMainBranch, forcePullMainBranch, startAutoPullMonitor } from "./services/auto-pull-service";
-import { buildProjectSnapshot } from "./services/snapshot-service";
+import { buildWorktreeSnapshots } from "./services/snapshot-service";
 import { parseRuntimeEvent } from "./domain/events";
 import type { CreateWorktreeAgentSelection } from "./domain/config";
+import type { WorktreeSnapshot } from "./domain/model";
 import { isValidBranchName, isValidWorktreeName } from "./domain/policies";
 import { createWebmuxRuntime } from "./runtime";
 
@@ -326,9 +327,30 @@ function makeCallbacks(ws: { send: (data: string) => void; readyState: number })
   };
 }
 
-// --- API handler functions (thin I/O layer, testable by injecting deps) ---
+function buildLinkedLinearIssue(
+  linearIssues: Array<{
+    identifier: string;
+    url: string;
+    state: {
+      name: string;
+      color: string;
+      type: string;
+    };
+    branchName: string;
+  }>,
+  branch: string,
+): { identifier: string; url: string; state: { name: string; color: string; type: string } } | null {
+  const match = linearIssues.find((issue) => branchMatchesIssue(branch, issue.branchName));
+  return match
+    ? {
+        identifier: match.identifier,
+        url: match.url,
+        state: match.state,
+      }
+    : null;
+}
 
-async function apiGetProject(): Promise<Response> {
+async function buildDashboardWorktrees(): Promise<WorktreeSnapshot[]> {
   touchDashboardActivity();
   const linearApiKey = Bun.env.LINEAR_API_KEY;
   const linearIssuesPromise = config.integrations.linear.enabled && linearApiKey?.trim()
@@ -339,24 +361,32 @@ async function apiGetProject(): Promise<Response> {
   const linearResult = await linearIssuesPromise;
   const archivedPaths = buildArchivedWorktreePathSet(archiveState);
   const linearIssues = linearResult.ok ? linearResult.data : [];
-  return jsonResponse(buildProjectSnapshot({
-    projectName: config.name,
-    mainBranch: config.workspace.mainBranch,
+  return buildWorktreeSnapshots({
     runtime: projectRuntime,
     creatingWorktrees: worktreeCreationTracker.list(),
-    notifications: runtimeNotifications.list(),
     isArchived: (path) => archivedPaths.has(normalizeArchivePath(path)),
-    findLinearIssue: (branch) => {
-      const match = linearIssues.find((issue) => branchMatchesIssue(branch, issue.branchName));
-      return match
-        ? {
-            identifier: match.identifier,
-            url: match.url,
-            state: match.state,
-          }
-        : null;
+    findLinearIssue: (branch) => buildLinkedLinearIssue(linearIssues, branch),
+  });
+}
+
+// --- API handler functions (thin I/O layer, testable by injecting deps) ---
+
+async function apiGetProject(): Promise<Response> {
+  const worktrees = await buildDashboardWorktrees();
+  return jsonResponse({
+    project: {
+      name: config.name,
+      mainBranch: config.workspace.mainBranch,
     },
-  }));
+    worktrees,
+    notifications: runtimeNotifications.list(),
+  });
+}
+
+async function apiGetWorktrees(): Promise<Response> {
+  return jsonResponse({
+    worktrees: await buildDashboardWorktrees(),
+  });
 }
 
 async function apiRuntimeEvent(req: Request): Promise<Response> {
@@ -815,6 +845,7 @@ Bun.serve({
     },
 
     "/api/worktrees": {
+      GET: () => catching("GET /api/worktrees", () => apiGetWorktrees()),
       POST: (req) => catching("POST /api/worktrees", () => apiCreateWorktree(req)),
     },
 

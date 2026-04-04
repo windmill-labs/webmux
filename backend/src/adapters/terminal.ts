@@ -1,7 +1,42 @@
 import { log } from "../lib/log";
 
+interface PtyProcess {
+  pid: number;
+  stdin: {
+    write: (data: Uint8Array) => void;
+    flush: () => void;
+  };
+  stdout: ReadableStream<Uint8Array>;
+  stderr: ReadableStream<Uint8Array>;
+  exited: Promise<number>;
+  kill: () => void;
+}
+
+interface TmuxProcess {
+  stderr: ReadableStream<Uint8Array>;
+  exited: Promise<number>;
+  kill: () => void;
+}
+
+interface SpawnSyncResult {
+  exitCode: number;
+  stdout: Uint8Array;
+  stderr: Uint8Array;
+}
+
+type SpawnPtyProcess = (args: string[], env: Record<string, string>) => PtyProcess;
+type SpawnTmuxProcess = (args: string[], opts?: { stdin?: Uint8Array }) => TmuxProcess;
+type SpawnSyncCommand = (
+  args: string[],
+  opts?: {
+    env?: Record<string, string>;
+    stdout?: "pipe" | "ignore";
+    stderr?: "pipe" | "ignore";
+  },
+) => SpawnSyncResult;
+
 interface TerminalSession {
-  proc: Bun.Subprocess<"pipe", "pipe", "pipe">;
+  proc: PtyProcess;
   groupedSessionName: string;
   windowName: string;
   scrollback: string[];
@@ -28,14 +63,46 @@ export interface TerminalAttachTarget {
 const textDecoder = new TextDecoder();
 const textEncoder = new TextEncoder();
 
+const defaultSpawnPtyProcess: SpawnPtyProcess = (args, env) =>
+  Bun.spawn(args, {
+    stdin: "pipe",
+    stdout: "pipe",
+    stderr: "pipe",
+    env,
+  });
+
+const defaultSpawnTmuxProcess: SpawnTmuxProcess = (args, opts = {}) =>
+  Bun.spawn(args, {
+    stdin: opts.stdin ?? "ignore",
+    stdout: "ignore",
+    stderr: "pipe",
+  });
+
+const defaultSpawnSyncCommand: SpawnSyncCommand = (args, opts = {}) =>
+  Bun.spawnSync(args, opts);
+
+let spawnPtyProcess: SpawnPtyProcess = defaultSpawnPtyProcess;
+let spawnTmuxProcess: SpawnTmuxProcess = defaultSpawnTmuxProcess;
+let spawnSyncCommand: SpawnSyncCommand = defaultSpawnSyncCommand;
+
+export function setTerminalAdapterDependenciesForTests(deps: {
+  spawnPtyProcess?: SpawnPtyProcess;
+  spawnTmuxProcess?: SpawnTmuxProcess;
+  spawnSyncCommand?: SpawnSyncCommand;
+} = {}): void {
+  spawnPtyProcess = deps.spawnPtyProcess ?? defaultSpawnPtyProcess;
+  spawnTmuxProcess = deps.spawnTmuxProcess ?? defaultSpawnTmuxProcess;
+  spawnSyncCommand = deps.spawnSyncCommand ?? defaultSpawnSyncCommand;
+}
+
 /** Resolve which PTY wrapper to use for spawning terminal sessions.
  *  Returns the command builder, or null if no suitable wrapper is found. */
 function detectPtyWrapper(): "script" | "python3" | null {
   if (process.platform === "darwin") return "python3";
   // Linux: prefer `script` (lighter), fall back to python3
-  const scriptResult = Bun.spawnSync(["which", "script"], { stdout: "ignore", stderr: "ignore" });
+  const scriptResult = spawnSyncCommand(["which", "script"], { stdout: "ignore", stderr: "ignore" });
   if (scriptResult.exitCode === 0) return "script";
-  const py3Result = Bun.spawnSync(["which", "python3"], { stdout: "ignore", stderr: "ignore" });
+  const py3Result = spawnSyncCommand(["which", "python3"], { stdout: "ignore", stderr: "ignore" });
   if (py3Result.exitCode === 0) return "python3";
   return null;
 }
@@ -89,11 +156,7 @@ async function tmuxExec(
   args: string[],
   opts: { stdin?: Uint8Array } = {},
 ): Promise<{ exitCode: number; stderr: string }> {
-  const proc = Bun.spawn(args, {
-    stdin: opts.stdin ?? "ignore",
-    stdout: "ignore",
-    stderr: "pipe",
-  });
+  const proc = spawnTmuxProcess(args, opts);
 
   const timeout = Bun.sleep(TMUX_TIMEOUT_MS).then(() => {
     proc.kill();
@@ -112,7 +175,7 @@ async function tmuxExec(
 /** Kill any orphaned wm-dash-* tmux sessions left from previous server runs. */
 export function cleanupStaleSessions(): void {
   try {
-    const result = Bun.spawnSync(
+    const result = spawnSyncCommand(
       ["tmux", "list-sessions", "-F", "#{session_name}"],
       { stdout: "pipe", stderr: "pipe" }
     );
@@ -120,7 +183,7 @@ export function cleanupStaleSessions(): void {
     const lines = textDecoder.decode(result.stdout).trim().split("\n");
     for (const name of lines) {
       if (name.startsWith(SESSION_PREFIX)) {
-        Bun.spawnSync(["tmux", "kill-session", "-t", name]);
+        spawnSyncCommand(["tmux", "kill-session", "-t", name]);
       }
     }
   } catch {
@@ -130,7 +193,7 @@ export function cleanupStaleSessions(): void {
 
 /** Kill a tmux session by name, logging unexpected failures. */
 function killTmuxSession(name: string): void {
-  const result = Bun.spawnSync(["tmux", "kill-session", "-t", name], { stderr: "pipe" });
+  const result = spawnSyncCommand(["tmux", "kill-session", "-t", name], { stderr: "pipe" });
   if (result.exitCode !== 0) {
     const stderr = textDecoder.decode(result.stderr).trim();
     if (!stderr.includes("can't find session")) {
@@ -168,12 +231,7 @@ export async function attach(
     initialPane,
   });
 
-  const proc = Bun.spawn(buildPtyArgs(cmd), {
-    stdin: "pipe",
-    stdout: "pipe",
-    stderr: "pipe",
-    env: { ...Bun.env, TERM: "xterm-256color" },
-  });
+  const proc = spawnPtyProcess(buildPtyArgs(cmd), { ...Bun.env, TERM: "xterm-256color" });
 
   const session: TerminalSession = {
     proc,

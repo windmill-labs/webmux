@@ -2,13 +2,13 @@
 
 A web dashboard for managing parallel AI coding agents. webmux owns git worktree lifecycle, tmux layout, agent runtime events, service health monitoring, and sandbox containers directly.
 
-<video src="https://webmux.dev/videos/demo.mp4" autoplay loop muted playsinline></video>
+![webmux demo](https://github.com/windmill-labs/webmux/raw/main/site/static/videos/demo.gif)
 
 ## Features
 
 ### Create & Manage Worktrees
 
-<video src="https://webmux.dev/videos/create.mp4" autoplay loop muted playsinline></video>
+![create worktree](https://github.com/windmill-labs/webmux/raw/main/site/static/videos/create.gif)
 
 Spin up new worktrees with one click. Pick a profile, type a prompt, and webmux creates the worktree, starts the agent, and begins streaming output. Merge or remove worktrees when you're done.
 
@@ -18,13 +18,13 @@ View and interact with your agents directly in the browser. Each worktree gets i
 
 ### PR, CI & Comments
 
-<video src="https://webmux.dev/videos/ci.mp4" autoplay loop muted playsinline></video>
+![PR and CI](https://github.com/windmill-labs/webmux/raw/main/site/static/videos/ci.gif)
 
 See pull request status, CI check results, and review comments right next to each worktree. No more switching to GitHub to check if your agent's PR passed CI.
 
 ### Service Health Monitoring
 
-<video src="https://webmux.dev/videos/health.mp4" autoplay loop muted playsinline></video>
+![service health](https://github.com/windmill-labs/webmux/raw/main/site/static/videos/health.gif)
 
 Track dev server ports across worktrees. webmux polls configured services and shows live health badges so you know which worktrees have their servers running.
 
@@ -35,7 +35,7 @@ Run agents in isolated Docker containers for untrusted or experimental work. web
 
 ### Linear Integration
 
-<video src="https://webmux.dev/videos/linear.mp4" autoplay loop muted playsinline></video>
+![linear integration](https://github.com/windmill-labs/webmux/raw/main/site/static/videos/linear.gif)
 
 See your assigned Linear issues alongside your worktrees. Webmux matches branches to issues automatically, so you can browse your backlog, pick an issue, and spin up a worktree for it in one click.
 

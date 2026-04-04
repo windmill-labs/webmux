@@ -105,6 +105,22 @@
       </span>
     </div>
   </div>
+
+  <!-- Hero video -->
+  <div class="mx-auto mt-14 max-w-6xl px-6">
+    <div class="overflow-hidden rounded-xl border border-edge">
+      <video
+        src="/videos/demo.mp4"
+        autoplay
+        loop
+        muted
+        playsinline
+        class="w-full"
+      >
+        Webmux dashboard demo
+      </video>
+    </div>
+  </div>
 </section>
 
 <!-- Features -->
@@ -291,18 +307,16 @@
 <section class="bg-surface px-6 py-20 md:py-28">
   <div class="mx-auto max-w-6xl space-y-24">
     <!-- Demo 1: Create & Manage Worktrees -->
-    <div class="flex flex-col items-center gap-10 md:flex-row">
-      <div class="flex-1">
-        <h3 class="mb-3 text-2xl font-bold text-primary md:text-3xl">
-          Create & Manage Worktrees
-        </h3>
-        <p class="text-muted leading-relaxed">
-          Spin up new worktrees with one click. Pick a profile, type a prompt,
-          and webmux creates the worktree, starts the agent, and begins
-          streaming output. Merge or remove worktrees when you're done.
-        </p>
-      </div>
-      <div class="flex-1 overflow-hidden rounded-xl border border-edge">
+    <div class="flex flex-col gap-4">
+      <h3 class="text-2xl font-bold text-primary md:text-3xl">
+        Create & Manage Worktrees
+      </h3>
+      <p class="max-w-2xl text-muted leading-relaxed">
+        Spin up new worktrees with one click. Pick a profile, type a prompt,
+        and webmux creates the worktree, starts the agent, and begins
+        streaming output. Merge or remove worktrees when you're done.
+      </p>
+      <div class="overflow-hidden rounded-xl border border-edge">
         <video
           src="/videos/create.mp4"
           autoplay
@@ -317,18 +331,16 @@
     </div>
 
     <!-- Demo 2: PR, CI & Comments -->
-    <div class="flex flex-col items-center gap-10 md:flex-row-reverse">
-      <div class="flex-1">
-        <h3 class="mb-3 text-2xl font-bold text-primary md:text-3xl">
-          PR, CI & Comments
-        </h3>
-        <p class="text-muted leading-relaxed">
-          See pull request status, CI check results, and review comments right
-          next to each worktree. No more switching to GitHub to check if your
-          agent's PR passed CI.
-        </p>
-      </div>
-      <div class="flex-1 overflow-hidden rounded-xl border border-edge">
+    <div class="flex flex-col gap-4">
+      <h3 class="text-2xl font-bold text-primary md:text-3xl">
+        PR, CI & Comments
+      </h3>
+      <p class="max-w-2xl text-muted leading-relaxed">
+        See pull request status, CI check results, and review comments right
+        next to each worktree. No more switching to GitHub to check if your
+        agent's PR passed CI.
+      </p>
+      <div class="overflow-hidden rounded-xl border border-edge">
         <video
           src="/videos/ci.mp4"
           autoplay
@@ -343,18 +355,16 @@
     </div>
 
     <!-- Demo 3: Service Health Monitoring -->
-    <div class="flex flex-col items-center gap-10 md:flex-row">
-      <div class="flex-1">
-        <h3 class="mb-3 text-2xl font-bold text-primary md:text-3xl">
-          Service Health Monitoring
-        </h3>
-        <p class="text-muted leading-relaxed">
-          Track dev server ports across worktrees. webmux polls configured
-          services and shows live health badges so you know which worktrees have
-          their servers running.
-        </p>
-      </div>
-      <div class="flex-1 overflow-hidden rounded-xl border border-edge">
+    <div class="flex flex-col gap-4">
+      <h3 class="text-2xl font-bold text-primary md:text-3xl">
+        Service Health Monitoring
+      </h3>
+      <p class="max-w-2xl text-muted leading-relaxed">
+        Track dev server ports across worktrees. webmux polls configured
+        services and shows live health badges so you know which worktrees have
+        their servers running.
+      </p>
+      <div class="overflow-hidden rounded-xl border border-edge">
         <video
           src="/videos/health.mp4"
           autoplay
@@ -369,18 +379,16 @@
     </div>
 
     <!-- Demo 4: Linear Integration -->
-    <div class="flex flex-col items-center gap-10 md:flex-row-reverse">
-      <div class="flex-1">
-        <h3 class="mb-3 text-2xl font-bold text-primary md:text-3xl">
-          Linear Integration
-        </h3>
-        <p class="text-muted leading-relaxed">
-          See your assigned Linear issues alongside your worktrees. Webmux
-          matches branches to issues automatically, so you can browse your
-          backlog, pick an issue, and spin up a worktree for it in one click.
-        </p>
-      </div>
-      <div class="flex-1 overflow-hidden rounded-xl border border-edge">
+    <div class="flex flex-col gap-4">
+      <h3 class="text-2xl font-bold text-primary md:text-3xl">
+        Linear Integration
+      </h3>
+      <p class="max-w-2xl text-muted leading-relaxed">
+        See your assigned Linear issues alongside your worktrees. Webmux
+        matches branches to issues automatically, so you can browse your
+        backlog, pick an issue, and spin up a worktree for it in one click.
+      </p>
+      <div class="overflow-hidden rounded-xl border border-edge">
         <video
           src="/videos/linear.mp4"
           autoplay

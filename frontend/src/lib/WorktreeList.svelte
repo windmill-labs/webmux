@@ -12,6 +12,7 @@
     selected,
     removing,
     initializing,
+    archiving,
     notifiedBranches,
     emptyMessage = "No worktrees found.",
     onselect,
@@ -24,6 +25,7 @@
     selected: string | null;
     removing: Set<string>;
     initializing: Set<string>;
+    archiving: Set<string>;
     notifiedBranches: Set<string>;
     emptyMessage?: string;
     onselect: (branch: string) => void;
@@ -77,6 +79,7 @@
     {@const isRemoving = removing.has(wt.branch)}
     {@const isClosed = wt.mux !== "✓"}
     {@const isInitializing = initializing.has(wt.branch)}
+    {@const isArchiving = archiving.has(wt.branch)}
     {@const isCreating = wt.creating}
     {@const isArchived = wt.archived}
     {@const isBusy = isRemoving || isInitializing}
@@ -192,7 +195,7 @@
           </button>
           <button
             type="button"
-            disabled={isCreating}
+            disabled={isCreating || isArchiving}
             class="w-full px-2 py-1.5 rounded text-left text-xs text-primary hover:bg-hover disabled:opacity-50 disabled:cursor-not-allowed"
             onclick={(event) => {
               event.stopPropagation();

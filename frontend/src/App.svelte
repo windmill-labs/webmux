@@ -894,6 +894,7 @@
         selected={selectedBranch}
         removing={removingBranches}
         initializing={openingBranches}
+        archiving={archivingBranches}
         {notifiedBranches}
         emptyMessage={worktreeListEmptyMessage}
         onselect={handleSelectWorktree}

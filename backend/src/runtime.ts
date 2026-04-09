@@ -6,6 +6,7 @@ import { BunLifecycleHookRunner } from "./adapters/hooks";
 import { BunPortProbe } from "./adapters/port-probe";
 import { BunTmuxGateway } from "./adapters/tmux";
 import { AutoNameService } from "./services/auto-name-service";
+import { ArchiveStateService } from "./services/archive-state-service";
 import { LifecycleService, type CreateWorktreeProgress } from "./services/lifecycle-service";
 import { NotificationService as RuntimeNotificationService } from "./services/notification-service";
 import { ProjectRuntime } from "./services/project-runtime";
@@ -22,6 +23,7 @@ export interface WebmuxRuntime {
   port: number;
   projectDir: string;
   config: ProjectConfig;
+  archiveStateService: ArchiveStateService;
   git: BunGitGateway;
   portProbe: BunPortProbe;
   tmux: BunTmuxGateway;
@@ -40,6 +42,7 @@ export function createWebmuxRuntime(options: WebmuxRuntimeOptions = {}): WebmuxR
   const projectDir = projectRoot(options.projectDir ?? Bun.env.WEBMUX_PROJECT_DIR ?? process.cwd());
   const config = loadConfig(projectDir, { resolvedRoot: true });
   const git = new BunGitGateway();
+  const archiveStateService = new ArchiveStateService(git.resolveWorktreeGitDir(projectDir));
   const portProbe = new BunPortProbe();
   const tmux = new BunTmuxGateway();
   const docker = new BunDockerGateway();
@@ -60,6 +63,7 @@ export function createWebmuxRuntime(options: WebmuxRuntimeOptions = {}): WebmuxR
     controlBaseUrl: `http://127.0.0.1:${port}`,
     getControlToken: loadControlToken,
     config,
+    archiveState: archiveStateService,
     git,
     tmux,
     docker,
@@ -79,6 +83,7 @@ export function createWebmuxRuntime(options: WebmuxRuntimeOptions = {}): WebmuxR
     port,
     projectDir,
     config,
+    archiveStateService,
     git,
     portProbe,
     tmux,

@@ -11,6 +11,7 @@ import { getWorktreeStoragePaths, readWorktreeArchiveState, readWorktreeMeta } f
 import type { DockerGateway, LaunchContainerOpts } from "../adapters/docker";
 import type { AutoNameConfig } from "../domain/config";
 import { ProjectRuntime } from "../services/project-runtime";
+import { ArchiveStateService } from "../services/archive-state-service";
 import type { AutoNameGenerator } from "../services/auto-name-service";
 import { ReconciliationService } from "../services/reconciliation-service";
 import {
@@ -260,6 +261,7 @@ function makeLifecycleService(
     controlBaseUrl: "http://127.0.0.1:5111",
     getControlToken: async () => "secret-token",
     config,
+    archiveState: new ArchiveStateService(git.resolveWorktreeGitDir(repoRoot)),
     git,
     tmux,
     docker,

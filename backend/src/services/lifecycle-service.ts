@@ -9,10 +9,8 @@ import {
   buildRuntimeEnvMap,
   getWorktreeStoragePaths,
   loadDotenvLocal,
-  readWorktreeArchiveState,
   readWorktreeMeta,
   writeControlEnv,
-  writeWorktreeArchiveState,
   writeRuntimeEnv,
 } from "../adapters/fs";
 import { expandTemplate, getDefaultProfileName, isDockerProfile, type DockerProfileConfig } from "../adapters/config";
@@ -31,7 +29,7 @@ import {
 } from "./agent-service";
 import type { ReconciliationService } from "./reconciliation-service";
 import { ensureSessionLayout, planSessionLayout } from "./session-service";
-import { setArchivedWorktreeState } from "./archive-service";
+import { ArchiveStateService } from "./archive-state-service";
 import {
   createManagedWorktree,
   initializeManagedWorktree,
@@ -96,6 +94,7 @@ export interface LifecycleServiceDependencies {
   controlBaseUrl: string;
   getControlToken: () => Promise<string>;
   config: ProjectConfig;
+  archiveState: ArchiveStateService;
   git: GitGateway;
   tmux: TmuxGateway;
   docker: DockerGateway;
@@ -559,14 +558,7 @@ export class LifecycleService {
   }
 
   private async updateWorktreeArchivedState(path: string, archived: boolean): Promise<void> {
-    const projectGitDir = this.deps.git.resolveWorktreeGitDir(resolve(this.deps.projectRoot));
-    const archiveState = await readWorktreeArchiveState(projectGitDir);
-    const nextArchiveState = setArchivedWorktreeState({
-      state: archiveState,
-      path,
-      archived,
-    });
-    await writeWorktreeArchiveState(projectGitDir, nextArchiveState);
+    await this.deps.archiveState.setArchived(path, archived);
   }
 
   private async closeBranchWindow(branch: string): Promise<void> {

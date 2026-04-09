@@ -18,7 +18,6 @@ import {
   type TerminalAttachTarget,
 } from "./adapters/terminal";
 import { loadControlToken } from "./adapters/control-token";
-import { readWorktreeArchiveState } from "./adapters/fs";
 import { getDefaultProfileName, persistLocalLinearConfig, persistLocalGitHubConfig, type ProjectConfig } from "./adapters/config";
 import { jsonResponse, errorResponse } from "./lib/http";
 import { hasRecentDashboardActivity, touchDashboardActivity } from "./services/dashboard-activity";
@@ -51,7 +50,7 @@ const runtime = createWebmuxRuntime({
 const PROJECT_DIR = runtime.projectDir;
 const config: ProjectConfig = runtime.config;
 const git = runtime.git;
-const PROJECT_GIT_DIR = git.resolveWorktreeGitDir(PROJECT_DIR);
+const archiveStateService = runtime.archiveStateService;
 const tmux = runtime.tmux;
 const projectRuntime = runtime.projectRuntime;
 const worktreeCreationTracker = runtime.worktreeCreationTracker;
@@ -335,11 +334,9 @@ async function apiGetProject(): Promise<Response> {
   const linearIssuesPromise = config.integrations.linear.enabled && linearApiKey?.trim()
     ? fetchAssignedIssues()
     : Promise.resolve({ ok: true as const, data: [] });
-  const [archiveState, , linearResult] = await Promise.all([
-    readWorktreeArchiveState(PROJECT_GIT_DIR),
-    reconciliationService.reconcile(PROJECT_DIR),
-    linearIssuesPromise,
-  ]);
+  await reconciliationService.reconcile(PROJECT_DIR);
+  const archiveState = await archiveStateService.prune(projectRuntime.listWorktrees().map((worktree) => worktree.path));
+  const linearResult = await linearIssuesPromise;
   const archivedPaths = buildArchivedWorktreePathSet(archiveState);
   const linearIssues = linearResult.ok ? linearResult.data : [];
   return jsonResponse(buildProjectSnapshot({

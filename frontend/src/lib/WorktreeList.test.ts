@@ -46,6 +46,7 @@ describe("WorktreeList", () => {
         selected: null,
         removing: new Set<string>(),
         initializing: new Set<string>(),
+        archiving: new Set<string>(),
         notifiedBranches: new Set<string>(),
         onselect: vi.fn(),
         onclose: vi.fn(),
@@ -70,6 +71,7 @@ describe("WorktreeList", () => {
         selected: null,
         removing: new Set<string>(),
         initializing: new Set<string>(),
+        archiving: new Set<string>(),
         notifiedBranches: new Set<string>(),
         onselect: vi.fn(),
         onclose: vi.fn(),
@@ -88,5 +90,27 @@ describe("WorktreeList", () => {
 
     await fireEvent.click(screen.getByRole("button", { name: "Archive" }));
     expect(onarchive).toHaveBeenCalledWith("feature/menu-actions");
+  });
+
+  it("disables the archive action while the row is archiving", async () => {
+    render(WorktreeList, {
+      props: {
+        rows: [createRow(createWorktree("feature/archiving"))],
+        selected: null,
+        removing: new Set<string>(),
+        initializing: new Set<string>(),
+        archiving: new Set<string>(["feature/archiving"]),
+        notifiedBranches: new Set<string>(),
+        onselect: vi.fn(),
+        onclose: vi.fn(),
+        onarchive: vi.fn(),
+        onmerge: vi.fn(),
+        onremove: vi.fn(),
+      },
+    });
+
+    await fireEvent.click(screen.getByRole("button", { name: /actions for feature\/archiving/i }));
+
+    expect(screen.getByRole("button", { name: "Archive" })).toBeDisabled();
   });
 });

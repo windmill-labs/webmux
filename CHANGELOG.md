@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.27.1](https://github.com/windmill-labs/webmux/compare/v0.27.0...v0.27.1) (2026-04-09)
+
+
+### Bug Fixes
+
+* stabilize docker sandbox shell startup ([#209](https://github.com/windmill-labs/webmux/issues/209)) ([da32507](https://github.com/windmill-labs/webmux/commit/da32507c4c3643d1213b97a0a72669aec56997ff))
+* use host callback url for sandbox hooks ([#211](https://github.com/windmill-labs/webmux/issues/211)) ([e4cc15e](https://github.com/windmill-labs/webmux/commit/e4cc15e02f42d8d5c49118d78b56b577b621d112))
+
 ## [0.27.0](https://github.com/windmill-labs/webmux/compare/v0.26.0...v0.27.0) (2026-04-09)
 
 

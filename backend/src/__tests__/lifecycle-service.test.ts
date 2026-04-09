@@ -972,6 +972,24 @@ describe("LifecycleService", () => {
     expect(state?.session.exists).toBe(true);
   });
 
+  it("starts one-pane docker agent sessions without nesting docker exec inside the container shell", async () => {
+    const repoRoot = await initRepo();
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const docker = new FakeDockerGateway();
+    const lifecycle = makeLifecycleService(repoRoot, tmux, runtime, docker);
+
+    await lifecycle.createWorktree({
+      branch: "feature-sandbox-agent",
+      profile: "sandbox",
+    });
+
+    const agentCommand = tmux.commands[0]?.command;
+
+    expect(agentCommand).toContain("claude");
+    expect(agentCommand).not.toContain("docker exec");
+  });
+
   it("reports backend creation phases in order until the worktree is ready", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();

@@ -2,12 +2,18 @@ import type { AgentKind } from "../domain/config";
 
 export type AgentLaunchMode = "fresh" | "resume";
 
+const DOCKER_PATH_PREFIX = "/root/.local/bin:/usr/local/bin:/root/.bun/bin:/root/.cargo/bin";
+
 function quoteShell(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
 function buildRuntimeBootstrap(runtimeEnvPath: string): string {
   return `set -a; . ${quoteShell(runtimeEnvPath)}; set +a`;
+}
+
+function buildDockerRuntimeBootstrap(runtimeEnvPath: string): string {
+  return `${buildRuntimeBootstrap(runtimeEnvPath)}; export PATH=${DOCKER_PATH_PREFIX}:"$PATH"`;
 }
 
 function buildAgentInvocation(input: {
@@ -49,8 +55,8 @@ function buildAgentCommand(input: {
   systemPrompt?: string;
   prompt?: string;
   launchMode?: AgentLaunchMode;
-}): string {
-  return `${buildRuntimeBootstrap(input.runtimeEnvPath)}; ${buildAgentInvocation(input)}`;
+}, bootstrap = buildRuntimeBootstrap): string {
+  return `${bootstrap(input.runtimeEnvPath)}; ${buildAgentInvocation(input)}`;
 }
 
 function buildDockerExecCommand(
@@ -58,7 +64,7 @@ function buildDockerExecCommand(
   worktreePath: string,
   command: string,
 ): string {
-  return `docker exec -it -w ${quoteShell(worktreePath)} ${quoteShell(containerName)} bash -lc ${quoteShell(command)}`;
+  return `docker exec -it -w ${quoteShell(worktreePath)} ${quoteShell(containerName)} /bin/sh -c ${quoteShell(command)}`;
 }
 
 export function buildManagedShellCommand(
@@ -83,28 +89,22 @@ export function buildDockerShellCommand(
   containerName: string,
   worktreePath: string,
   runtimeEnvPath: string,
-  shellPath = Bun.env.SHELL || "/bin/bash",
+  shellPath = "/bin/bash",
 ): string {
   return buildDockerExecCommand(
     containerName,
     worktreePath,
-    `${buildRuntimeBootstrap(runtimeEnvPath)}; exec ${quoteShell(shellPath)} -i`,
+    `${buildDockerRuntimeBootstrap(runtimeEnvPath)}; if [ -x ${quoteShell(shellPath)} ]; then exec ${quoteShell(shellPath)} -i; elif [ -x /bin/sh ]; then exec /bin/sh -i; else echo 'webmux: no shell found in container' >&2; exit 127; fi`,
   );
 }
 
 export function buildDockerAgentPaneCommand(input: {
   agent: AgentKind;
-  containerName: string;
-  worktreePath: string;
   runtimeEnvPath: string;
   yolo?: boolean;
   systemPrompt?: string;
   prompt?: string;
   launchMode?: AgentLaunchMode;
 }): string {
-  return buildDockerExecCommand(
-    input.containerName,
-    input.worktreePath,
-    buildAgentCommand(input),
-  );
+  return buildAgentCommand(input, buildDockerRuntimeBootstrap);
 }

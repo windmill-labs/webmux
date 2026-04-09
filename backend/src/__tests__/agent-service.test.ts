@@ -59,18 +59,44 @@ describe("agent-service command builders", () => {
     );
     const agent = buildDockerAgentPaneCommand({
       agent: "codex",
-      containerName: "wm-feature-container",
-      worktreePath: "/repos/feature",
       runtimeEnvPath: "/repos/main/.git/worktrees/feature/webmux/runtime.env",
       yolo: true,
       prompt: "ship the fix",
     });
 
-    expect(shell).toContain("docker exec -it -w '/repos/feature' 'wm-feature-container' bash -lc");
+    expect(shell).toContain("docker exec -it -w '/repos/feature' 'wm-feature-container' /bin/sh -c");
     expect(shell).toContain("/bin/zsh");
+    expect(shell).toContain("/root/.local/bin:/usr/local/bin:/root/.bun/bin:/root/.cargo/bin");
     expect(agent).toContain("codex --yolo");
     expect(agent).toContain("ship the fix");
+    expect(agent).toContain("/root/.local/bin:/usr/local/bin:/root/.bun/bin:/root/.cargo/bin");
+    expect(agent).not.toContain("docker exec");
     expect(agent).not.toContain("agent-stopped");
+  });
+
+  it("defaults docker shell commands to /bin/bash instead of the host shell path", () => {
+    const shell = buildDockerShellCommand(
+      "wm-feature-container",
+      "/repos/feature",
+      "/repos/main/.git/worktrees/feature/webmux/runtime.env",
+    );
+
+    expect(shell).toContain("/bin/bash");
+    if (Bun.env.SHELL && Bun.env.SHELL !== "/bin/bash") {
+      expect(shell).not.toContain(Bun.env.SHELL);
+    }
+  });
+
+  it("falls back to /bin/sh when the preferred docker shell is unavailable", () => {
+    const shell = buildDockerShellCommand(
+      "wm-feature-container",
+      "/repos/feature",
+      "/repos/main/.git/worktrees/feature/webmux/runtime.env",
+      "/missing/bash",
+    );
+
+    expect(shell).toContain("/missing/bash");
+    expect(shell).toContain("elif [ -x /bin/sh ]; then exec /bin/sh -i;");
   });
 
   it("uses codex resume --last on resume without replaying the initial prompt", () => {

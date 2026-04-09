@@ -634,8 +634,6 @@ export class LifecycleService {
           ? {
               agent: buildDockerAgentPaneCommand({
                 agent: input.agent,
-                containerName,
-                worktreePath: input.worktreePath,
                 runtimeEnvPath: input.initialized.paths.runtimeEnvPath,
                 yolo: input.profile.yolo === true,
                 systemPrompt,

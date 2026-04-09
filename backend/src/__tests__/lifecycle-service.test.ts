@@ -961,6 +961,10 @@ describe("LifecycleService", () => {
     expect(docker.launched[0]?.branch).toBe("feature-sandbox");
     expect(docker.launched[0]?.runtimeEnv.WEBMUX_RUNTIME).toBe("docker");
 
+    const worktreePath = join(repoRoot, "__worktrees", "feature-sandbox");
+    const gitDir = new BunGitGateway().resolveWorktreeGitDir(worktreePath);
+    const controlEnvText = await Bun.file(getWorktreeStoragePaths(gitDir).controlEnvPath).text();
+
     expect(tmux.listWindows()).toEqual([
       {
         sessionName: buildProjectSessionName(repoRoot),
@@ -968,6 +972,8 @@ describe("LifecycleService", () => {
         paneCount: 1,
       },
     ]);
+
+    expect(controlEnvText).toContain("WEBMUX_CONTROL_URL=http://host.docker.internal:5111/api/runtime/events");
 
     const state = runtime.getWorktreeByBranch("feature-sandbox");
     expect(state?.agent.runtime).toBe("docker");
@@ -993,6 +999,35 @@ describe("LifecycleService", () => {
     expect(windowCommand).toContain("wm-feature-sandbox-agent-container");
     expect(agentCommand).toContain("claude");
     expect(agentCommand).not.toContain("docker exec");
+  });
+
+  it("refreshes docker control env with a host-reachable callback when reopening", async () => {
+    const repoRoot = await initRepo();
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const docker = new FakeDockerGateway();
+    const lifecycle = makeLifecycleService(repoRoot, tmux, runtime, docker);
+
+    await lifecycle.createWorktree({
+      branch: "feature-sandbox-reopen",
+      profile: "sandbox",
+    });
+
+    const worktreePath = join(repoRoot, "__worktrees", "feature-sandbox-reopen");
+    const gitDir = new BunGitGateway().resolveWorktreeGitDir(worktreePath);
+    const paths = getWorktreeStoragePaths(gitDir);
+    const staleControlEnvText = (await Bun.file(paths.controlEnvPath).text()).replace(
+      "http://host.docker.internal:5111/api/runtime/events",
+      "http://127.0.0.1:5111/api/runtime/events",
+    );
+    await Bun.write(paths.controlEnvPath, staleControlEnvText);
+
+    await lifecycle.closeWorktree("feature-sandbox-reopen");
+    await lifecycle.openWorktree("feature-sandbox-reopen");
+
+    const refreshedControlEnvText = await Bun.file(paths.controlEnvPath).text();
+
+    expect(refreshedControlEnvText).toContain("WEBMUX_CONTROL_URL=http://host.docker.internal:5111/api/runtime/events");
   });
 
   it("reports backend creation phases in order until the worktree is ready", async () => {

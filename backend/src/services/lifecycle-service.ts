@@ -39,12 +39,40 @@ import {
 import { log } from "../lib/log";
 import { generateFallbackBranchName } from "../lib/branch-name";
 
+const DOCKER_CONTROL_HOST = "host.docker.internal";
+
 function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
 function stringifyStartupEnvValue(value: string | boolean): string {
   return typeof value === "boolean" ? String(value) : value;
+}
+
+function trimTrailingSlashes(value: string): string {
+  return value.replace(/\/+$/, "");
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  return hostname === "127.0.0.1"
+    || hostname === "localhost"
+    || hostname === "::1"
+    || hostname === "[::1]";
+}
+
+function buildRuntimeControlBaseUrl(controlBaseUrl: string, runtime: RuntimeKind): string {
+  const trimmed = trimTrailingSlashes(controlBaseUrl);
+  if (runtime !== "docker") return trimmed;
+
+  try {
+    const url = new URL(trimmed);
+    if (isLoopbackHostname(url.hostname)) {
+      url.hostname = DOCKER_CONTROL_HOST;
+    }
+    return trimTrailingSlashes(url.toString());
+  } catch {
+    return trimmed;
+  }
 }
 
 export interface CreateWorktreeTarget {
@@ -507,7 +535,7 @@ export class LifecycleService {
       allocatedPorts: await this.allocatePorts(),
       runtimeEnvExtras: { WEBMUX_WORKTREE_PATH: resolved.entry.path },
       dotenvValues,
-      controlUrl: this.controlUrl(),
+      controlUrl: this.controlUrl(profile.runtime),
       controlToken: await this.deps.getControlToken(),
     });
   }
@@ -538,7 +566,7 @@ export class LifecycleService {
     await writeRuntimeEnv(input.gitDir, runtimeEnv);
 
     const controlEnv = buildControlEnvMap({
-      controlUrl: this.controlUrl(),
+      controlUrl: this.controlUrl(input.meta.runtime),
       controlToken: await this.deps.getControlToken(),
       worktreeId: input.meta.worktreeId,
       branch: input.meta.branch,
@@ -719,8 +747,8 @@ export class LifecycleService {
     }
   }
 
-  private controlUrl(): string {
-    return `${this.deps.controlBaseUrl.replace(/\/+$/, "")}/api/runtime/events`;
+  private controlUrl(runtime: RuntimeKind): string {
+    return `${buildRuntimeControlBaseUrl(this.deps.controlBaseUrl, runtime)}/api/runtime/events`;
   }
 
   private async removeResolvedWorktree(
@@ -856,7 +884,7 @@ export class LifecycleService {
           startupEnvValues: await this.buildStartupEnvValues(input.envOverrides),
           allocatedPorts: await this.allocatePorts(),
           runtimeEnvExtras: { WEBMUX_WORKTREE_PATH: worktreePath },
-          controlUrl: this.controlUrl(),
+          controlUrl: this.controlUrl(profile.runtime),
           controlToken: await this.deps.getControlToken(),
           deleteBranchOnRollback,
         },

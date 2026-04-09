@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { AutoNameService } from "../services/auto-name-service";
+import { AutoNameService, AutoNameTimeoutError } from "../services/auto-name-service";
 
 async function getClaudeCliFlags(): Promise<Set<string>> {
   const proc = Bun.spawn(["claude", "--help"], { stdout: "pipe", stderr: "pipe" });
@@ -103,6 +103,24 @@ describe("AutoNameService", () => {
     expect(calls[0]).toContain("gpt-4.1");
   });
 
+  it("passes the configured timeout to the spawn implementation", async () => {
+    const timeouts: Array<number | undefined> = [];
+    const service = new AutoNameService({
+      timeoutMs: 1234,
+      spawnImpl: async (_args, options) => {
+        timeouts.push(options?.timeoutMs);
+        return { exitCode: 0, stdout: "test-branch", stderr: "" };
+      },
+    });
+
+    await service.generateBranchName(
+      { provider: "claude" },
+      "Test timeout wiring",
+    );
+
+    expect(timeouts).toEqual([1234]);
+  });
+
   it("omits -m from codex when model is not specified", async () => {
     const { calls, spawnImpl } = fakeSpawn("add-bulk-actions");
     const service = new AutoNameService({ spawnImpl });
@@ -154,6 +172,21 @@ describe("AutoNameService", () => {
     await expect(
       service.generateBranchName({ provider: "codex" }, "Fix bug"),
     ).rejects.toThrow(/codex failed \(command: .*\): authentication required/);
+  });
+
+  it("returns an 8-character fallback branch when auto-naming times out", async () => {
+    const service = new AutoNameService({
+      spawnImpl: async () => {
+        throw new AutoNameTimeoutError(10_000);
+      },
+    });
+
+    const branch = await service.generateBranchName(
+      { provider: "claude" },
+      "Fix bug",
+    );
+
+    expect(branch).toMatch(/^[a-f0-9]{8}$/);
   });
 
   it("throws on empty output", async () => {

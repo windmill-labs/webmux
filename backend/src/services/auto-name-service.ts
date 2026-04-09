@@ -1,5 +1,7 @@
+import { randomUUID } from "node:crypto";
 import type { AutoNameConfig } from "../domain/config";
 import { isValidBranchName } from "../domain/policies";
+import { log } from "../lib/log";
 
 interface SpawnResult {
   exitCode: number;
@@ -7,10 +9,15 @@ interface SpawnResult {
   stderr: string;
 }
 
-type SpawnLike = (args: string[]) => Promise<SpawnResult>;
+interface SpawnOptions {
+  timeoutMs?: number;
+}
+
+type SpawnLike = (args: string[], options?: SpawnOptions) => Promise<SpawnResult>;
 
 const MAX_BRANCH_LENGTH = 40;
 const DEFAULT_AUTO_NAME_MODEL = "claude-haiku-4-5-20251001";
+const AUTO_NAME_TIMEOUT_MS = 10_000;
 
 const DEFAULT_SYSTEM_PROMPT = [
   "Generate a concise git branch name from the task description.",
@@ -46,17 +53,46 @@ function getSystemPrompt(config: AutoNameConfig): string {
   return config.systemPrompt?.trim() || DEFAULT_SYSTEM_PROMPT;
 }
 
-async function defaultSpawn(args: string[]): Promise<SpawnResult> {
+function generateTimeoutFallbackBranchName(): string {
+  return randomUUID().replace(/-/g, "").slice(0, 8);
+}
+
+export class AutoNameTimeoutError extends Error {
+  constructor(readonly timeoutMs: number) {
+    super(`Auto-name timed out after ${timeoutMs}ms`);
+  }
+}
+
+async function defaultSpawn(args: string[], options: SpawnOptions = {}): Promise<SpawnResult> {
   const proc = Bun.spawn(args, {
     stdout: "pipe",
     stderr: "pipe",
   });
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
-  return { exitCode, stdout, stderr };
+  let timedOut = false;
+  const timeoutId = typeof options.timeoutMs === "number"
+    ? setTimeout(() => {
+      timedOut = true;
+      try {
+        proc.kill();
+      } catch {}
+    }, options.timeoutMs)
+    : null;
+
+  try {
+    const [stdout, stderr, exitCode] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ]);
+    if (timedOut && options.timeoutMs !== undefined) {
+      throw new AutoNameTimeoutError(options.timeoutMs);
+    }
+    return { exitCode, stdout, stderr };
+  } finally {
+    if (timeoutId !== null) {
+      clearTimeout(timeoutId);
+    }
+  }
 }
 
 function buildClaudeArgs(model: string | undefined, systemPrompt: string, prompt: string): string[] {
@@ -97,6 +133,7 @@ function buildCodexArgs(model: string | undefined, systemPrompt: string, prompt:
 
 export interface AutoNameServiceDependencies {
   spawnImpl?: SpawnLike;
+  timeoutMs?: number;
 }
 
 export interface AutoNameGenerator {
@@ -105,9 +142,11 @@ export interface AutoNameGenerator {
 
 export class AutoNameService implements AutoNameGenerator {
   private readonly spawnImpl: SpawnLike;
+  private readonly timeoutMs: number;
 
   constructor(deps: AutoNameServiceDependencies = {}) {
     this.spawnImpl = deps.spawnImpl ?? defaultSpawn;
+    this.timeoutMs = deps.timeoutMs ?? AUTO_NAME_TIMEOUT_MS;
   }
 
   async generateBranchName(config: AutoNameConfig, task: string): Promise<string> {
@@ -127,8 +166,13 @@ export class AutoNameService implements AutoNameGenerator {
 
     let result: SpawnResult;
     try {
-      result = await this.spawnImpl(args);
-    } catch {
+      result = await this.spawnImpl(args, { timeoutMs: this.timeoutMs });
+    } catch (error) {
+      if (error instanceof AutoNameTimeoutError) {
+        const fallback = generateTimeoutFallbackBranchName();
+        log.warn(`[auto-name] ${cli} timed out after ${this.timeoutMs}ms; using fallback branch ${fallback}`);
+        return fallback;
+      }
       throw new Error(`'${cli}' CLI not found. Install it or check your PATH.`);
     }
 

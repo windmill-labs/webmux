@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { ensureAgentRuntimeArtifacts } from "../adapters/agent-runtime";
@@ -37,10 +36,7 @@ import {
   type InitializeManagedWorktreeResult,
 } from "./worktree-service";
 import { log } from "../lib/log";
-
-function generateBranchName(): string {
-  return `change-${randomUUID().slice(0, 8)}`;
-}
+import { generateFallbackBranchName } from "../lib/branch-name";
 
 function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -335,7 +331,7 @@ export class LifecycleService {
     const explicitBranch = rawBranch?.trim();
     const branch = mode === "existing"
       ? explicitBranch
-      : explicitBranch || await this.generateAutoName(prompt) || generateBranchName();
+      : explicitBranch || await this.generateAutoName(prompt) || generateFallbackBranchName();
     if (!branch) {
       throw new LifecycleError("Existing branch is required", 400);
     }

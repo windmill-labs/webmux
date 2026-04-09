@@ -1,6 +1,6 @@
-import { randomUUID } from "node:crypto";
 import type { AutoNameConfig } from "../domain/config";
 import { isValidBranchName } from "../domain/policies";
+import { generateFallbackBranchName } from "../lib/branch-name";
 import { log } from "../lib/log";
 
 interface SpawnResult {
@@ -53,11 +53,7 @@ function getSystemPrompt(config: AutoNameConfig): string {
   return config.systemPrompt?.trim() || DEFAULT_SYSTEM_PROMPT;
 }
 
-function generateTimeoutFallbackBranchName(): string {
-  return randomUUID().replace(/-/g, "").slice(0, 8);
-}
-
-export class AutoNameTimeoutError extends Error {
+class AutoNameTimeoutError extends Error {
   constructor(readonly timeoutMs: number) {
     super(`Auto-name timed out after ${timeoutMs}ms`);
   }
@@ -68,31 +64,39 @@ async function defaultSpawn(args: string[], options: SpawnOptions = {}): Promise
     stdout: "pipe",
     stderr: "pipe",
   });
-  let timedOut = false;
-  const timeoutId = typeof options.timeoutMs === "number"
-    ? setTimeout(() => {
-      timedOut = true;
-      try {
-        proc.kill();
-      } catch {}
-    }, options.timeoutMs)
-    : null;
+  const resultPromise = Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]).then(([stdout, stderr, exitCode]) => ({ exitCode, stdout, stderr }));
 
-  try {
-    const [stdout, stderr, exitCode] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-      proc.exited,
-    ]);
-    if (timedOut && options.timeoutMs !== undefined) {
-      throw new AutoNameTimeoutError(options.timeoutMs);
-    }
-    return { exitCode, stdout, stderr };
-  } finally {
-    if (timeoutId !== null) {
-      clearTimeout(timeoutId);
-    }
+  if (options.timeoutMs === undefined) {
+    return await resultPromise;
   }
+
+  return await new Promise<SpawnResult>((resolve, reject) => {
+    let settled = false;
+    const timeoutId = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      try {
+        proc.kill("SIGKILL");
+      } catch {}
+      reject(new AutoNameTimeoutError(options.timeoutMs!));
+    }, options.timeoutMs);
+
+    void resultPromise.then((result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
+      resolve(result);
+    }, (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
+      reject(error);
+    });
+  });
 }
 
 function buildClaudeArgs(model: string | undefined, systemPrompt: string, prompt: string): string[] {
@@ -169,7 +173,7 @@ export class AutoNameService implements AutoNameGenerator {
       result = await this.spawnImpl(args, { timeoutMs: this.timeoutMs });
     } catch (error) {
       if (error instanceof AutoNameTimeoutError) {
-        const fallback = generateTimeoutFallbackBranchName();
+        const fallback = generateFallbackBranchName();
         log.warn(`[auto-name] ${cli} timed out after ${this.timeoutMs}ms; using fallback branch ${fallback}`);
         return fallback;
       }

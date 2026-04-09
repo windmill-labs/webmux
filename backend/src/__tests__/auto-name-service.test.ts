@@ -1,5 +1,8 @@
 import { describe, expect, it } from "bun:test";
-import { AutoNameService, AutoNameTimeoutError } from "../services/auto-name-service";
+import { chmod, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { AutoNameService } from "../services/auto-name-service";
 
 async function getClaudeCliFlags(): Promise<Set<string>> {
   const proc = Bun.spawn(["claude", "--help"], { stdout: "pipe", stderr: "pipe" });
@@ -174,19 +177,40 @@ describe("AutoNameService", () => {
     ).rejects.toThrow(/codex failed \(command: .*\): authentication required/);
   });
 
-  it("returns an 8-character fallback branch when auto-naming times out", async () => {
-    const service = new AutoNameService({
-      spawnImpl: async () => {
-        throw new AutoNameTimeoutError(10_000);
-      },
-    });
-
-    const branch = await service.generateBranchName(
-      { provider: "claude" },
-      "Fix bug",
+  it("returns a change-prefixed fallback branch when the real spawn path times out", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "webmux-auto-name-"));
+    const claudePath = join(tempDir, "claude");
+    await Bun.write(
+      claudePath,
+      "#!/bin/sh\ntrap '' TERM\nwhile true; do sleep 1; done\n",
     );
+    await chmod(claudePath, 0o755);
 
-    expect(branch).toMatch(/^[a-f0-9]{8}$/);
+    const originalPath = Bun.env.PATH;
+    const timeoutMs = 50;
+    const deadlineMs = 1_000;
+    Bun.env.PATH = originalPath ? `${tempDir}:${originalPath}` : tempDir;
+    process.env.PATH = Bun.env.PATH;
+
+    try {
+      const startedAt = Date.now();
+      const branch = await Promise.race([
+        new AutoNameService({ timeoutMs }).generateBranchName(
+          { provider: "claude" },
+          "Fix bug",
+        ),
+        Bun.sleep(deadlineMs).then(() => {
+          throw new Error("timed out waiting for auto-name timeout fallback");
+        }),
+      ]);
+
+      expect(Date.now() - startedAt).toBeLessThan(deadlineMs);
+      expect(branch).toMatch(/^change-[a-f0-9]{8}$/);
+    } finally {
+      Bun.env.PATH = originalPath;
+      process.env.PATH = originalPath;
+      await rm(tempDir, { recursive: true, force: true });
+    }
   });
 
   it("throws on empty output", async () => {

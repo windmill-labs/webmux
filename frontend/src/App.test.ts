@@ -40,7 +40,6 @@ class MockNotification {
 
 const originalMatchMedia = window.matchMedia;
 const originalNotification = globalThis.Notification;
-const originalAlert = window.alert;
 const originalDialogShowModal = HTMLDialogElement.prototype.showModal;
 const originalDialogClose = HTMLDialogElement.prototype.close;
 
@@ -123,11 +122,6 @@ function setupBrowserMocks(): void {
     writable: true,
     value: MockNotification,
   });
-  Object.defineProperty(window, "alert", {
-    configurable: true,
-    writable: true,
-    value: vi.fn(),
-  });
   HTMLDialogElement.prototype.showModal = vi.fn(function (this: HTMLDialogElement): void {
     this.open = true;
   });
@@ -146,11 +140,6 @@ function restoreBrowserMocks(): void {
     configurable: true,
     writable: true,
     value: originalNotification,
-  });
-  Object.defineProperty(window, "alert", {
-    configurable: true,
-    writable: true,
-    value: originalAlert,
   });
   HTMLDialogElement.prototype.showModal = originalDialogShowModal;
   HTMLDialogElement.prototype.close = originalDialogClose;
@@ -274,6 +263,19 @@ describe("App create selection", () => {
       expect(api.fetchWorktrees).toHaveBeenCalledTimes(3);
     });
     expect(screen.getByTitle("feature/new")).toBeInTheDocument();
+  });
+
+  it("shows an error toast when worktree creation fails", async () => {
+    vi.mocked(api.fetchWorktrees).mockResolvedValue([]);
+    vi.mocked(api.createWorktree).mockRejectedValueOnce(new Error("branch exists"));
+
+    render(App);
+
+    await screen.findByText("Select a worktree");
+    await openCreateDialogAndSubmit("feature/new");
+
+    const toast = await screen.findByRole("alert");
+    expect(toast).toHaveTextContent("Failed to create: branch exists");
   });
 
   it("selects the primary paired worktree when Both is created without a prior selection", async () => {

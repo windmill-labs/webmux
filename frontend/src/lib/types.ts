@@ -173,6 +173,19 @@ export interface AppNotification {
   timestamp: number;
 }
 
+export type ToastTone = "info" | "success" | "error";
+
+export interface ToastInput {
+  tone: ToastTone;
+  message: string;
+  detail?: string;
+}
+
+export interface ToastItem extends ToastInput {
+  id: string;
+  branch?: string;
+}
+
 export interface ProjectWorktreeSnapshot {
   branch: string;
   baseBranch?: string;

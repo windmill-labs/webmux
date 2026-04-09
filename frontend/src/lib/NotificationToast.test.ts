@@ -1,8 +1,25 @@
-import { render, screen } from "@testing-library/svelte";
-import { describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/svelte";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import NotificationItem from "./NotificationItem.svelte";
-import NotificationToast from "./NotificationToast.svelte";
-import type { AppNotification } from "./types";
+import ToastStack from "./ToastStack.svelte";
+import type { AppNotification, ToastItem } from "./types";
+
+afterEach(() => {
+  cleanup();
+});
+
+function createToast(
+  overrides: Partial<ToastItem> = {},
+): ToastItem {
+  return {
+    id: "notification:1",
+    tone: "info",
+    message: "Notification text",
+    detail: "https://example.com/notifications/1",
+    branch: "feature/toast-sizing",
+    ...overrides,
+  };
+}
 
 function createNotification(
   overrides: Partial<AppNotification> = {},
@@ -18,11 +35,11 @@ function createNotification(
   };
 }
 
-describe("NotificationToast", () => {
+describe("ToastStack", () => {
   it("uses content-fit sizing with a capped max width", () => {
-    render(NotificationToast, {
+    render(ToastStack, {
       props: {
-        notifications: [createNotification()],
+        toasts: [createToast()],
         ondismiss: vi.fn(),
         onselect: vi.fn(),
       },
@@ -41,25 +58,48 @@ describe("NotificationToast", () => {
   it("wraps toast content instead of truncating it", () => {
     const message =
       "This is a very long notification message that should wrap inside the toast instead of being truncated";
-    const url = "https://example.com/notifications/very/long/path/that/should/wrap";
+    const detail = "https://example.com/notifications/very/long/path/that/should/wrap";
 
-    render(NotificationToast, {
+    render(ToastStack, {
       props: {
-        notifications: [createNotification({ message, url })],
+        toasts: [createToast({ message, detail })],
         ondismiss: vi.fn(),
         onselect: vi.fn(),
       },
     });
 
     const messageNode = screen.getByText(message);
-    const urlNode = screen.getByText(url);
+    const detailNode = screen.getByText(detail);
 
     expect(messageNode.className).toContain("whitespace-normal");
     expect(messageNode.className).toContain("break-words");
     expect(messageNode.className).not.toContain("truncate");
-    expect(urlNode.className).toContain("whitespace-normal");
-    expect(urlNode.className).toContain("break-all");
-    expect(urlNode.className).not.toContain("truncate");
+    expect(detailNode.className).toContain("whitespace-normal");
+    expect(detailNode.className).toContain("break-all");
+    expect(detailNode.className).not.toContain("truncate");
+  });
+
+  it("keeps actionable toasts clickable and dismissible", async () => {
+    const ondismiss = vi.fn();
+    const onselect = vi.fn();
+
+    render(ToastStack, {
+      props: {
+        toasts: [createToast()],
+        ondismiss,
+        onselect,
+      },
+    });
+
+    const selectButton = screen.getByRole("button", { name: /notification text/i });
+    const dismissButton = screen.getAllByRole("button").find((button) => button.textContent === "\u00d7");
+    expect(dismissButton).toBeDefined();
+
+    await fireEvent.click(selectButton);
+    await fireEvent.click(dismissButton!);
+
+    expect(onselect).toHaveBeenCalledWith("notification:1");
+    expect(ondismiss).toHaveBeenCalledWith("notification:1");
   });
 });
 

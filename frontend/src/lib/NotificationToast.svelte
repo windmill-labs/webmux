@@ -1,6 +1,6 @@
 <script lang="ts">
-  import type { AppNotification } from "./types";
-  import NotificationItem from "./NotificationItem.svelte";
+  import ToastStack from "./ToastStack.svelte";
+  import type { AppNotification, ToastItem } from "./types";
 
   let {
     notifications,
@@ -11,54 +11,32 @@
     ondismiss: (id: number) => void;
     onselect: (branch: string) => void;
   } = $props();
+
+  let toasts = $derived(
+    notifications.map(
+      (notification): ToastItem => ({
+        id: String(notification.id),
+        tone: notification.type === "runtime_error"
+          ? "error"
+          : notification.type === "agent_stopped" || notification.type === "worktree_auto_removed"
+            ? "success"
+            : "info",
+        message: notification.message,
+        ...(notification.url ? { detail: notification.url } : {}),
+        branch: notification.branch,
+      }),
+    ),
+  );
 </script>
 
-{#if notifications.length > 0}
-  <div class="fixed bottom-4 right-4 z-50 flex flex-col items-end gap-2">
-    {#each notifications as n (n.id)}
-      <div
-        class="toast"
-        role="alert"
-        style="inline-size: fit-content; max-inline-size: min(48ch, calc(100vw - 2rem));"
-      >
-        <button
-          type="button"
-          class="min-w-0 flex items-start gap-2 text-left bg-transparent border-none text-inherit cursor-pointer p-0"
-          onclick={() => { ondismiss(n.id); onselect(n.branch); }}
-        >
-          <NotificationItem notification={n} large wrap />
-        </button>
-        <button
-          type="button"
-          class="shrink-0 w-6 h-6 flex items-center justify-center text-muted hover:text-primary cursor-pointer bg-transparent border-none text-sm"
-          onclick={() => ondismiss(n.id)}
-        >&times;</button>
-      </div>
-    {/each}
-  </div>
-{/if}
-
-<style>
-  .toast {
-    display: flex;
-    align-items: flex-start;
-    gap: 0.5rem;
-    padding: 0.75rem;
-    border-radius: 0.5rem;
-    border: 1px solid var(--color-edge);
-    background: var(--color-topbar);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-    animation: slide-in 0.2s ease-out;
-  }
-
-  @keyframes slide-in {
-    from {
-      opacity: 0;
-      transform: translateX(1rem);
+<ToastStack
+  {toasts}
+  ondismiss={(id) => ondismiss(Number(id))}
+  onselect={(id) => {
+    const toast = toasts.find((item) => item.id === id);
+    if (toast?.branch) {
+      ondismiss(Number(id));
+      onselect(toast.branch);
     }
-    to {
-      opacity: 1;
-      transform: translateX(0);
-    }
-  }
-</style>
+  }}
+/>

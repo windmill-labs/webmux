@@ -5,6 +5,7 @@
   import { sendWorktreePrompt } from "./api";
   import { normalizeTextForPrompt } from "./promptUtils";
   import { prLabel, errorMessage } from "./utils";
+  import { getToastController } from "./toast-context";
   import BaseDialog from "./BaseDialog.svelte";
   import Btn from "./Btn.svelte";
   import LinkBtn from "./LinkBtn.svelte";
@@ -23,6 +24,7 @@
 
   let sending = $state(false);
   let sendError = $state("");
+  const toast = getToastController();
 
   const selected = new SvelteSet<number>();
 
@@ -89,6 +91,7 @@
         normalizeTextForPrompt(content, 20000),
         preamble,
       );
+      toast.success(`Sent ${selected.size} comment${selected.size === 1 ? "" : "s"} to agent`);
       onsendsuccess();
     } catch (err) {
       sendError = errorMessage(err);

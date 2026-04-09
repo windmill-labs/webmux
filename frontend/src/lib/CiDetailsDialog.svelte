@@ -3,6 +3,7 @@
   import { fetchCiLogs, sendWorktreePrompt } from "./api";
   import { normalizeTextForPrompt } from "./promptUtils";
   import { prLabel, errorMessage } from "./utils";
+  import { getToastController } from "./toast-context";
   import BaseDialog from "./BaseDialog.svelte";
   import Btn from "./Btn.svelte";
   import LinkBtn from "./LinkBtn.svelte";
@@ -23,9 +24,9 @@
   let expandedChecks = $state(new Set<string>());
   let loadingRunId = $state<number | null>(null);
   let logsError = $state("");
-  let copied = $state(false);
   let fixLoading = $state(false);
   let fixError = $state("");
+  const toast = getToastController();
 
   let label = $derived(prLabel(pr));
 
@@ -92,6 +93,7 @@
     const sanitizedLogs = normalizeTextForPrompt(filteredLogs);
     try {
       await sendWorktreePrompt(branch, sanitizedLogs, preamble);
+      toast.success(`Asked agent to fix ${checkName}`);
       onfixsuccess();
     } catch (err) {
       fixError = errorMessage(err);
@@ -102,10 +104,7 @@
 
   async function handleCopy(filteredLogs: string): Promise<void> {
     await navigator.clipboard.writeText(filteredLogs);
-    copied = true;
-    setTimeout(() => {
-      copied = false;
-    }, 2000);
+    toast.success("Copied logs");
   }
 
   function statusIcon(status: string): string {
@@ -174,9 +173,7 @@
             <pre
               class="bg-surface border border-edge rounded-md p-3 text-[11px] font-mono overflow-x-auto max-h-[300px] overflow-y-auto whitespace-pre-wrap m-0">{filtered}</pre>
             <div class="flex justify-end items-center gap-2 mt-1.5">
-              <LinkBtn onclick={() => handleCopy(filtered)}
-                >{copied ? "Copied!" : "Copy logs"}</LinkBtn
-              >
+              <LinkBtn onclick={() => handleCopy(filtered)}>Copy logs</LinkBtn>
               <Btn
                 variant="cta"
                 small

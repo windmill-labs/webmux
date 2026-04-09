@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AppConfig, LinearIssuesResponse, WorktreeInfo } from "./lib/types";
+import type { AppConfig, AppNotification, LinearIssuesResponse, WorktreeInfo } from "./lib/types";
 
 vi.mock("./lib/api", () => ({
   closeWorktree: vi.fn(),
@@ -98,6 +98,20 @@ function createLinearIssuesResponse(
   return {
     availability: "ready",
     issues: [],
+    ...overrides,
+  };
+}
+
+function createAppNotification(
+  overrides: Partial<AppNotification> = {},
+): AppNotification {
+  return {
+    id: 1,
+    branch: "feature/toast",
+    type: "runtime_error",
+    message: "Notification text",
+    url: "https://example.com/notifications/1",
+    timestamp: Date.UTC(2026, 3, 9, 11, 30, 0),
     ...overrides,
   };
 }
@@ -276,6 +290,31 @@ describe("App create selection", () => {
 
     const toast = await screen.findByRole("alert");
     expect(toast).toHaveTextContent("Failed to create: branch exists");
+  });
+
+  it("dismisses notification toasts through the notification API", async () => {
+    let onNotification: ((notification: AppNotification) => void) | undefined;
+
+    vi.mocked(api.fetchWorktrees).mockResolvedValue([]);
+    vi.mocked(api.subscribeNotifications).mockImplementation((handleNotification) => {
+      onNotification = handleNotification;
+      return () => {};
+    });
+
+    render(App);
+
+    await screen.findByText("Select a worktree");
+    onNotification?.(createAppNotification({ id: 42, message: "Background error" }));
+
+    const toast = await screen.findByRole("alert");
+    const dismissButton = Array.from(toast.querySelectorAll("button")).find(
+      (button) => button.textContent === "\u00d7",
+    );
+
+    expect(dismissButton).toBeDefined();
+    await fireEvent.click(dismissButton!);
+
+    expect(api.dismissNotification).toHaveBeenCalledWith(42);
   });
 
   it("selects the primary paired worktree when Both is created without a prior selection", async () => {

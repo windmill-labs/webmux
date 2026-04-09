@@ -181,10 +181,19 @@ export interface ToastInput {
   detail?: string;
 }
 
-export interface ToastItem extends ToastInput {
+export interface UiToastItem extends ToastInput {
   id: string;
-  branch?: string;
+  source: "ui";
 }
+
+export interface NotificationToastItem extends ToastInput {
+  id: string;
+  source: "notification";
+  notificationId: number;
+  branch: string;
+}
+
+export type ToastItem = UiToastItem | NotificationToastItem;
 
 export interface ProjectWorktreeSnapshot {
   branch: string;

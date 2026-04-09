@@ -27,34 +27,27 @@
 {#if toasts.length > 0}
   <div class="fixed bottom-4 right-4 z-50 flex flex-col items-end gap-2">
     {#each toasts as toast (toast.id)}
-      <div
-        class="toast"
-        role="alert"
-        style="inline-size: fit-content; max-inline-size: min(48ch, calc(100vw - 2rem));"
-      >
-        {#if onselect && toast.branch}
+      {#snippet body(item: ToastItem)}
+        <span class="shrink-0 text-base {toneClass(item.tone)}">{iconForTone(item.tone)}</span>
+        <span class="flex flex-col gap-0.5 min-w-0">
+          <span class="text-sm text-primary whitespace-normal break-words">{item.message}</span>
+          {#if item.detail}
+            <span class="text-xs text-accent whitespace-normal break-all">{item.detail}</span>
+          {/if}
+        </span>
+      {/snippet}
+      <div class="toast w-fit max-w-[min(48ch,calc(100vw-2rem))]" role="alert">
+        {#if onselect && toast.source === "notification"}
           <button
             type="button"
             class="min-w-0 flex items-start gap-2 text-left bg-transparent border-none text-inherit cursor-pointer p-0"
             onclick={() => onselect(toast.id)}
           >
-            <span class="shrink-0 text-base {toneClass(toast.tone)}">{iconForTone(toast.tone)}</span>
-            <span class="flex flex-col gap-0.5 min-w-0">
-              <span class="text-sm text-primary whitespace-normal break-words">{toast.message}</span>
-              {#if toast.detail}
-                <span class="text-xs text-accent whitespace-normal break-all">{toast.detail}</span>
-              {/if}
-            </span>
+            {@render body(toast)}
           </button>
         {:else}
           <div class="min-w-0 flex items-start gap-2 text-inherit">
-            <span class="shrink-0 text-base {toneClass(toast.tone)}">{iconForTone(toast.tone)}</span>
-            <span class="flex flex-col gap-0.5 min-w-0">
-              <span class="text-sm text-primary whitespace-normal break-words">{toast.message}</span>
-              {#if toast.detail}
-                <span class="text-xs text-accent whitespace-normal break-all">{toast.detail}</span>
-              {/if}
-            </span>
+            {@render body(toast)}
           </div>
         {/if}
         <button

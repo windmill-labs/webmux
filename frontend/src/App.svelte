@@ -25,6 +25,7 @@
     LinearIssue,
     ToastInput,
     ToastItem,
+    UiToastItem,
     WorktreeInfo,
   } from "./lib/types";
   import {
@@ -116,7 +117,7 @@
 
   // Notifications
   let notifications = $state<AppNotification[]>([]);
-  let uiToasts = $state<ToastItem[]>([]);
+  let uiToasts = $state<UiToastItem[]>([]);
   let notificationHistory = $state<AppNotification[]>([]);
   let unreadCount = $state(0);
   const AUTO_DISMISS_MS = 4000;
@@ -127,6 +128,8 @@
   let toasts = $derived([
     ...notifications.map((notification): ToastItem => ({
       id: `notification:${notification.id}`,
+      source: "notification",
+      notificationId: notification.id,
       tone: notification.type === "runtime_error"
         ? "error"
         : notification.type === "agent_stopped" || notification.type === "worktree_auto_removed"
@@ -210,7 +213,7 @@
 
   function showToast(toast: ToastInput): void {
     const id = `ui:${nextToastId++}`;
-    uiToasts = [...uiToasts, { id, ...toast }];
+    uiToasts = [...uiToasts, { id, source: "ui", ...toast }];
     setTimeout(() => {
       uiToasts = uiToasts.filter((item) => item.id !== id);
     }, AUTO_DISMISS_MS);
@@ -231,20 +234,20 @@
   }
 
   function handleDismissToast(id: string): void {
-    if (id.startsWith("notification:")) {
-      const notificationId = Number(id.slice("notification:".length));
-      if (Number.isInteger(notificationId)) {
-        handleDismissNotification(notificationId);
-      }
+    const toast = toasts.find((item) => item.id === id);
+    if (!toast) return;
+
+    if (toast.source === "notification") {
+      handleDismissNotification(toast.notificationId);
       return;
     }
 
-    uiToasts = uiToasts.filter((toast) => toast.id !== id);
+    uiToasts = uiToasts.filter((item) => item.id !== id);
   }
 
   function handleSelectToast(id: string): void {
     const toast = toasts.find((item) => item.id === id);
-    if (!toast?.branch) return;
+    if (!toast || toast.source !== "notification") return;
 
     handleDismissToast(id);
     selectedBranch = toast.branch;

@@ -13,6 +13,8 @@ function createToast(
 ): ToastItem {
   return {
     id: "notification:1",
+    source: "notification",
+    notificationId: 1,
     tone: "info",
     message: "Notification text",
     detail: "https://example.com/notifications/1",
@@ -47,12 +49,11 @@ describe("ToastStack", () => {
 
     const alert = screen.getByRole("alert");
     const stack = alert.parentElement;
-    const style = alert.getAttribute("style") ?? "";
 
     expect(stack).not.toBeNull();
     expect(stack?.className).toContain("items-end");
-    expect(style).toContain("inline-size: fit-content");
-    expect(style).toContain("max-inline-size: min(48ch, calc(100vw - 2rem))");
+    expect(alert.className).toContain("w-fit");
+    expect(alert.className).toContain("max-w-[min(48ch,calc(100vw-2rem))]");
   });
 
   it("wraps toast content instead of truncating it", () => {

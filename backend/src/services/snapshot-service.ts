@@ -40,6 +40,7 @@ function mapWorktreeSnapshot(
   state: ReturnType<ProjectRuntime["listWorktrees"]>[number],
   now: () => Date,
   creating: CreatingWorktreeState | null,
+  isArchived: (path: string) => boolean,
   findLinearIssue?: (branch: string) => WorktreeSnapshot["linearIssue"],
 ): WorktreeSnapshot {
   return {
@@ -47,6 +48,7 @@ function mapWorktreeSnapshot(
     ...(state.baseBranch ? { baseBranch: state.baseBranch } : {}),
     path: state.path,
     dir: state.path,
+    archived: isArchived(state.path),
     profile: state.profile,
     agentName: state.agentName,
     mux: state.session.exists,
@@ -64,6 +66,7 @@ function mapWorktreeSnapshot(
 
 function mapCreatingWorktreeSnapshot(
   creating: CreatingWorktreeState,
+  isArchived: (path: string) => boolean,
   findLinearIssue?: (branch: string) => WorktreeSnapshot["linearIssue"],
 ): WorktreeSnapshot {
   return {
@@ -71,6 +74,7 @@ function mapCreatingWorktreeSnapshot(
     ...(creating.baseBranch ? { baseBranch: creating.baseBranch } : {}),
     path: creating.path,
     dir: creating.path,
+    archived: isArchived(creating.path),
     profile: creating.profile,
     agentName: creating.agentName,
     mux: false,
@@ -92,21 +96,23 @@ export function buildProjectSnapshot(input: {
   runtime: ProjectRuntime;
   notifications: RuntimeNotification[];
   creatingWorktrees?: CreatingWorktreeState[];
+  isArchived?: (path: string) => boolean;
   findLinearIssue?: (branch: string) => WorktreeSnapshot["linearIssue"];
   now?: () => Date;
 }): ProjectSnapshot {
   const now = input.now ?? (() => new Date());
+  const isArchived = input.isArchived ?? (() => false);
   const creatingWorktrees = input.creatingWorktrees ?? [];
   const creatingByBranch = new Map(creatingWorktrees.map((worktree) => [worktree.branch, worktree]));
   const runtimeWorktrees = input.runtime.listWorktrees();
   const runtimeBranches = new Set(runtimeWorktrees.map((worktree) => worktree.branch));
   const worktrees = runtimeWorktrees.map((state) =>
-    mapWorktreeSnapshot(state, now, creatingByBranch.get(state.branch) ?? null, input.findLinearIssue),
+    mapWorktreeSnapshot(state, now, creatingByBranch.get(state.branch) ?? null, isArchived, input.findLinearIssue),
   );
 
   for (const creating of creatingWorktrees) {
     if (!runtimeBranches.has(creating.branch)) {
-      worktrees.push(mapCreatingWorktreeSnapshot(creating, input.findLinearIssue));
+      worktrees.push(mapCreatingWorktreeSnapshot(creating, isArchived, input.findLinearIssue));
     }
   }
 

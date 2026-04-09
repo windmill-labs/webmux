@@ -112,6 +112,15 @@ export interface CreateWorktreeResponse {
   branches: string[];
 }
 
+export interface SetWorktreeArchivedRequest {
+  archived: boolean;
+}
+
+export interface SetWorktreeArchivedResponse {
+  ok: boolean;
+  archived: boolean;
+}
+
 export type WorktreeCreationPhase =
   | "creating_worktree"
   | "preparing_runtime"
@@ -126,6 +135,7 @@ export interface WorktreeCreationState {
 export interface WorktreeInfo {
   branch: string;
   baseBranch?: string;
+  archived: boolean;
   agent: string;
   mux: string;
   path: string;
@@ -168,6 +178,7 @@ export interface ProjectWorktreeSnapshot {
   baseBranch?: string;
   path: string;
   dir: string;
+  archived: boolean;
   profile: string | null;
   agentName: string | null;
   mux: boolean;

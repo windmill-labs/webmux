@@ -9,6 +9,7 @@ function createWorktree(
 ): WorktreeInfo {
   return {
     branch,
+    archived: false,
     agent: "claude",
     mux: "✓",
     path: `/tmp/${branch}`,
@@ -42,6 +43,7 @@ function renderTopBar(
       notificationHistory: [],
       unreadCount: 0,
       onclose: vi.fn(),
+      onarchive: vi.fn(),
       onmerge: vi.fn(),
       onremove: vi.fn(),
       onsettings: vi.fn(),

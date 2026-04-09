@@ -9,8 +9,10 @@ import {
   buildRuntimeEnvMap,
   getWorktreeStoragePaths,
   loadDotenvLocal,
+  readWorktreeArchiveState,
   readWorktreeMeta,
   writeControlEnv,
+  writeWorktreeArchiveState,
   writeRuntimeEnv,
 } from "../adapters/fs";
 import { expandTemplate, getDefaultProfileName, isDockerProfile, type DockerProfileConfig } from "../adapters/config";
@@ -29,6 +31,7 @@ import {
 } from "./agent-service";
 import type { ReconciliationService } from "./reconciliation-service";
 import { ensureSessionLayout, planSessionLayout } from "./session-service";
+import { setArchivedWorktreeState } from "./archive-service";
 import {
   createManagedWorktree,
   initializeManagedWorktree,
@@ -241,12 +244,8 @@ export class LifecycleService {
 
   async closeWorktree(branch: string): Promise<void> {
     try {
-      const resolved = await this.resolveExistingWorktree(branch);
-      this.deps.tmux.killWindow(
-        buildProjectSessionName(this.deps.projectRoot),
-        buildWorktreeWindowName(branch),
-      );
-      await this.deps.reconciliation.reconcile(this.deps.projectRoot, { force: true });
+      await this.resolveExistingWorktree(branch);
+      await this.closeBranchWindow(branch);
     } catch (error) {
       throw this.wrapOperationError(error);
     }
@@ -300,6 +299,18 @@ export class LifecycleService {
           500,
         );
       }
+    } catch (error) {
+      throw this.wrapOperationError(error);
+    }
+  }
+
+  async setWorktreeArchived(branch: string, archived: boolean): Promise<void> {
+    try {
+      const resolved = await this.resolveExistingWorktree(branch);
+      if (archived) {
+        await this.closeBranchWindow(branch);
+      }
+      await this.updateWorktreeArchivedState(resolved.entry.path, archived);
     } catch (error) {
       throw this.wrapOperationError(error);
     }
@@ -547,6 +558,25 @@ export class LifecycleService {
     };
   }
 
+  private async updateWorktreeArchivedState(path: string, archived: boolean): Promise<void> {
+    const projectGitDir = this.deps.git.resolveWorktreeGitDir(resolve(this.deps.projectRoot));
+    const archiveState = await readWorktreeArchiveState(projectGitDir);
+    const nextArchiveState = setArchivedWorktreeState({
+      state: archiveState,
+      path,
+      archived,
+    });
+    await writeWorktreeArchiveState(projectGitDir, nextArchiveState);
+  }
+
+  private async closeBranchWindow(branch: string): Promise<void> {
+    this.deps.tmux.killWindow(
+      buildProjectSessionName(this.deps.projectRoot),
+      buildWorktreeWindowName(branch),
+    );
+    await this.deps.reconciliation.reconcile(this.deps.projectRoot, { force: true });
+  }
+
   private async materializeRuntimeSession(input: {
     branch: string;
     profile: ProfileConfig;
@@ -737,6 +767,7 @@ export class LifecycleService {
       },
       this.deps.git,
     );
+    await this.updateWorktreeArchivedState(resolved.entry.path, false);
 
     await this.deps.reconciliation.reconcile(this.deps.projectRoot, { force: true });
   }

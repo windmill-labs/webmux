@@ -14,6 +14,7 @@
   import LinearPanel from "./lib/LinearPanel.svelte";
   import LinearDetailDialog from "./lib/LinearDetailDialog.svelte";
   import SidebarRepoRow from "./lib/SidebarRepoRow.svelte";
+  import Toggle from "./lib/Toggle.svelte";
   import type {
     AvailableBranch,
     AppConfig,
@@ -37,7 +38,12 @@
     loadSavedSidebarWidth,
     saveSidebarWidth,
   } from "./lib/utils";
-  import { buildWorktreeListRows } from "./lib/worktree-list";
+  import {
+    buildWorktreeListRows,
+    countArchivedMatches,
+    filterWorktrees,
+    matchesWorktreeSearch,
+  } from "./lib/worktree-list";
   import { getTheme } from "./lib/themes";
   import type { ThemeKey } from "./lib/themes";
   import * as api from "./lib/api";
@@ -86,6 +92,9 @@
   let baseBranchesLoading = $state(false);
   let baseBranchesError = $state<string | null>(null);
   let includeRemoteBranches = $state(false);
+  let searchQuery = $state("");
+  let worktreeSearchInput = $state<HTMLInputElement | null>(null);
+  let showArchivedWorktrees = $state(false);
   type BranchCacheKey = "local" | "remote";
   let availableBranchCache: Partial<Record<BranchCacheKey, AvailableBranch[]>> = {};
   let availableBranchRequests: Partial<Record<BranchCacheKey, Promise<AvailableBranch[]>>> = {};
@@ -258,10 +267,21 @@
   const ENTER_DELAY_MS = 200;
 
   let openingBranches = $state<Set<string>>(new Set());
-  let visibleWorktrees = $derived(worktrees);
+  let archivingBranches = $state<Set<string>>(new Set());
+  let trimmedWorktreeSearch = $derived(searchQuery.trim());
+  let archivedWorktreeCount = $derived(worktrees.filter((w) => w.archived).length);
+  let hiddenArchivedMatchCount = $derived(
+    showArchivedWorktrees ? 0 : countArchivedMatches(worktrees, trimmedWorktreeSearch),
+  );
+  let visibleWorktrees = $derived(
+    filterWorktrees(worktrees, {
+      query: trimmedWorktreeSearch,
+      showArchived: showArchivedWorktrees,
+    }),
+  );
   let visibleWorktreeRows = $derived(buildWorktreeListRows(visibleWorktrees));
-  let creatingWorktrees = $derived(visibleWorktrees.filter((w) => w.creating));
-  let backendCreatingCount = $derived(visibleWorktrees.filter((w) => w.creating).length);
+  let creatingWorktrees = $derived(worktrees.filter((w) => w.creating));
+  let backendCreatingCount = $derived(creatingWorktrees.length);
   let activeCreateCount = $derived(Math.max(pendingCreateCount, backendCreatingCount));
   let hasCreatingWorktrees = $derived(activeCreateCount > 0);
   let selectableWorktrees = $derived(
@@ -270,22 +290,37 @@
   let createIndicatorLabel = $derived(
     activeCreateCount === 1 ? "Creating..." : `Creating ${activeCreateCount}...`,
   );
-  let selectedWorktree = $derived(
+  let selectedVisibleWorktree = $derived(
     selectedBranch && !removingBranches.has(selectedBranch)
       ? visibleWorktrees.find((w) => w.branch === selectedBranch)
       : undefined,
   );
+  let selectedWorktree = $derived(
+    selectedBranch && !removingBranches.has(selectedBranch)
+      ? worktrees.find((w) => w.branch === selectedBranch)
+      : undefined,
+  );
   let canConnect = $derived(!!selectedBranch && selectedWorktree?.mux === "✓" && !selectedWorktree?.creating);
   let isSelectedOpening = $derived(selectedBranch ? openingBranches.has(selectedBranch) : false);
+  let isSelectedArchiving = $derived(selectedBranch ? archivingBranches.has(selectedBranch) : false);
   let pollIntervalMs = $derived(
     hasCreatingWorktrees ? ACTIVE_CREATE_POLL_INTERVAL_MS : DEFAULT_POLL_INTERVAL_MS,
   );
   let showLinearPanel = $derived(linearAvailability !== "disabled");
+  let worktreeListEmptyMessage = $derived(
+    trimmedWorktreeSearch
+      ? hiddenArchivedMatchCount > 0
+        ? "Archived matches are hidden."
+        : `No matches for "${trimmedWorktreeSearch}".`
+      : archivedWorktreeCount > 0 && !showArchivedWorktrees
+        ? "No active worktrees."
+        : "No worktrees found.",
+  );
 
   $effect(() => {
     const nextSelectedBranch = resolveSelectedBranch(
       selectedBranch,
-      selectedWorktree,
+      trimmedWorktreeSearch ? selectedWorktree : selectedVisibleWorktree,
       selectableWorktrees,
       hasLoadedWorktrees,
     );
@@ -297,11 +332,12 @@
   $effect(() => {
     if (pendingCreateCount === 0 || latestAutoSelectCreateId === -1) return;
     const target = pendingCreateBranchHint
-      ? visibleWorktrees.find((w) => w.branch === pendingCreateBranchHint)
+      ? worktrees.find((w) => w.branch === pendingCreateBranchHint)
       : creatingWorktrees.length === 1
         ? creatingWorktrees[0]
         : undefined;
     if (!target) return;
+    revealWorktreeInFilters(target.branch);
     selectedBranch = target.branch;
     if (isMobile) sidebarOpen = false;
   });
@@ -480,6 +516,24 @@
     selectedBranch = neighbor ? neighbor.branch : null;
   }
 
+  function revealWorktreeInFilters(branch: string): void {
+    const worktree = worktrees.find((candidate) => candidate.branch === branch);
+    if (!worktree) return;
+    if (worktree.archived) {
+      showArchivedWorktrees = true;
+    }
+    if (trimmedWorktreeSearch && !matchesWorktreeSearch(worktree, trimmedWorktreeSearch)) {
+      searchQuery = "";
+    }
+  }
+
+  function handleSelectWorktree(branch: string): void {
+    revealWorktreeInFilters(branch);
+    selectedBranch = branch;
+    notifiedBranches = new Set([...notifiedBranches].filter((candidate) => candidate !== branch));
+    if (isMobile) sidebarOpen = false;
+  }
+
   async function handleRemove() {
     const branch = removeBranch;
     if (!branch) return;
@@ -577,9 +631,24 @@
     }
   }
 
-  async function handleClose() {
-    const branch = selectedBranch;
-    if (!branch) return;
+  async function toggleWorktreeArchived(branch: string): Promise<void> {
+    const worktree = worktrees.find((candidate) => candidate.branch === branch);
+    if (!worktree || worktree.creating) return;
+    const nextArchived = !worktree.archived;
+    const actionLabel = nextArchived ? "archive" : "restore";
+
+    archivingBranches = new Set([...archivingBranches, branch]);
+    try {
+      await api.setWorktreeArchived(branch, { archived: nextArchived });
+      await refresh();
+    } catch (err) {
+      alert(`Failed to ${actionLabel} worktree: ${errorMessage(err)}`);
+    } finally {
+      archivingBranches = new Set([...archivingBranches].filter((candidate) => candidate !== branch));
+    }
+  }
+
+  async function closeWorktree(branch: string): Promise<void> {
     selectNeighborOf(branch);
     try {
       await api.closeWorktree(branch);
@@ -587,6 +656,18 @@
     } catch (err) {
       alert(`Failed to close worktree: ${errorMessage(err)}`);
     }
+  }
+
+  async function handleArchiveToggle() {
+    const branch = selectedBranch;
+    if (!branch) return;
+    await toggleWorktreeArchived(branch);
+  }
+
+  async function handleClose() {
+    const branch = selectedBranch;
+    if (!branch) return;
+    await closeWorktree(branch);
   }
 
   function selectNeighborWorktree(direction: -1 | 1) {
@@ -771,6 +852,42 @@
             {createIndicatorLabel}
           </div>
         {/if}
+        <div class="mt-3 flex flex-col gap-2">
+          <div class="relative">
+            <input
+              type="search"
+              bind:this={worktreeSearchInput}
+              bind:value={searchQuery}
+              class="w-full h-7 rounded-md border border-edge bg-surface px-2 pr-6 text-xs text-primary placeholder:text-muted focus:outline-none focus:border-accent"
+              placeholder="Search worktrees"
+              aria-label="Search worktrees"
+            />
+            {#if trimmedWorktreeSearch}
+              <button
+                type="button"
+                class="absolute top-1/2 right-1 -translate-y-1/2 h-4 w-4 flex items-center justify-center rounded text-muted hover:text-primary"
+                onclick={() => {
+                  searchQuery = "";
+                  worktreeSearchInput?.focus();
+                }}
+                aria-label="Clear worktree search"
+              >&times;</button>
+            {/if}
+          </div>
+          <div class="flex items-center gap-2 text-[11px] text-muted">
+            <label class="flex items-center gap-2 cursor-pointer">
+              <Toggle
+                checked={showArchivedWorktrees}
+                size="sm"
+                aria-label="Show archived worktrees"
+                ontoggle={(checked) => {
+                  showArchivedWorktrees = checked;
+                }}
+              />
+              <span>Show archived{archivedWorktreeCount > 0 ? ` (${archivedWorktreeCount})` : ""}</span>
+            </label>
+          </div>
+        </div>
       </div>
       <WorktreeList
         rows={visibleWorktreeRows}
@@ -778,10 +895,12 @@
         removing={removingBranches}
         initializing={openingBranches}
         {notifiedBranches}
-        onselect={(b) => {
-          selectedBranch = b;
-          notifiedBranches = new Set([...notifiedBranches].filter((x) => x !== b));
-          if (isMobile) sidebarOpen = false;
+        emptyMessage={worktreeListEmptyMessage}
+        onselect={handleSelectWorktree}
+        onclose={closeWorktree}
+        onarchive={toggleWorktreeArchived}
+        onmerge={(branch) => {
+          mergeBranch = branch;
         }}
         onremove={(b) => (removeBranch = b)}
       />
@@ -855,6 +974,7 @@
       {unreadCount}
       ontogglesidebar={() => (sidebarOpen = !sidebarOpen)}
       onclose={handleClose}
+      onarchive={handleArchiveToggle}
       onmerge={() => {
         if (selectedBranch) mergeBranch = selectedBranch;
       }}
@@ -866,11 +986,8 @@
       onCiClick={(pr) => (ciDetailsPr = pr)}
       onReviewsClick={(pr) => (commentReviewPr = pr)}
       onbellopen={handleBellOpen}
-      onnotificationselect={(branch) => {
-        selectedBranch = branch;
-        notifiedBranches = new Set([...notifiedBranches].filter((x) => x !== branch));
-        if (isMobile) sidebarOpen = false;
-      }}
+      onnotificationselect={handleSelectWorktree}
+      archiving={isSelectedArchiving}
     />
 
     {#if canConnect}
@@ -1056,9 +1173,5 @@
 <NotificationToast
   {notifications}
   ondismiss={handleDismissNotification}
-  onselect={(branch) => {
-    selectedBranch = branch;
-    notifiedBranches = new Set([...notifiedBranches].filter((x) => x !== branch));
-    if (isMobile) sidebarOpen = false;
-  }}
+  onselect={handleSelectWorktree}
 />

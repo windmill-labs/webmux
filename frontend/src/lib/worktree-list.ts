@@ -1,4 +1,10 @@
 import type { WorktreeInfo, WorktreeListRow } from "./types";
+import { searchMatch } from "./utils";
+
+export interface FilterWorktreesOptions {
+  query: string;
+  showArchived: boolean;
+}
 
 function parentBranchOf(worktree: WorktreeInfo, worktreesByBranch: Map<string, WorktreeInfo>): string | null {
   if (!worktree.baseBranch || worktree.baseBranch === worktree.branch) {
@@ -6,6 +12,29 @@ function parentBranchOf(worktree: WorktreeInfo, worktreesByBranch: Map<string, W
   }
 
   return worktreesByBranch.has(worktree.baseBranch) ? worktree.baseBranch : null;
+}
+
+export function matchesWorktreeSearch(worktree: WorktreeInfo, query: string): boolean {
+  const trimmedQuery = query.trim();
+  if (!trimmedQuery) return true;
+
+  return [
+    worktree.branch,
+    worktree.baseBranch ?? "",
+    worktree.profile ?? "",
+    worktree.agentName ?? "",
+    worktree.linearIssue?.identifier ?? "",
+  ].some((value) => searchMatch(trimmedQuery, value));
+}
+
+export function filterWorktrees(worktrees: WorktreeInfo[], options: FilterWorktreesOptions): WorktreeInfo[] {
+  return worktrees.filter((worktree) =>
+    (options.showArchived || !worktree.archived) && matchesWorktreeSearch(worktree, options.query)
+  );
+}
+
+export function countArchivedMatches(worktrees: WorktreeInfo[], query: string): number {
+  return worktrees.filter((worktree) => worktree.archived && matchesWorktreeSearch(worktree, query)).length;
 }
 
 export function buildWorktreeListRows(worktrees: WorktreeInfo[]): WorktreeListRow[] {

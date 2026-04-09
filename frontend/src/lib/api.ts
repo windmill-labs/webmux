@@ -13,6 +13,8 @@ import type {
   PrEntry,
   ProjectSnapshot,
   ProjectWorktreeSnapshot,
+  SetWorktreeArchivedRequest,
+  SetWorktreeArchivedResponse,
   WorktreeDiffResponse,
 } from "./types";
 
@@ -59,6 +61,7 @@ function mapWorktree(snapshot: ProjectWorktreeSnapshot): WorktreeInfo {
   return {
     branch: snapshot.branch,
     ...(snapshot.baseBranch ? { baseBranch: snapshot.baseBranch } : {}),
+    archived: snapshot.archived,
     agent: mapAgentStatus(snapshot.status),
     mux: snapshot.mux ? "✓" : "",
     path: snapshot.path,
@@ -128,6 +131,16 @@ export function openWorktree(name: string): Promise<unknown> {
 
 export function closeWorktree(name: string): Promise<unknown> {
   return api(`worktrees/${encodeURIComponent(name)}/close`, { method: "POST" });
+}
+
+export function setWorktreeArchived(
+  name: string,
+  request: SetWorktreeArchivedRequest,
+): Promise<SetWorktreeArchivedResponse> {
+  return api<SetWorktreeArchivedResponse>(`worktrees/${encodeURIComponent(name)}/archive`, {
+    method: "PUT",
+    body: JSON.stringify(request),
+  });
 }
 
 export function mergeWorktree(name: string): Promise<unknown> {

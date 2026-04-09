@@ -1,7 +1,15 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { buildProjectSessionName, buildWorktreeWindowName } from "../../backend/src/adapters/tmux";
 import type { CreateLifecycleWorktreeInput, CreateLifecycleWorktreesInput } from "../../backend/src/services/lifecycle-service";
-import { parseAddCommandArgs, parseBranchCommandArgs, parseSendCommandArgs, runWorktreeCommand, type ParsedAddCommand, type ParsedSendCommand } from "./worktree-commands";
+import {
+  parseAddCommandArgs,
+  parseBranchCommandArgs,
+  parseListCommandArgs,
+  parseSendCommandArgs,
+  runWorktreeCommand,
+  type ParsedAddCommand,
+  type ParsedSendCommand,
+} from "./worktree-commands";
 
 function stubLifecycleService(calls: Array<{ method: string; value: unknown }>) {
   return {
@@ -20,6 +28,9 @@ function stubLifecycleService(calls: Array<{ method: string; value: unknown }>) 
     },
     async closeWorktree(branch: string): Promise<void> {
       calls.push({ method: "closeWorktree", value: branch });
+    },
+    async setWorktreeArchived(branch: string, archived: boolean): Promise<void> {
+      calls.push({ method: "setWorktreeArchived", value: { branch, archived } });
     },
     async removeWorktree(branch: string): Promise<void> {
       calls.push({ method: "removeWorktree", value: branch });
@@ -145,6 +156,23 @@ describe("parseBranchCommandArgs", () => {
 
   it("rejects invalid worktree names", () => {
     expect(() => parseBranchCommandArgs(["feature..search"])).toThrow("Invalid worktree name");
+  });
+});
+
+describe("parseListCommandArgs", () => {
+  it("parses list filters", () => {
+    expect(parseListCommandArgs(["--all", "--search", "search"])).toEqual({
+      mode: "all",
+      search: "search",
+    });
+  });
+
+  it("returns null for help", () => {
+    expect(parseListCommandArgs(["--help"])).toBeNull();
+  });
+
+  it("rejects conflicting archive filters", () => {
+    expect(() => parseListCommandArgs(["--all", "--archived"])).toThrow("Cannot use --archived with --all");
   });
 });
 
@@ -345,6 +373,28 @@ describe("runWorktreeCommand", () => {
     expect(calls).toEqual([{ method: "openWorktree", value: "feature/search" }]);
     expect(stdout).toEqual(["Opened worktree feature/search"]);
     expect(switchCalls).toEqual([{ projectDir: "/repo", branch: "feature/search" }]);
+  });
+
+  it("dispatches archive through the lifecycle service", async () => {
+    const { runtime, calls } = makeRuntime();
+    const stdout: string[] = [];
+
+    const exitCode = await runWorktreeCommand(
+      {
+        command: "archive",
+        args: ["feature/search"],
+        projectDir: "/repo",
+        port: 5111,
+      },
+      {
+        createRuntime: () => runtime,
+        stdout: (message) => stdout.push(message),
+      },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(calls).toEqual([{ method: "setWorktreeArchived", value: { branch: "feature/search", archived: true } }]);
+    expect(stdout).toEqual(["Archived worktree feature/search"]);
   });
 
   it("prints subcommand help without creating a runtime", async () => {
@@ -604,7 +654,8 @@ describe("runWorktreeCommand", () => {
 
     expect(exitCode).toBe(0);
     expect(createRuntimeCalled).toBe(false);
-    expect(stdout).toEqual(["Usage:\n  webmux list"]);
+    expect(stdout).toHaveLength(1);
+    expect(stdout[0]).toContain("webmux list [--all|--archived] [--search <text>]");
   });
 
   it("prints prune help without creating a runtime", async () => {

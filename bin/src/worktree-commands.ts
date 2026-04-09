@@ -1,10 +1,11 @@
 import * as p from "@clack/prompts";
 import { basename, resolve } from "node:path";
-import { readWorktreeMeta } from "../../backend/src/adapters/fs";
+import { readWorktreeArchiveState, readWorktreeMeta } from "../../backend/src/adapters/fs";
 import { buildProjectSessionName, buildWorktreeWindowName } from "../../backend/src/adapters/tmux";
 import type { AgentKind, CreateWorktreeAgentSelection } from "../../backend/src/domain/config";
 import type { WorktreeCreationPhase } from "../../backend/src/domain/model";
 import { isValidWorktreeName } from "../../backend/src/domain/policies";
+import { buildArchivedWorktreePathSet } from "../../backend/src/services/archive-service";
 import { createWebmuxRuntime } from "../../backend/src/runtime";
 import type { CreateLifecycleWorktreeInput, CreateLifecycleWorktreesInput, CreateLifecycleWorktreesResult, CreateWorktreeProgress, PruneWorktreesResult } from "../../backend/src/services/lifecycle-service";
 
@@ -16,13 +17,16 @@ const PHASE_LABELS: Record<WorktreeCreationPhase, string> = {
   reconciling: "Reconciling",
 };
 
-export type WorktreeSubcommand = "add" | "list" | "open" | "close" | "remove" | "merge" | "send" | "prune";
+export type WorktreeSubcommand = "add" | "list" | "open" | "close" | "remove" | "merge" | "send" | "prune" | "archive" | "unarchive";
+
+type WorktreeListMode = "active" | "all" | "archived";
 
 interface LifecycleServiceLike {
   createWorktree(input: CreateLifecycleWorktreeInput): Promise<{ branch: string; worktreeId: string }>;
   createWorktrees(input: CreateLifecycleWorktreesInput): Promise<CreateLifecycleWorktreesResult>;
   openWorktree(branch: string): Promise<{ branch: string; worktreeId: string }>;
   closeWorktree(branch: string): Promise<void>;
+  setWorktreeArchived(branch: string, archived: boolean): Promise<void>;
   removeWorktree(branch: string): Promise<void>;
   mergeWorktree(branch: string): Promise<void>;
   pruneWorktrees(): Promise<PruneWorktreesResult>;
@@ -84,11 +88,24 @@ export function getWorktreeCommandUsage(command: WorktreeSubcommand): string {
         "  --help                   Show this help message",
       ].join("\n");
     case "list":
-      return "Usage:\n  webmux list";
+      return [
+        "Usage:",
+        "  webmux list [--all|--archived] [--search <text>]",
+        "",
+        "Options:",
+        "  --all                    Include archived worktrees",
+        "  --archived               Show only archived worktrees",
+        "  --search <text>          Filter worktrees by branch/profile/agent",
+        "  --help                   Show this help message",
+      ].join("\n");
     case "open":
       return "Usage:\n  webmux open <branch>";
     case "close":
       return "Usage:\n  webmux close <branch>";
+    case "archive":
+      return "Usage:\n  webmux archive <branch>";
+    case "unarchive":
+      return "Usage:\n  webmux unarchive <branch>";
     case "remove":
       return "Usage:\n  webmux remove <branch>";
     case "merge":
@@ -264,6 +281,11 @@ export interface ParsedSendCommand {
   preamble?: string;
 }
 
+export interface ParsedListCommand {
+  mode: WorktreeListMode;
+  search: string;
+}
+
 export function parseSendCommandArgs(args: string[]): ParsedSendCommand | null {
   let branch: string | null = null;
   let text: string | null = null;
@@ -340,6 +362,47 @@ function parsePruneCommandArgs(args: string[]): boolean {
   return true;
 }
 
+export function parseListCommandArgs(args: string[]): ParsedListCommand | null {
+  let mode: WorktreeListMode = "active";
+  let search = "";
+
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index];
+    if (!arg) continue;
+
+    if (arg === "--help" || arg === "-h") {
+      return null;
+    }
+
+    if (arg === "--all") {
+      if (mode === "archived") {
+        throw new CommandUsageError("Cannot use --all with --archived");
+      }
+      mode = "all";
+      continue;
+    }
+
+    if (arg === "--archived") {
+      if (mode === "all") {
+        throw new CommandUsageError("Cannot use --archived with --all");
+      }
+      mode = "archived";
+      continue;
+    }
+
+    if (arg === "--search" || arg.startsWith("--search=")) {
+      const { value, nextIndex } = readOptionValue(args, index, "--search");
+      search = value;
+      index = nextIndex;
+      continue;
+    }
+
+    throw new CommandUsageError(`Unknown option: ${arg}`);
+  }
+
+  return { mode, search };
+}
+
 function listProjectWorktrees(
   runtime: WorktreeRuntimeLike,
 ): Array<{ path: string; branch: string | null; bare: boolean }> {
@@ -387,9 +450,22 @@ function defaultSwitchToTmuxWindow(projectDir: string, branch: string): void {
   }
 }
 
+interface ListedWorktreeRow {
+  branch: string;
+  isOpen: boolean;
+  archived: boolean;
+  info: string;
+  searchText: string;
+}
+
+function matchesListSearch(row: ListedWorktreeRow, query: string): boolean {
+  return query.length === 0 || row.searchText.toLowerCase().includes(query.toLowerCase());
+}
+
 async function listWorktrees(
   runtime: WorktreeRuntimeLike,
   stdout: (message: string) => void,
+  options: ParsedListCommand,
 ): Promise<void> {
   const projectDir = resolve(runtime.projectDir);
   const entries = listProjectWorktrees(runtime);
@@ -413,21 +489,70 @@ async function listWorktrees(
       .map((w) => w.windowName),
   );
 
+  const projectGitDir = runtime.git.resolveWorktreeGitDir(projectDir);
+  const archivedPaths = buildArchivedWorktreePathSet(await readWorktreeArchiveState(projectGitDir));
   const rows = await Promise.all(entries.map(async (entry) => {
     const branch = entry.branch ?? basename(entry.path);
     const isOpen = openWindows.has(buildWorktreeWindowName(branch));
     const gitDir = runtime.git.resolveWorktreeGitDir(entry.path);
     const meta = await readWorktreeMeta(gitDir);
     const info = meta ? `${meta.profile} / ${meta.agent}` : "";
-    return { branch, isOpen, info };
+    return {
+      branch,
+      isOpen,
+      archived: archivedPaths.has(resolve(entry.path)),
+      info,
+      searchText: [
+        branch,
+        meta?.baseBranch ?? "",
+        meta?.profile ?? "",
+        meta?.agent ?? "",
+      ].join(" "),
+    } satisfies ListedWorktreeRow;
   }));
 
-  rows.sort((a, b) => a.branch.localeCompare(b.branch));
+  const matchingRows = rows
+    .filter((row) => matchesListSearch(row, options.search.trim()))
+    .sort((a, b) => a.branch.localeCompare(b.branch));
+  const visibleRows = matchingRows.filter((row) => {
+    if (options.mode === "all") return true;
+    if (options.mode === "archived") return row.archived;
+    return !row.archived;
+  });
 
-  const maxBranch = Math.max(...rows.map((r) => r.branch.length));
-  for (const row of rows) {
-    const status = row.isOpen ? "open" : "closed";
-    stdout(`${row.branch.padEnd(maxBranch + 2)} ${status.padEnd(8)} ${row.info}`.trimEnd());
+  if (visibleRows.length === 0) {
+    const hiddenArchivedCount = options.mode === "active"
+      ? matchingRows.filter((row) => row.archived).length
+      : 0;
+    if (hiddenArchivedCount > 0) {
+      stdout(
+        `No active worktrees found. ${hiddenArchivedCount} archived worktree${hiddenArchivedCount === 1 ? "" : "s"} hidden. Use --all or --archived.`,
+      );
+      return;
+    }
+
+    if (options.mode === "archived") {
+      stdout("No archived worktrees found.");
+      return;
+    }
+
+    stdout(options.search.trim() ? `No worktrees found for "${options.search.trim()}".` : "No worktrees found.");
+    return;
+  }
+
+  const maxBranch = Math.max(...visibleRows.map((row) => row.branch.length));
+  for (const row of visibleRows) {
+    const status = `${row.isOpen ? "open" : "closed"}${row.archived ? " archived" : ""}`;
+    stdout(`${row.branch.padEnd(maxBranch + 2)} ${status.padEnd(15)} ${row.info}`.trimEnd());
+  }
+
+  if (options.mode === "active") {
+    const hiddenArchivedCount = matchingRows.filter((row) => row.archived).length;
+    if (hiddenArchivedCount > 0) {
+      stdout(
+        `Hidden ${hiddenArchivedCount} archived worktree${hiddenArchivedCount === 1 ? "" : "s"}. Use --all or --archived.`,
+      );
+    }
   }
 }
 
@@ -480,7 +605,8 @@ export async function runWorktreeCommand(
     }
 
     if (context.command === "list") {
-      if (context.args.includes("--help") || context.args.includes("-h")) {
+      const parsed = parseListCommandArgs(context.args);
+      if (!parsed) {
         stdout(getWorktreeCommandUsage("list"));
         return 0;
       }
@@ -489,7 +615,7 @@ export async function runWorktreeCommand(
         projectDir: context.projectDir,
         port: context.port,
       });
-      await listWorktrees(runtime, stdout);
+      await listWorktrees(runtime, stdout, parsed);
       return 0;
     }
 
@@ -582,6 +708,14 @@ export async function runWorktreeCommand(
       case "close":
         await runtime.lifecycleService.closeWorktree(branch);
         stdout(`Closed worktree ${branch}`);
+        return 0;
+      case "archive":
+        await runtime.lifecycleService.setWorktreeArchived(branch, true);
+        stdout(`Archived worktree ${branch}`);
+        return 0;
+      case "unarchive":
+        await runtime.lifecycleService.setWorktreeArchived(branch, false);
+        stdout(`Restored worktree ${branch}`);
         return 0;
       case "remove":
         await runtime.lifecycleService.removeWorktree(branch);

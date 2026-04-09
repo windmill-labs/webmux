@@ -1,13 +1,16 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type {
+  ArchivedWorktreeEntry,
   CiCheck,
   ControlEnvMap,
   PrComment,
   PrEntry,
+  WorktreeArchiveState,
   WorktreeMeta,
   WorktreeStoragePaths,
 } from "../domain/model";
+import { WORKTREE_ARCHIVE_STATE_VERSION } from "../domain/model";
 
 const SAFE_ENV_VALUE_RE = /^[A-Za-z0-9_./:@%+=,-]+$/;
 const DOTENV_LINE_RE = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)/;
@@ -63,6 +66,10 @@ export function getWorktreeStoragePaths(gitDir: string): WorktreeStoragePaths {
   };
 }
 
+export function getProjectArchiveStatePath(gitDir: string): string {
+  return join(gitDir, "webmux", "archive.json");
+}
+
 export async function ensureWorktreeStorageDirs(gitDir: string): Promise<WorktreeStoragePaths> {
   const paths = getWorktreeStoragePaths(gitDir);
   await mkdir(paths.webmuxDir, { recursive: true });
@@ -81,6 +88,47 @@ export async function readWorktreeMeta(gitDir: string): Promise<WorktreeMeta | n
 export async function writeWorktreeMeta(gitDir: string, meta: WorktreeMeta): Promise<void> {
   const { metaPath } = await ensureWorktreeStorageDirs(gitDir);
   await Bun.write(metaPath, JSON.stringify(meta, null, 2) + "\n");
+}
+
+function isArchivedWorktreeEntry(raw: unknown): raw is ArchivedWorktreeEntry {
+  return isRecord(raw)
+    && typeof raw.path === "string"
+    && typeof raw.archivedAt === "string";
+}
+
+function emptyWorktreeArchiveState(): WorktreeArchiveState {
+  return {
+    schemaVersion: WORKTREE_ARCHIVE_STATE_VERSION,
+    entries: [],
+  };
+}
+
+function isWorktreeArchiveState(raw: unknown): raw is WorktreeArchiveState {
+  return isRecord(raw)
+    && typeof raw.schemaVersion === "number"
+    && Array.isArray(raw.entries)
+    && raw.entries.every((entry) => isArchivedWorktreeEntry(entry));
+}
+
+export async function readWorktreeArchiveState(gitDir: string): Promise<WorktreeArchiveState> {
+  const archivePath = getProjectArchiveStatePath(gitDir);
+  try {
+    const raw: unknown = await Bun.file(archivePath).json();
+    return isWorktreeArchiveState(raw)
+      ? {
+          schemaVersion: raw.schemaVersion,
+          entries: raw.entries.map((entry) => ({ ...entry })),
+        }
+      : emptyWorktreeArchiveState();
+  } catch {
+    return emptyWorktreeArchiveState();
+  }
+}
+
+export async function writeWorktreeArchiveState(gitDir: string, state: WorktreeArchiveState): Promise<void> {
+  const archivePath = getProjectArchiveStatePath(gitDir);
+  await ensureWorktreeStorageDirs(gitDir);
+  await Bun.write(archivePath, JSON.stringify(state, null, 2) + "\n");
 }
 
 export function buildRuntimeEnvMap(

@@ -1,6 +1,7 @@
 import type { AgentKind, RuntimeKind } from "./config";
 
 export const WORKTREE_META_SCHEMA_VERSION = 1;
+export const WORKTREE_ARCHIVE_STATE_VERSION = 1;
 
 export interface WorktreeMeta {
   schemaVersion: number;
@@ -13,6 +14,16 @@ export interface WorktreeMeta {
   runtime: RuntimeKind;
   startupEnvValues: Record<string, string>;
   allocatedPorts: Record<string, number>;
+}
+
+export interface ArchivedWorktreeEntry {
+  path: string;
+  archivedAt: string;
+}
+
+export interface WorktreeArchiveState {
+  schemaVersion: number;
+  entries: ArchivedWorktreeEntry[];
 }
 
 export interface WorktreeStoragePaths {
@@ -152,6 +163,7 @@ export interface WorktreeSnapshot {
   baseBranch?: string;
   path: string;
   dir: string;
+  archived: boolean;
   profile: string | null;
   agentName: AgentKind | null;
   mux: boolean;

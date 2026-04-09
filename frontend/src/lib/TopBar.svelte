@@ -21,6 +21,7 @@
     unreadCount = 0,
     ontogglesidebar,
     onclose,
+    onarchive,
     onmerge,
     onremove,
     onsettings,
@@ -29,6 +30,7 @@
     ondirtyclick,
     onbellopen,
     onnotificationselect,
+    archiving = false,
   }: {
     name: string | null;
     worktree: WorktreeInfo | undefined;
@@ -39,6 +41,7 @@
     unreadCount?: number;
     ontogglesidebar?: () => void;
     onclose: () => void;
+    onarchive: () => void;
     onmerge: () => void;
     onremove: () => void;
     onsettings: () => void;
@@ -47,6 +50,7 @@
     ondirtyclick?: () => void;
     onbellopen?: () => void;
     onnotificationselect?: (branch: string) => void;
+    archiving?: boolean;
   } = $props();
 
   let bellOpen = $state(false);
@@ -134,6 +138,9 @@
         <span class="min-w-0 text-sm font-semibold truncate" title={name ?? undefined}
           >{displayName ?? "Select a worktree"}</span
         >
+        {#if worktree?.archived}
+          <span class="shrink-0 text-[10px] px-1.5 py-0.5 rounded border border-edge text-muted">Archived</span>
+        {/if}
         {#if worktree?.dirty || worktree?.unpushed}
           <button
             type="button"
@@ -180,6 +187,14 @@
           >{isMobile ? "C" : "Close"}</Btn
         >
       {/if}
+      <Btn
+        variant="accent-outline"
+        onclick={onarchive}
+        disabled={archiving || worktree.creating}
+        title={worktree.archived ? "Restore archived worktree" : "Archive worktree"}
+      >
+        {isMobile ? (worktree.archived ? "Re" : "A") : (worktree.archived ? "Restore" : "Archive")}
+      </Btn>
       <Btn variant="accent-outline" onclick={onmerge} title="Merge worktree"
         >{isMobile ? "M" : "Merge"}</Btn
       >

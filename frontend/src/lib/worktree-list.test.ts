@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { buildWorktreeListRows } from "./worktree-list";
+import { buildWorktreeListRows, countArchivedMatches, filterWorktrees } from "./worktree-list";
 import type { WorktreeInfo } from "./types";
 
 function createWorktree(branch: string, overrides: Partial<WorktreeInfo> = {}): WorktreeInfo {
   return {
     branch,
+    archived: false,
     agent: "waiting",
     mux: "",
     path: `/repo/__worktrees/${branch}`,
@@ -52,5 +53,27 @@ describe("buildWorktreeListRows", () => {
       ["feature/child", 0],
       ["feature/other", 0],
     ]);
+  });
+
+  it("filters archived worktrees out by default and matches profile text", () => {
+    const worktrees = filterWorktrees([
+      createWorktree("feature/active", { profile: "sandbox" }),
+      createWorktree("feature/archived", { archived: true, profile: "default" }),
+    ], {
+      query: "sand",
+      showArchived: false,
+    });
+
+    expect(worktrees.map((worktree) => worktree.branch)).toEqual(["feature/active"]);
+  });
+
+  it("counts archived matches separately from visible rows", () => {
+    const count = countArchivedMatches([
+      createWorktree("feature/alpha", { archived: true }),
+      createWorktree("feature/beta", { archived: true }),
+      createWorktree("feature/gamma"),
+    ], "beta");
+
+    expect(count).toBe(1);
   });
 });

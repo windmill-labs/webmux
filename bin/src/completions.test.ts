@@ -119,6 +119,7 @@ describe("runCompletionCommand", () => {
     const output = spy.mock.calls[0]?.[0];
     expect(output).toContain("#compdef webmux");
     expect(output).toContain("compdef _webmux webmux");
+    expect(output).toContain("archive:Hide a worktree from the default list");
     expect(output).toContain("prune:Remove all worktrees in the current project");
     expect(output).not.toContain('_webmux "$@"');
     spy.mockRestore();

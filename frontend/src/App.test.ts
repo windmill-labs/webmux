@@ -16,6 +16,7 @@ vi.mock("./lib/api", () => ({
   mergeWorktree: vi.fn(),
   openWorktree: vi.fn(),
   removeWorktree: vi.fn(),
+  setWorktreeArchived: vi.fn(),
   sendWorktreePrompt: vi.fn(),
   subscribeNotifications: vi.fn(),
 }));
@@ -71,6 +72,7 @@ function createWorktree(
 ): WorktreeInfo {
   return {
     branch,
+    archived: false,
     agent: "waiting",
     mux: "",
     path: `/repo/__worktrees/${branch}`,
@@ -182,6 +184,7 @@ describe("App create selection", () => {
     setupBrowserMocks();
 
     vi.mocked(api.fetchConfig).mockResolvedValue(createConfig());
+    vi.mocked(api.fetchWorktrees).mockResolvedValue([]);
     vi.mocked(api.fetchAvailableBranches).mockResolvedValue([]);
     vi.mocked(api.fetchBaseBranches).mockResolvedValue([]);
     vi.mocked(api.fetchLinearIssues).mockResolvedValue(createLinearIssuesResponse());
@@ -195,6 +198,7 @@ describe("App create selection", () => {
     vi.mocked(api.openWorktree).mockResolvedValue(undefined);
     vi.mocked(api.closeWorktree).mockResolvedValue(undefined);
     vi.mocked(api.removeWorktree).mockResolvedValue(undefined);
+    vi.mocked(api.setWorktreeArchived).mockResolvedValue({ ok: true, archived: true });
     vi.mocked(api.mergeWorktree).mockResolvedValue(undefined);
     vi.mocked(api.dismissNotification).mockResolvedValue(undefined);
     vi.mocked(api.fetchCiLogs).mockResolvedValue("");
@@ -231,7 +235,7 @@ describe("App create selection", () => {
     await waitFor(() => {
       expect(api.fetchWorktrees).toHaveBeenCalledTimes(2);
     });
-    expect(screen.getByRole("button", { name: /feature\/new/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^feature\/new\b/i })).toBeInTheDocument();
     expect(screen.getByTitle("main")).toBeInTheDocument();
     expect(screen.queryByTitle("feature/new")).not.toBeInTheDocument();
 
@@ -313,6 +317,77 @@ describe("App create selection", () => {
       expect(api.fetchWorktrees).toHaveBeenCalledTimes(3);
     });
     expect(screen.getByTitle("claude-feature/new")).toBeInTheDocument();
+  });
+
+  it("hides archived worktrees until the archived toggle is enabled", async () => {
+    vi.mocked(api.fetchWorktrees).mockResolvedValue([
+      createWorktree("feature/active"),
+      createWorktree("feature/archived", { archived: true }),
+    ]);
+
+    render(App);
+
+    await screen.findByRole("button", { name: /^feature\/active\b/i });
+    expect(screen.queryByRole("button", { name: /feature\/archived/i })).not.toBeInTheDocument();
+
+    await fireEvent.click(screen.getByRole("switch", { name: /show archived worktrees/i }));
+
+    expect(
+      await screen.findByRole("button", { name: /^feature\/archived\b/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps the current selection while filtering the worktree list", async () => {
+    vi.mocked(api.fetchWorktrees).mockResolvedValue([
+      createWorktree("main"),
+      createWorktree("feature/alpha"),
+      createWorktree("feature/beta"),
+    ]);
+
+    render(App);
+
+    const searchInput = await screen.findByRole("searchbox", { name: /search worktrees/i });
+    await screen.findByTitle("main");
+
+    await fireEvent.focus(searchInput);
+    await fireEvent.input(searchInput, { target: { value: "feature" } });
+
+    expect(screen.getByTitle("main")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^main\b/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^feature\/alpha\b/i })).toBeInTheDocument();
+  });
+
+  it("clears the worktree search from the trailing clear button", async () => {
+    vi.mocked(api.fetchWorktrees).mockResolvedValue([
+      createWorktree("feature/alpha"),
+      createWorktree("feature/beta"),
+    ]);
+
+    render(App);
+
+    const searchInput = await screen.findByRole("searchbox", { name: /search worktrees/i });
+    await fireEvent.input(searchInput, { target: { value: "alpha" } });
+    expect(searchInput).toHaveValue("alpha");
+
+    await fireEvent.click(screen.getByRole("button", { name: /clear worktree search/i }));
+
+    expect(searchInput).toHaveValue("");
+  });
+
+  it("archives the selected worktree through the API", async () => {
+    vi.mocked(api.fetchWorktrees)
+      .mockResolvedValueOnce([createWorktree("feature/active")])
+      .mockResolvedValueOnce([createWorktree("feature/active", { archived: true })])
+      .mockResolvedValue([createWorktree("feature/active", { archived: true })]);
+
+    render(App);
+
+    await screen.findByTitle("feature/active");
+    await fireEvent.click(screen.getByRole("button", { name: "Archive" }));
+
+    await waitFor(() => {
+      expect(api.setWorktreeArchived).toHaveBeenCalledWith("feature/active", { archived: true });
+    });
   });
 
   it("shows a setup message in the Linear panel when LINEAR_API_KEY is missing", async () => {

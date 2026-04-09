@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/svelte";
+import { fireEvent, render, screen } from "@testing-library/svelte";
 import { describe, expect, it, vi } from "vitest";
 import WorktreeList from "./WorktreeList.svelte";
 import type { WorktreeInfo, WorktreeListRow } from "./types";
@@ -6,6 +6,7 @@ import type { WorktreeInfo, WorktreeListRow } from "./types";
 function createWorktree(branch: string): WorktreeInfo {
   return {
     branch,
+    archived: false,
     agent: "claude",
     mux: "✓",
     path: `/tmp/${branch}`,
@@ -47,6 +48,9 @@ describe("WorktreeList", () => {
         initializing: new Set<string>(),
         notifiedBranches: new Set<string>(),
         onselect: vi.fn(),
+        onclose: vi.fn(),
+        onarchive: vi.fn(),
+        onmerge: vi.fn(),
         onremove: vi.fn(),
       },
     });
@@ -55,5 +59,34 @@ describe("WorktreeList", () => {
     expect(
       screen.queryByRole("link", { name: "ENG-42" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("shows a three-dot menu with row actions", async () => {
+    const onarchive = vi.fn();
+
+    render(WorktreeList, {
+      props: {
+        rows: [createRow(createWorktree("feature/menu-actions"))],
+        selected: null,
+        removing: new Set<string>(),
+        initializing: new Set<string>(),
+        notifiedBranches: new Set<string>(),
+        onselect: vi.fn(),
+        onclose: vi.fn(),
+        onarchive,
+        onmerge: vi.fn(),
+        onremove: vi.fn(),
+      },
+    });
+
+    await fireEvent.click(screen.getByRole("button", { name: /actions for feature\/menu-actions/i }));
+
+    expect(screen.getByRole("button", { name: "Close" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Archive" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Merge" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove" })).toBeInTheDocument();
+
+    await fireEvent.click(screen.getByRole("button", { name: "Archive" }));
+    expect(onarchive).toHaveBeenCalledWith("feature/menu-actions");
   });
 });

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/svelte";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppConfig, AppNotification, LinearIssuesResponse, WorktreeInfo } from "./lib/types";
 
@@ -15,6 +15,7 @@ vi.mock("./lib/api", () => ({
   fetchWorktrees: vi.fn(),
   mergeWorktree: vi.fn(),
   openWorktree: vi.fn(),
+  pullMain: vi.fn(),
   removeWorktree: vi.fn(),
   setWorktreeArchived: vi.fn(),
   sendWorktreePrompt: vi.fn(),
@@ -203,6 +204,7 @@ describe("App create selection", () => {
     vi.mocked(api.removeWorktree).mockResolvedValue(undefined);
     vi.mocked(api.setWorktreeArchived).mockResolvedValue({ ok: true, archived: true });
     vi.mocked(api.mergeWorktree).mockResolvedValue(undefined);
+    vi.mocked(api.pullMain).mockResolvedValue({ status: "updated" });
     vi.mocked(api.dismissNotification).mockResolvedValue(undefined);
     vi.mocked(api.fetchCiLogs).mockResolvedValue("");
     vi.mocked(api.sendWorktreePrompt).mockResolvedValue(undefined);
@@ -315,6 +317,25 @@ describe("App create selection", () => {
     await fireEvent.click(dismissButton!);
 
     expect(api.dismissNotification).toHaveBeenCalledWith(42);
+  });
+
+  it("shows a success toast when pulling main succeeds", async () => {
+    vi.mocked(api.fetchConfig).mockResolvedValue(createConfig({
+      projectDir: "/repo",
+      mainBranch: "main",
+    }));
+    vi.mocked(api.fetchWorktrees).mockResolvedValue([]);
+    vi.mocked(api.pullMain).mockResolvedValueOnce({ status: "updated" });
+
+    render(App);
+
+    await screen.findByText("Select a worktree");
+    await screen.findByText("main");
+    await fireEvent.click(screen.getByRole("button", { name: "Pull" }));
+    await fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Pull" }));
+
+    expect(api.pullMain).toHaveBeenCalledWith(false);
+    expect(await screen.findByRole("alert")).toHaveTextContent('Pulled latest "main" from remote');
   });
 
   it("selects the primary paired worktree when Both is created without a prior selection", async () => {

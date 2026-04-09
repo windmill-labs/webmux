@@ -641,6 +641,12 @@
       if (result.status === "updated" || result.status === "already_up_to_date") {
         pullMainConfirm = false;
         pullMainForce = false;
+        showToast({
+          tone: result.status === "updated" ? "success" : "info",
+          message: result.status === "updated"
+            ? `Pulled latest "${config.mainBranch ?? "main"}" from remote`
+            : `"${config.mainBranch ?? "main"}" is already up to date`,
+        });
       } else if (result.status === "merge_failed" && !pullMainForce) {
         pullMainForce = true;
         pullMainError = `Fast-forward failed: ${result.error ?? "unknown error"}.\nForce pull will reset main to match remote.`;

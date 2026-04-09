@@ -2,7 +2,7 @@ import type { AgentKind } from "../domain/config";
 
 export type AgentLaunchMode = "fresh" | "resume";
 
-const DOCKER_PATH_PREFIX = "/root/.local/bin:/usr/local/bin:/root/.bun/bin:/root/.cargo/bin";
+const DOCKER_PATH_FALLBACK = "/root/.local/bin:/usr/local/bin:/root/.bun/bin:/root/.cargo/bin";
 
 function quoteShell(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
@@ -13,7 +13,7 @@ function buildRuntimeBootstrap(runtimeEnvPath: string): string {
 }
 
 function buildDockerRuntimeBootstrap(runtimeEnvPath: string): string {
-  return `${buildRuntimeBootstrap(runtimeEnvPath)}; export PATH=${DOCKER_PATH_PREFIX}:"$PATH"`;
+  return `${buildRuntimeBootstrap(runtimeEnvPath)}; export PATH="$PATH:${DOCKER_PATH_FALLBACK}"`;
 }
 
 function buildAgentInvocation(input: {

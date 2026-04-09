@@ -66,10 +66,10 @@ describe("agent-service command builders", () => {
 
     expect(shell).toContain("docker exec -it -w '/repos/feature' 'wm-feature-container' /bin/sh -c");
     expect(shell).toContain("/bin/zsh");
-    expect(shell).toContain("/root/.local/bin:/usr/local/bin:/root/.bun/bin:/root/.cargo/bin");
+    expect(shell).toContain('export PATH="$PATH:/root/.local/bin:/usr/local/bin:/root/.bun/bin:/root/.cargo/bin"');
     expect(agent).toContain("codex --yolo");
     expect(agent).toContain("ship the fix");
-    expect(agent).toContain("/root/.local/bin:/usr/local/bin:/root/.bun/bin:/root/.cargo/bin");
+    expect(agent).toContain('export PATH="$PATH:/root/.local/bin:/usr/local/bin:/root/.bun/bin:/root/.cargo/bin"');
     expect(agent).not.toContain("docker exec");
     expect(agent).not.toContain("agent-stopped");
   });
@@ -82,9 +82,8 @@ describe("agent-service command builders", () => {
     );
 
     expect(shell).toContain("/bin/bash");
-    if (Bun.env.SHELL && Bun.env.SHELL !== "/bin/bash") {
-      expect(shell).not.toContain(Bun.env.SHELL);
-    }
+    expect(shell).not.toContain(" /bin/sh -lc ");
+    expect(shell).toContain('export PATH="$PATH:/root/.local/bin:/usr/local/bin:/root/.bun/bin:/root/.cargo/bin"');
   });
 
   it("falls back to /bin/sh when the preferred docker shell is unavailable", () => {

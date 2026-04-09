@@ -108,6 +108,8 @@ profiles:
     yolo: true
 
     # Required when `runtime: docker`.
+    # Custom images should expose `claude` or `codex` on the container PATH
+    # via the image itself, e.g. `ENV PATH=/your/tool/bin:$PATH`.
     image: example-sandbox-image
 
     envPassthrough:

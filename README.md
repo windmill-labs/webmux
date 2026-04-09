@@ -130,6 +130,8 @@ profiles:
       You are running inside a sandboxed container.
       Backend port: ${PORT}. Frontend port: ${FRONTEND_PORT}.
 
+Custom sandbox images should make `claude` or `codex` available on the container's normal `PATH` (for example with `ENV PATH=/your/tool/bin:$PATH`). webmux does not rely on login-shell dotfiles like `.bashrc` to discover agent binaries inside the container.
+
 integrations:
   github:
     autoRemoveOnMerge: true

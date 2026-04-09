@@ -37,6 +37,7 @@ function run(args: string[], cwd: string): string {
 
 class FakeTmuxGateway implements TmuxGateway {
   private readonly windows = new Map<string, TmuxWindowSummary>();
+  readonly createdWindows: Array<{ sessionName: string; windowName: string; cwd: string; command?: string }> = [];
   readonly commands: Array<{ target: string; command: string }> = [];
 
   ensureServer(): void {}
@@ -52,6 +53,7 @@ class FakeTmuxGateway implements TmuxGateway {
   }
 
   createWindow(opts: { sessionName: string; windowName: string; cwd: string; command?: string }): void {
+    this.createdWindows.push({ ...opts });
     this.windows.set(this.key(opts.sessionName, opts.windowName), {
       sessionName: opts.sessionName,
       windowName: opts.windowName,
@@ -984,8 +986,11 @@ describe("LifecycleService", () => {
       profile: "sandbox",
     });
 
+    const windowCommand = tmux.createdWindows[0]?.command;
     const agentCommand = tmux.commands[0]?.command;
 
+    expect(windowCommand).toContain("docker exec -it");
+    expect(windowCommand).toContain("wm-feature-sandbox-agent-container");
     expect(agentCommand).toContain("claude");
     expect(agentCommand).not.toContain("docker exec");
   });

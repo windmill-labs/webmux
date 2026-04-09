@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.27.0](https://github.com/windmill-labs/webmux/compare/v0.26.0...v0.27.0) (2026-04-09)
+
+
+### Features
+
+* add worktree search and archive controls ([#206](https://github.com/windmill-labs/webmux/issues/206)) ([c68b8da](https://github.com/windmill-labs/webmux/commit/c68b8daf156538682339f0c51d9e419b19457103))
+* reuse toast component for ui feedback ([#207](https://github.com/windmill-labs/webmux/issues/207)) ([0c15532](https://github.com/windmill-labs/webmux/commit/0c15532e82d5322441fd5a8fa25675b3a1bf7392))
+
+
+### Bug Fixes
+
+* add auto-name timeout fallback ([#205](https://github.com/windmill-labs/webmux/issues/205)) ([066375a](https://github.com/windmill-labs/webmux/commit/066375a274af5482b423637fa6f40009a8e8417b))
+
 ## [0.26.0](https://github.com/windmill-labs/webmux/compare/v0.25.0...v0.26.0) (2026-04-03)
 
 

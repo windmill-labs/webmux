@@ -83,7 +83,7 @@ describe("WorktreeList", () => {
       },
     });
 
-    expect(within(container).getByRole("button", { name: /feature\/list-removing/i })).toBeDisabled();
+    expect(screen.getByText("feature/list-removing").closest("button")).toBeDisabled();
     expect(within(container).getByRole("button", { name: /actions for feature\/list-removing/i })).toBeDisabled();
   });
 

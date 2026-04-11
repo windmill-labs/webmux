@@ -78,8 +78,14 @@ const defaultSpawnTmuxProcess: SpawnTmuxProcess = (args, opts = {}) =>
     stderr: "pipe",
   });
 
-const defaultSpawnSyncCommand: SpawnSyncCommand = (args, opts = {}) =>
-  Bun.spawnSync(args, opts);
+const defaultSpawnSyncCommand: SpawnSyncCommand = (args, opts = {}) => {
+  const result = Bun.spawnSync(args, opts);
+  return {
+    exitCode: result.exitCode,
+    stdout: result.stdout ?? new Uint8Array(),
+    stderr: result.stderr ?? new Uint8Array(),
+  };
+};
 
 let spawnPtyProcess: SpawnPtyProcess = defaultSpawnPtyProcess;
 let spawnTmuxProcess: SpawnTmuxProcess = defaultSpawnTmuxProcess;

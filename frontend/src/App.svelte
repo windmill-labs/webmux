@@ -50,15 +50,21 @@
   import { getTheme } from "./lib/themes";
   import type { ThemeKey } from "./lib/themes";
   import { setToastController } from "./lib/toast-context";
-  import * as api from "./lib/api";
+  import { api, fetchWorktrees, subscribeNotifications } from "./lib/api";
 
   let config = $state<AppConfig>({
+    name: "",
     services: [],
     profiles: [],
     defaultProfileName: "",
     autoName: false,
     linearCreateTicketOption: false,
+    startupEnvs: {},
     linkedRepos: [],
+    linearAutoCreateWorktrees: false,
+    autoRemoveOnMerge: false,
+    projectDir: "",
+    mainBranch: "",
   });
   let worktrees = $state<WorktreeInfo[]>([]);
   let selectedBranch = $state<string | null>(loadSavedSelectedWorktree());
@@ -154,10 +160,10 @@
     const inFlight = availableBranchRequests[key];
     if (inFlight) return inFlight;
 
-    const request = api.fetchAvailableBranches({ includeRemote })
-      .then((branches) => {
-        availableBranchCache[key] = branches;
-        return branches;
+    const request = api.fetchAvailableBranches({ query: { includeRemote } })
+      .then((data) => {
+        availableBranchCache[key] = data.branches;
+        return data.branches;
       })
       .finally(() => {
         delete availableBranchRequests[key];
@@ -172,9 +178,9 @@
     if (baseBranchRequest) return baseBranchRequest;
 
     baseBranchRequest = api.fetchBaseBranches()
-      .then((branches) => {
-        baseBranchCache = branches;
-        return branches;
+      .then((data) => {
+        baseBranchCache = data.branches;
+        return data.branches;
       })
       .finally(() => {
         baseBranchRequest = null;
@@ -226,7 +232,7 @@
 
   function handleDismissNotification(id: number): void {
     notifications = notifications.filter((n) => n.id !== id);
-    api.dismissNotification(id).catch(() => {});
+    api.dismissNotification({ params: { id } }).catch(() => {});
   }
 
   function handleSseDismiss(id: number): void {
@@ -502,7 +508,7 @@
 
   async function refresh() {
     try {
-      worktrees = await api.fetchWorktrees();
+      worktrees = await fetchWorktrees();
       hasLoadedWorktrees = true;
     } catch (err) {
       console.error("Failed to refresh:", err);
@@ -535,7 +541,7 @@
     assignIssue = null;
 
     try {
-      const createPromise = api.createWorktree(request);
+      const createPromise = api.createWorktree({ body: request });
       void refresh();
       const result = await createPromise;
       if (shouldAutoSelectCreatedWorktree) {
@@ -601,7 +607,7 @@
 
     removingBranches = new Set([...removingBranches, branch]);
     try {
-      await api.removeWorktree(branch);
+      await api.removeWorktree({ params: { name: branch } });
       invalidateBranchCaches();
       await refresh();
     } catch (err) {
@@ -621,7 +627,7 @@
 
     removingBranches = new Set([...removingBranches, branch]);
     try {
-      await api.mergeWorktree(branch);
+      await api.mergeWorktree({ params: { name: branch } });
       invalidateBranchCaches();
       await refresh();
     } catch (err) {
@@ -637,7 +643,9 @@
     pullMainLoading = true;
     pullMainError = "";
     try {
-      const result = await api.pullMain(pullMainForce);
+      const result = await api.pullMain({
+        body: { ...(pullMainForce ? { force: true } : {}) },
+      });
       if (result.status === "updated" || result.status === "already_up_to_date") {
         pullMainConfirm = false;
         pullMainForce = false;
@@ -665,7 +673,12 @@
     pullLinkedRepoLoading = true;
     pullLinkedRepoError = "";
     try {
-      const result = await api.pullMain(pullLinkedRepoForce, pullLinkedRepoAlias);
+      const result = await api.pullMain({
+        body: {
+          ...(pullLinkedRepoForce ? { force: true } : {}),
+          ...(pullLinkedRepoAlias ? { repo: pullLinkedRepoAlias } : {}),
+        },
+      });
       if (result.status === "updated" || result.status === "already_up_to_date") {
         pullLinkedRepoAlias = null;
         pullLinkedRepoForce = false;
@@ -687,7 +700,7 @@
     if (!branch) return;
     openingBranches = new Set([...openingBranches, branch]);
     try {
-      await api.openWorktree(branch);
+      await api.openWorktree({ params: { name: branch } });
       await refresh();
     } catch (err) {
       showToast({ tone: "error", message: `Failed to open worktree: ${errorMessage(err)}` });
@@ -704,7 +717,10 @@
 
     archivingBranches = new Set([...archivingBranches, branch]);
     try {
-      await api.setWorktreeArchived(branch, { archived: nextArchived });
+      await api.setWorktreeArchived({
+        params: { name: branch },
+        body: { archived: nextArchived },
+      });
       await refresh();
     } catch (err) {
       alert(`Failed to ${actionLabel} worktree: ${errorMessage(err)}`);
@@ -716,7 +732,7 @@
   async function closeWorktree(branch: string): Promise<void> {
     selectNeighborOf(branch);
     try {
-      await api.closeWorktree(branch);
+      await api.closeWorktree({ params: { name: branch } });
       await refresh();
     } catch (err) {
       showToast({ tone: "error", message: `Failed to close worktree: ${errorMessage(err)}` });
@@ -800,7 +816,7 @@
     let intervalMs = pollIntervalMs;
     let interval: ReturnType<typeof setInterval> | undefined;
     window.addEventListener("keydown", handleKeydown);
-    let unsubNotifications = api.subscribeNotifications(handleNotification, handleSseDismiss, handleInitialNotification);
+    let unsubNotifications = subscribeNotifications(handleNotification, handleSseDismiss, handleInitialNotification);
     // Request notification permission (no-op if already granted/denied)
     if (Notification.permission === "default") {
       Notification.requestPermission().catch(() => {});

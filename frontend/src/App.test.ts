@@ -3,27 +3,29 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppConfig, AppNotification, LinearIssuesResponse, WorktreeInfo } from "./lib/types";
 
 vi.mock("./lib/api", () => ({
-  closeWorktree: vi.fn(),
-  createWorktree: vi.fn(),
-  dismissNotification: vi.fn(),
-  fetchAvailableBranches: vi.fn(),
-  fetchBaseBranches: vi.fn(),
-  fetchCiLogs: vi.fn(),
-  fetchConfig: vi.fn(),
-  fetchWorktreeDiff: vi.fn(),
-  fetchLinearIssues: vi.fn(),
+  api: {
+    closeWorktree: vi.fn(),
+    createWorktree: vi.fn(),
+    dismissNotification: vi.fn(),
+    fetchAvailableBranches: vi.fn(),
+    fetchBaseBranches: vi.fn(),
+    fetchCiLogs: vi.fn(),
+    fetchConfig: vi.fn(),
+    fetchWorktreeDiff: vi.fn(),
+    fetchLinearIssues: vi.fn(),
+    mergeWorktree: vi.fn(),
+    openWorktree: vi.fn(),
+    pullMain: vi.fn(),
+    removeWorktree: vi.fn(),
+    setWorktreeArchived: vi.fn(),
+    sendWorktreePrompt: vi.fn(),
+  },
   fetchWorktrees: vi.fn(),
-  mergeWorktree: vi.fn(),
-  openWorktree: vi.fn(),
-  pullMain: vi.fn(),
-  removeWorktree: vi.fn(),
-  setWorktreeArchived: vi.fn(),
-  sendWorktreePrompt: vi.fn(),
   subscribeNotifications: vi.fn(),
 }));
 
 import App from "./App.svelte";
-import * as api from "./lib/api";
+import { api, fetchWorktrees, subscribeNotifications } from "./lib/api";
 
 interface Deferred<T> {
   promise: Promise<T>;
@@ -56,12 +58,18 @@ function deferred<T>(): Deferred<T> {
 
 function createConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   return {
+    name: "repo",
     services: [],
+    startupEnvs: {},
     profiles: [{ name: "default" }],
     defaultProfileName: "default",
     autoName: false,
     linearCreateTicketOption: false,
     linkedRepos: [],
+    linearAutoCreateWorktrees: false,
+    autoRemoveOnMerge: false,
+    projectDir: "/repo",
+    mainBranch: "main",
     ...overrides,
   };
 }
@@ -188,9 +196,9 @@ describe("App create selection", () => {
     setupBrowserMocks();
 
     vi.mocked(api.fetchConfig).mockResolvedValue(createConfig());
-    vi.mocked(api.fetchWorktrees).mockResolvedValue([]);
-    vi.mocked(api.fetchAvailableBranches).mockResolvedValue([]);
-    vi.mocked(api.fetchBaseBranches).mockResolvedValue([]);
+    vi.mocked(fetchWorktrees).mockResolvedValue([]);
+    vi.mocked(api.fetchAvailableBranches).mockResolvedValue({ branches: [] });
+    vi.mocked(api.fetchBaseBranches).mockResolvedValue({ branches: [] });
     vi.mocked(api.fetchLinearIssues).mockResolvedValue(createLinearIssuesResponse());
     vi.mocked(api.fetchWorktreeDiff).mockResolvedValue({
       uncommitted: "",
@@ -198,16 +206,16 @@ describe("App create selection", () => {
       gitStatus: "",
       unpushedCommits: [],
     });
-    vi.mocked(api.subscribeNotifications).mockReturnValue(() => {});
-    vi.mocked(api.openWorktree).mockResolvedValue(undefined);
-    vi.mocked(api.closeWorktree).mockResolvedValue(undefined);
-    vi.mocked(api.removeWorktree).mockResolvedValue(undefined);
+    vi.mocked(subscribeNotifications).mockReturnValue(() => {});
+    vi.mocked(api.openWorktree).mockResolvedValue({ ok: true });
+    vi.mocked(api.closeWorktree).mockResolvedValue({ ok: true });
+    vi.mocked(api.removeWorktree).mockResolvedValue({ ok: true });
     vi.mocked(api.setWorktreeArchived).mockResolvedValue({ ok: true, archived: true });
-    vi.mocked(api.mergeWorktree).mockResolvedValue(undefined);
+    vi.mocked(api.mergeWorktree).mockResolvedValue({ ok: true });
     vi.mocked(api.pullMain).mockResolvedValue({ status: "updated" });
-    vi.mocked(api.dismissNotification).mockResolvedValue(undefined);
-    vi.mocked(api.fetchCiLogs).mockResolvedValue("");
-    vi.mocked(api.sendWorktreePrompt).mockResolvedValue(undefined);
+    vi.mocked(api.dismissNotification).mockResolvedValue({ ok: true });
+    vi.mocked(api.fetchCiLogs).mockResolvedValue({ logs: "" });
+    vi.mocked(api.sendWorktreePrompt).mockResolvedValue({ ok: true });
   });
 
   afterEach(() => {
@@ -224,7 +232,7 @@ describe("App create selection", () => {
     const newWorktree = createWorktree("feature/new");
     const createResult = deferred<{ primaryBranch: string; branches: string[] }>();
 
-    vi.mocked(api.fetchWorktrees)
+    vi.mocked(fetchWorktrees)
       .mockResolvedValueOnce([existingWorktree])
       .mockResolvedValueOnce([existingWorktree, creatingWorktree])
       .mockResolvedValueOnce([existingWorktree, newWorktree])
@@ -238,7 +246,7 @@ describe("App create selection", () => {
     await openCreateDialogAndSubmit("feature/new");
 
     await waitFor(() => {
-      expect(api.fetchWorktrees).toHaveBeenCalledTimes(2);
+      expect(fetchWorktrees).toHaveBeenCalledTimes(2);
     });
     expect(screen.getByRole("button", { name: /^feature\/new\b/i })).toBeInTheDocument();
     expect(screen.getByTitle("main")).toBeInTheDocument();
@@ -247,7 +255,7 @@ describe("App create selection", () => {
     createResult.resolve({ primaryBranch: "feature/new", branches: ["feature/new"] });
 
     await waitFor(() => {
-      expect(api.fetchWorktrees).toHaveBeenCalledTimes(3);
+      expect(fetchWorktrees).toHaveBeenCalledTimes(3);
     });
     expect(screen.getByTitle("main")).toBeInTheDocument();
     expect(screen.queryByTitle("feature/new")).not.toBeInTheDocument();
@@ -261,7 +269,7 @@ describe("App create selection", () => {
     const newWorktree = createWorktree("feature/new");
     const createResult = deferred<{ primaryBranch: string; branches: string[] }>();
 
-    vi.mocked(api.fetchWorktrees)
+    vi.mocked(fetchWorktrees)
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([creatingWorktree])
       .mockResolvedValueOnce([newWorktree])
@@ -276,13 +284,13 @@ describe("App create selection", () => {
     createResult.resolve({ primaryBranch: "feature/new", branches: ["feature/new"] });
 
     await waitFor(() => {
-      expect(api.fetchWorktrees).toHaveBeenCalledTimes(3);
+      expect(fetchWorktrees).toHaveBeenCalledTimes(3);
     });
     expect(screen.getByTitle("feature/new")).toBeInTheDocument();
   });
 
   it("shows an error toast when worktree creation fails", async () => {
-    vi.mocked(api.fetchWorktrees).mockResolvedValue([]);
+    vi.mocked(fetchWorktrees).mockResolvedValue([]);
     vi.mocked(api.createWorktree).mockRejectedValueOnce(new Error("branch exists"));
 
     render(App);
@@ -297,8 +305,8 @@ describe("App create selection", () => {
   it("dismisses notification toasts through the notification API", async () => {
     let onNotification: ((notification: AppNotification) => void) | undefined;
 
-    vi.mocked(api.fetchWorktrees).mockResolvedValue([]);
-    vi.mocked(api.subscribeNotifications).mockImplementation((handleNotification) => {
+    vi.mocked(fetchWorktrees).mockResolvedValue([]);
+    vi.mocked(subscribeNotifications).mockImplementation((handleNotification) => {
       onNotification = handleNotification;
       return () => {};
     });
@@ -316,7 +324,7 @@ describe("App create selection", () => {
     expect(dismissButton).toBeDefined();
     await fireEvent.click(dismissButton!);
 
-    expect(api.dismissNotification).toHaveBeenCalledWith(42);
+    expect(api.dismissNotification).toHaveBeenCalledWith({ params: { id: 42 } });
   });
 
   it("shows a success toast when pulling main succeeds", async () => {
@@ -324,7 +332,7 @@ describe("App create selection", () => {
       projectDir: "/repo",
       mainBranch: "main",
     }));
-    vi.mocked(api.fetchWorktrees).mockResolvedValue([]);
+    vi.mocked(fetchWorktrees).mockResolvedValue([]);
     vi.mocked(api.pullMain).mockResolvedValueOnce({ status: "updated" });
 
     render(App);
@@ -334,7 +342,7 @@ describe("App create selection", () => {
     await fireEvent.click(screen.getByRole("button", { name: "Pull" }));
     await fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Pull" }));
 
-    expect(api.pullMain).toHaveBeenCalledWith(false);
+    expect(api.pullMain).toHaveBeenCalledWith({ body: {} });
     expect(await screen.findByRole("alert")).toHaveTextContent('Pulled latest "main" from remote');
   });
 
@@ -351,7 +359,7 @@ describe("App create selection", () => {
     const createdCodex = createWorktree("codex-feature/new");
     const createResult = deferred<{ primaryBranch: string; branches: string[] }>();
 
-    vi.mocked(api.fetchWorktrees)
+    vi.mocked(fetchWorktrees)
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([creatingClaude, creatingCodex])
       .mockResolvedValueOnce([createdClaude, createdCodex])
@@ -376,13 +384,13 @@ describe("App create selection", () => {
     });
 
     await waitFor(() => {
-      expect(api.fetchWorktrees).toHaveBeenCalledTimes(3);
+      expect(fetchWorktrees).toHaveBeenCalledTimes(3);
     });
     expect(screen.getByTitle("claude-feature/new")).toBeInTheDocument();
   });
 
   it("hides archived worktrees until the archived toggle is enabled", async () => {
-    vi.mocked(api.fetchWorktrees).mockResolvedValue([
+    vi.mocked(fetchWorktrees).mockResolvedValue([
       createWorktree("feature/active"),
       createWorktree("feature/archived", { archived: true }),
     ]);
@@ -400,7 +408,7 @@ describe("App create selection", () => {
   });
 
   it("keeps the current selection while filtering the worktree list", async () => {
-    vi.mocked(api.fetchWorktrees).mockResolvedValue([
+    vi.mocked(fetchWorktrees).mockResolvedValue([
       createWorktree("main"),
       createWorktree("feature/alpha"),
       createWorktree("feature/beta"),
@@ -420,7 +428,7 @@ describe("App create selection", () => {
   });
 
   it("clears the worktree search from the trailing clear button", async () => {
-    vi.mocked(api.fetchWorktrees).mockResolvedValue([
+    vi.mocked(fetchWorktrees).mockResolvedValue([
       createWorktree("feature/alpha"),
       createWorktree("feature/beta"),
     ]);
@@ -437,7 +445,7 @@ describe("App create selection", () => {
   });
 
   it("archives the selected worktree through the API", async () => {
-    vi.mocked(api.fetchWorktrees)
+    vi.mocked(fetchWorktrees)
       .mockResolvedValueOnce([createWorktree("feature/active")])
       .mockResolvedValueOnce([createWorktree("feature/active", { archived: true })])
       .mockResolvedValue([createWorktree("feature/active", { archived: true })]);
@@ -448,12 +456,15 @@ describe("App create selection", () => {
     await fireEvent.click(screen.getByRole("button", { name: "Archive" }));
 
     await waitFor(() => {
-      expect(api.setWorktreeArchived).toHaveBeenCalledWith("feature/active", { archived: true });
+      expect(api.setWorktreeArchived).toHaveBeenCalledWith({
+        params: { name: "feature/active" },
+        body: { archived: true },
+      });
     });
   });
 
   it("shows a setup message in the Linear panel when LINEAR_API_KEY is missing", async () => {
-    vi.mocked(api.fetchWorktrees).mockResolvedValue([]);
+    vi.mocked(fetchWorktrees).mockResolvedValue([]);
     vi.mocked(api.fetchLinearIssues).mockResolvedValue(
       createLinearIssuesResponse({ availability: "missing_api_key" }),
     );
@@ -473,7 +484,7 @@ describe("App create selection", () => {
   });
 
   it("shows an empty-state message in the Linear panel when Linear is ready but has no issues", async () => {
-    vi.mocked(api.fetchWorktrees).mockResolvedValue([]);
+    vi.mocked(fetchWorktrees).mockResolvedValue([]);
     vi.mocked(api.fetchLinearIssues).mockResolvedValue(
       createLinearIssuesResponse({ availability: "ready", issues: [] }),
     );
@@ -491,7 +502,7 @@ describe("App create selection", () => {
   });
 
   it("hides the Linear ticket option when disabled in config", async () => {
-    vi.mocked(api.fetchWorktrees).mockResolvedValue([]);
+    vi.mocked(fetchWorktrees).mockResolvedValue([]);
 
     render(App);
 
@@ -505,7 +516,7 @@ describe("App create selection", () => {
     vi.mocked(api.fetchConfig).mockResolvedValue(createConfig({
       linearCreateTicketOption: true,
     }));
-    vi.mocked(api.fetchWorktrees).mockResolvedValue([]);
+    vi.mocked(fetchWorktrees).mockResolvedValue([]);
     vi.mocked(api.createWorktree).mockResolvedValue({
       primaryBranch: "eng-123-new-flow",
       branches: ["eng-123-new-flow"],
@@ -536,18 +547,20 @@ describe("App create selection", () => {
 
     await waitFor(() => {
       expect(api.createWorktree).toHaveBeenCalledWith({
-        mode: "new",
-        profile: "default",
-        agent: "claude",
-        prompt: "Implement the new flow",
-        createLinearTicket: true,
-        linearTitle: "Ship Linear-backed worktree creation",
+        body: {
+          mode: "new",
+          profile: "default",
+          agent: "claude",
+          prompt: "Implement the new flow",
+          createLinearTicket: true,
+          linearTitle: "Ship Linear-backed worktree creation",
+        },
       });
     });
   });
 
   it("submits paired worktree creation when Both is selected", async () => {
-    vi.mocked(api.fetchWorktrees).mockResolvedValue([]);
+    vi.mocked(fetchWorktrees).mockResolvedValue([]);
     vi.mocked(api.createWorktree).mockResolvedValue({
       primaryBranch: "claude-feature/new",
       branches: ["claude-feature/new", "codex-feature/new"],
@@ -570,17 +583,19 @@ describe("App create selection", () => {
 
     await waitFor(() => {
       expect(api.createWorktree).toHaveBeenCalledWith({
-        mode: "new",
-        branch: "feature/new",
-        profile: "default",
-        agent: "both",
+        body: {
+          mode: "new",
+          branch: "feature/new",
+          profile: "default",
+          agent: "both",
+        },
       });
     });
   });
 
   it("submits an explicit base branch when provided", async () => {
-    vi.mocked(api.fetchWorktrees).mockResolvedValue([]);
-    vi.mocked(api.fetchBaseBranches).mockResolvedValue([{ name: "release/base" }]);
+    vi.mocked(fetchWorktrees).mockResolvedValue([]);
+    vi.mocked(api.fetchBaseBranches).mockResolvedValue({ branches: [{ name: "release/base" }] });
     vi.mocked(api.createWorktree).mockResolvedValue({
       primaryBranch: "feature/from-release",
       branches: ["feature/from-release"],
@@ -592,21 +607,23 @@ describe("App create selection", () => {
 
     await waitFor(() => {
       expect(api.createWorktree).toHaveBeenCalledWith({
-        mode: "new",
-        branch: "feature/from-release",
-        baseBranch: "release/base",
-        profile: "default",
-        agent: "claude",
+        body: {
+          mode: "new",
+          branch: "feature/from-release",
+          baseBranch: "release/base",
+          profile: "default",
+          agent: "claude",
+        },
       });
     });
   });
 
   it("caches branch lists across dialog openings and only fetches each mode once", async () => {
-    vi.mocked(api.fetchWorktrees).mockResolvedValue([]);
+    vi.mocked(fetchWorktrees).mockResolvedValue([]);
     vi.mocked(api.fetchAvailableBranches)
-      .mockResolvedValueOnce([{ name: "feature/local-only" }])
-      .mockResolvedValueOnce([{ name: "feature/local-only" }, { name: "feature/remote-only" }]);
-    vi.mocked(api.fetchBaseBranches).mockResolvedValue([{ name: "main" }]);
+      .mockResolvedValueOnce({ branches: [{ name: "feature/local-only" }] })
+      .mockResolvedValueOnce({ branches: [{ name: "feature/local-only" }, { name: "feature/remote-only" }] });
+    vi.mocked(api.fetchBaseBranches).mockResolvedValue({ branches: [{ name: "main" }] });
 
     render(App);
 
@@ -615,7 +632,7 @@ describe("App create selection", () => {
 
     await waitFor(() => {
       expect(api.fetchAvailableBranches).toHaveBeenCalledTimes(1);
-      expect(api.fetchAvailableBranches).toHaveBeenCalledWith({ includeRemote: false });
+      expect(api.fetchAvailableBranches).toHaveBeenCalledWith({ query: { includeRemote: false } });
       expect(api.fetchBaseBranches).toHaveBeenCalledTimes(1);
     });
 
@@ -624,7 +641,7 @@ describe("App create selection", () => {
 
     await waitFor(() => {
       expect(api.fetchAvailableBranches).toHaveBeenCalledTimes(2);
-      expect(api.fetchAvailableBranches).toHaveBeenLastCalledWith({ includeRemote: true });
+      expect(api.fetchAvailableBranches).toHaveBeenLastCalledWith({ query: { includeRemote: true } });
     });
 
     await fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
@@ -648,10 +665,10 @@ describe("App create selection", () => {
   it("keeps the current branch list visible while remote branches are loading", async () => {
     const remoteBranches = deferred<Array<{ name: string }>>();
 
-    vi.mocked(api.fetchWorktrees).mockResolvedValue([]);
+    vi.mocked(fetchWorktrees).mockResolvedValue([]);
     vi.mocked(api.fetchAvailableBranches)
-      .mockResolvedValueOnce([{ name: "feature/local-only" }])
-      .mockReturnValueOnce(remoteBranches.promise);
+      .mockResolvedValueOnce({ branches: [{ name: "feature/local-only" }] })
+      .mockReturnValueOnce(remoteBranches.promise.then((branches) => ({ branches })));
 
     render(App);
 

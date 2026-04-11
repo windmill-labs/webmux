@@ -3,7 +3,7 @@
   import { ColorSchemeType } from "diff2html/lib/types";
   import "diff2html/bundles/css/diff2html.min.css";
   import type { UnpushedCommit } from "./types";
-  import { fetchWorktreeDiff } from "./api";
+  import { api } from "./api";
   import { errorMessage } from "./utils";
   import BaseDialog from "./BaseDialog.svelte";
   import Btn from "./Btn.svelte";
@@ -29,7 +29,7 @@
   $effect(() => {
     loading = true;
     error = "";
-    fetchWorktreeDiff(branch)
+    api.fetchWorktreeDiff({ params: { name: branch } })
       .then((res) => {
         uncommitted = res.uncommitted;
         uncommittedTruncated = res.uncommittedTruncated;

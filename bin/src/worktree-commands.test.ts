@@ -719,7 +719,10 @@ describe("runWorktreeCommand", () => {
 
     it("reports server errors with the error message", async () => {
       globalThis.fetch = (async () => {
-        return new Response(JSON.stringify({ error: "Worktree not found: no-such" }), { status: 404 });
+        return new Response(JSON.stringify({ error: "Worktree not found: no-such" }), {
+          status: 404,
+          headers: { "Content-Type": "application/json" },
+        });
       }) as typeof fetch;
 
       const stderr: string[] = [];

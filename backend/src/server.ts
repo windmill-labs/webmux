@@ -2,6 +2,15 @@ import { randomUUID } from "node:crypto";
 import { join, resolve } from "node:path";
 import { mkdirSync } from "node:fs";
 import { networkInterfaces } from "node:os";
+import {
+  apiPaths,
+  AvailableBranchesQuerySchema,
+  CreateWorktreeRequestSchema,
+  PullMainRequestSchema,
+  SendWorktreePromptRequestSchema,
+  SetWorktreeArchivedRequestSchema,
+  ToggleEnabledRequestSchema,
+} from "@webmux/api-contract";
 import { log } from "./lib/log";
 import {
   attach,
@@ -20,6 +29,7 @@ import {
 import { loadControlToken } from "./adapters/control-token";
 import { getDefaultProfileName, persistLocalLinearConfig, persistLocalGitHubConfig, type ProjectConfig } from "./adapters/config";
 import { jsonResponse, errorResponse } from "./lib/http";
+import { parseJsonBody, parseQuery } from "./api-validation";
 import { hasRecentDashboardActivity, touchDashboardActivity } from "./services/dashboard-activity";
 import { buildArchivedWorktreePathSet, normalizeArchivePath } from "./services/archive-service";
 import {
@@ -431,7 +441,10 @@ async function apiRuntimeEvent(req: Request): Promise<Response> {
 }
 
 async function apiListBranches(req: Request): Promise<Response> {
-  const includeRemote = new URL(req.url).searchParams.get("includeRemote") === "true";
+  const parsed = parseQuery(req, AvailableBranchesQuerySchema);
+  if (!parsed.ok) return parsed.response;
+
+  const includeRemote = parsed.data.includeRemote === true;
   return jsonResponse({
     branches: lifecycleService.listAvailableBranches({ includeRemote }),
   });
@@ -444,46 +457,20 @@ async function apiListBaseBranches(): Promise<Response> {
 }
 
 async function apiCreateWorktree(req: Request): Promise<Response> {
-  const raw: unknown = await req.json();
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    return errorResponse("Invalid request body", 400);
-  }
-  const body = raw as Record<string, unknown>;
+  const parsed = await parseJsonBody(req, CreateWorktreeRequestSchema);
+  if (!parsed.ok) return parsed.response;
 
-  // Parse envOverrides: must be a plain object with string keys and values
-  let envOverrides: Record<string, string> | undefined;
-  if (body.envOverrides && typeof body.envOverrides === "object" && !Array.isArray(body.envOverrides)) {
-    const raw = body.envOverrides as Record<string, unknown>;
-    const parsed: Record<string, string> = {};
-    for (const [k, v] of Object.entries(raw)) {
-      if (typeof v === "string") parsed[k] = v;
-    }
-    if (Object.keys(parsed).length > 0) envOverrides = parsed;
-  }
-
-  const branch = typeof body.branch === "string" && body.branch.trim() ? body.branch.trim() : undefined;
-  const baseBranch = typeof body.baseBranch === "string" && body.baseBranch.trim() ? body.baseBranch.trim() : undefined;
-  const prompt = typeof body.prompt === "string" && body.prompt.trim() ? body.prompt.trim() : undefined;
-  const profile = typeof body.profile === "string" ? body.profile : undefined;
-  const agent: CreateWorktreeAgentSelection | undefined = body.agent === "claude"
-      || body.agent === "codex"
-      || body.agent === "both"
-    ? body.agent
-    : undefined;
+  const body = parsed.data;
+  const envOverrides = body.envOverrides && Object.keys(body.envOverrides).length > 0 ? body.envOverrides : undefined;
+  const branch = body.branch?.trim() ? body.branch.trim() : undefined;
+  const baseBranch = body.baseBranch?.trim() ? body.baseBranch.trim() : undefined;
+  const prompt = body.prompt?.trim() ? body.prompt.trim() : undefined;
+  const profile = body.profile;
+  const agent: CreateWorktreeAgentSelection | undefined = body.agent;
   const createLinearTicket = body.createLinearTicket === true;
-  const linearTitle = typeof body.linearTitle === "string" && body.linearTitle.trim()
-    ? body.linearTitle.trim()
-    : undefined;
-  const mode = body.mode === "new" || body.mode === "existing" ? body.mode : undefined;
+  const linearTitle = body.linearTitle?.trim() ? body.linearTitle.trim() : undefined;
+  const mode = body.mode;
   const agentSelection = agent ?? config.workspace.defaultAgent;
-
-  if (body.mode !== undefined && body.mode !== "new" && body.mode !== "existing") {
-    return errorResponse("Invalid worktree create mode", 400);
-  }
-
-  if (body.agent !== undefined && body.agent !== "claude" && body.agent !== "codex" && body.agent !== "both") {
-    return errorResponse("Invalid agent selection", 400);
-  }
 
   if (baseBranch && !isValidBranchName(baseBranch)) {
     return errorResponse("Invalid base branch name", 400);
@@ -593,14 +580,9 @@ async function apiCloseWorktree(name: string): Promise<Response> {
 
 async function apiSetWorktreeArchived(name: string, req: Request): Promise<Response> {
   ensureBranchNotBusy(name);
-  const raw: unknown = await req.json();
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    return errorResponse("Invalid request body", 400);
-  }
-  const body = raw as Record<string, unknown>;
-  if (typeof body.archived !== "boolean") {
-    return errorResponse("Missing boolean 'archived' field", 400);
-  }
+  const parsed = await parseJsonBody(req, SetWorktreeArchivedRequestSchema);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.data;
 
   log.info(`[worktree:archive] name=${name} archived=${body.archived}`);
   await lifecycleService.setWorktreeArchived(name, body.archived);
@@ -610,14 +592,11 @@ async function apiSetWorktreeArchived(name: string, req: Request): Promise<Respo
 
 async function apiSendPrompt(name: string, req: Request): Promise<Response> {
   ensureBranchNotBusy(name);
-  const raw: unknown = await req.json();
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    return errorResponse("Invalid request body", 400);
-  }
-  const body = raw as Record<string, unknown>;
-  const text = typeof body.text === "string" ? body.text : "";
-  if (!text) return errorResponse("Missing 'text' field", 400);
-  const preamble = typeof body.preamble === "string" ? body.preamble : undefined;
+  const parsed = await parseJsonBody(req, SendWorktreePromptRequestSchema);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.data;
+  const text = body.text;
+  const preamble = body.preamble;
   log.info(`[worktree:send] name=${name} text="${text.slice(0, 80)}"`);
   const terminalWorktree = await resolveTerminalWorktree(name);
   const result = await sendTerminalPrompt(
@@ -640,14 +619,9 @@ async function apiMergeWorktree(name: string): Promise<Response> {
 }
 
 async function apiSetLinearAutoCreate(req: Request): Promise<Response> {
-  const raw: unknown = await req.json();
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    return errorResponse("Invalid request body", 400);
-  }
-  const body = raw as Record<string, unknown>;
-  if (typeof body.enabled !== "boolean") {
-    return errorResponse("Missing boolean 'enabled' field", 400);
-  }
+  const parsed = await parseJsonBody(req, ToggleEnabledRequestSchema);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.data;
 
   linearAutoCreateEnabled = body.enabled;
   if (linearAutoCreateEnabled) {
@@ -665,14 +639,9 @@ async function apiSetLinearAutoCreate(req: Request): Promise<Response> {
 }
 
 async function apiSetAutoRemoveOnMerge(req: Request): Promise<Response> {
-  const raw: unknown = await req.json();
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    return errorResponse("Invalid request body", 400);
-  }
-  const body = raw as Record<string, unknown>;
-  if (typeof body.enabled !== "boolean") {
-    return errorResponse("Missing boolean 'enabled' field", 400);
-  }
+  const parsed = await parseJsonBody(req, ToggleEnabledRequestSchema);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.data;
 
   autoRemoveOnMergeEnabled = body.enabled;
   log.info(`[config] Auto-remove on merge ${autoRemoveOnMergeEnabled ? "enabled" : "disabled"}`);
@@ -684,9 +653,12 @@ async function apiSetAutoRemoveOnMerge(req: Request): Promise<Response> {
 
 async function apiPullMain(req: Request): Promise<Response> {
   const raw: unknown = await req.json().catch(() => ({}));
-  const body = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
-  const force = body.force === true;
-  const repo = typeof body.repo === "string" ? body.repo : "";
+  const parsed = PullMainRequestSchema.safeParse(raw);
+  if (!parsed.success) {
+    return errorResponse("Invalid request body", 400);
+  }
+  const force = parsed.data.force === true;
+  const repo = parsed.data.repo ?? "";
 
   let projectRoot = PROJECT_DIR;
   if (repo) {
@@ -824,19 +796,19 @@ Bun.serve({
         : new Response("WebSocket upgrade failed", { status: 400 });
     },
 
-    "/api/config": {
+    [apiPaths.fetchConfig]: {
       GET: () => jsonResponse(getFrontendConfig()),
     },
 
-    "/api/branches": {
+    [apiPaths.fetchAvailableBranches]: {
       GET: (req) => catching("GET /api/branches", () => apiListBranches(req)),
     },
 
-    "/api/base-branches": {
+    [apiPaths.fetchBaseBranches]: {
       GET: () => catching("GET /api/base-branches", () => apiListBaseBranches()),
     },
 
-    "/api/project": {
+    [apiPaths.fetchProject]: {
       GET: () => catching("GET /api/project", () => apiGetProject()),
     },
 
@@ -844,12 +816,12 @@ Bun.serve({
       POST: (req) => catching("POST /api/runtime/events", () => apiRuntimeEvent(req)),
     },
 
-    "/api/worktrees": {
+    [apiPaths.fetchWorktrees]: {
       GET: () => catching("GET /api/worktrees", () => apiGetWorktrees()),
       POST: (req) => catching("POST /api/worktrees", () => apiCreateWorktree(req)),
     },
 
-    "/api/worktrees/:name": {
+    [apiPaths.removeWorktree]: {
       DELETE: (req) => {
         const name = decodeURIComponent(req.params.name);
         if (!isValidWorktreeName(name)) return errorResponse("Invalid worktree name", 400);
@@ -857,7 +829,7 @@ Bun.serve({
       },
     },
 
-    "/api/worktrees/:name/open": {
+    [apiPaths.openWorktree]: {
       POST: (req) => {
         const name = decodeURIComponent(req.params.name);
         if (!isValidWorktreeName(name)) return errorResponse("Invalid worktree name", 400);
@@ -873,7 +845,7 @@ Bun.serve({
       },
     },
 
-    "/api/worktrees/:name/close": {
+    [apiPaths.closeWorktree]: {
       POST: (req) => {
         const name = decodeURIComponent(req.params.name);
         if (!isValidWorktreeName(name)) return errorResponse("Invalid worktree name", 400);
@@ -881,7 +853,7 @@ Bun.serve({
       },
     },
 
-    "/api/worktrees/:name/archive": {
+    [apiPaths.setWorktreeArchived]: {
       PUT: (req) => {
         const name = decodeURIComponent(req.params.name);
         if (!isValidWorktreeName(name)) return errorResponse("Invalid worktree name", 400);
@@ -889,7 +861,7 @@ Bun.serve({
       },
     },
 
-    "/api/worktrees/:name/send": {
+    [apiPaths.sendWorktreePrompt]: {
       POST: (req) => {
         const name = decodeURIComponent(req.params.name);
         if (!isValidWorktreeName(name)) return errorResponse("Invalid worktree name", 400);
@@ -905,7 +877,7 @@ Bun.serve({
       },
     },
 
-    "/api/worktrees/:name/merge": {
+    [apiPaths.mergeWorktree]: {
       POST: (req) => {
         const name = decodeURIComponent(req.params.name);
         if (!isValidWorktreeName(name)) return errorResponse("Invalid worktree name", 400);
@@ -913,7 +885,7 @@ Bun.serve({
       },
     },
 
-    "/api/worktrees/:name/diff": {
+    [apiPaths.fetchWorktreeDiff]: {
       GET: (req) => {
         const name = decodeURIComponent(req.params.name);
         if (!isValidWorktreeName(name)) return errorResponse("Invalid worktree name", 400);
@@ -921,23 +893,23 @@ Bun.serve({
       },
     },
 
-    "/api/linear/issues": {
+    [apiPaths.fetchLinearIssues]: {
       GET: () => catching("GET /api/linear/issues", () => apiGetLinearIssues()),
     },
 
-    "/api/linear/auto-create": {
+    [apiPaths.setLinearAutoCreate]: {
       PUT: (req) => catching("PUT /api/linear/auto-create", () => apiSetLinearAutoCreate(req)),
     },
 
-    "/api/github/auto-remove-on-merge": {
+    [apiPaths.setAutoRemoveOnMerge]: {
       PUT: (req) => catching("PUT /api/github/auto-remove-on-merge", () => apiSetAutoRemoveOnMerge(req)),
     },
 
-    "/api/pull-main": {
+    [apiPaths.pullMain]: {
       POST: (req) => catching("POST /api/pull-main", () => apiPullMain(req)),
     },
 
-    "/api/ci-logs/:runId": {
+    [apiPaths.fetchCiLogs]: {
       GET: (req) => catching(`GET /api/ci-logs/${req.params.runId}`, () => apiCiLogs(req.params.runId)),
     },
 
@@ -945,7 +917,7 @@ Bun.serve({
       GET: () => runtimeNotifications.stream(),
     },
 
-    "/api/notifications/:id/dismiss": {
+    [apiPaths.dismissNotification]: {
       POST: (req) => {
         const id = parseInt(req.params.id, 10);
         if (isNaN(id)) return errorResponse("Invalid notification ID", 400);

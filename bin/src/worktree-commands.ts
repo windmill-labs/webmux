@@ -1,4 +1,5 @@
 import * as p from "@clack/prompts";
+import { createApi } from "@webmux/api-contract";
 import { basename, resolve } from "node:path";
 import { readWorktreeArchiveState, readWorktreeMeta } from "../../backend/src/adapters/fs";
 import { buildProjectSessionName, buildWorktreeWindowName } from "../../backend/src/adapters/tmux";
@@ -658,29 +659,23 @@ export async function runWorktreeCommand(
         return 0;
       }
 
-      const url = `http://localhost:${context.port}/api/worktrees/${encodeURIComponent(parsed.branch)}/send`;
-      const body: Record<string, string> = { text: parsed.text };
-      if (parsed.preamble) body.preamble = parsed.preamble;
-
-      let response: Response;
+      const api = createApi(`http://localhost:${context.port}`);
       try {
-        response = await fetch(url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
+        await api.sendWorktreePrompt({
+          params: { name: parsed.branch },
+          body: {
+            text: parsed.text,
+            ...(parsed.preamble ? { preamble: parsed.preamble } : {}),
+          },
         });
-      } catch {
+      } catch (error) {
+        if (error instanceof Error && error.message.startsWith("HTTP")) {
+          throw error;
+        }
+        if (error instanceof Error && !error.message.includes("fetch")) {
+          throw error;
+        }
         throw new Error(`Could not connect to webmux server on port ${context.port}. Is it running?`);
-      }
-
-      if (!response.ok) {
-        const errorBody = await response.text();
-        let message = `Server returned ${response.status}`;
-        try {
-          const json = JSON.parse(errorBody) as Record<string, unknown>;
-          if (typeof json.error === "string") message = json.error;
-        } catch {}
-        throw new Error(message);
       }
 
       stdout(`Sent prompt to ${parsed.branch}`);

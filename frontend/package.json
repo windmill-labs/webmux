@@ -29,6 +29,7 @@
     "vitest": "^4.0.18"
   },
   "dependencies": {
+    "@webmux/api-contract": "workspace:*",
     "diff2html": "^3.4.56"
   }
 }

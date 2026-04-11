@@ -2,7 +2,7 @@
   import { untrack } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
   import type { PrEntry, PrComment } from "./types";
-  import { sendWorktreePrompt } from "./api";
+  import { api } from "./api";
   import { normalizeTextForPrompt } from "./promptUtils";
   import { prLabel, errorMessage } from "./utils";
   import { getToastController } from "./toast-context";
@@ -86,11 +86,13 @@
       .map((c, i) => formatComment(c, i + 1))
       .join("\n\n");
     try {
-      await sendWorktreePrompt(
-        branch,
-        normalizeTextForPrompt(content, 20000),
-        preamble,
-      );
+      await api.sendWorktreePrompt({
+        params: { name: branch },
+        body: {
+          text: normalizeTextForPrompt(content, 20000),
+          preamble,
+        },
+      });
       toast.success(`Sent ${selected.size} comment${selected.size === 1 ? "" : "s"} to agent`);
       onsendsuccess();
     } catch (err) {

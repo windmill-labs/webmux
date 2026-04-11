@@ -21,8 +21,12 @@
   },
   "workspaces": [
     "backend",
-    "frontend"
+    "frontend",
+    "packages/*"
   ],
+  "dependencies": {
+    "@webmux/api-contract": "workspace:*"
+  },
   "scripts": {
     "dev": "bash dev.sh",
     "start": "bun bin/webmux.js",

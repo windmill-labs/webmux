@@ -9,13 +9,6 @@ auto_name:
   provider: claude
   model: haiku
 
-startupEnvs:
-  NODE_ENV: development
-
-lifecycleHooks:
-  postCreate: ./scripts/post-create.sh
-  preRemove: ./scripts/pre-remove.sh
-
 services:
   - name: BE
     portEnv: PORT

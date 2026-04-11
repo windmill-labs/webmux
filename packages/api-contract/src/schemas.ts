@@ -38,6 +38,11 @@ export const AvailableBranchesQuerySchema = z.object({
   includeRemote: BooleanLikeSchema.optional(),
 });
 
+const NumberLikePathParamSchema = z.union([
+  z.number().int().nonnegative(),
+  z.string().regex(/^\d+$/).transform((value) => Number(value)),
+]);
+
 export const BranchListResponseSchema = z.object({
   branches: z.array(AvailableBranchSchema),
 });
@@ -273,11 +278,11 @@ export const WorktreeNameParamsSchema = z.object({
 });
 
 export const NotificationIdParamsSchema = z.object({
-  id: z.union([z.number(), z.string()]).transform((value) => String(value)),
+  id: NumberLikePathParamSchema,
 });
 
 export const RunIdParamsSchema = z.object({
-  runId: z.union([z.number(), z.string()]).transform((value) => String(value)),
+  runId: NumberLikePathParamSchema,
 });
 
 export type AgentKind = z.infer<typeof AgentKindSchema>;
@@ -285,6 +290,7 @@ export type CreateWorktreeAgentSelection = z.infer<typeof CreateWorktreeAgentSel
 export type WorktreeCreateMode = z.infer<typeof WorktreeCreateModeSchema>;
 export type WorktreeCreationPhase = z.infer<typeof WorktreeCreationPhaseSchema>;
 export type AvailableBranch = z.infer<typeof AvailableBranchSchema>;
+// Keep this manual so frontend callers pass booleans instead of raw `"true"`/`"false"` query literals.
 export type AvailableBranchesQuery = { includeRemote?: boolean };
 export type BranchListResponse = z.infer<typeof BranchListResponseSchema>;
 export type CreateWorktreeRequest = z.infer<typeof CreateWorktreeRequestSchema>;

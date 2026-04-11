@@ -1,10 +1,14 @@
-import { initClient } from "@ts-rest/core";
+import { initClient, type InitClientArgs } from "@ts-rest/core";
 import { apiContract } from "./contract";
 
-export function createApiClient(baseUrl: string) {
+export type ApiClientOptions = Omit<InitClientArgs, "baseUrl">;
+
+export function createApiClient(baseUrl: string, options: ApiClientOptions = {}) {
   return initClient(apiContract, {
     baseUrl,
+    throwOnUnknownStatus: true,
     baseHeaders: {},
+    ...options,
   });
 }
 
@@ -19,6 +23,30 @@ type UnwrappedClient<TClient> = {
     ? (...args: TArgs) => Promise<SuccessBody<TResponse>>
     : TClient[K];
 };
+
+type RouteCall = (...args: unknown[]) => Promise<unknown>;
+type RouteResponse = { status: number; body: unknown };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isRouteResponse(value: unknown): value is RouteResponse {
+  return isRecord(value)
+    && "status" in value
+    && typeof value.status === "number"
+    && "body" in value;
+}
+
+function unwrapResponse(response: unknown): unknown {
+  if (!isRouteResponse(response)) {
+    throw new Error("Malformed API client response");
+  }
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(errorMessageFromResponse(response.body, response.status));
+  }
+  return response.body;
+}
 
 function errorMessageFromResponse(body: unknown, status: number): string {
   if (typeof body === "string") {
@@ -35,7 +63,9 @@ function errorMessageFromResponse(body: unknown, status: number): string {
   return `HTTP ${status}`;
 }
 
-function encodeArgs(args: unknown[]): unknown[] {
+// ts-rest interpolates path params verbatim, so names like `feature/foo`
+// must be encoded before they are inserted into `/api/.../:name/...`.
+function withEncodedPathParams(args: unknown[]): unknown[] {
   const [first, ...rest] = args;
   if (!first || typeof first !== "object" || !("params" in first) || !first.params || typeof first.params !== "object") {
     return args;
@@ -54,28 +84,24 @@ function encodeArgs(args: unknown[]): unknown[] {
   ];
 }
 
-export function createApi(baseUrl: string): UnwrappedClient<ReturnType<typeof createApiClient>> {
-  const client = createApiClient(baseUrl);
-
-  return new Proxy(client, {
-    get(target, prop, receiver) {
-      const value = Reflect.get(target, prop, receiver);
-      if (typeof value !== "function") {
-        return value;
-      }
-
-      return async (...args: unknown[]) => {
-        const response = await value(...encodeArgs(args));
-        if (!response || typeof response !== "object" || !("status" in response) || !("body" in response)) {
-          throw new Error("Malformed API client response");
-        }
-        if (typeof response.status !== "number" || response.status < 200 || response.status >= 300) {
-          throw new Error(errorMessageFromResponse(response.body, response.status));
-        }
-        return response.body;
-      };
-    },
-  }) as unknown as UnwrappedClient<ReturnType<typeof createApiClient>>;
+function wrapRouteCall(routeCall: RouteCall): RouteCall {
+  return async (...args: unknown[]) => unwrapResponse(await routeCall(...withEncodedPathParams(args)));
 }
 
-export const api = createApi("");
+function wrapClient<TClient extends Record<string, unknown>>(client: TClient): UnwrappedClient<TClient> {
+  return Object.fromEntries(
+    Object.entries(client).map(([key, value]) => {
+      if (typeof value === "function") {
+        return [key, wrapRouteCall((...args) => Promise.resolve(Reflect.apply(value, undefined, args)))];
+      }
+      if (isRecord(value)) {
+        return [key, wrapClient(value)];
+      }
+      return [key, value];
+    }),
+  ) as UnwrappedClient<TClient>;
+}
+
+export function createApi(baseUrl: string, options: ApiClientOptions = {}): UnwrappedClient<ReturnType<typeof createApiClient>> {
+  return wrapClient(createApiClient(baseUrl, options));
+}

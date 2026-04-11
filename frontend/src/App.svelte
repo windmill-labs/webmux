@@ -52,20 +52,24 @@
   import { setToastController } from "./lib/toast-context";
   import { api, fetchWorktrees, subscribeNotifications } from "./lib/api";
 
-  let config = $state<AppConfig>({
-    name: "",
-    services: [],
-    profiles: [],
-    defaultProfileName: "",
-    autoName: false,
-    linearCreateTicketOption: false,
-    startupEnvs: {},
-    linkedRepos: [],
-    linearAutoCreateWorktrees: false,
-    autoRemoveOnMerge: false,
-    projectDir: "",
-    mainBranch: "",
-  });
+  function createDefaultConfig(): AppConfig {
+    return {
+      name: "",
+      services: [],
+      profiles: [],
+      defaultProfileName: "",
+      autoName: false,
+      linearCreateTicketOption: false,
+      startupEnvs: {},
+      linkedRepos: [],
+      linearAutoCreateWorktrees: false,
+      autoRemoveOnMerge: false,
+      projectDir: "",
+      mainBranch: "",
+    };
+  }
+
+  let config = $state<AppConfig>(createDefaultConfig());
   let worktrees = $state<WorktreeInfo[]>([]);
   let selectedBranch = $state<string | null>(loadSavedSelectedWorktree());
   let hasLoadedWorktrees = $state(false);

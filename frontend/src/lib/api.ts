@@ -1,4 +1,4 @@
-import { api } from "@webmux/api-contract";
+import { createApi } from "@webmux/api-contract";
 import type {
   AppNotification,
   FileUploadResult,
@@ -6,7 +6,7 @@ import type {
   WorktreeInfo,
 } from "./types";
 
-export { api };
+export const api = createApi("");
 
 function mapAgentStatus(status: string): string {
   switch (status) {

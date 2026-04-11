@@ -6,10 +6,13 @@ import {
   apiPaths,
   AvailableBranchesQuerySchema,
   CreateWorktreeRequestSchema,
+  NotificationIdParamsSchema,
   PullMainRequestSchema,
+  RunIdParamsSchema,
   SendWorktreePromptRequestSchema,
   SetWorktreeArchivedRequestSchema,
   ToggleEnabledRequestSchema,
+  WorktreeNameParamsSchema,
 } from "@webmux/api-contract";
 import { log } from "./lib/log";
 import {
@@ -29,7 +32,7 @@ import {
 import { loadControlToken } from "./adapters/control-token";
 import { getDefaultProfileName, persistLocalLinearConfig, persistLocalGitHubConfig, type ProjectConfig } from "./adapters/config";
 import { jsonResponse, errorResponse } from "./lib/http";
-import { parseJsonBody, parseQuery } from "./api-validation";
+import { parseJsonBody, parseParams, parseQuery } from "./api-validation";
 import { hasRecentDashboardActivity, touchDashboardActivity } from "./services/dashboard-activity";
 import { buildArchivedWorktreePathSet, normalizeArchivePath } from "./services/archive-service";
 import {
@@ -714,9 +717,8 @@ async function apiGetWorktreeDiff(name: string): Promise<Response> {
   });
 }
 
-async function apiCiLogs(runId: string): Promise<Response> {
-  if (!/^\d+$/.test(runId)) return errorResponse("Invalid run ID", 400);
-  const proc = Bun.spawn(["gh", "run", "view", runId, "--log-failed"], {
+async function apiCiLogs(runId: number): Promise<Response> {
+  const proc = Bun.spawn(["gh", "run", "view", String(runId), "--log-failed"], {
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -782,6 +784,45 @@ async function apiUploadFiles(name: string, req: Request): Promise<Response> {
   return jsonResponse({ files: results });
 }
 
+function parseWorktreeNameParam(params: Record<string, string>):
+  | { ok: true; data: string }
+  | { ok: false; response: Response } {
+  const parsed = parseParams(params, WorktreeNameParamsSchema);
+  if (!parsed.ok) return parsed;
+  if (!isValidWorktreeName(parsed.data.name)) {
+    return {
+      ok: false,
+      response: errorResponse("Invalid worktree name", 400),
+    };
+  }
+  return {
+    ok: true,
+    data: parsed.data.name,
+  };
+}
+
+function parseRunIdParam(params: Record<string, string>):
+  | { ok: true; data: number }
+  | { ok: false; response: Response } {
+  const parsed = parseParams(params, RunIdParamsSchema);
+  if (!parsed.ok) return parsed;
+  return {
+    ok: true,
+    data: parsed.data.runId,
+  };
+}
+
+function parseNotificationIdParam(params: Record<string, string>):
+  | { ok: true; data: number }
+  | { ok: false; response: Response } {
+  const parsed = parseParams(params, NotificationIdParamsSchema);
+  if (!parsed.ok) return parsed;
+  return {
+    ok: true,
+    data: parsed.data.id,
+  };
+}
+
 // --- Server ---
 
 Bun.serve({
@@ -823,72 +864,81 @@ Bun.serve({
 
     [apiPaths.removeWorktree]: {
       DELETE: (req) => {
-        const name = decodeURIComponent(req.params.name);
-        if (!isValidWorktreeName(name)) return errorResponse("Invalid worktree name", 400);
+        const parsed = parseWorktreeNameParam(req.params);
+        if (!parsed.ok) return parsed.response;
+        const name = parsed.data;
         return catching(`DELETE /api/worktrees/${name}`, () => apiDeleteWorktree(name));
       },
     },
 
     [apiPaths.openWorktree]: {
       POST: (req) => {
-        const name = decodeURIComponent(req.params.name);
-        if (!isValidWorktreeName(name)) return errorResponse("Invalid worktree name", 400);
+        const parsed = parseWorktreeNameParam(req.params);
+        if (!parsed.ok) return parsed.response;
+        const name = parsed.data;
         return catching(`POST /api/worktrees/${name}/open`, () => apiOpenWorktree(name));
       },
     },
 
     "/api/worktrees/:name/terminal-launch": {
       GET: (req) => {
-        const name = decodeURIComponent(req.params.name);
-        if (!isValidWorktreeName(name)) return errorResponse("Invalid worktree name", 400);
+        const parsed = parseWorktreeNameParam(req.params);
+        if (!parsed.ok) return parsed.response;
+        const name = parsed.data;
         return catching(`GET /api/worktrees/${name}/terminal-launch`, () => apiGetNativeTerminalLaunch(name));
       },
     },
 
     [apiPaths.closeWorktree]: {
       POST: (req) => {
-        const name = decodeURIComponent(req.params.name);
-        if (!isValidWorktreeName(name)) return errorResponse("Invalid worktree name", 400);
+        const parsed = parseWorktreeNameParam(req.params);
+        if (!parsed.ok) return parsed.response;
+        const name = parsed.data;
         return catching(`POST /api/worktrees/${name}/close`, () => apiCloseWorktree(name));
       },
     },
 
     [apiPaths.setWorktreeArchived]: {
       PUT: (req) => {
-        const name = decodeURIComponent(req.params.name);
-        if (!isValidWorktreeName(name)) return errorResponse("Invalid worktree name", 400);
+        const parsed = parseWorktreeNameParam(req.params);
+        if (!parsed.ok) return parsed.response;
+        const name = parsed.data;
         return catching(`PUT /api/worktrees/${name}/archive`, () => apiSetWorktreeArchived(name, req));
       },
     },
 
     [apiPaths.sendWorktreePrompt]: {
       POST: (req) => {
-        const name = decodeURIComponent(req.params.name);
-        if (!isValidWorktreeName(name)) return errorResponse("Invalid worktree name", 400);
+        const parsed = parseWorktreeNameParam(req.params);
+        if (!parsed.ok) return parsed.response;
+        const name = parsed.data;
         return catching(`POST /api/worktrees/${name}/send`, () => apiSendPrompt(name, req));
       },
     },
 
     "/api/worktrees/:name/upload": {
       POST: (req) => {
-        const name = decodeURIComponent(req.params.name);
-        if (!isValidWorktreeName(name)) return errorResponse("Invalid worktree name", 400);
+        const parsed = parseWorktreeNameParam(req.params);
+        if (!parsed.ok) return parsed.response;
+        const name = parsed.data;
         return catching(`POST /api/worktrees/${name}/upload`, () => apiUploadFiles(name, req));
       },
     },
 
     [apiPaths.mergeWorktree]: {
       POST: (req) => {
-        const name = decodeURIComponent(req.params.name);
-        if (!isValidWorktreeName(name)) return errorResponse("Invalid worktree name", 400);
+        const parsed = parseWorktreeNameParam(req.params);
+        if (!parsed.ok) return parsed.response;
+        const name = parsed.data;
         return catching(`POST /api/worktrees/${name}/merge`, () => apiMergeWorktree(name));
       },
     },
 
     [apiPaths.fetchWorktreeDiff]: {
       GET: (req) => {
-        const name = decodeURIComponent(req.params.name);
-        if (!isValidWorktreeName(name)) return errorResponse("Invalid worktree name", 400);
+        const parsed = parseWorktreeNameParam(req.params);
+        if (!parsed.ok) return parsed.response;
+        const name = parsed.data;
         return catching(`GET /api/worktrees/${name}/diff`, () => apiGetWorktreeDiff(name));
       },
     },
@@ -910,7 +960,11 @@ Bun.serve({
     },
 
     [apiPaths.fetchCiLogs]: {
-      GET: (req) => catching(`GET /api/ci-logs/${req.params.runId}`, () => apiCiLogs(req.params.runId)),
+      GET: (req) => {
+        const parsed = parseRunIdParam(req.params);
+        if (!parsed.ok) return parsed.response;
+        return catching(`GET /api/ci-logs/${parsed.data}`, () => apiCiLogs(parsed.data));
+      },
     },
 
     "/api/notifications/stream": {
@@ -919,8 +973,9 @@ Bun.serve({
 
     [apiPaths.dismissNotification]: {
       POST: (req) => {
-        const id = parseInt(req.params.id, 10);
-        if (isNaN(id)) return errorResponse("Invalid notification ID", 400);
+        const parsed = parseNotificationIdParam(req.params);
+        if (!parsed.ok) return parsed.response;
+        const id = parsed.data;
         if (!runtimeNotifications.dismiss(id)) return errorResponse("Not found", 404);
         return jsonResponse({ ok: true });
       },

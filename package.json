@@ -31,7 +31,7 @@
   "scripts": {
     "dev": "bash dev.sh",
     "start": "bun bin/webmux.js",
-    "build": "cd frontend && bun run build && cd .. && bun build backend/src/server.ts --target=bun --outfile=backend/dist/server.js && bun build bin/src/webmux.ts --target=bun --outfile=bin/webmux.js",
+    "build": "cd frontend && bun run build && cd ../agents-frontend && bun run build && cd .. && bun build backend/src/server.ts --target=bun --outfile=backend/dist/server.js && bun build bin/src/webmux.ts --target=bun --outfile=bin/webmux.js",
     "prepublishOnly": "bun run build",
     "test": "bun run --cwd backend test && bun test packages/api-contract/src && bun test bin/src && bun run --cwd frontend test",
     "test:coverage": "bun run --cwd backend test --coverage && bun test --coverage packages/api-contract/src && bun test --coverage bin/src && bun run --cwd frontend test:coverage"
@@ -39,7 +39,8 @@
   "files": [
     "bin/webmux.js",
     "backend/dist/",
-    "frontend/dist/"
+    "frontend/dist/",
+    "agents-frontend/dist/"
   ],
   "devDependencies": {
     "@clack/prompts": "^1.1.0",

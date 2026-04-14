@@ -31,6 +31,8 @@
 
   const canSend = $derived(
     worktree.agentName === "codex"
+      && conversation !== null
+      && !conversationLoading
       && composerText.trim().length > 0
       && !isSending
       && !(conversation?.running ?? false),

@@ -51,10 +51,16 @@ import { startLinearAutoCreateMonitor, resetProcessedIssues } from "./services/l
 import { runAutoRemove, type AutoRemoveDependencies } from "./services/auto-remove-service";
 import { pullMainBranch, forcePullMainBranch, startAutoPullMonitor } from "./services/auto-pull-service";
 import { buildAgentsUiBootstrap } from "./services/agents-ui-service";
+import {
+  buildAgentsUiMessageDeltaEvent,
+  readAgentsNotificationThreadId,
+  shouldRefreshAgentsConversationSnapshot,
+} from "./services/agents-ui-stream-service";
 import { buildProjectSnapshot } from "./services/snapshot-service";
 import { WorktreeConversationService } from "./services/worktree-conversation-service";
 import { parseRuntimeEvent } from "./domain/events";
 import type { CreateWorktreeAgentSelection } from "./domain/config";
+import type { AgentsUiConversationEvent, AgentsUiWorktreeConversationResponse } from "./domain/agents-ui";
 import type { ProjectSnapshot, WorktreeConversationMeta, WorktreeSnapshot } from "./domain/model";
 import { isValidBranchName, isValidWorktreeName } from "./domain/policies";
 import { createWebmuxRuntime } from "./runtime";
@@ -161,12 +167,22 @@ function getFrontendConfig(): {
 
 // --- WebSocket protocol types ---
 
-interface WsData {
+interface TerminalWsData {
+  kind: "terminal";
   branch: string;
   worktreeId: string | null;
   attachId: string | null;
   attached: boolean;
 }
+
+interface AgentsWsData {
+  kind: "agents";
+  branch: string;
+  threadId: string | null;
+  unsubscribe: (() => void) | null;
+}
+
+type WsData = TerminalWsData | AgentsWsData;
 
 type WsInboundMessage =
   | { type: "input"; data: string }
@@ -179,6 +195,10 @@ type WsOutboundMessage =
   | { type: "exit"; exitCode: number }
   | { type: "error"; message: string }
   | { type: "scrollback"; data: string };
+
+function isRecord(raw: unknown): raw is Record<string, unknown> {
+  return typeof raw === "object" && raw !== null && !Array.isArray(raw);
+}
 
 function parseWsMessage(raw: string | Buffer): WsInboundMessage | null {
   try {
@@ -229,6 +249,12 @@ function sendWs(ws: { send: (data: string) => void }, msg: WsOutboundMessage): v
   }
 }
 
+function sendAgentsWs(ws: { readyState: number; send: (data: string) => void }, msg: AgentsUiConversationEvent): void {
+  if (ws.readyState <= 1) {
+    ws.send(JSON.stringify(msg));
+  }
+}
+
 /** Wrap an async API handler to catch and log unhandled errors. */
 function catching(label: string, fn: () => Promise<Response>): Promise<Response> {
   return fn().catch((err: unknown) => {
@@ -257,6 +283,26 @@ function ensureBranchNotCreating(branch: string): void {
 function ensureBranchNotBusy(branch: string): void {
   ensureBranchNotRemoving(branch);
   ensureBranchNotCreating(branch);
+}
+
+function isAgentsApiPath(pathname: string): boolean {
+  return pathname === "/api/agents/bootstrap" || pathname.startsWith("/api/agents/worktrees/");
+}
+
+function withAgentsCors(response: Response): Response {
+  const headers = new Headers(response.headers);
+  headers.set("Access-Control-Allow-Origin", "*");
+  headers.set("Access-Control-Allow-Headers", "Content-Type");
+  headers.set("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+function agentsPreflightResponse(): Response {
+  return withAgentsCors(new Response(null, { status: 204 }));
 }
 
 async function withRemovingBranch<T>(branch: string, fn: () => Promise<T>): Promise<T> {
@@ -311,9 +357,12 @@ async function apiGetNativeTerminalLaunch(branch: string): Promise<Response> {
   return jsonResponse(launch.data);
 }
 
-function getAttachedSessionId(ws: { data: WsData; readyState: number; send: (data: string) => void }): string | null {
-  if (ws.data.attached && ws.data.attachId) {
-    return ws.data.attachId;
+function getAttachedSessionId(
+  data: TerminalWsData,
+  ws: { readyState: number; send: (data: string) => void },
+): string | null {
+  if (data.attached && data.attachId) {
+    return data.attachId;
   }
 
   sendWs(ws, { type: "error", message: "Terminal not attached" });
@@ -504,6 +553,91 @@ async function apiInterruptAgentsWorktree(branch: string): Promise<Response> {
   return result.ok
     ? jsonResponse(result.data)
     : errorResponse(result.error, result.status);
+}
+
+async function loadAgentsConversationSnapshot(
+  branch: string,
+): Promise<{
+  ok: true;
+  data: AgentsUiWorktreeConversationResponse;
+} | {
+  ok: false;
+  message: string;
+}> {
+  const resolved = await resolveAgentsWorktree(branch);
+  if (!resolved.ok) {
+    return {
+      ok: false,
+      message: await readErrorMessage(resolved.response),
+    };
+  }
+
+  const result = await worktreeConversationService.readWorktreeConversation(resolved.worktree);
+  return result.ok
+    ? { ok: true, data: result.data }
+    : { ok: false, message: result.error };
+}
+
+async function readErrorMessage(response: Response): Promise<string> {
+  const contentType = response.headers.get("Content-Type") ?? "";
+  if (contentType.includes("application/json")) {
+    try {
+      const body: unknown = await response.json();
+      if (isRecord(body) && typeof body.error === "string" && body.error.length > 0) {
+        return body.error;
+      }
+    } catch {
+      // Ignore parse failures and fall through to raw text.
+    }
+  }
+
+  const text = await response.text();
+  return text.length > 0 ? text : `HTTP ${response.status}`;
+}
+
+async function openAgentsSocket(
+  ws: { readyState: number; send: (data: string) => void; close: (code?: number, reason?: string) => void },
+  data: AgentsWsData,
+): Promise<void> {
+  const snapshot = await loadAgentsConversationSnapshot(data.branch);
+  if (!snapshot.ok) {
+    sendAgentsWs(ws, { type: "error", message: snapshot.message });
+    ws.close(1011, snapshot.message.slice(0, 123));
+    return;
+  }
+
+  data.threadId = snapshot.data.conversation.threadId;
+  sendAgentsWs(ws, {
+    type: "snapshot",
+    data: snapshot.data,
+  });
+
+  data.unsubscribe = codexAppServerClient.onNotification((notification) => {
+    const notificationThreadId = readAgentsNotificationThreadId(notification);
+    if (!notificationThreadId || notificationThreadId !== data.threadId) return;
+
+    const deltaEvent = buildAgentsUiMessageDeltaEvent(notification);
+    if (deltaEvent) {
+      sendAgentsWs(ws, deltaEvent);
+      return;
+    }
+
+    if (!shouldRefreshAgentsConversationSnapshot(notification)) return;
+
+    void (async () => {
+      const nextSnapshot = await loadAgentsConversationSnapshot(data.branch);
+      if (!nextSnapshot.ok) {
+        sendAgentsWs(ws, { type: "error", message: nextSnapshot.message });
+        return;
+      }
+
+      data.threadId = nextSnapshot.data.conversation.threadId;
+      sendAgentsWs(ws, {
+        type: "snapshot",
+        data: nextSnapshot.data,
+      });
+    })();
+  });
 }
 
 async function apiRuntimeEvent(req: Request): Promise<Response> {
@@ -934,9 +1068,18 @@ Bun.serve({
   idleTimeout: 255, // seconds; worktree removal can take >10s
 
   routes: {
+    "/ws/agents/worktrees/:name": (req, server) => {
+      const branch = decodeURIComponent(req.params.name);
+      return server.upgrade(req, { data: { kind: "agents", branch, threadId: null, unsubscribe: null } })
+        ? undefined
+        : new Response("WebSocket upgrade failed", { status: 400 });
+    },
+
     "/ws/:worktree": (req, server) => {
       const branch = decodeURIComponent(req.params.worktree);
-      return server.upgrade(req, { data: { branch, worktreeId: null, attachId: null, attached: false } })
+      return server.upgrade(req, {
+        data: { kind: "terminal", branch, worktreeId: null, attachId: null, attached: false },
+      })
         ? undefined
         : new Response("WebSocket upgrade failed", { status: 400 });
     },
@@ -958,38 +1101,38 @@ Bun.serve({
     },
 
     "/api/agents/bootstrap": {
-      GET: () => catching("GET /api/agents/bootstrap", () => apiGetAgentsBootstrap()),
+      GET: () => catching("GET /api/agents/bootstrap", () => apiGetAgentsBootstrap()).then(withAgentsCors),
     },
 
     "/api/agents/worktrees/:name/attach": {
       POST: (req) => {
         const name = decodeURIComponent(req.params.name);
-        if (!isValidWorktreeName(name)) return errorResponse("Invalid worktree name", 400);
-        return catching(`POST /api/agents/worktrees/${name}/attach`, () => apiAttachAgentsWorktree(name));
+        if (!isValidWorktreeName(name)) return withAgentsCors(errorResponse("Invalid worktree name", 400));
+        return catching(`POST /api/agents/worktrees/${name}/attach`, () => apiAttachAgentsWorktree(name)).then(withAgentsCors);
       },
     },
 
     "/api/agents/worktrees/:name/history": {
       GET: (req) => {
         const name = decodeURIComponent(req.params.name);
-        if (!isValidWorktreeName(name)) return errorResponse("Invalid worktree name", 400);
-        return catching(`GET /api/agents/worktrees/${name}/history`, () => apiGetAgentsWorktreeHistory(name));
+        if (!isValidWorktreeName(name)) return withAgentsCors(errorResponse("Invalid worktree name", 400));
+        return catching(`GET /api/agents/worktrees/${name}/history`, () => apiGetAgentsWorktreeHistory(name)).then(withAgentsCors);
       },
     },
 
     "/api/agents/worktrees/:name/messages": {
       POST: (req) => {
         const name = decodeURIComponent(req.params.name);
-        if (!isValidWorktreeName(name)) return errorResponse("Invalid worktree name", 400);
-        return catching(`POST /api/agents/worktrees/${name}/messages`, () => apiSendAgentsWorktreeMessage(name, req));
+        if (!isValidWorktreeName(name)) return withAgentsCors(errorResponse("Invalid worktree name", 400));
+        return catching(`POST /api/agents/worktrees/${name}/messages`, () => apiSendAgentsWorktreeMessage(name, req)).then(withAgentsCors);
       },
     },
 
     "/api/agents/worktrees/:name/interrupt": {
       POST: (req) => {
         const name = decodeURIComponent(req.params.name);
-        if (!isValidWorktreeName(name)) return errorResponse("Invalid worktree name", 400);
-        return catching(`POST /api/agents/worktrees/${name}/interrupt`, () => apiInterruptAgentsWorktree(name));
+        if (!isValidWorktreeName(name)) return withAgentsCors(errorResponse("Invalid worktree name", 400));
+        return catching(`POST /api/agents/worktrees/${name}/interrupt`, () => apiInterruptAgentsWorktree(name)).then(withAgentsCors);
       },
     },
 
@@ -1123,9 +1266,13 @@ Bun.serve({
   },
 
   async fetch(req) {
+    const url = new URL(req.url);
+    if (req.method === "OPTIONS" && isAgentsApiPath(url.pathname)) {
+      return agentsPreflightResponse();
+    }
+
     // Static frontend files in production mode (fallback for unmatched routes)
     if (STATIC_DIR) {
-      const url = new URL(req.url);
       const rawPath = url.pathname === "/" ? "index.html" : url.pathname;
       const filePath = join(STATIC_DIR, rawPath);
       const staticRoot = resolve(STATIC_DIR);
@@ -1157,42 +1304,55 @@ Bun.serve({
     data: {} as WsData,
 
     open(ws) {
-      log.debug(`[ws] open branch=${ws.data.branch}`);
+      const data = ws.data;
+      if (data.kind === "terminal") {
+        log.debug(`[ws] open branch=${data.branch}`);
+        return;
+      }
+
+      log.debug(`[ws:agents] open branch=${data.branch}`);
+      void openAgentsSocket(ws, data);
     },
 
     async message(ws, message) {
+      const data = ws.data;
+      if (data.kind === "agents") {
+        log.debug(`[ws:agents] ignoring inbound message branch=${data.branch}`);
+        return;
+      }
+
       const msg = parseWsMessage(message);
       if (!msg) {
         sendWs(ws, { type: "error", message: "malformed message" });
         return;
       }
-      const { branch } = ws.data;
+      const { branch } = data;
 
       switch (msg.type) {
         case "input": {
-          const attachId = getAttachedSessionId(ws);
+          const attachId = getAttachedSessionId(data, ws);
           if (!attachId) return;
           write(attachId, msg.data);
           break;
         }
         case "sendKeys": {
-          const attachId = getAttachedSessionId(ws);
+          const attachId = getAttachedSessionId(data, ws);
           if (!attachId) return;
           await sendKeys(attachId, msg.hexBytes);
           break;
         }
         case "selectPane":
           {
-            const attachId = getAttachedSessionId(ws);
+            const attachId = getAttachedSessionId(data, ws);
             if (!attachId) return;
             log.debug(`[ws] selectPane pane=${msg.pane} branch=${branch} attachId=${attachId}`);
             await selectPane(attachId, msg.pane);
           }
           break;
         case "resize":
-          if (!ws.data.attached) {
+          if (!data.attached) {
             // First resize = client reporting actual dimensions. Attach now.
-            ws.data.attached = true;
+            data.attached = true;
             log.debug(`[ws] first resize (attaching) branch=${branch} cols=${msg.cols} rows=${msg.rows}`);
             try {
               if (msg.initialPane !== undefined) {
@@ -1200,8 +1360,8 @@ Bun.serve({
               }
               const terminalWorktree = await resolveTerminalWorktree(branch);
               const attachId = `${terminalWorktree.worktreeId}:${randomUUID()}`;
-              ws.data.worktreeId = terminalWorktree.worktreeId;
-              ws.data.attachId = attachId;
+              data.worktreeId = terminalWorktree.worktreeId;
+              data.attachId = attachId;
               await attach(
                 attachId,
                 terminalWorktree.attachTarget,
@@ -1220,15 +1380,15 @@ Bun.serve({
               }
             } catch (err: unknown) {
               const errMsg = err instanceof Error ? err.message : String(err);
-              ws.data.attached = false;
-              ws.data.worktreeId = null;
-              ws.data.attachId = null;
+              data.attached = false;
+              data.worktreeId = null;
+              data.attachId = null;
               log.error(`[ws] attach failed branch=${branch}: ${errMsg}`);
               sendWs(ws, { type: "error", message: errMsg });
               ws.close(1011, errMsg.slice(0, 123)); // 1011 = Internal Error
             }
           } else {
-            const attachId = getAttachedSessionId(ws);
+            const attachId = getAttachedSessionId(data, ws);
             if (!attachId) return;
             await resize(attachId, msg.cols, msg.rows);
           }
@@ -1237,12 +1397,20 @@ Bun.serve({
     },
 
     async close(ws, code, reason) {
+      const data = ws.data;
+      if (data.kind === "agents") {
+        log.debug(`[ws:agents] close branch=${data.branch} code=${code} reason=${reason}`);
+        data.unsubscribe?.();
+        data.unsubscribe = null;
+        return;
+      }
+
       log.debug(
-        `[ws] close branch=${ws.data.branch} code=${code} reason=${reason} attached=${ws.data.attached} worktreeId=${ws.data.worktreeId} attachId=${ws.data.attachId}`,
+        `[ws] close branch=${data.branch} code=${code} reason=${reason} attached=${data.attached} worktreeId=${data.worktreeId} attachId=${data.attachId}`,
       );
-      if (ws.data.attachId) {
-        clearCallbacks(ws.data.attachId);
-        await detach(ws.data.attachId);
+      if (data.attachId) {
+        clearCallbacks(data.attachId);
+        await detach(data.attachId);
       }
     },
   },

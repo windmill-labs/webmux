@@ -91,3 +91,26 @@ export interface AgentsUiInterruptResponse {
   turnId: string;
   interrupted: true;
 }
+
+export interface AgentsUiConversationSnapshotEvent {
+  type: "snapshot";
+  data: AgentsUiWorktreeConversationResponse;
+}
+
+export interface AgentsUiConversationMessageDeltaEvent {
+  type: "messageDelta";
+  threadId: string;
+  turnId: string;
+  itemId: string;
+  delta: string;
+}
+
+export interface AgentsUiConversationErrorEvent {
+  type: "error";
+  message: string;
+}
+
+export type AgentsUiConversationEvent =
+  | AgentsUiConversationSnapshotEvent
+  | AgentsUiConversationMessageDeltaEvent
+  | AgentsUiConversationErrorEvent;

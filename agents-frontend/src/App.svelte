@@ -2,13 +2,16 @@
   import ConversationPanel from "./lib/components/ConversationPanel.svelte";
   import {
     attachWorktreeConversation,
+    connectWorktreeConversationStream,
     fetchBootstrap,
     fetchWorktreeConversationHistory,
     interruptWorktreeConversation,
     sendWorktreeConversationMessage,
   } from "./lib/api";
+  import { applyConversationMessageDelta, markConversationTurnStarted } from "./lib/conversation";
   import type {
     AgentsUiBootstrapResponse,
+    AgentsUiConversationEvent,
     AgentsUiConversationState,
     AgentsUiWorktreeConversationResponse,
     AgentsUiWorktreeSummary,
@@ -26,6 +29,11 @@
   let hasRequestedBootstrap = false;
   let attachedBranch = $state<string | null>(null);
   let conversationRequestToken = 0;
+  let streamConnection: {
+    branch: string;
+    threadId: string;
+    disconnect: () => void;
+  } | null = null;
 
   const selectedWorktree = $derived(
     bootstrap?.worktrees.find((worktree) => worktree.branch === selectedBranch) ?? null,
@@ -50,13 +58,81 @@
     updateWorktreeSummary(response.worktree);
     conversation = response.conversation;
     attachedBranch = response.worktree.branch;
+    syncConversationStream();
   }
 
   function resetConversation(branch: string | null): void {
+    closeConversationStream();
     attachedBranch = branch;
     conversation = null;
     conversationError = null;
     composerText = "";
+  }
+
+  function closeConversationStream(): void {
+    streamConnection?.disconnect();
+    streamConnection = null;
+  }
+
+  function hasActiveConversationStream(branch: string, threadId: string): boolean {
+    return streamConnection?.branch === branch && streamConnection.threadId === threadId;
+  }
+
+  function handleConversationStreamFailure(branch: string, threadId: string, message: string): void {
+    if (!hasActiveConversationStream(branch, threadId) || !streamConnection) return;
+    const currentConnection = streamConnection;
+    streamConnection = null;
+    currentConnection.disconnect();
+    conversationError = message;
+  }
+
+  function handleConversationStreamEvent(branch: string, threadId: string, event: AgentsUiConversationEvent): void {
+    if (!hasActiveConversationStream(branch, threadId)) return;
+
+    switch (event.type) {
+      case "snapshot":
+        conversationError = null;
+        applyConversationResponse(event.data);
+        break;
+      case "messageDelta":
+        conversation = applyConversationMessageDelta(conversation, event);
+        break;
+      case "error":
+        conversationError = event.message;
+        break;
+    }
+  }
+
+  function syncConversationStream(): void {
+    if (selectedWorktree?.agentName !== "codex") {
+      closeConversationStream();
+      return;
+    }
+
+    const branch = selectedWorktree.branch;
+    const threadId = conversation?.threadId ?? selectedWorktree.conversation?.threadId ?? null;
+    if (!threadId) {
+      closeConversationStream();
+      return;
+    }
+
+    if (hasActiveConversationStream(branch, threadId)) {
+      return;
+    }
+
+    closeConversationStream();
+    const disconnect = connectWorktreeConversationStream(branch, {
+      onEvent: (event) => {
+        handleConversationStreamEvent(branch, threadId, event);
+      },
+      onError: (message) => {
+        handleConversationStreamFailure(branch, threadId, message);
+      },
+      onClose: () => {
+        handleConversationStreamFailure(branch, threadId, "Agents stream disconnected");
+      },
+    });
+    streamConnection = { branch, threadId, disconnect };
   }
 
   async function loadBootstrap(): Promise<void> {
@@ -137,9 +213,10 @@
     isSending = true;
     conversationError = null;
     try {
-      await sendWorktreeConversationMessage(selectedWorktree.branch, { text });
+      const response = await sendWorktreeConversationMessage(selectedWorktree.branch, { text });
       composerText = "";
-      await loadConversation(selectedWorktree.branch, "history");
+      conversation = markConversationTurnStarted(conversation, response.turnId, text);
+      syncConversationStream();
     } catch (error) {
       conversationError = error instanceof Error ? error.message : String(error);
     } finally {
@@ -153,7 +230,6 @@
     conversationError = null;
     try {
       await interruptWorktreeConversation(selectedWorktree.branch);
-      await loadConversation(selectedWorktree.branch, "history");
     } catch (error) {
       conversationError = error instanceof Error ? error.message : String(error);
     }
@@ -173,16 +249,8 @@
   });
 
   $effect(() => {
-    const branch = selectedBranch;
-    if (!branch || !conversation?.running) return;
-
-    const intervalId = window.setInterval(() => {
-      if (selectedBranch !== branch) return;
-      void loadConversation(branch, "history");
-    }, 1000);
-
     return () => {
-      window.clearInterval(intervalId);
+      closeConversationStream();
     };
   });
 </script>
@@ -201,7 +269,7 @@
             <h1 class="font-serif text-3xl leading-none md:text-5xl">Agents Workspace</h1>
             <p class="mt-2 max-w-2xl text-sm text-[var(--color-muted)] md:text-base">
               Separate conversation surface for Codex worktrees. This view attaches to the persisted thread through
-              `codex app-server` and polls until the turn settles.
+              `codex app-server` and streams turn updates outside the terminal surface.
             </p>
           </div>
         </div>

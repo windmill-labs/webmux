@@ -1,6 +1,7 @@
 import type { AgentKind } from "./config";
 import type {
   ServiceRuntimeState,
+  WorktreeConversationProvider,
   WorktreeConversationMeta,
   WorktreeCreationPhase,
 } from "./model";
@@ -35,4 +36,46 @@ export interface AgentsUiBootstrapResponse {
   project: AgentsUiProjectInfo;
   capabilities: AgentsUiCapabilities;
   worktrees: AgentsUiWorktreeSummary[];
+}
+
+export type AgentsUiConversationMessageRole = "user" | "assistant";
+export type AgentsUiConversationMessageStatus = "completed" | "inProgress";
+
+export interface AgentsUiConversationMessage {
+  id: string;
+  turnId: string;
+  role: AgentsUiConversationMessageRole;
+  text: string;
+  status: AgentsUiConversationMessageStatus;
+  createdAt: string | null;
+}
+
+export interface AgentsUiConversationState {
+  provider: WorktreeConversationProvider;
+  threadId: string;
+  cwd: string;
+  running: boolean;
+  activeTurnId: string | null;
+  messages: AgentsUiConversationMessage[];
+}
+
+export interface AgentsUiWorktreeConversationResponse {
+  worktree: AgentsUiWorktreeSummary;
+  conversation: AgentsUiConversationState;
+}
+
+export interface AgentsUiSendMessageRequest {
+  text: string;
+}
+
+export interface AgentsUiSendMessageResponse {
+  threadId: string;
+  turnId: string;
+  running: true;
+}
+
+export interface AgentsUiInterruptResponse {
+  threadId: string;
+  turnId: string;
+  interrupted: true;
 }

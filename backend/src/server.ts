@@ -30,6 +30,7 @@ import {
   type TerminalAttachTarget,
 } from "./adapters/terminal";
 import { loadControlToken } from "./adapters/control-token";
+import { CodexAppServerClient } from "./adapters/codex-app-server";
 import { readWorktreeMeta } from "./adapters/fs";
 import { getDefaultProfileName, persistLocalLinearConfig, persistLocalGitHubConfig, type ProjectConfig } from "./adapters/config";
 import { jsonResponse, errorResponse } from "./lib/http";
@@ -51,9 +52,10 @@ import { runAutoRemove, type AutoRemoveDependencies } from "./services/auto-remo
 import { pullMainBranch, forcePullMainBranch, startAutoPullMonitor } from "./services/auto-pull-service";
 import { buildAgentsUiBootstrap } from "./services/agents-ui-service";
 import { buildProjectSnapshot } from "./services/snapshot-service";
+import { WorktreeConversationService } from "./services/worktree-conversation-service";
 import { parseRuntimeEvent } from "./domain/events";
 import type { CreateWorktreeAgentSelection } from "./domain/config";
-import type { ProjectSnapshot, WorktreeConversationMeta } from "./domain/model";
+import type { ProjectSnapshot, WorktreeConversationMeta, WorktreeSnapshot } from "./domain/model";
 import { isValidBranchName, isValidWorktreeName } from "./domain/policies";
 import { createWebmuxRuntime } from "./runtime";
 
@@ -72,6 +74,14 @@ const projectRuntime = runtime.projectRuntime;
 const worktreeCreationTracker = runtime.worktreeCreationTracker;
 const runtimeNotifications = runtime.runtimeNotifications;
 const reconciliationService = runtime.reconciliationService;
+const codexAppServerClient = new CodexAppServerClient({
+  clientName: "webmux-agents",
+  clientVersion: "0.0.0",
+});
+const worktreeConversationService = new WorktreeConversationService({
+  appServer: codexAppServerClient,
+  git,
+});
 const removingBranches = new Set<string>();
 const lifecycleService = runtime.lifecycleService;
 let linearAutoCreateEnabled = config.integrations.linear.autoCreateWorktrees;
@@ -410,8 +420,90 @@ async function apiGetAgentsBootstrap(): Promise<Response> {
   return jsonResponse(buildAgentsUiBootstrap({ snapshot, conversations }));
 }
 
-function apiAgentsNotImplemented(): Response {
-  return errorResponse("Not implemented", 501);
+function findSnapshotWorktree(snapshot: ProjectSnapshot, branch: string): WorktreeSnapshot | null {
+  return snapshot.worktrees.find((worktree) => worktree.branch === branch) ?? null;
+}
+
+async function resolveAgentsWorktree(branch: string): Promise<{
+  ok: true;
+  worktree: WorktreeSnapshot;
+} | {
+  ok: false;
+  response: Response;
+}> {
+  const snapshot = await readProjectSnapshot();
+  const worktree = findSnapshotWorktree(snapshot, branch);
+  if (!worktree) {
+    return {
+      ok: false,
+      response: errorResponse(`Worktree not found: ${branch}`, 404),
+    };
+  }
+
+  return {
+    ok: true,
+    worktree,
+  };
+}
+
+async function apiAttachAgentsWorktree(branch: string): Promise<Response> {
+  touchDashboardActivity();
+  const resolved = await resolveAgentsWorktree(branch);
+  if (!resolved.ok) return resolved.response;
+
+  const result = await worktreeConversationService.attachWorktreeConversation(resolved.worktree);
+  return result.ok
+    ? jsonResponse(result.data)
+    : errorResponse(result.error, result.status);
+}
+
+async function apiGetAgentsWorktreeHistory(branch: string): Promise<Response> {
+  touchDashboardActivity();
+  const resolved = await resolveAgentsWorktree(branch);
+  if (!resolved.ok) return resolved.response;
+
+  const result = await worktreeConversationService.readWorktreeConversation(resolved.worktree);
+  return result.ok
+    ? jsonResponse(result.data)
+    : errorResponse(result.error, result.status);
+}
+
+async function apiSendAgentsWorktreeMessage(branch: string, req: Request): Promise<Response> {
+  touchDashboardActivity();
+  let raw: unknown;
+  try {
+    raw = await req.json();
+  } catch {
+    return errorResponse("Invalid JSON", 400);
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return errorResponse("Invalid request body", 400);
+  }
+
+  const body = raw as Record<string, unknown>;
+  const text = typeof body.text === "string" ? body.text : "";
+  if (text.trim().length === 0) {
+    return errorResponse("Missing 'text' field", 400);
+  }
+
+  const resolved = await resolveAgentsWorktree(branch);
+  if (!resolved.ok) return resolved.response;
+
+  const result = await worktreeConversationService.sendWorktreeMessage(resolved.worktree, text);
+  return result.ok
+    ? jsonResponse(result.data)
+    : errorResponse(result.error, result.status);
+}
+
+async function apiInterruptAgentsWorktree(branch: string): Promise<Response> {
+  touchDashboardActivity();
+  const resolved = await resolveAgentsWorktree(branch);
+  if (!resolved.ok) return resolved.response;
+
+  const result = await worktreeConversationService.interruptWorktreeConversation(resolved.worktree);
+  return result.ok
+    ? jsonResponse(result.data)
+    : errorResponse(result.error, result.status);
 }
 
 async function apiRuntimeEvent(req: Request): Promise<Response> {
@@ -873,7 +965,7 @@ Bun.serve({
       POST: (req) => {
         const name = decodeURIComponent(req.params.name);
         if (!isValidWorktreeName(name)) return errorResponse("Invalid worktree name", 400);
-        return apiAgentsNotImplemented();
+        return catching(`POST /api/agents/worktrees/${name}/attach`, () => apiAttachAgentsWorktree(name));
       },
     },
 
@@ -881,7 +973,7 @@ Bun.serve({
       GET: (req) => {
         const name = decodeURIComponent(req.params.name);
         if (!isValidWorktreeName(name)) return errorResponse("Invalid worktree name", 400);
-        return apiAgentsNotImplemented();
+        return catching(`GET /api/agents/worktrees/${name}/history`, () => apiGetAgentsWorktreeHistory(name));
       },
     },
 
@@ -889,7 +981,7 @@ Bun.serve({
       POST: (req) => {
         const name = decodeURIComponent(req.params.name);
         if (!isValidWorktreeName(name)) return errorResponse("Invalid worktree name", 400);
-        return apiAgentsNotImplemented();
+        return catching(`POST /api/agents/worktrees/${name}/messages`, () => apiSendAgentsWorktreeMessage(name, req));
       },
     },
 
@@ -897,7 +989,7 @@ Bun.serve({
       POST: (req) => {
         const name = decodeURIComponent(req.params.name);
         if (!isValidWorktreeName(name)) return errorResponse("Invalid worktree name", 400);
-        return apiAgentsNotImplemented();
+        return catching(`POST /api/agents/worktrees/${name}/interrupt`, () => apiInterruptAgentsWorktree(name));
       },
     },
 

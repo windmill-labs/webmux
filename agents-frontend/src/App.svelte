@@ -1,12 +1,31 @@
 <script lang="ts">
-  import { fetchBootstrap } from "./lib/api";
-  import type { AgentsUiBootstrapResponse, AgentsUiWorktreeSummary } from "./lib/types";
+  import ConversationPanel from "./lib/components/ConversationPanel.svelte";
+  import {
+    attachWorktreeConversation,
+    fetchBootstrap,
+    fetchWorktreeConversationHistory,
+    interruptWorktreeConversation,
+    sendWorktreeConversationMessage,
+  } from "./lib/api";
+  import type {
+    AgentsUiBootstrapResponse,
+    AgentsUiConversationState,
+    AgentsUiWorktreeConversationResponse,
+    AgentsUiWorktreeSummary,
+  } from "./lib/types";
 
   let bootstrap = $state<AgentsUiBootstrapResponse | null>(null);
   let errorMessage = $state<string | null>(null);
   let isLoading = $state(true);
   let selectedBranch = $state<string | null>(null);
+  let conversation = $state<AgentsUiConversationState | null>(null);
+  let conversationError = $state<string | null>(null);
+  let conversationLoading = $state(false);
+  let composerText = $state("");
+  let isSending = $state(false);
   let hasRequestedBootstrap = false;
+  let attachedBranch = $state<string | null>(null);
+  let conversationRequestToken = 0;
 
   const selectedWorktree = $derived(
     bootstrap?.worktrees.find((worktree) => worktree.branch === selectedBranch) ?? null,
@@ -16,6 +35,30 @@
     bootstrap?.worktrees.filter((worktree) => worktree.agentName === "codex").length ?? 0,
   );
 
+  function updateWorktreeSummary(nextWorktree: AgentsUiWorktreeSummary): void {
+    if (!bootstrap) return;
+
+    bootstrap = {
+      ...bootstrap,
+      worktrees: bootstrap.worktrees.map((worktree) =>
+        worktree.branch === nextWorktree.branch ? nextWorktree : worktree
+      ),
+    };
+  }
+
+  function applyConversationResponse(response: AgentsUiWorktreeConversationResponse): void {
+    updateWorktreeSummary(response.worktree);
+    conversation = response.conversation;
+    attachedBranch = response.worktree.branch;
+  }
+
+  function resetConversation(branch: string | null): void {
+    attachedBranch = branch;
+    conversation = null;
+    conversationError = null;
+    composerText = "";
+  }
+
   async function loadBootstrap(): Promise<void> {
     isLoading = true;
     errorMessage = null;
@@ -23,8 +66,13 @@
     try {
       const nextBootstrap = await fetchBootstrap();
       bootstrap = nextBootstrap;
+
       if (!selectedBranch || !nextBootstrap.worktrees.some((worktree) => worktree.branch === selectedBranch)) {
-        selectedBranch = nextBootstrap.worktrees[0]?.branch ?? null;
+        const nextBranch = nextBootstrap.worktrees[0]?.branch ?? null;
+        if (nextBranch !== selectedBranch) {
+          selectedBranch = nextBranch;
+          resetConversation(null);
+        }
       }
     } catch (error) {
       errorMessage = error instanceof Error ? error.message : String(error);
@@ -33,8 +81,39 @@
     }
   }
 
+  async function loadConversation(branch: string, mode: "attach" | "history"): Promise<void> {
+    const requestToken = conversationRequestToken + 1;
+    conversationRequestToken = requestToken;
+    conversationLoading = true;
+    conversationError = null;
+
+    try {
+      const response = mode === "attach"
+        ? await attachWorktreeConversation(branch)
+        : await fetchWorktreeConversationHistory(branch);
+
+      if (selectedBranch !== branch || conversationRequestToken !== requestToken) {
+        return;
+      }
+
+      applyConversationResponse(response);
+    } catch (error) {
+      if (selectedBranch !== branch || conversationRequestToken !== requestToken) {
+        return;
+      }
+
+      conversationError = error instanceof Error ? error.message : String(error);
+    } finally {
+      if (conversationRequestToken === requestToken) {
+        conversationLoading = false;
+      }
+    }
+  }
+
   function selectWorktree(branch: string): void {
+    if (branch === selectedBranch) return;
     selectedBranch = branch;
+    resetConversation(null);
   }
 
   function describeWorktree(worktree: AgentsUiWorktreeSummary): string {
@@ -44,10 +123,67 @@
     return "Terminal-only for now";
   }
 
+  async function refreshSelectedConversation(): Promise<void> {
+    if (!selectedWorktree || selectedWorktree.agentName !== "codex") return;
+    const mode = conversation || selectedWorktree.conversation ? "history" : "attach";
+    await loadConversation(selectedWorktree.branch, mode);
+  }
+
+  async function sendSelectedConversationMessage(): Promise<void> {
+    if (!selectedWorktree || selectedWorktree.agentName !== "codex") return;
+    const text = composerText.trim();
+    if (text.length === 0) return;
+
+    isSending = true;
+    conversationError = null;
+    try {
+      await sendWorktreeConversationMessage(selectedWorktree.branch, { text });
+      composerText = "";
+      await loadConversation(selectedWorktree.branch, "history");
+    } catch (error) {
+      conversationError = error instanceof Error ? error.message : String(error);
+    } finally {
+      isSending = false;
+    }
+  }
+
+  async function interruptSelectedConversation(): Promise<void> {
+    if (!selectedWorktree || selectedWorktree.agentName !== "codex") return;
+
+    conversationError = null;
+    try {
+      await interruptWorktreeConversation(selectedWorktree.branch);
+      await loadConversation(selectedWorktree.branch, "history");
+    } catch (error) {
+      conversationError = error instanceof Error ? error.message : String(error);
+    }
+  }
+
   $effect(() => {
     if (hasRequestedBootstrap) return;
     hasRequestedBootstrap = true;
     void loadBootstrap();
+  });
+
+  $effect(() => {
+    const worktree = selectedWorktree;
+    if (!worktree || worktree.agentName !== "codex") return;
+    if (attachedBranch === worktree.branch) return;
+    void loadConversation(worktree.branch, "attach");
+  });
+
+  $effect(() => {
+    const branch = selectedBranch;
+    if (!branch || !conversation?.running) return;
+
+    const intervalId = window.setInterval(() => {
+      if (selectedBranch !== branch) return;
+      void loadConversation(branch, "history");
+    }, 1000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
   });
 </script>
 
@@ -60,12 +196,12 @@
     <header class="mb-5 rounded-[2rem] border border-[var(--color-line)] bg-[var(--color-panel)]/90 px-5 py-5 shadow-[0_18px_70px_rgba(66,40,18,0.08)] backdrop-blur">
       <div class="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div class="space-y-2">
-          <p class="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--color-accent)]">Phase 1</p>
+          <p class="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--color-accent)]">Phase 2</p>
           <div>
             <h1 class="font-serif text-3xl leading-none md:text-5xl">Agents Workspace</h1>
             <p class="mt-2 max-w-2xl text-sm text-[var(--color-muted)] md:text-base">
-              Separate conversation surface for worktrees. This scaffold uses the shared backend and the new
-              `agents` bootstrap contract only.
+              Separate conversation surface for Codex worktrees. This view attaches to the persisted thread through
+              `codex app-server` and polls until the turn settles.
             </p>
           </div>
         </div>
@@ -159,32 +295,21 @@
             </div>
 
             <div class="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
-              <article class="rounded-[1.6rem] border border-[var(--color-line)] bg-[var(--color-paper)] p-4">
-                <div class="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--color-muted)]">
-                  Conversation lane
-                </div>
-                {#if selectedWorktree.conversation}
-                  <div class="mt-4 space-y-3 text-sm">
-                    <div>
-                      <div class="font-medium">Provider</div>
-                      <div class="text-[var(--color-muted)]">{selectedWorktree.conversation.provider}</div>
-                    </div>
-                    <div>
-                      <div class="font-medium">Thread</div>
-                      <div class="break-all text-[var(--color-muted)]">{selectedWorktree.conversation.threadId}</div>
-                    </div>
-                    <div>
-                      <div class="font-medium">Workspace cwd</div>
-                      <div class="break-all text-[var(--color-muted)]">{selectedWorktree.conversation.cwd}</div>
-                    </div>
-                  </div>
-                {:else}
-                  <p class="mt-4 max-w-xl text-sm text-[var(--color-muted)]">
-                    No persisted conversation is mapped yet. Phase 2 will discover or resume the Codex thread for this
-                    worktree through `codex app-server`.
-                  </p>
-                {/if}
-              </article>
+              <ConversationPanel
+                worktree={selectedWorktree}
+                conversation={conversation}
+                conversationError={conversationError}
+                conversationLoading={conversationLoading}
+                composerText={composerText}
+                isSending={isSending}
+                onAttach={() => void loadConversation(selectedWorktree.branch, "attach")}
+                onComposerInput={(value) => {
+                  composerText = value;
+                }}
+                onInterrupt={() => void interruptSelectedConversation()}
+                onRefresh={() => void refreshSelectedConversation()}
+                onSend={() => void sendSelectedConversationMessage()}
+              />
 
               <article class="rounded-[1.6rem] border border-[var(--color-line)] bg-[var(--color-paper)] p-4">
                 <div class="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--color-muted)]">
@@ -239,7 +364,7 @@
           </div>
         {:else}
           <div class="flex h-full min-h-[28rem] items-center justify-center rounded-[1.6rem] border border-dashed border-[var(--color-line)] bg-[var(--color-paper)] p-6 text-center text-[var(--color-muted)]">
-            Select a worktree to inspect its future conversation lane.
+            Select a worktree to inspect its Codex conversation lane.
           </div>
         {/if}
       </section>

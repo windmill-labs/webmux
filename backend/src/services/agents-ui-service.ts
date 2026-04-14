@@ -5,7 +5,7 @@ function cloneConversationMeta(meta: WorktreeConversationMeta | null): WorktreeC
   return meta ? { ...meta } : null;
 }
 
-function mapWorktreeSummary(
+export function buildAgentsUiWorktreeSummary(
   worktree: WorktreeSnapshot,
   conversation: WorktreeConversationMeta | null,
 ): AgentsUiWorktreeSummary {
@@ -40,7 +40,7 @@ export function buildAgentsUiBootstrap(input: {
       claudeWorktreeChat: false,
     },
     worktrees: input.snapshot.worktrees.map((worktree) =>
-      mapWorktreeSummary(worktree, input.conversations.get(worktree.branch) ?? null)
+      buildAgentsUiWorktreeSummary(worktree, input.conversations.get(worktree.branch) ?? null)
     ),
   };
 }

@@ -10,6 +10,7 @@ const port = parseInt(process.env.AGENTS_FRONTEND_PORT || "5183", 10);
 export default defineConfig({
   plugins: [svelte(), tailwindcss()],
   server: {
+    host: "0.0.0.0",
     port,
     proxy: {
       "/api/agents": backendUrl,
@@ -20,6 +21,7 @@ export default defineConfig({
     },
   },
   preview: {
+    host: "0.0.0.0",
     port: 4183,
     proxy: {
       "/api/agents": backendUrl,

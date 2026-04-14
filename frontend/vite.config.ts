@@ -10,6 +10,7 @@ const port = parseInt(process.env.FRONTEND_PORT || "5112");
 export default defineConfig({
   plugins: [svelte(), tailwindcss()],
   server: {
+    host: "0.0.0.0",
     port,
     proxy: {
       "/api": backendUrl,
@@ -20,6 +21,7 @@ export default defineConfig({
     },
   },
   preview: {
+    host: "0.0.0.0",
     port: 4173,
     proxy: {
       "/api": backendUrl,

@@ -273,6 +273,63 @@ describe("buildConversationState", () => {
       ],
     });
   });
+
+  it("does not mark interrupted turns as running", () => {
+    const thread = makeThread({
+      id: "thread-2",
+      cwd: "/tmp/worktree",
+      updatedAt: 121,
+      statusType: "idle",
+      source: "cli",
+      turns: [
+        makeTurn({
+          id: "turn-interrupted",
+          status: "interrupted",
+          startedAt: 222,
+          items: [
+            {
+              type: "userMessage",
+              id: "user-2",
+              content: [{ type: "text", text: "Stop after the grep" }],
+            },
+            {
+              type: "agentMessage",
+              id: "assistant-2",
+              text: "Interrupted after the grep step.",
+              phase: "final_answer",
+              memoryCitation: null,
+            },
+          ],
+        }),
+      ],
+    });
+
+    expect(buildConversationState(thread)).toEqual({
+      provider: "codexAppServer",
+      threadId: "thread-2",
+      cwd: "/tmp/worktree",
+      running: false,
+      activeTurnId: null,
+      messages: [
+        {
+          id: "user-2",
+          turnId: "turn-interrupted",
+          role: "user",
+          text: "Stop after the grep",
+          status: "completed",
+          createdAt: "1970-01-01T00:03:42.000Z",
+        },
+        {
+          id: "assistant-2",
+          turnId: "turn-interrupted",
+          role: "assistant",
+          text: "Interrupted after the grep step.",
+          status: "completed",
+          createdAt: "1970-01-01T00:03:42.000Z",
+        },
+      ],
+    });
+  });
 });
 
 describe("WorktreeConversationService", () => {
@@ -401,6 +458,69 @@ describe("WorktreeConversationService", () => {
       "threadRead:thread-existing:false",
       "threadRead:thread-existing:true",
       "turnStart:thread-existing:Apply the patch",
+    ]);
+  });
+
+  it("starts a new turn when the latest historical turn was interrupted", async () => {
+    const metaStore = new Map<string, WorktreeMeta>();
+    const worktree = makeWorktree();
+    const gitDir = `${worktree.path}/.git`;
+    metaStore.set(gitDir, {
+      ...makeMeta(),
+      conversation: {
+        provider: "codexAppServer",
+        threadId: "thread-interrupted",
+        cwd: worktree.path,
+        lastSeenAt: "2026-04-14T11:00:00.000Z",
+      },
+    });
+
+    const interruptedThread = makeThread({
+      id: "thread-interrupted",
+      cwd: worktree.path,
+      updatedAt: 301,
+      statusType: "idle",
+      source: "cli",
+      turns: [
+        makeTurn({
+          id: "turn-old",
+          status: "interrupted",
+          startedAt: 223,
+          items: [
+            {
+              type: "userMessage",
+              id: "user-old",
+              content: [{ type: "text", text: "Stop there" }],
+            },
+          ],
+        }),
+      ],
+    });
+    const appServer = new FakeCodexAppServer();
+    appServer.threads.set(interruptedThread.id, structuredClone(interruptedThread));
+
+    const service = new WorktreeConversationService({
+      appServer,
+      git: new FakeGitGateway(),
+      readMeta: async (path) => structuredClone(metaStore.get(path) ?? null),
+      writeMeta: async (path, meta) => {
+        metaStore.set(path, structuredClone(meta));
+      },
+    });
+
+    const result = await service.sendWorktreeMessage(worktree, "Continue from there");
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        threadId: "thread-interrupted",
+        turnId: "turn-created",
+        running: true,
+      },
+    });
+    expect(appServer.calls).toEqual([
+      "threadRead:thread-interrupted:false",
+      "threadRead:thread-interrupted:true",
+      "turnStart:thread-interrupted:Continue from there",
     ]);
   });
 

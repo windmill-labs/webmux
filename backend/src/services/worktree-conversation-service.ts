@@ -71,10 +71,18 @@ function extractUserText(item: CodexAppServerUserMessageItem): string {
     .trim();
 }
 
+function isActiveTurnStatus(status: string): boolean {
+  return status === "inProgress"
+    || status === "active"
+    || status === "running"
+    || status === "pending"
+    || status === "queued";
+}
+
 function findActiveTurn(thread: CodexAppServerThread): CodexAppServerTurn | null {
   for (let index = thread.turns.length - 1; index >= 0; index -= 1) {
     const turn = thread.turns[index];
-    if (turn.status !== "completed") return turn;
+    if (isActiveTurnStatus(turn.status)) return turn;
   }
 
   return null;
@@ -107,7 +115,7 @@ function buildConversationMessages(thread: CodexAppServerThread): AgentsUiConver
         turnId: turn.id,
         role: "assistant",
         text: item.text,
-        status: turn.status === "completed" ? "completed" : "inProgress",
+        status: isActiveTurnStatus(turn.status) ? "inProgress" : "completed",
         createdAt: toIsoTimestamp(turn.completedAt ?? turn.startedAt),
       });
     }

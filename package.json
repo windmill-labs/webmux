@@ -22,6 +22,7 @@
   "workspaces": [
     "backend",
     "frontend",
+    "agents-frontend",
     "packages/*"
   ],
   "dependencies": {

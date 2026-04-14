@@ -30,6 +30,7 @@ import {
   type TerminalAttachTarget,
 } from "./adapters/terminal";
 import { loadControlToken } from "./adapters/control-token";
+import { readWorktreeMeta } from "./adapters/fs";
 import { getDefaultProfileName, persistLocalLinearConfig, persistLocalGitHubConfig, type ProjectConfig } from "./adapters/config";
 import { jsonResponse, errorResponse } from "./lib/http";
 import { parseJsonBody, parseParams, parseQuery } from "./api-validation";
@@ -48,10 +49,11 @@ import { startPrMonitor } from "./services/pr-service";
 import { startLinearAutoCreateMonitor, resetProcessedIssues } from "./services/linear-auto-create-service";
 import { runAutoRemove, type AutoRemoveDependencies } from "./services/auto-remove-service";
 import { pullMainBranch, forcePullMainBranch, startAutoPullMonitor } from "./services/auto-pull-service";
-import { buildWorktreeSnapshots } from "./services/snapshot-service";
+import { buildAgentsUiBootstrap } from "./services/agents-ui-service";
+import { buildProjectSnapshot } from "./services/snapshot-service";
 import { parseRuntimeEvent } from "./domain/events";
 import type { CreateWorktreeAgentSelection } from "./domain/config";
-import type { WorktreeSnapshot } from "./domain/model";
+import type { ProjectSnapshot, WorktreeConversationMeta } from "./domain/model";
 import { isValidBranchName, isValidWorktreeName } from "./domain/policies";
 import { createWebmuxRuntime } from "./runtime";
 
@@ -340,31 +342,7 @@ function makeCallbacks(ws: { send: (data: string) => void; readyState: number })
   };
 }
 
-function buildLinkedLinearIssue(
-  linearIssues: Array<{
-    identifier: string;
-    url: string;
-    state: {
-      name: string;
-      color: string;
-      type: string;
-    };
-    branchName: string;
-  }>,
-  branch: string,
-): { identifier: string; url: string; state: { name: string; color: string; type: string } } | null {
-  const match = linearIssues.find((issue) => branchMatchesIssue(branch, issue.branchName));
-  return match
-    ? {
-        identifier: match.identifier,
-        url: match.url,
-        state: match.state,
-      }
-    : null;
-}
-
-async function buildDashboardWorktrees(): Promise<WorktreeSnapshot[]> {
-  touchDashboardActivity();
+async function readProjectSnapshot(): Promise<ProjectSnapshot> {
   const linearApiKey = Bun.env.LINEAR_API_KEY;
   const linearIssuesPromise = config.integrations.linear.enabled && linearApiKey?.trim()
     ? fetchAssignedIssues()
@@ -374,32 +352,66 @@ async function buildDashboardWorktrees(): Promise<WorktreeSnapshot[]> {
   const linearResult = await linearIssuesPromise;
   const archivedPaths = buildArchivedWorktreePathSet(archiveState);
   const linearIssues = linearResult.ok ? linearResult.data : [];
-  return buildWorktreeSnapshots({
+  return buildProjectSnapshot({
+    projectName: config.name,
+    mainBranch: config.workspace.mainBranch,
     runtime: projectRuntime,
     creatingWorktrees: worktreeCreationTracker.list(),
+    notifications: runtimeNotifications.list(),
     isArchived: (path) => archivedPaths.has(normalizeArchivePath(path)),
-    findLinearIssue: (branch) => buildLinkedLinearIssue(linearIssues, branch),
+    findLinearIssue: (branch) => {
+      const match = linearIssues.find((issue) => branchMatchesIssue(branch, issue.branchName));
+      return match
+        ? {
+            identifier: match.identifier,
+            url: match.url,
+            state: match.state,
+          }
+        : null;
+    },
   });
 }
 
 // --- API handler functions (thin I/O layer, testable by injecting deps) ---
 
 async function apiGetProject(): Promise<Response> {
-  const worktrees = await buildDashboardWorktrees();
-  return jsonResponse({
-    project: {
-      name: config.name,
-      mainBranch: config.workspace.mainBranch,
-    },
-    worktrees,
-    notifications: runtimeNotifications.list(),
-  });
+  touchDashboardActivity();
+  return jsonResponse(await readProjectSnapshot());
 }
 
 async function apiGetWorktrees(): Promise<Response> {
   return jsonResponse({
-    worktrees: await buildDashboardWorktrees(),
+    worktrees: (await readProjectSnapshot()).worktrees,
   });
+}
+
+async function readAgentsConversations(snapshot: ProjectSnapshot): Promise<Map<string, WorktreeConversationMeta | null>> {
+  const entries = await Promise.all(snapshot.worktrees.map(async (worktree) => {
+    try {
+      const gitDir = git.resolveWorktreeGitDir(worktree.path);
+      const meta = await readWorktreeMeta(gitDir);
+      return [worktree.branch, meta?.conversation ?? null] as const;
+    } catch {
+      return [worktree.branch, null] as const;
+    }
+  }));
+  return new Map(entries);
+}
+
+async function apiGetProject(): Promise<Response> {
+  touchDashboardActivity();
+  return jsonResponse(await readProjectSnapshot());
+}
+
+async function apiGetAgentsBootstrap(): Promise<Response> {
+  touchDashboardActivity();
+  const snapshot = await readProjectSnapshot();
+  const conversations = await readAgentsConversations(snapshot);
+  return jsonResponse(buildAgentsUiBootstrap({ snapshot, conversations }));
+}
+
+function apiAgentsNotImplemented(): Response {
+  return errorResponse("Not implemented", 501);
 }
 
 async function apiRuntimeEvent(req: Request): Promise<Response> {
@@ -851,6 +863,42 @@ Bun.serve({
 
     [apiPaths.fetchProject]: {
       GET: () => catching("GET /api/project", () => apiGetProject()),
+    },
+
+    "/api/agents/bootstrap": {
+      GET: () => catching("GET /api/agents/bootstrap", () => apiGetAgentsBootstrap()),
+    },
+
+    "/api/agents/worktrees/:name/attach": {
+      POST: (req) => {
+        const name = decodeURIComponent(req.params.name);
+        if (!isValidWorktreeName(name)) return errorResponse("Invalid worktree name", 400);
+        return apiAgentsNotImplemented();
+      },
+    },
+
+    "/api/agents/worktrees/:name/history": {
+      GET: (req) => {
+        const name = decodeURIComponent(req.params.name);
+        if (!isValidWorktreeName(name)) return errorResponse("Invalid worktree name", 400);
+        return apiAgentsNotImplemented();
+      },
+    },
+
+    "/api/agents/worktrees/:name/messages": {
+      POST: (req) => {
+        const name = decodeURIComponent(req.params.name);
+        if (!isValidWorktreeName(name)) return errorResponse("Invalid worktree name", 400);
+        return apiAgentsNotImplemented();
+      },
+    },
+
+    "/api/agents/worktrees/:name/interrupt": {
+      POST: (req) => {
+        const name = decodeURIComponent(req.params.name);
+        if (!isValidWorktreeName(name)) return errorResponse("Invalid worktree name", 400);
+        return apiAgentsNotImplemented();
+      },
     },
 
     "/api/runtime/events": {

@@ -3,6 +3,15 @@ import type { AgentKind, RuntimeKind } from "./config";
 export const WORKTREE_META_SCHEMA_VERSION = 1;
 export const WORKTREE_ARCHIVE_STATE_VERSION = 1;
 
+export type WorktreeConversationProvider = "codexAppServer";
+
+export interface WorktreeConversationMeta {
+  provider: WorktreeConversationProvider;
+  threadId: string;
+  cwd: string;
+  lastSeenAt: string;
+}
+
 export interface WorktreeMeta {
   schemaVersion: number;
   worktreeId: string;
@@ -14,6 +23,7 @@ export interface WorktreeMeta {
   runtime: RuntimeKind;
   startupEnvValues: Record<string, string>;
   allocatedPorts: Record<string, number>;
+  conversation?: WorktreeConversationMeta | null;
 }
 
 export interface ArchivedWorktreeEntry {

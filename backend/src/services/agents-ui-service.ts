@@ -37,7 +37,7 @@ export function buildAgentsUiBootstrap(input: {
     },
     capabilities: {
       codexWorktreeChat: true,
-      claudeWorktreeChat: false,
+      claudeWorktreeChat: true,
     },
     worktrees: input.snapshot.worktrees.map((worktree) =>
       buildAgentsUiWorktreeSummary(worktree, input.conversations.get(worktree.branch) ?? null)

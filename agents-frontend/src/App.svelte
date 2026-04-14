@@ -36,6 +36,10 @@
     disconnect: () => void;
   } | null = null;
 
+  function isChatWorktree(worktree: AgentsUiWorktreeSummary | null): worktree is AgentsUiWorktreeSummary {
+    return worktree?.agentName === "codex" || worktree?.agentName === "claude";
+  }
+
   const selectedWorktree = $derived(
     bootstrap?.worktrees.find((worktree) => worktree.branch === selectedBranch) ?? null,
   );
@@ -102,7 +106,7 @@
   }
 
   function syncConversationStream(): void {
-    if (selectedWorktree?.agentName !== "codex") {
+    if (!isChatWorktree(selectedWorktree)) {
       closeConversationStream();
       return;
     }
@@ -198,19 +202,19 @@
 
   function describeWorktree(worktree: AgentsUiWorktreeSummary): string {
     if (worktree.creating && worktree.creationPhase) return `Creating: ${worktree.creationPhase}`;
-    if (worktree.agentName === "codex" && worktree.conversation) return "Chat ready";
-    if (worktree.agentName === "codex") return "Attach on open";
+    if (isChatWorktree(worktree) && worktree.conversation) return "Chat ready";
+    if (isChatWorktree(worktree)) return "Attach on open";
     return "Terminal only";
   }
 
   async function refreshSelectedConversation(): Promise<void> {
-    if (!selectedWorktree || selectedWorktree.agentName !== "codex") return;
+    if (!isChatWorktree(selectedWorktree)) return;
     const mode = conversation || selectedWorktree.conversation ? "history" : "attach";
     await loadConversation(selectedWorktree.branch, mode);
   }
 
   async function sendSelectedConversationMessage(): Promise<void> {
-    if (!selectedWorktree || selectedWorktree.agentName !== "codex") return;
+    if (!isChatWorktree(selectedWorktree) || !conversation) return;
     const text = composerText.trim();
     if (text.length === 0) return;
 
@@ -219,6 +223,12 @@
     try {
       const response = await sendWorktreeConversationMessage(selectedWorktree.branch, { text });
       composerText = "";
+      if (conversation.conversationId !== response.conversationId) {
+        conversation = {
+          ...conversation,
+          conversationId: response.conversationId,
+        };
+      }
       conversation = markConversationTurnStarted(conversation, response.turnId, text);
       syncConversationStream();
     } catch (error) {
@@ -229,7 +239,7 @@
   }
 
   async function interruptSelectedConversation(): Promise<void> {
-    if (!selectedWorktree || selectedWorktree.agentName !== "codex") return;
+    if (!isChatWorktree(selectedWorktree)) return;
 
     conversationError = null;
     try {
@@ -247,7 +257,7 @@
 
   $effect(() => {
     const worktree = selectedWorktree;
-    if (!worktree || worktree.agentName !== "codex") return;
+    if (!isChatWorktree(worktree)) return;
     if (attachedBranch === worktree.branch) return;
     void loadConversation(worktree.branch, "attach");
   });

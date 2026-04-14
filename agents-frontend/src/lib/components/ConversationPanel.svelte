@@ -34,8 +34,10 @@
     showBackButton,
   }: Props = $props();
 
+  const agentLabel = $derived(worktree.agentName === "claude" ? "Claude" : "Codex");
+  const chatAvailable = $derived(worktree.agentName === "codex" || worktree.agentName === "claude");
   const canSend = $derived(
-    worktree.agentName === "codex"
+    chatAvailable
       && conversation !== null
       && !conversationLoading
       && composerText.trim().length > 0
@@ -82,7 +84,7 @@
   });
 </script>
 
-{#if worktree.agentName !== "codex"}
+{#if !chatAvailable}
   <article class="flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-[1.4rem] border border-[var(--color-line)] bg-[var(--color-paper)] p-4">
     <div class="flex items-center gap-3">
       {#if showBackButton}
@@ -158,7 +160,7 @@
       <div bind:this={transcriptViewport} class="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto overflow-x-hidden pr-1">
         {#if conversationLoading && !conversation}
           <div class="rounded-[1.1rem] border border-dashed border-[var(--color-line)] bg-[var(--color-panel)] px-4 py-5 text-sm text-[var(--color-muted)]">
-            Connecting to the Codex thread…
+            Connecting to the {agentLabel} session…
           </div>
         {:else if !conversation || conversation.messages.length === 0}
           <div class="rounded-[1.1rem] border border-dashed border-[var(--color-line)] bg-[var(--color-panel)] px-4 py-5 text-sm text-[var(--color-muted)]">
@@ -191,7 +193,7 @@
         <textarea
           id="conversation-composer"
           class="mt-3 block min-h-[8rem] w-full max-w-full rounded-[1.1rem] border border-[var(--color-line)] bg-[var(--color-panel)] px-4 py-3 text-sm text-[var(--color-ink)] outline-none transition focus:border-[var(--color-accent)]"
-          placeholder="Ask Codex to inspect or modify this worktree…"
+          placeholder={`Ask ${agentLabel} about this worktree…`}
           value={composerText}
           oninput={handleComposerInput}
           disabled={isSending}

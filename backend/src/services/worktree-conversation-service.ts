@@ -24,6 +24,7 @@ import type {
 } from "../domain/model";
 import { log } from "../lib/log";
 import { buildAgentsUiWorktreeSummary } from "./agents-ui-service";
+import { err, ok, type WorktreeConversationResult } from "./worktree-conversation-result";
 
 export interface WorktreeConversationServiceDependencies {
   appServer: CodexAppServerGateway;
@@ -33,23 +34,11 @@ export interface WorktreeConversationServiceDependencies {
   writeMeta?: (gitDir: string, meta: WorktreeMeta) => Promise<void>;
 }
 
-export type WorktreeConversationResult<T> =
-  | { ok: true; data: T }
-  | { ok: false; error: string; status: number };
-
 interface ResolvedConversation {
   gitDir: string;
   meta: WorktreeMeta;
   thread: CodexAppServerThread;
   conversationMeta: WorktreeConversationMeta;
-}
-
-function ok<T>(data: T): WorktreeConversationResult<T> {
-  return { ok: true, data };
-}
-
-function err<T>(status: number, error: string): WorktreeConversationResult<T> {
-  return { ok: false, status, error };
 }
 
 function isCodexWorktree(worktree: WorktreeSnapshot): boolean {

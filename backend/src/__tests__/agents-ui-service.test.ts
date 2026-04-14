@@ -57,7 +57,7 @@ describe("buildAgentsUiBootstrap", () => {
       },
       capabilities: {
         codexWorktreeChat: true,
-        claudeWorktreeChat: false,
+        claudeWorktreeChat: true,
       },
       worktrees: [
         {

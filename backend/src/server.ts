@@ -30,6 +30,7 @@ import {
   type TerminalAttachTarget,
 } from "./adapters/terminal";
 import { loadControlToken } from "./adapters/control-token";
+import { ClaudeCliClient } from "./adapters/claude-cli";
 import { CodexAppServerClient } from "./adapters/codex-app-server";
 import { readWorktreeMeta } from "./adapters/fs";
 import { getDefaultProfileName, persistLocalLinearConfig, persistLocalGitHubConfig, type ProjectConfig } from "./adapters/config";
@@ -57,6 +58,7 @@ import {
   shouldRefreshAgentsConversationSnapshot,
 } from "./services/agents-ui-stream-service";
 import { buildProjectSnapshot } from "./services/snapshot-service";
+import { ClaudeConversationService } from "./services/claude-conversation-service";
 import { WorktreeConversationService } from "./services/worktree-conversation-service";
 import { parseRuntimeEvent } from "./domain/events";
 import type { CreateWorktreeAgentSelection } from "./domain/config";
@@ -84,8 +86,13 @@ const codexAppServerClient = new CodexAppServerClient({
   clientName: "webmux-agents",
   clientVersion: "0.0.0",
 });
+const claudeCliClient = new ClaudeCliClient();
 const worktreeConversationService = new WorktreeConversationService({
   appServer: codexAppServerClient,
+  git,
+});
+const claudeConversationService = new ClaudeConversationService({
+  claude: claudeCliClient,
   git,
 });
 const removingBranches = new Set<string>();
@@ -495,7 +502,9 @@ async function apiAttachAgentsWorktree(branch: string): Promise<Response> {
   const resolved = await resolveAgentsWorktree(branch);
   if (!resolved.ok) return resolved.response;
 
-  const result = await worktreeConversationService.attachWorktreeConversation(resolved.worktree);
+  const result = resolved.worktree.agentName === "claude"
+    ? await claudeConversationService.attachWorktreeConversation(resolved.worktree)
+    : await worktreeConversationService.attachWorktreeConversation(resolved.worktree);
   return result.ok
     ? jsonResponse(result.data)
     : errorResponse(result.error, result.status);
@@ -506,7 +515,9 @@ async function apiGetAgentsWorktreeHistory(branch: string): Promise<Response> {
   const resolved = await resolveAgentsWorktree(branch);
   if (!resolved.ok) return resolved.response;
 
-  const result = await worktreeConversationService.readWorktreeConversation(resolved.worktree);
+  const result = resolved.worktree.agentName === "claude"
+    ? await claudeConversationService.readWorktreeConversation(resolved.worktree)
+    : await worktreeConversationService.readWorktreeConversation(resolved.worktree);
   return result.ok
     ? jsonResponse(result.data)
     : errorResponse(result.error, result.status);
@@ -533,7 +544,9 @@ async function apiSendAgentsWorktreeMessage(branch: string, req: Request): Promi
   const resolved = await resolveAgentsWorktree(branch);
   if (!resolved.ok) return resolved.response;
 
-  const result = await worktreeConversationService.sendWorktreeMessage(resolved.worktree, text);
+  const result = resolved.worktree.agentName === "claude"
+    ? await claudeConversationService.sendWorktreeMessage(resolved.worktree, text)
+    : await worktreeConversationService.sendWorktreeMessage(resolved.worktree, text);
   return result.ok
     ? jsonResponse(result.data)
     : errorResponse(result.error, result.status);
@@ -544,7 +557,9 @@ async function apiInterruptAgentsWorktree(branch: string): Promise<Response> {
   const resolved = await resolveAgentsWorktree(branch);
   if (!resolved.ok) return resolved.response;
 
-  const result = await worktreeConversationService.interruptWorktreeConversation(resolved.worktree);
+  const result = resolved.worktree.agentName === "claude"
+    ? await claudeConversationService.interruptWorktreeConversation(resolved.worktree)
+    : await worktreeConversationService.interruptWorktreeConversation(resolved.worktree);
   return result.ok
     ? jsonResponse(result.data)
     : errorResponse(result.error, result.status);
@@ -567,7 +582,9 @@ async function loadAgentsConversationSnapshot(
     };
   }
 
-  const result = await worktreeConversationService.readWorktreeConversation(resolved.worktree);
+  const result = resolved.worktree.agentName === "claude"
+    ? await claudeConversationService.readWorktreeConversation(resolved.worktree)
+    : await worktreeConversationService.readWorktreeConversation(resolved.worktree);
   return result.ok
     ? { ok: true, data: result.data }
     : { ok: false, message: result.error };
@@ -606,6 +623,13 @@ async function openAgentsSocket(
     type: "snapshot",
     data: snapshot.data,
   });
+
+  if (snapshot.data.conversation.provider === "claudeCode") {
+    data.unsubscribe = claudeConversationService.subscribe(data.branch, (event) => {
+      sendAgentsWs(ws, event);
+    });
+    return;
+  }
 
   data.unsubscribe = codexAppServerClient.onNotification((notification) => {
     const notificationThreadId = readAgentsNotificationThreadId(notification);

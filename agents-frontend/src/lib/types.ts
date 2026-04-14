@@ -5,12 +5,26 @@ export interface ServiceStatus {
   url: string | null;
 }
 
-export interface WorktreeConversationRef {
-  provider: "codexAppServer";
-  threadId: string;
+interface WorktreeConversationRefBase {
+  provider: "codexAppServer" | "claudeCode";
+  conversationId: string;
   cwd: string;
   lastSeenAt: string;
 }
+
+export interface CodexWorktreeConversationRef extends WorktreeConversationRefBase {
+  provider: "codexAppServer";
+  threadId: string;
+}
+
+export interface ClaudeWorktreeConversationRef extends WorktreeConversationRefBase {
+  provider: "claudeCode";
+  sessionId: string;
+}
+
+export type WorktreeConversationRef =
+  | CodexWorktreeConversationRef
+  | ClaudeWorktreeConversationRef;
 
 export interface AgentsUiProjectInfo {
   name: string;
@@ -63,8 +77,8 @@ export interface AgentsUiConversationMessage {
 }
 
 export interface AgentsUiConversationState {
-  provider: "codexAppServer";
-  threadId: string;
+  provider: "codexAppServer" | "claudeCode";
+  conversationId: string;
   cwd: string;
   running: boolean;
   activeTurnId: string | null;
@@ -81,13 +95,13 @@ export interface AgentsUiSendMessageRequest {
 }
 
 export interface AgentsUiSendMessageResponse {
-  threadId: string;
+  conversationId: string;
   turnId: string;
   running: true;
 }
 
 export interface AgentsUiInterruptResponse {
-  threadId: string;
+  conversationId: string;
   turnId: string;
   interrupted: true;
 }
@@ -99,7 +113,7 @@ export interface AgentsUiConversationSnapshotEvent {
 
 export interface AgentsUiConversationMessageDeltaEvent {
   type: "messageDelta";
-  threadId: string;
+  conversationId: string;
   turnId: string;
   itemId: string;
   delta: string;

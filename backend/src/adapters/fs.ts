@@ -2,10 +2,13 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type {
   ArchivedWorktreeEntry,
+  ClaudeWorktreeConversationMeta,
   CiCheck,
+  CodexWorktreeConversationMeta,
   ControlEnvMap,
   PrComment,
   PrEntry,
+  WorktreeConversationMeta,
   WorktreeArchiveState,
   WorktreeMeta,
   WorktreeStoragePaths,
@@ -79,7 +82,8 @@ export async function ensureWorktreeStorageDirs(gitDir: string): Promise<Worktre
 export async function readWorktreeMeta(gitDir: string): Promise<WorktreeMeta | null> {
   const { metaPath } = getWorktreeStoragePaths(gitDir);
   try {
-    return await Bun.file(metaPath).json() as WorktreeMeta;
+    const raw = await Bun.file(metaPath).json() as WorktreeMeta;
+    return normalizeWorktreeMeta(raw);
   } catch {
     return null;
   }
@@ -182,6 +186,46 @@ export async function writeControlEnv(gitDir: string, env: ControlEnvMap): Promi
 
 function isRecord(raw: unknown): raw is Record<string, unknown> {
   return typeof raw === "object" && raw !== null && !Array.isArray(raw);
+}
+
+function normalizeConversationMeta(raw: WorktreeConversationMeta | null | undefined): WorktreeConversationMeta | null | undefined {
+  if (!raw) return raw;
+
+  if (raw.provider === "codexAppServer") {
+    const conversationId = raw.conversationId || raw.threadId;
+    const threadId = raw.threadId || raw.conversationId;
+    if (!conversationId || !threadId) return undefined;
+    const normalized: CodexWorktreeConversationMeta = {
+      provider: "codexAppServer",
+      conversationId,
+      threadId,
+      cwd: raw.cwd,
+      lastSeenAt: raw.lastSeenAt,
+    };
+    return normalized;
+  }
+
+  const conversationId = raw.conversationId || raw.sessionId;
+  const sessionId = raw.sessionId || raw.conversationId;
+  if (!conversationId || !sessionId) return undefined;
+  const normalized: ClaudeWorktreeConversationMeta = {
+    provider: "claudeCode",
+    conversationId,
+    sessionId,
+    cwd: raw.cwd,
+    lastSeenAt: raw.lastSeenAt,
+  };
+  return normalized;
+}
+
+function normalizeWorktreeMeta(meta: WorktreeMeta): WorktreeMeta {
+  const conversation = normalizeConversationMeta(meta.conversation);
+  return conversation === meta.conversation
+    ? meta
+    : {
+        ...meta,
+        conversation,
+      };
 }
 
 function isPrComment(raw: unknown): raw is PrComment {

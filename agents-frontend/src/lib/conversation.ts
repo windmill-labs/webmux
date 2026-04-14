@@ -19,7 +19,7 @@ export function applyConversationMessageDelta(
   conversation: AgentsUiConversationState | null,
   event: AgentsUiConversationMessageDeltaEvent,
 ): AgentsUiConversationState | null {
-  if (!conversation || conversation.threadId !== event.threadId) return conversation;
+  if (!conversation || conversation.conversationId !== event.conversationId) return conversation;
 
   const existingIndex = conversation.messages.findIndex((message) => message.id === event.itemId);
   if (existingIndex === -1) {

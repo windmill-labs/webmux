@@ -32,7 +32,7 @@
   let mobileListOpen = $state(true);
   let streamConnection: {
     branch: string;
-    threadId: string;
+    conversationId: string;
     disconnect: () => void;
   } | null = null;
 
@@ -72,20 +72,20 @@
     streamConnection = null;
   }
 
-  function hasActiveConversationStream(branch: string, threadId: string): boolean {
-    return streamConnection?.branch === branch && streamConnection.threadId === threadId;
+  function hasActiveConversationStream(branch: string, conversationId: string): boolean {
+    return streamConnection?.branch === branch && streamConnection.conversationId === conversationId;
   }
 
-  function handleConversationStreamFailure(branch: string, threadId: string, message: string): void {
-    if (!hasActiveConversationStream(branch, threadId) || !streamConnection) return;
+  function handleConversationStreamFailure(branch: string, conversationId: string, message: string): void {
+    if (!hasActiveConversationStream(branch, conversationId) || !streamConnection) return;
     const currentConnection = streamConnection;
     streamConnection = null;
     currentConnection.disconnect();
     conversationError = message;
   }
 
-  function handleConversationStreamEvent(branch: string, threadId: string, event: AgentsUiConversationEvent): void {
-    if (!hasActiveConversationStream(branch, threadId)) return;
+  function handleConversationStreamEvent(branch: string, conversationId: string, event: AgentsUiConversationEvent): void {
+    if (!hasActiveConversationStream(branch, conversationId)) return;
 
     switch (event.type) {
       case "snapshot":
@@ -108,29 +108,29 @@
     }
 
     const branch = selectedWorktree.branch;
-    const threadId = conversation?.threadId ?? selectedWorktree.conversation?.threadId ?? null;
-    if (!threadId) {
+    const conversationId = conversation?.conversationId ?? selectedWorktree.conversation?.conversationId ?? null;
+    if (!conversationId) {
       closeConversationStream();
       return;
     }
 
-    if (hasActiveConversationStream(branch, threadId)) {
+    if (hasActiveConversationStream(branch, conversationId)) {
       return;
     }
 
     closeConversationStream();
     const disconnect = connectWorktreeConversationStream(branch, {
       onEvent: (event) => {
-        handleConversationStreamEvent(branch, threadId, event);
+        handleConversationStreamEvent(branch, conversationId, event);
       },
       onError: (message) => {
-        handleConversationStreamFailure(branch, threadId, message);
+        handleConversationStreamFailure(branch, conversationId, message);
       },
       onClose: () => {
-        handleConversationStreamFailure(branch, threadId, "Agents stream disconnected");
+        handleConversationStreamFailure(branch, conversationId, "Agents stream disconnected");
       },
     });
-    streamConnection = { branch, threadId, disconnect };
+    streamConnection = { branch, conversationId, disconnect };
   }
 
   async function loadBootstrap(): Promise<void> {

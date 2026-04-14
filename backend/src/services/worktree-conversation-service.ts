@@ -16,7 +16,12 @@ import type {
   AgentsUiSendMessageResponse,
   AgentsUiWorktreeConversationResponse,
 } from "../domain/agents-ui";
-import type { WorktreeConversationMeta, WorktreeMeta, WorktreeSnapshot } from "../domain/model";
+import type {
+  CodexWorktreeConversationMeta,
+  WorktreeConversationMeta,
+  WorktreeMeta,
+  WorktreeSnapshot,
+} from "../domain/model";
 import { log } from "../lib/log";
 import { buildAgentsUiWorktreeSummary } from "./agents-ui-service";
 
@@ -49,6 +54,10 @@ function err<T>(status: number, error: string): WorktreeConversationResult<T> {
 
 function isCodexWorktree(worktree: WorktreeSnapshot): boolean {
   return worktree.agentName === "codex";
+}
+
+function isCodexConversationMeta(meta: WorktreeConversationMeta | null | undefined): meta is CodexWorktreeConversationMeta {
+  return meta?.provider === "codexAppServer";
 }
 
 function toIsoTimestamp(epochSeconds: number | null): string | null {
@@ -128,7 +137,7 @@ export function buildConversationState(thread: CodexAppServerThread): AgentsUiCo
   const activeTurn = findActiveTurn(thread);
   return {
     provider: "codexAppServer",
-    threadId: thread.id,
+    conversationId: thread.id,
     cwd: thread.cwd,
     running: thread.status.type === "active" || activeTurn !== null,
     activeTurnId: activeTurn?.id ?? null,
@@ -143,9 +152,10 @@ export function selectDiscoveredThread(threads: CodexAppServerThreadListResponse
     .sort((left, right) => right.updatedAt - left.updatedAt)[0] ?? null;
 }
 
-function buildConversationMeta(thread: CodexAppServerThread, now: Date): WorktreeConversationMeta {
+function buildConversationMeta(thread: CodexAppServerThread, now: Date): CodexWorktreeConversationMeta {
   return {
     provider: "codexAppServer",
+    conversationId: thread.id,
     threadId: thread.id,
     cwd: thread.cwd,
     lastSeenAt: now.toISOString(),
@@ -154,7 +164,7 @@ function buildConversationMeta(thread: CodexAppServerThread, now: Date): Worktre
 
 function sameConversationMeta(left: WorktreeConversationMeta | null | undefined, right: WorktreeConversationMeta): boolean {
   return left?.provider === right.provider
-    && left.threadId === right.threadId
+    && left.conversationId === right.conversationId
     && left.cwd === right.cwd;
 }
 
@@ -219,7 +229,7 @@ export class WorktreeConversationService {
       });
 
       return ok({
-        threadId: thread.id,
+        conversationId: thread.id,
         turnId: started.turn.id,
         running: true,
       });
@@ -241,7 +251,7 @@ export class WorktreeConversationService {
       });
 
       return ok({
-        threadId: thread.id,
+        conversationId: thread.id,
         turnId: activeTurn.id,
         interrupted: true,
       });
@@ -305,7 +315,9 @@ export class WorktreeConversationService {
     cwd: string,
     allowCreate: boolean,
   ): Promise<CodexAppServerThread | null> {
-    const savedThreadId = meta.conversation?.threadId;
+    const savedThreadId = isCodexConversationMeta(meta.conversation)
+      ? meta.conversation.threadId
+      : null;
     if (savedThreadId) {
       const savedThread = await this.tryLoadThread(savedThreadId, cwd);
       if (savedThread) return savedThread;

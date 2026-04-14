@@ -3,14 +3,28 @@ import type { AgentKind, RuntimeKind } from "./config";
 export const WORKTREE_META_SCHEMA_VERSION = 1;
 export const WORKTREE_ARCHIVE_STATE_VERSION = 1;
 
-export type WorktreeConversationProvider = "codexAppServer";
+export type WorktreeConversationProvider = "codexAppServer" | "claudeCode";
 
-export interface WorktreeConversationMeta {
+interface WorktreeConversationMetaBase {
   provider: WorktreeConversationProvider;
-  threadId: string;
+  conversationId: string;
   cwd: string;
   lastSeenAt: string;
 }
+
+export interface CodexWorktreeConversationMeta extends WorktreeConversationMetaBase {
+  provider: "codexAppServer";
+  threadId: string;
+}
+
+export interface ClaudeWorktreeConversationMeta extends WorktreeConversationMetaBase {
+  provider: "claudeCode";
+  sessionId: string;
+}
+
+export type WorktreeConversationMeta =
+  | CodexWorktreeConversationMeta
+  | ClaudeWorktreeConversationMeta;
 
 export interface WorktreeMeta {
   schemaVersion: number;

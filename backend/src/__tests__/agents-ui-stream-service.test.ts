@@ -26,7 +26,7 @@ describe("agents-ui-stream-service", () => {
       },
     })).toEqual({
       type: "messageDelta",
-      threadId: "thread-1",
+      conversationId: "thread-1",
       turnId: "turn-1",
       itemId: "item-1",
       delta: "hello",

@@ -52,7 +52,7 @@ export interface AgentsUiConversationMessage {
 
 export interface AgentsUiConversationState {
   provider: WorktreeConversationProvider;
-  threadId: string;
+  conversationId: string;
   cwd: string;
   running: boolean;
   activeTurnId: string | null;
@@ -69,13 +69,13 @@ export interface AgentsUiSendMessageRequest {
 }
 
 export interface AgentsUiSendMessageResponse {
-  threadId: string;
+  conversationId: string;
   turnId: string;
   running: true;
 }
 
 export interface AgentsUiInterruptResponse {
-  threadId: string;
+  conversationId: string;
   turnId: string;
   interrupted: true;
 }
@@ -87,7 +87,7 @@ export interface AgentsUiConversationSnapshotEvent {
 
 export interface AgentsUiConversationMessageDeltaEvent {
   type: "messageDelta";
-  threadId: string;
+  conversationId: string;
   turnId: string;
   itemId: string;
   delta: string;

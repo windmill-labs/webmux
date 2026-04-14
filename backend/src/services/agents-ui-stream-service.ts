@@ -41,7 +41,7 @@ export function buildAgentsUiMessageDeltaEvent(
 
   return {
     type: "messageDelta",
-    threadId,
+    conversationId: threadId,
     turnId,
     itemId,
     delta,

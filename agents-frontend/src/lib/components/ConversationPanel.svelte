@@ -69,13 +69,13 @@
   }
 
   $effect(() => {
-    const threadId = conversation?.threadId ?? null;
+    const conversationId = conversation?.conversationId ?? null;
     const messageCount = conversation?.messages.length ?? 0;
     const lastMessageId = messageCount > 0 ? conversation?.messages[messageCount - 1]?.id ?? null : null;
     const lastMessageTextLength = messageCount > 0 ? conversation?.messages[messageCount - 1]?.text.length ?? 0 : 0;
-    if (!threadId || !transcriptViewport) return;
+    if (!conversationId || !transcriptViewport) return;
     void scrollTranscriptToBottom();
-    void threadId;
+    void conversationId;
     void messageCount;
     void lastMessageId;
     void lastMessageTextLength;
@@ -101,7 +101,7 @@
     </div>
 
     <div class="mt-4 rounded-[1.1rem] border border-dashed border-[var(--color-line)] bg-[var(--color-panel)] px-4 py-5 text-sm text-[var(--color-muted)]">
-      This worktree is not backed by Codex, so chat is unavailable here.
+      Chat is not available for this worktree yet.
     </div>
   </article>
 {:else}

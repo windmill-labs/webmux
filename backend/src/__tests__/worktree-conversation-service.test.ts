@@ -149,6 +149,16 @@ function makeMeta(): WorktreeMeta {
   };
 }
 
+function makeCodexConversationMeta(threadId: string, cwd: string, lastSeenAt = "2026-04-14T11:00:00.000Z") {
+  return {
+    provider: "codexAppServer" as const,
+    conversationId: threadId,
+    threadId,
+    cwd,
+    lastSeenAt,
+  };
+}
+
 function makeWorktree(): WorktreeSnapshot {
   return {
     branch: "codex-feature",
@@ -249,7 +259,7 @@ describe("buildConversationState", () => {
 
     expect(buildConversationState(thread)).toEqual({
       provider: "codexAppServer",
-      threadId: "thread-1",
+      conversationId: "thread-1",
       cwd: "/tmp/worktree",
       running: false,
       activeTurnId: null,
@@ -306,7 +316,7 @@ describe("buildConversationState", () => {
 
     expect(buildConversationState(thread)).toEqual({
       provider: "codexAppServer",
-      threadId: "thread-2",
+      conversationId: "thread-2",
       cwd: "/tmp/worktree",
       running: false,
       activeTurnId: null,
@@ -394,7 +404,7 @@ describe("WorktreeConversationService", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
 
-    expect(result.data.worktree.conversation?.threadId).toBe("thread-new");
+    expect(result.data.worktree.conversation?.conversationId).toBe("thread-new");
     expect(result.data.conversation.messages).toHaveLength(2);
     expect(appServer.calls).toEqual([
       "threadList",
@@ -403,12 +413,9 @@ describe("WorktreeConversationService", () => {
       "threadRead:thread-new:true",
     ]);
 
-    expect(metaStore.get(gitDir)?.conversation).toEqual({
-      provider: "codexAppServer",
-      threadId: "thread-new",
-      cwd: worktree.path,
-      lastSeenAt: "2026-04-14T12:00:00.000Z",
-    });
+    expect(metaStore.get(gitDir)?.conversation).toEqual(
+      makeCodexConversationMeta("thread-new", worktree.path, "2026-04-14T12:00:00.000Z"),
+    );
   });
 
   it("starts a new turn on the resolved thread", async () => {
@@ -417,12 +424,7 @@ describe("WorktreeConversationService", () => {
     const gitDir = `${worktree.path}/.git`;
     metaStore.set(gitDir, {
       ...makeMeta(),
-      conversation: {
-        provider: "codexAppServer",
-        threadId: "thread-existing",
-        cwd: worktree.path,
-        lastSeenAt: "2026-04-14T11:00:00.000Z",
-      },
+      conversation: makeCodexConversationMeta("thread-existing", worktree.path),
     });
 
     const existingThread = makeThread({
@@ -449,7 +451,7 @@ describe("WorktreeConversationService", () => {
     expect(result).toEqual({
       ok: true,
       data: {
-        threadId: "thread-existing",
+        conversationId: "thread-existing",
         turnId: "turn-created",
         running: true,
       },
@@ -467,12 +469,7 @@ describe("WorktreeConversationService", () => {
     const gitDir = `${worktree.path}/.git`;
     metaStore.set(gitDir, {
       ...makeMeta(),
-      conversation: {
-        provider: "codexAppServer",
-        threadId: "thread-interrupted",
-        cwd: worktree.path,
-        lastSeenAt: "2026-04-14T11:00:00.000Z",
-      },
+      conversation: makeCodexConversationMeta("thread-interrupted", worktree.path),
     });
 
     const interruptedThread = makeThread({
@@ -512,7 +509,7 @@ describe("WorktreeConversationService", () => {
     expect(result).toEqual({
       ok: true,
       data: {
-        threadId: "thread-interrupted",
+        conversationId: "thread-interrupted",
         turnId: "turn-created",
         running: true,
       },
@@ -530,12 +527,7 @@ describe("WorktreeConversationService", () => {
     const gitDir = `${worktree.path}/.git`;
     metaStore.set(gitDir, {
       ...makeMeta(),
-      conversation: {
-        provider: "codexAppServer",
-        threadId: "thread-running",
-        cwd: worktree.path,
-        lastSeenAt: "2026-04-14T11:00:00.000Z",
-      },
+      conversation: makeCodexConversationMeta("thread-running", worktree.path),
     });
 
     const runningThread = makeThread({
@@ -575,7 +567,7 @@ describe("WorktreeConversationService", () => {
     expect(result).toEqual({
       ok: true,
       data: {
-        threadId: "thread-running",
+        conversationId: "thread-running",
         turnId: "turn-live",
         interrupted: true,
       },

@@ -178,7 +178,7 @@ interface TerminalWsData {
 interface AgentsWsData {
   kind: "agents";
   branch: string;
-  threadId: string | null;
+  conversationId: string | null;
   unsubscribe: (() => void) | null;
 }
 
@@ -457,11 +457,6 @@ async function readAgentsConversations(snapshot: ProjectSnapshot): Promise<Map<s
   return new Map(entries);
 }
 
-async function apiGetProject(): Promise<Response> {
-  touchDashboardActivity();
-  return jsonResponse(await readProjectSnapshot());
-}
-
 async function apiGetAgentsBootstrap(): Promise<Response> {
   touchDashboardActivity();
   const snapshot = await readProjectSnapshot();
@@ -606,7 +601,7 @@ async function openAgentsSocket(
     return;
   }
 
-  data.threadId = snapshot.data.conversation.threadId;
+  data.conversationId = snapshot.data.conversation.conversationId;
   sendAgentsWs(ws, {
     type: "snapshot",
     data: snapshot.data,
@@ -614,7 +609,7 @@ async function openAgentsSocket(
 
   data.unsubscribe = codexAppServerClient.onNotification((notification) => {
     const notificationThreadId = readAgentsNotificationThreadId(notification);
-    if (!notificationThreadId || notificationThreadId !== data.threadId) return;
+    if (!notificationThreadId || notificationThreadId !== data.conversationId) return;
 
     const deltaEvent = buildAgentsUiMessageDeltaEvent(notification);
     if (deltaEvent) {
@@ -631,7 +626,7 @@ async function openAgentsSocket(
         return;
       }
 
-      data.threadId = nextSnapshot.data.conversation.threadId;
+      data.conversationId = nextSnapshot.data.conversation.conversationId;
       sendAgentsWs(ws, {
         type: "snapshot",
         data: nextSnapshot.data,
@@ -1070,7 +1065,7 @@ Bun.serve({
   routes: {
     "/ws/agents/worktrees/:name": (req, server) => {
       const branch = decodeURIComponent(req.params.name);
-      return server.upgrade(req, { data: { kind: "agents", branch, threadId: null, unsubscribe: null } })
+      return server.upgrade(req, { data: { kind: "agents", branch, conversationId: null, unsubscribe: null } })
         ? undefined
         : new Response("WebSocket upgrade failed", { status: 400 });
     },

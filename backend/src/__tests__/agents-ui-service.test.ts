@@ -41,6 +41,7 @@ describe("buildAgentsUiBootstrap", () => {
           "feature/search",
           {
             provider: "codexAppServer",
+            conversationId: "thr_123",
             threadId: "thr_123",
             cwd: "/repo/__worktrees/feature-search",
             lastSeenAt: "2026-04-14T10:00:00.000Z",
@@ -76,6 +77,7 @@ describe("buildAgentsUiBootstrap", () => {
           creationPhase: "starting_session",
           conversation: {
             provider: "codexAppServer",
+            conversationId: "thr_123",
             threadId: "thr_123",
             cwd: "/repo/__worktrees/feature-search",
             lastSeenAt: "2026-04-14T10:00:00.000Z",

@@ -1,4 +1,6 @@
+import { z } from "zod";
 import { log } from "../lib/log";
+import { isRecord } from "../lib/type-guards";
 
 export type CodexAppServerApprovalPolicy = "untrusted" | "on-failure" | "on-request" | "never";
 export type CodexAppServerPersonality = "none" | "friendly" | "pragmatic";
@@ -155,23 +157,10 @@ export interface CodexAppServerGateway {
   turnInterrupt(params: CodexAppServerTurnInterruptParams): Promise<void>;
 }
 
-interface CodexAppServerInitializeResponse {
-  userAgent: string;
-  codexHome: string;
-  platformFamily: string;
-  platformOs: string;
-}
-
 interface CodexAppServerJsonRpcError {
   code: number;
   message: string;
   data?: unknown;
-}
-
-interface CodexAppServerJsonRpcResponse<T> {
-  id: number;
-  result?: T;
-  error?: CodexAppServerJsonRpcError;
 }
 
 interface PendingRequest {
@@ -180,6 +169,127 @@ interface PendingRequest {
 }
 
 type PipedCodexAppServerProcess = Bun.Subprocess<"pipe", "pipe", "pipe">;
+
+const CodexAppServerApprovalPolicySchema = z.enum(["untrusted", "on-failure", "on-request", "never"]);
+const UnknownValueSchema = z.custom<unknown>(() => true);
+const CodexAppServerContentItemSchema: z.ZodType<CodexAppServerContentItem, z.ZodTypeDef, unknown> = z.object({
+  type: z.string(),
+  text: z.string().optional(),
+});
+const CodexAppServerUserMessageItemSchema: z.ZodType<CodexAppServerUserMessageItem, z.ZodTypeDef, unknown> = z.object({
+  type: z.literal("userMessage"),
+  id: z.string(),
+  content: z.array(CodexAppServerContentItemSchema),
+});
+const CodexAppServerAgentMessageItemSchema: z.ZodType<CodexAppServerAgentMessageItem, z.ZodTypeDef, unknown> = z.object({
+  type: z.literal("agentMessage"),
+  id: z.string(),
+  text: z.string(),
+  phase: z.string(),
+  memoryCitation: UnknownValueSchema,
+}).transform((value) => ({
+  type: value.type,
+  id: value.id,
+  text: value.text,
+  phase: value.phase,
+  memoryCitation: value.memoryCitation,
+}));
+const CodexAppServerGenericItemSchema: z.ZodType<CodexAppServerGenericItem, z.ZodTypeDef, unknown> = z.object({
+  type: z.string(),
+  id: z.string(),
+});
+const CodexAppServerThreadItemSchema: z.ZodType<CodexAppServerThreadItem, z.ZodTypeDef, unknown> = z.union([
+  CodexAppServerUserMessageItemSchema,
+  CodexAppServerAgentMessageItemSchema,
+  CodexAppServerGenericItemSchema,
+]);
+const CodexAppServerTurnSchema: z.ZodType<CodexAppServerTurn, z.ZodTypeDef, unknown> = z.object({
+  id: z.string(),
+  items: z.array(CodexAppServerThreadItemSchema),
+  status: z.string(),
+  error: UnknownValueSchema,
+  startedAt: z.number().nullable(),
+  completedAt: z.number().nullable(),
+  durationMs: z.number().nullable(),
+}).transform((value) => ({
+  id: value.id,
+  items: value.items,
+  status: value.status,
+  error: value.error,
+  startedAt: value.startedAt,
+  completedAt: value.completedAt,
+  durationMs: value.durationMs,
+}));
+const CodexAppServerThreadStatusSchema: z.ZodType<CodexAppServerThreadStatus, z.ZodTypeDef, unknown> = z.object({
+  type: z.string(),
+  activeFlags: z.array(z.string()).optional(),
+});
+const CodexAppServerThreadSchema: z.ZodType<CodexAppServerThread, z.ZodTypeDef, unknown> = z.object({
+  id: z.string(),
+  forkedFromId: z.string().nullable(),
+  preview: z.string(),
+  ephemeral: z.boolean(),
+  modelProvider: z.string(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+  status: CodexAppServerThreadStatusSchema,
+  path: z.string().nullable(),
+  cwd: z.string(),
+  cliVersion: z.string(),
+  source: z.string(),
+  agentNickname: z.string().nullable(),
+  agentRole: z.string().nullable(),
+  gitInfo: UnknownValueSchema,
+  name: z.string().nullable(),
+  turns: z.array(CodexAppServerTurnSchema),
+}).transform((value) => ({
+  id: value.id,
+  forkedFromId: value.forkedFromId,
+  preview: value.preview,
+  ephemeral: value.ephemeral,
+  modelProvider: value.modelProvider,
+  createdAt: value.createdAt,
+  updatedAt: value.updatedAt,
+  status: value.status,
+  path: value.path,
+  cwd: value.cwd,
+  cliVersion: value.cliVersion,
+  source: value.source,
+  agentNickname: value.agentNickname,
+  agentRole: value.agentRole,
+  gitInfo: value.gitInfo,
+  name: value.name,
+  turns: value.turns,
+}));
+const CodexAppServerThreadListResponseSchema: z.ZodType<CodexAppServerThreadListResponse, z.ZodTypeDef, unknown> = z.object({
+  data: z.array(CodexAppServerThreadSchema),
+  nextCursor: z.string().nullable(),
+});
+const CodexAppServerThreadReadResponseSchema: z.ZodType<CodexAppServerThreadReadResponse, z.ZodTypeDef, unknown> = z.object({
+  thread: CodexAppServerThreadSchema,
+});
+const CodexAppServerThreadContextSchema: z.ZodType<CodexAppServerThreadContext, z.ZodTypeDef, unknown> = z.object({
+  thread: CodexAppServerThreadSchema,
+  model: z.string(),
+  modelProvider: z.string(),
+  serviceTier: z.string().nullable(),
+  cwd: z.string(),
+  approvalPolicy: CodexAppServerApprovalPolicySchema,
+  approvalsReviewer: z.string(),
+  sandbox: z.object({
+    type: z.string(),
+  }),
+  reasoningEffort: z.string().nullable(),
+});
+const CodexAppServerTurnStartResponseSchema: z.ZodType<CodexAppServerTurnStartResponse, z.ZodTypeDef, unknown> = z.object({
+  turn: CodexAppServerTurnSchema,
+});
+const CodexAppServerInitializeResponseSchema = z.object({
+  userAgent: z.string(),
+  codexHome: z.string(),
+  platformFamily: z.string(),
+  platformOs: z.string(),
+});
 
 export class CodexAppServerRequestError extends Error {
   constructor(
@@ -218,32 +328,32 @@ export class CodexAppServerClient implements CodexAppServerGateway {
   }
 
   async threadList(params: CodexAppServerThreadListParams): Promise<CodexAppServerThreadListResponse> {
-    return await this.request<CodexAppServerThreadListResponse>("thread/list", params);
+    return await this.request("thread/list", CodexAppServerThreadListResponseSchema, params);
   }
 
   async threadRead(threadId: string, includeTurns: boolean): Promise<CodexAppServerThreadReadResponse> {
-    return await this.request<CodexAppServerThreadReadResponse>("thread/read", { threadId, includeTurns });
+    return await this.request("thread/read", CodexAppServerThreadReadResponseSchema, { threadId, includeTurns });
   }
 
   async threadResume(params: CodexAppServerThreadResumeParams): Promise<CodexAppServerThreadContext> {
-    return await this.request<CodexAppServerThreadContext>("thread/resume", params);
+    return await this.request("thread/resume", CodexAppServerThreadContextSchema, params);
   }
 
   async threadStart(params: CodexAppServerThreadStartParams): Promise<CodexAppServerThreadContext> {
-    return await this.request<CodexAppServerThreadContext>("thread/start", params);
+    return await this.request("thread/start", CodexAppServerThreadContextSchema, params);
   }
 
   async turnStart(params: CodexAppServerTurnStartParams): Promise<CodexAppServerTurnStartResponse> {
-    return await this.request<CodexAppServerTurnStartResponse>("turn/start", params);
+    return await this.request("turn/start", CodexAppServerTurnStartResponseSchema, params);
   }
 
   async turnInterrupt(params: CodexAppServerTurnInterruptParams): Promise<void> {
-    await this.request<Record<string, never>>("turn/interrupt", params);
+    await this.request("turn/interrupt", z.unknown(), params);
   }
 
-  private async request<T>(method: string, params?: unknown): Promise<T> {
+  private async request<T>(method: string, schema: z.ZodType<T, z.ZodTypeDef, unknown>, params?: unknown): Promise<T> {
     await this.ensureReady();
-    return await this.requestInternal<T>(method, params);
+    return await this.requestInternal(method, schema, params);
   }
 
   private async ensureReady(): Promise<void> {
@@ -253,7 +363,7 @@ export class CodexAppServerClient implements CodexAppServerGateway {
 
     this.readyPromise = (async () => {
       this.startProcess();
-      await this.requestInternal<CodexAppServerInitializeResponse>("initialize", {
+      await this.requestInternal("initialize", CodexAppServerInitializeResponseSchema, {
         clientInfo: {
           name: this.opts.clientName,
           version: this.opts.clientVersion,
@@ -404,7 +514,11 @@ export class CodexAppServerClient implements CodexAppServerGateway {
     pending.resolve(raw.result);
   }
 
-  private async requestInternal<T>(method: string, params?: unknown): Promise<T> {
+  private async requestInternal<T>(
+    method: string,
+    schema: z.ZodType<T, z.ZodTypeDef, unknown>,
+    params?: unknown,
+  ): Promise<T> {
     if (!this.proc) {
       throw new Error("codex app-server process is not available");
     }
@@ -426,7 +540,16 @@ export class CodexAppServerClient implements CodexAppServerGateway {
       }
     });
 
-    return result as T;
+    const parsed = schema.safeParse(result);
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      throw new Error(
+        issue
+          ? `codex app-server returned invalid ${method} response: ${issue.message}`
+          : `codex app-server returned invalid ${method} response`,
+      );
+    }
+    return parsed.data;
   }
 
   private send(payload: unknown): void {
@@ -462,8 +585,4 @@ export class CodexAppServerClient implements CodexAppServerGateway {
         }
       : null;
   }
-}
-
-function isRecord(raw: unknown): raw is Record<string, unknown> {
-  return typeof raw === "object" && raw !== null && !Array.isArray(raw);
 }

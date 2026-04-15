@@ -1,9 +1,6 @@
 import type { CodexAppServerNotification } from "../adapters/codex-app-server";
 import type { AgentsUiConversationMessageDeltaEvent } from "../domain/agents-ui";
-
-function isRecord(raw: unknown): raw is Record<string, unknown> {
-  return typeof raw === "object" && raw !== null && !Array.isArray(raw);
-}
+import { isRecord } from "../lib/type-guards";
 
 function readNotificationParams(raw: unknown): Record<string, unknown> | null {
   return isRecord(raw) ? raw : null;

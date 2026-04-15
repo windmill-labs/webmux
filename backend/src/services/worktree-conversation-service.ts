@@ -190,7 +190,7 @@ export class WorktreeConversationService {
   async readWorktreeConversation(
     worktree: WorktreeSnapshot,
   ): Promise<WorktreeConversationResult<AgentsUiWorktreeConversationResponse>> {
-    return await this.withResolvedConversation(worktree, true, async ({ conversationMeta, thread }) =>
+    return await this.withResolvedConversation(worktree, false, async ({ conversationMeta, thread }) =>
       ok(toWorktreeConversationResponse(worktree, conversationMeta, thread))
     );
   }

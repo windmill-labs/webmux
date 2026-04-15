@@ -3,6 +3,7 @@ import { join, resolve } from "node:path";
 import { mkdirSync } from "node:fs";
 import { networkInterfaces } from "node:os";
 import {
+  AgentsSendMessageRequestSchema,
   apiPaths,
   AvailableBranchesQuerySchema,
   CreateWorktreeRequestSchema,
@@ -35,6 +36,7 @@ import { CodexAppServerClient } from "./adapters/codex-app-server";
 import { readWorktreeMeta } from "./adapters/fs";
 import { getDefaultProfileName, persistLocalLinearConfig, persistLocalGitHubConfig, type ProjectConfig } from "./adapters/config";
 import { jsonResponse, errorResponse } from "./lib/http";
+import { isRecord, isStringArray } from "./lib/type-guards";
 import { parseJsonBody, parseParams, parseQuery } from "./api-validation";
 import { hasRecentDashboardActivity, touchDashboardActivity } from "./services/dashboard-activity";
 import { buildArchivedWorktreePathSet, normalizeArchivePath } from "./services/archive-service";
@@ -206,22 +208,18 @@ type WsOutboundMessage =
 
 const AGENTS_WORKTREE_API_PREFIX = apiPaths.attachAgentsWorktreeConversation.split(":name")[0];
 
-function isRecord(raw: unknown): raw is Record<string, unknown> {
-  return typeof raw === "object" && raw !== null && !Array.isArray(raw);
-}
-
 function parseWsMessage(raw: string | Buffer): WsInboundMessage | null {
   try {
     const str = typeof raw === "string" ? raw : new TextDecoder().decode(raw);
     const msg: unknown = JSON.parse(str);
-    if (!msg || typeof msg !== "object") return null;
-    const m = msg as Record<string, unknown>;
+    if (!isRecord(msg)) return null;
+    const m = msg;
     switch (m.type) {
       case "input":
         return typeof m.data === "string" ? { type: "input", data: m.data } : null;
       case "sendKeys":
-        return Array.isArray(m.hexBytes) && m.hexBytes.every((b: unknown) => typeof b === "string")
-          ? { type: "sendKeys", hexBytes: m.hexBytes as string[] }
+        return isStringArray(m.hexBytes)
+          ? { type: "sendKeys", hexBytes: m.hexBytes }
           : null;
       case "selectPane":
         return typeof m.pane === "number" ? { type: "selectPane", pane: m.pane } : null;
@@ -542,28 +540,15 @@ async function apiGetAgentsWorktreeHistory(branch: string): Promise<Response> {
 
 async function apiSendAgentsWorktreeMessage(branch: string, req: Request): Promise<Response> {
   touchDashboardActivity();
-  let raw: unknown;
-  try {
-    raw = await req.json();
-  } catch {
-    return errorResponse("Invalid JSON", 400);
-  }
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    return errorResponse("Invalid request body", 400);
-  }
-
-  const body = raw as Record<string, unknown>;
-  const text = typeof body.text === "string" ? body.text : "";
-  if (text.trim().length === 0) {
-    return errorResponse("Missing 'text' field", 400);
-  }
+  const parsed = await parseJsonBody(req, AgentsSendMessageRequestSchema);
+  if (!parsed.ok) return parsed.response;
 
   const resolved = await resolveAgentsWorktree(branch);
   if (!resolved.ok) return resolved.response;
 
   const result = resolved.worktree.agentName === "claude"
-    ? await claudeConversationService.sendWorktreeMessage(resolved.worktree, text)
-    : await worktreeConversationService.sendWorktreeMessage(resolved.worktree, text);
+    ? await claudeConversationService.sendWorktreeMessage(resolved.worktree, parsed.data.text)
+    : await worktreeConversationService.sendWorktreeMessage(resolved.worktree, parsed.data.text);
   return result.ok
     ? jsonResponse(result.data)
     : errorResponse(result.error, result.status);

@@ -418,6 +418,65 @@ describe("WorktreeConversationService", () => {
     );
   });
 
+  it("creates a new thread on attach when none can be resolved", async () => {
+    const metaStore = new Map<string, WorktreeMeta>();
+    const worktree = makeWorktree();
+    const gitDir = `${worktree.path}/.git`;
+    metaStore.set(gitDir, makeMeta());
+
+    const appServer = new FakeCodexAppServer();
+    const service = new WorktreeConversationService({
+      appServer,
+      git: new FakeGitGateway(),
+      now: () => new Date("2026-04-14T12:10:00.000Z"),
+      readMeta: async (path) => structuredClone(metaStore.get(path) ?? null),
+      writeMeta: async (path, meta) => {
+        metaStore.set(path, structuredClone(meta));
+      },
+    });
+
+    const result = await service.attachWorktreeConversation(worktree);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.data.worktree.conversation?.conversationId).toBe("thread-created");
+    expect(appServer.calls).toEqual([
+      "threadList",
+      "threadStart:/tmp/worktrees/codex-feature",
+    ]);
+    expect(metaStore.get(gitDir)?.conversation).toEqual(
+      makeCodexConversationMeta("thread-created", worktree.path, "2026-04-14T12:10:00.000Z"),
+    );
+  });
+
+  it("does not create a new thread when reading history without an existing conversation", async () => {
+    const metaStore = new Map<string, WorktreeMeta>();
+    const worktree = makeWorktree();
+    const gitDir = `${worktree.path}/.git`;
+    metaStore.set(gitDir, makeMeta());
+
+    const appServer = new FakeCodexAppServer();
+    const service = new WorktreeConversationService({
+      appServer,
+      git: new FakeGitGateway(),
+      readMeta: async (path) => structuredClone(metaStore.get(path) ?? null),
+      writeMeta: async (path, meta) => {
+        metaStore.set(path, structuredClone(meta));
+      },
+    });
+
+    const result = await service.readWorktreeConversation(worktree);
+    expect(result).toEqual({
+      ok: false,
+      status: 404,
+      error: "No Codex thread could be resolved for this worktree",
+    });
+    expect(appServer.calls).toEqual([
+      "threadList",
+    ]);
+    expect(metaStore.get(gitDir)?.conversation).toBeUndefined();
+  });
+
   it("starts a new turn on the resolved thread", async () => {
     const metaStore = new Map<string, WorktreeMeta>();
     const worktree = makeWorktree();

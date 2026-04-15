@@ -1,4 +1,11 @@
-import { apiPaths } from "@webmux/api-contract";
+import {
+  AgentsUiBootstrapResponseSchema,
+  AgentsUiConversationEventSchema,
+  AgentsUiInterruptResponseSchema,
+  AgentsUiSendMessageResponseSchema,
+  AgentsUiWorktreeConversationResponseSchema,
+  apiPaths,
+} from "@webmux/api-contract";
 import type {
   AgentsUiBootstrapResponse,
   AgentsUiConversationEvent,
@@ -27,7 +34,7 @@ function withWorktreeName(path: string, branch: string): string {
   return path.replace(":name", encodeURIComponent(branch));
 }
 
-async function api<T>(path: string, opts?: RequestInit): Promise<T> {
+async function api<T>(path: string, schema: { parse: (input: unknown) => T }, opts?: RequestInit): Promise<T> {
   const headers = new Headers(opts?.headers);
   if (opts?.body !== undefined && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
@@ -42,37 +49,48 @@ async function api<T>(path: string, opts?: RequestInit): Promise<T> {
     const message = typeof data?.error === "string" ? data.error : `HTTP ${response.status}`;
     throw new Error(message);
   }
-  return data as T;
+  return schema.parse(data);
 }
 
 export function fetchBootstrap(): Promise<AgentsUiBootstrapResponse> {
-  return api<AgentsUiBootstrapResponse>(apiPaths.fetchAgentsBootstrap);
+  return api(apiPaths.fetchAgentsBootstrap, AgentsUiBootstrapResponseSchema);
 }
 
 export function attachWorktreeConversation(branch: string): Promise<AgentsUiWorktreeConversationResponse> {
-  return api<AgentsUiWorktreeConversationResponse>(withWorktreeName(apiPaths.attachAgentsWorktreeConversation, branch), {
+  return api(withWorktreeName(apiPaths.attachAgentsWorktreeConversation, branch), AgentsUiWorktreeConversationResponseSchema, {
     method: "POST",
   });
 }
 
 export function fetchWorktreeConversationHistory(branch: string): Promise<AgentsUiWorktreeConversationResponse> {
-  return api<AgentsUiWorktreeConversationResponse>(withWorktreeName(apiPaths.fetchAgentsWorktreeConversationHistory, branch));
+  return api(
+    withWorktreeName(apiPaths.fetchAgentsWorktreeConversationHistory, branch),
+    AgentsUiWorktreeConversationResponseSchema,
+  );
 }
 
 export function sendWorktreeConversationMessage(
   branch: string,
   body: AgentsUiSendMessageRequest,
 ): Promise<AgentsUiSendMessageResponse> {
-  return api<AgentsUiSendMessageResponse>(withWorktreeName(apiPaths.sendAgentsWorktreeConversationMessage, branch), {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
+  return api(
+    withWorktreeName(apiPaths.sendAgentsWorktreeConversationMessage, branch),
+    AgentsUiSendMessageResponseSchema,
+    {
+      method: "POST",
+      body: JSON.stringify(body),
+    },
+  );
 }
 
 export function interruptWorktreeConversation(branch: string): Promise<AgentsUiInterruptResponse> {
-  return api<AgentsUiInterruptResponse>(withWorktreeName(apiPaths.interruptAgentsWorktreeConversation, branch), {
-    method: "POST",
-  });
+  return api(
+    withWorktreeName(apiPaths.interruptAgentsWorktreeConversation, branch),
+    AgentsUiInterruptResponseSchema,
+    {
+      method: "POST",
+    },
+  );
 }
 
 export function connectWorktreeConversationStream(
@@ -89,8 +107,9 @@ export function connectWorktreeConversationStream(
   let closedByClient = false;
 
   socket.addEventListener("message", (event) => {
+    if (typeof event.data !== "string") return;
     try {
-      callbacks.onEvent(JSON.parse(event.data as string) as AgentsUiConversationEvent);
+      callbacks.onEvent(AgentsUiConversationEventSchema.parse(JSON.parse(event.data)));
     } catch {
       callbacks.onError("Received malformed agents stream data");
     }

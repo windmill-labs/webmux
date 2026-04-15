@@ -153,6 +153,7 @@
     >
       <textarea
         id="conversation-composer"
+        aria-label="Message"
         class="block min-h-[7rem] w-full max-w-full rounded-md border border-edge bg-surface px-3 py-2 text-sm text-primary outline-none transition focus:border-accent"
         placeholder="ask anything"
         value={composerText}

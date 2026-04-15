@@ -19,6 +19,7 @@
     AppConfig,
     AppNotification,
     CreateWorktreeRequest,
+    DiffDialogProps,
     PrEntry,
     LinearIssueAvailability,
     LinearIssue,
@@ -50,12 +51,6 @@
   import type { ThemeKey } from "./lib/themes";
   import { setToastController } from "./lib/toast-context";
   import { api, fetchWorktrees, subscribeNotifications } from "./lib/api";
-
-  type DiffDialogProps = {
-    branch: string;
-    cursorUrl?: string | null;
-    onclose: () => void;
-  };
 
   function createDefaultConfig(): AppConfig {
     return {
@@ -1275,14 +1270,12 @@
   />
 {/if}
 
-{#if showDiffDialog && selectedBranch}
-  {#if DiffDialogComponent}
-    <DiffDialogComponent
-      branch={selectedBranch}
-      cursorUrl={makeCursorUrl(selectedWorktree?.dir, sshHost)}
-      onclose={() => (showDiffDialog = false)}
-    />
-  {/if}
+{#if showDiffDialog && selectedBranch && DiffDialogComponent}
+  <DiffDialogComponent
+    branch={selectedBranch}
+    cursorUrl={makeCursorUrl(selectedWorktree?.dir, sshHost)}
+    onclose={() => (showDiffDialog = false)}
+  />
 {/if}
 
 {#if detailIssue}

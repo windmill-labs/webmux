@@ -2,7 +2,7 @@
   import { html as diff2html } from "diff2html";
   import { ColorSchemeType } from "diff2html/lib/types";
   import "diff2html/bundles/css/diff2html.min.css";
-  import type { UnpushedCommit } from "./types";
+  import type { DiffDialogProps, UnpushedCommit } from "./types";
   import { api } from "./api";
   import { errorMessage } from "./utils";
   import BaseDialog from "./BaseDialog.svelte";
@@ -13,11 +13,7 @@
     branch,
     cursorUrl = null,
     onclose,
-  }: {
-    branch: string;
-    cursorUrl?: string | null;
-    onclose: () => void;
-  } = $props();
+  }: DiffDialogProps = $props();
 
   let uncommitted = $state("");
   let uncommittedTruncated = $state(false);

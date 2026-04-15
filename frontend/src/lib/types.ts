@@ -46,6 +46,12 @@ export interface FileUploadResult {
   files: Array<{ path: string }>;
 }
 
+export interface DiffDialogProps {
+  branch: string;
+  cursorUrl?: string | null;
+  onclose: () => void;
+}
+
 export interface WorktreeInfo {
   branch: string;
   baseBranch?: string;

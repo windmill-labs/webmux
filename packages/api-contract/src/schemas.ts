@@ -250,16 +250,6 @@ export const WorktreeConversationRefSchema = z.discriminatedUnion("provider", [
   ClaudeWorktreeConversationRefSchema,
 ]);
 
-export const AgentsUiProjectInfoSchema = z.object({
-  name: z.string(),
-  mainBranch: z.string(),
-});
-
-export const AgentsUiCapabilitiesSchema = z.object({
-  codexWorktreeChat: z.boolean(),
-  claudeWorktreeChat: z.boolean(),
-});
-
 export const AgentsUiWorktreeSummarySchema = z.object({
   branch: z.string(),
   baseBranch: z.string().optional(),
@@ -276,12 +266,6 @@ export const AgentsUiWorktreeSummarySchema = z.object({
   creating: z.boolean(),
   creationPhase: WorktreeCreationPhaseSchema.nullable(),
   conversation: WorktreeConversationRefSchema.nullable(),
-});
-
-export const AgentsUiBootstrapResponseSchema = z.object({
-  project: AgentsUiProjectInfoSchema,
-  capabilities: AgentsUiCapabilitiesSchema,
-  worktrees: z.array(AgentsUiWorktreeSummarySchema),
 });
 
 export const AgentsUiConversationMessageRoleSchema = z.enum(["user", "assistant"]);
@@ -443,10 +427,7 @@ export type WorktreeConversationProvider = z.infer<typeof WorktreeConversationPr
 export type CodexWorktreeConversationRef = z.infer<typeof CodexWorktreeConversationRefSchema>;
 export type ClaudeWorktreeConversationRef = z.infer<typeof ClaudeWorktreeConversationRefSchema>;
 export type WorktreeConversationRef = z.infer<typeof WorktreeConversationRefSchema>;
-export type AgentsUiProjectInfo = z.infer<typeof AgentsUiProjectInfoSchema>;
-export type AgentsUiCapabilities = z.infer<typeof AgentsUiCapabilitiesSchema>;
 export type AgentsUiWorktreeSummary = z.infer<typeof AgentsUiWorktreeSummarySchema>;
-export type AgentsUiBootstrapResponse = z.infer<typeof AgentsUiBootstrapResponseSchema>;
 export type AgentsUiConversationMessageRole = z.infer<typeof AgentsUiConversationMessageRoleSchema>;
 export type AgentsUiConversationMessageStatus = z.infer<typeof AgentsUiConversationMessageStatusSchema>;
 export type AgentsUiConversationMessage = z.infer<typeof AgentsUiConversationMessageSchema>;

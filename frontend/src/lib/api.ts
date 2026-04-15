@@ -1,5 +1,10 @@
-import { createApi } from "@webmux/api-contract";
+import { AgentsUiConversationEventSchema, apiPaths, createApi } from "@webmux/api-contract";
 import type {
+  AgentsUiConversationEvent,
+  AgentsUiInterruptResponse,
+  AgentsUiSendMessageRequest,
+  AgentsUiSendMessageResponse,
+  AgentsUiWorktreeConversationResponse,
   AppNotification,
   FileUploadResult,
   ProjectWorktreeSnapshot,
@@ -52,6 +57,80 @@ function mapWorktree(snapshot: ProjectWorktreeSnapshot): WorktreeInfo {
 export async function fetchWorktrees(): Promise<WorktreeInfo[]> {
   const response = await api.fetchWorktrees();
   return response.worktrees.map((worktree) => mapWorktree(worktree));
+}
+
+export function attachWorktreeConversation(branch: string): Promise<AgentsUiWorktreeConversationResponse> {
+  return api.attachAgentsWorktreeConversation({
+    params: { name: branch },
+    body: undefined,
+  });
+}
+
+export function fetchWorktreeConversationHistory(branch: string): Promise<AgentsUiWorktreeConversationResponse> {
+  return api.fetchAgentsWorktreeConversationHistory({
+    params: { name: branch },
+  });
+}
+
+export function sendWorktreeConversationMessage(
+  branch: string,
+  body: AgentsUiSendMessageRequest,
+): Promise<AgentsUiSendMessageResponse> {
+  return api.sendAgentsWorktreeConversationMessage({
+    params: { name: branch },
+    body,
+  });
+}
+
+export function interruptWorktreeConversation(branch: string): Promise<AgentsUiInterruptResponse> {
+  return api.interruptAgentsWorktreeConversation({
+    params: { name: branch },
+    body: undefined,
+  });
+}
+
+function withWorktreeName(path: string, branch: string): string {
+  return path.replace(":name", encodeURIComponent(branch));
+}
+
+export function connectWorktreeConversationStream(
+  branch: string,
+  callbacks: {
+    onEvent: (event: AgentsUiConversationEvent) => void;
+    onError: (message: string) => void;
+    onClose?: () => void;
+  },
+): () => void {
+  const socket = new WebSocket(
+    `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}${
+      withWorktreeName(apiPaths.streamAgentsWorktreeConversation, branch)
+    }`,
+  );
+  let closedByClient = false;
+
+  socket.addEventListener("message", (event) => {
+    if (typeof event.data !== "string") return;
+    try {
+      callbacks.onEvent(AgentsUiConversationEventSchema.parse(JSON.parse(event.data)));
+    } catch {
+      callbacks.onError("Received malformed conversation stream data");
+    }
+  });
+
+  socket.addEventListener("error", () => {
+    callbacks.onError("Conversation stream connection failed");
+  });
+
+  socket.addEventListener("close", () => {
+    if (!closedByClient) {
+      callbacks.onClose?.();
+    }
+  });
+
+  return () => {
+    closedByClient = true;
+    socket.close();
+  };
 }
 
 export function subscribeNotifications(

@@ -1,5 +1,9 @@
 import { initContract } from "@ts-rest/core";
 import {
+  AgentsSendMessageRequestSchema,
+  AgentsUiInterruptResponseSchema,
+  AgentsUiSendMessageResponseSchema,
+  AgentsUiWorktreeConversationResponseSchema,
   AppConfigSchema,
   AvailableBranchesQuerySchema,
   BranchListResponseSchema,
@@ -31,7 +35,6 @@ export const apiPaths = {
   fetchAvailableBranches: "/api/branches",
   fetchBaseBranches: "/api/base-branches",
   fetchProject: "/api/project",
-  fetchAgentsBootstrap: "/api/agents/bootstrap",
   attachAgentsWorktreeConversation: "/api/agents/worktrees/:name/attach",
   fetchAgentsWorktreeConversationHistory: "/api/agents/worktrees/:name/history",
   sendAgentsWorktreeConversationMessage: "/api/agents/worktrees/:name/messages",
@@ -96,6 +99,45 @@ export const apiContract = c.router({
       200: ProjectSnapshotSchema,
       500: ErrorResponseSchema,
       502: ErrorResponseSchema,
+    },
+  },
+  attachAgentsWorktreeConversation: {
+    method: "POST",
+    path: apiPaths.attachAgentsWorktreeConversation,
+    pathParams: WorktreeNameParamsSchema,
+    body: c.noBody(),
+    responses: {
+      200: AgentsUiWorktreeConversationResponseSchema,
+      ...commonErrorResponses,
+    },
+  },
+  fetchAgentsWorktreeConversationHistory: {
+    method: "GET",
+    path: apiPaths.fetchAgentsWorktreeConversationHistory,
+    pathParams: WorktreeNameParamsSchema,
+    responses: {
+      200: AgentsUiWorktreeConversationResponseSchema,
+      ...commonErrorResponses,
+    },
+  },
+  sendAgentsWorktreeConversationMessage: {
+    method: "POST",
+    path: apiPaths.sendAgentsWorktreeConversationMessage,
+    pathParams: WorktreeNameParamsSchema,
+    body: AgentsSendMessageRequestSchema,
+    responses: {
+      200: AgentsUiSendMessageResponseSchema,
+      ...commonErrorResponses,
+    },
+  },
+  interruptAgentsWorktreeConversation: {
+    method: "POST",
+    path: apiPaths.interruptAgentsWorktreeConversation,
+    pathParams: WorktreeNameParamsSchema,
+    body: c.noBody(),
+    responses: {
+      200: AgentsUiInterruptResponseSchema,
+      ...commonErrorResponses,
     },
   },
   fetchWorktrees: {

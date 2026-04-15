@@ -7,16 +7,6 @@ import type {
   WorktreeCreationPhase,
 } from "./model";
 
-export interface AgentsUiProjectInfo {
-  name: string;
-  mainBranch: string;
-}
-
-export interface AgentsUiCapabilities {
-  codexWorktreeChat: boolean;
-  claudeWorktreeChat: boolean;
-}
-
 export interface AgentsUiWorktreeSummary {
   branch: string;
   baseBranch?: string;
@@ -33,12 +23,6 @@ export interface AgentsUiWorktreeSummary {
   creating: boolean;
   creationPhase: WorktreeCreationPhase | null;
   conversation: WorktreeConversationMeta | null;
-}
-
-export interface AgentsUiBootstrapResponse {
-  project: AgentsUiProjectInfo;
-  capabilities: AgentsUiCapabilities;
-  worktrees: AgentsUiWorktreeSummary[];
 }
 
 export type AgentsUiConversationMessageRole = "user" | "assistant";

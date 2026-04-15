@@ -33,7 +33,6 @@ Usage:
 
 Options:
   --port N            Set port (default: 5111)
-  --agents-port N     Set agents UI port (default: port + 1)
   --app               Open dashboard in browser app mode (minimal window)
   --debug             Show debug-level logs
   --version           Show version number
@@ -48,7 +47,6 @@ type RootCommand = "serve" | "init" | "service" | "update" | "add" | "list" | "o
 
 interface ParsedRootArgs {
   port: number;
-  agentsPort: number;
   debug: boolean;
   app: boolean;
   command: RootCommand;
@@ -75,7 +73,6 @@ function isRootCommand(value: string): value is NonNullable<RootCommand> {
 
 function isServeRootOption(value: string): boolean {
   return value === "--port"
-    || value === "--agents-port"
     || value === "--app"
     || value === "--debug"
     || value === "--help"
@@ -86,7 +83,6 @@ function isServeRootOption(value: string): boolean {
 
 export function parseRootArgs(args: string[]): ParsedRootArgs {
   let port = parseInt(process.env.PORT || "5111", 10);
-  let agentsPort: number | null = null;
   let debug = false;
   let app = false;
   let command: RootCommand = null;
@@ -110,18 +106,6 @@ export function parseRootArgs(args: string[]): ParsedRootArgs {
         port = parseInt(value, 10);
         if (Number.isNaN(port)) {
           throw new Error("Error: --port requires a numeric value");
-        }
-        index += 1;
-        break;
-      }
-      case "--agents-port": {
-        const value = args[index + 1];
-        if (!value) {
-          throw new Error("Error: --agents-port requires a numeric value");
-        }
-        agentsPort = parseInt(value, 10);
-        if (Number.isNaN(agentsPort)) {
-          throw new Error("Error: --agents-port requires a numeric value");
         }
         index += 1;
         break;
@@ -151,7 +135,6 @@ export function parseRootArgs(args: string[]): ParsedRootArgs {
 
   return {
     port,
-    agentsPort: agentsPort ?? (port + 1),
     debug,
     app,
     command,
@@ -265,52 +248,6 @@ function pipeWithPrefix(
   })();
 }
 
-function injectAgentsBackendPort(indexHtml: string, backendPort: number): string {
-  const injection = `<script>window.__WEBMUX_AGENTS_BACKEND_PORT__=${JSON.stringify(backendPort)};</script>`;
-  return indexHtml.includes("</head>")
-    ? indexHtml.replace("</head>", `${injection}</head>`)
-    : `${injection}${indexHtml}`;
-}
-
-function shouldCacheForever(pathname: string): boolean {
-  return pathname.startsWith("/assets/");
-}
-
-async function serveStaticSpa(req: Request, staticDir: string, indexHtml: string): Promise<Response> {
-  const url = new URL(req.url);
-  const staticRoot = resolve(staticDir);
-  const rawPath = url.pathname === "/" ? "/index.html" : url.pathname;
-
-  if (rawPath === "/index.html") {
-    return new Response(indexHtml, {
-      headers: {
-        "Cache-Control": "no-cache",
-        "Content-Type": "text/html; charset=utf-8",
-      },
-    });
-  }
-
-  const filePath = join(staticDir, rawPath);
-  if (!resolve(filePath).startsWith(staticRoot + "/")) {
-    return new Response("Forbidden", { status: 403 });
-  }
-
-  const file = Bun.file(filePath);
-  if (await file.exists()) {
-    const headers: HeadersInit = shouldCacheForever(rawPath)
-      ? { "Cache-Control": "public, max-age=31536000, immutable" }
-      : {};
-    return new Response(file, { headers });
-  }
-
-  return new Response(indexHtml, {
-    headers: {
-      "Cache-Control": "no-cache",
-      "Content-Type": "text/html; charset=utf-8",
-    },
-  });
-}
-
 async function main(args: string[] = process.argv.slice(2)): Promise<void> {
   // Internal: called by shell completion scripts
   if (args[0] === "--completions") {
@@ -389,14 +326,11 @@ async function main(args: string[] = process.argv.slice(2)): Promise<void> {
   const children: Subprocess[] = [];
   let exiting = false;
   let exitCode = 0;
-  let agentsServer: Bun.Server | null = null;
 
   function cleanup(nextExitCode = 0) {
     if (exiting) return;
     exiting = true;
     exitCode = nextExitCode;
-    agentsServer?.stop(true);
-    agentsServer = null;
     for (const child of children) {
       try { child.kill("SIGTERM"); } catch {}
     }
@@ -413,7 +347,6 @@ async function main(args: string[] = process.argv.slice(2)): Promise<void> {
 
   const backendEntry = join(PKG_ROOT, "backend", "dist", "server.js");
   const staticDir = join(PKG_ROOT, "frontend", "dist");
-  const agentsStaticDir = join(PKG_ROOT, "agents-frontend", "dist");
 
   if (!existsSync(staticDir)) {
     console.error(
@@ -422,30 +355,7 @@ async function main(args: string[] = process.argv.slice(2)): Promise<void> {
     process.exit(1);
   }
 
-  if (!existsSync(agentsStaticDir)) {
-    console.error(
-      `Error: agents-frontend/dist/ not found. Run 'bun run build' first.`,
-    );
-    process.exit(1);
-  }
-
-  if (parsed.agentsPort === parsed.port) {
-    console.error("Error: --agents-port must differ from --port.");
-    process.exit(1);
-  }
-
-  const agentsIndexHtml = injectAgentsBackendPort(
-    await Bun.file(join(agentsStaticDir, "index.html")).text(),
-    parsed.port,
-  );
-
   console.log(`Starting webmux on port ${parsed.port}...`);
-  console.log(`Agents UI available at http://localhost:${parsed.agentsPort}`);
-
-  agentsServer = Bun.serve({
-    port: parsed.agentsPort,
-    fetch: (req) => serveStaticSpa(req, agentsStaticDir, agentsIndexHtml),
-  });
 
   const be = Bun.spawn(["bun", backendEntry], {
     env: { ...baseEnv, WEBMUX_STATIC_DIR: staticDir },

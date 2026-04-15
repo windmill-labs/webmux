@@ -1,7 +1,6 @@
 import { readWorktreeMeta, writeWorktreeMeta } from "../adapters/fs";
 import type {
   CodexAppServerAgentMessageItem,
-  CodexAppServerGateway,
   CodexAppServerThread,
   CodexAppServerThreadItem,
   CodexAppServerThreadListResponse,
@@ -12,8 +11,6 @@ import type { GitGateway } from "../adapters/git";
 import type {
   AgentsUiConversationMessage,
   AgentsUiConversationState,
-  AgentsUiInterruptResponse,
-  AgentsUiSendMessageResponse,
   AgentsUiWorktreeConversationResponse,
 } from "../domain/agents-ui";
 import type {
@@ -27,7 +24,7 @@ import { buildAgentsUiWorktreeSummary } from "./agents-ui-service";
 import { err, ok, type WorktreeConversationResult } from "./worktree-conversation-result";
 
 export interface WorktreeConversationServiceDependencies {
-  appServer: CodexAppServerGateway;
+  appServer: Pick<import("../adapters/codex-app-server").CodexAppServerGateway, "threadList" | "threadRead" | "threadResume" | "threadStart">;
   git: Pick<GitGateway, "resolveWorktreeGitDir">;
   now?: () => Date;
   readMeta?: (gitDir: string) => Promise<WorktreeMeta | null>;
@@ -193,58 +190,6 @@ export class WorktreeConversationService {
     return await this.withResolvedConversation(worktree, false, async ({ conversationMeta, thread }) =>
       ok(toWorktreeConversationResponse(worktree, conversationMeta, thread))
     );
-  }
-
-  async sendWorktreeMessage(
-    worktree: WorktreeSnapshot,
-    text: string,
-  ): Promise<WorktreeConversationResult<AgentsUiSendMessageResponse>> {
-    const message = text.trim();
-    if (message.length === 0) {
-      return err(400, "Message text is required");
-    }
-
-    return await this.withResolvedConversation(worktree, true, async ({ thread }) => {
-      const activeTurn = findActiveTurn(thread);
-      if (activeTurn) {
-        return err(409, "A turn is already running for this worktree");
-      }
-
-      const started = await this.deps.appServer.turnStart({
-        threadId: thread.id,
-        cwd: worktree.path,
-        approvalPolicy: "never",
-        input: [{ type: "text", text: message }],
-      });
-
-      return ok({
-        conversationId: thread.id,
-        turnId: started.turn.id,
-        running: true,
-      });
-    });
-  }
-
-  async interruptWorktreeConversation(
-    worktree: WorktreeSnapshot,
-  ): Promise<WorktreeConversationResult<AgentsUiInterruptResponse>> {
-    return await this.withResolvedConversation(worktree, false, async ({ thread }) => {
-      const activeTurn = findActiveTurn(thread);
-      if (!activeTurn) {
-        return err(409, "No active turn is running for this worktree");
-      }
-
-      await this.deps.appServer.turnInterrupt({
-        threadId: thread.id,
-        turnId: activeTurn.id,
-      });
-
-      return ok({
-        conversationId: thread.id,
-        turnId: activeTurn.id,
-        interrupted: true,
-      });
-    });
   }
 
   private async withResolvedConversation<T>(

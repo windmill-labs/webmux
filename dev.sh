@@ -26,12 +26,10 @@ fi
 if [ -n "$CLI_PORT" ]; then
   export PORT="$CLI_PORT"
   export FRONTEND_PORT=$((PORT + 1))
-  export AGENTS_FRONTEND_PORT=$((PORT + 2))
 fi
 
 export PORT="${PORT:-5111}"
 export FRONTEND_PORT="${FRONTEND_PORT:-$((PORT + 1))}"
-export AGENTS_FRONTEND_PORT="${AGENTS_FRONTEND_PORT:-$((PORT + 2))}"
 
 PIDS=()
 
@@ -54,13 +52,6 @@ cd frontend
 bun run dev 2>&1 | sed 's/^/[FE] /' &
 FE_PID=$!
 PIDS+=("$FE_PID")
-cd ..
-
-# Agents frontend (vite dev)
-cd agents-frontend
-bun run dev 2>&1 | sed 's/^/[AFE] /' &
-AFE_PID=$!
-PIDS+=("$AFE_PID")
 cd ..
 
 wait

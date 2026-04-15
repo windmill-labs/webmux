@@ -12,6 +12,7 @@
   import ToastStack from "./lib/ToastStack.svelte";
   import LinearPanel from "./lib/LinearPanel.svelte";
   import LinearDetailDialog from "./lib/LinearDetailDialog.svelte";
+  import MobileChatSurface from "./lib/MobileChatSurface.svelte";
   import SidebarRepoRow from "./lib/SidebarRepoRow.svelte";
   import Toggle from "./lib/Toggle.svelte";
   import type {
@@ -67,6 +68,10 @@
       projectDir: "",
       mainBranch: "",
     };
+  }
+
+  function supportsWorktreeChat(worktree: WorktreeInfo | undefined): boolean {
+    return worktree?.agentName === "codex" || worktree?.agentName === "claude";
   }
 
   let config = $state<AppConfig>(createDefaultConfig());
@@ -400,6 +405,7 @@
       : undefined,
   );
   let canConnect = $derived(!!selectedBranch && selectedWorktree?.mux === "✓" && !selectedWorktree?.creating);
+  let showMobileChat = $derived(isMobile && canConnect && supportsWorktreeChat(selectedWorktree));
   let isSelectedOpening = $derived(selectedBranch ? openingBranches.has(selectedBranch) : false);
   let isSelectedArchiving = $derived(selectedBranch ? archivingBranches.has(selectedBranch) : false);
   let pollIntervalMs = $derived(
@@ -528,7 +534,7 @@
       label: String(i + 1),
     }));
   });
-  let showPaneBar = $derived(isMobile && canConnect && paneBarPanes.length > 0);
+  let showPaneBar = $derived(isMobile && canConnect && !showMobileChat && paneBarPanes.length > 0);
 
   function refreshLinear(): void {
     const now = Date.now();
@@ -1106,7 +1112,11 @@
       archiving={isSelectedArchiving}
     />
 
-    {#if canConnect}
+    {#if showMobileChat}
+      {#key selectedBranch}
+        <MobileChatSurface worktree={selectedWorktree!} />
+      {/key}
+    {:else if canConnect}
       {#key selectedBranch}
         <Terminal
           worktree={selectedBranch!}

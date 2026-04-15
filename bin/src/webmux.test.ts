@@ -65,7 +65,6 @@ describe("webmux entrypoint", () => {
 
     expect(parseRootArgs(["serve", "--port", "8080", "--debug"])).toEqual({
       port: 8080,
-      agentsPort: 8081,
       debug: true,
       app: false,
       command: "serve",
@@ -78,22 +77,8 @@ describe("webmux entrypoint", () => {
 
     expect(parseRootArgs(["serve", "--app"])).toEqual({
       port: 5111,
-      agentsPort: 5112,
       debug: false,
       app: true,
-      command: "serve",
-      commandArgs: [],
-    });
-  });
-
-  it("parses --agents-port flag", () => {
-    delete process.env.PORT;
-
-    expect(parseRootArgs(["serve", "--port", "8080", "--agents-port", "9090"])).toEqual({
-      port: 8080,
-      agentsPort: 9090,
-      debug: false,
-      app: false,
       command: "serve",
       commandArgs: [],
     });
@@ -104,7 +89,6 @@ describe("webmux entrypoint", () => {
 
     expect(parseRootArgs(["service", "install", "--port", "8080"])).toEqual({
       port: 5111,
-      agentsPort: 5112,
       debug: false,
       app: false,
       command: "service",
@@ -117,7 +101,6 @@ describe("webmux entrypoint", () => {
 
     expect(parseRootArgs(["prune"])).toEqual({
       port: 5111,
-      agentsPort: 5112,
       debug: false,
       app: false,
       command: "prune",
@@ -130,7 +113,6 @@ describe("webmux entrypoint", () => {
 
     expect(parseRootArgs(["archive", "feature/search"])).toEqual({
       port: 5111,
-      agentsPort: 5112,
       debug: false,
       app: false,
       command: "archive",

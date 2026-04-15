@@ -7,6 +7,13 @@ import type {
 } from "@webmux/api-contract";
 
 export type {
+  AgentsUiConversationEvent,
+  AgentsUiConversationMessage,
+  AgentsUiConversationMessageDeltaEvent,
+  AgentsUiConversationState,
+  AgentsUiInterruptResponse,
+  AgentsUiSendMessageResponse,
+  AgentsUiWorktreeConversationResponse,
   AgentKind,
   AppConfig,
   AppNotification,
@@ -41,6 +48,7 @@ export type {
   WorktreeDiffResponse,
   WorktreeListResponse,
 } from "@webmux/api-contract";
+export type { AgentsSendMessageRequest as AgentsUiSendMessageRequest } from "@webmux/api-contract";
 
 export interface FileUploadResult {
   files: Array<{ path: string }>;

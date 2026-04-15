@@ -461,6 +461,7 @@ async function apiGetProject(): Promise<Response> {
 }
 
 async function apiGetWorktrees(): Promise<Response> {
+  touchDashboardActivity();
   return jsonResponse({
     worktrees: (await readProjectSnapshot()).worktrees,
   });

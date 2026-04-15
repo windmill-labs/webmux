@@ -1,6 +1,6 @@
 # webmux
 
-A web dashboard for managing parallel AI coding agents. webmux owns git worktree lifecycle, tmux layout, agent runtime events, service health monitoring, and sandbox containers directly.
+A web dashboard for managing parallel AI coding agents. webmux owns git worktree lifecycle, tmux layout, agent runtime events, service health monitoring, and sandbox containers directly, and now also ships a separate mobile-friendly chat UI for checking in on worktrees away from your desktop.
 
 ![webmux demo](https://github.com/windmill-labs/webmux/raw/main/site/static/videos/demo.gif)
 
@@ -15,6 +15,10 @@ Spin up new worktrees with one click. Pick a profile, type a prompt, and webmux 
 ### Embedded Terminals
 
 View and interact with your agents directly in the browser. Each worktree gets its own terminal session, streamed live via WebSocket. You can watch agents work, send prompts, and switch between worktrees instantly — no need to juggle tmux windows manually.
+
+### Mobile-Friendly Agents Chat
+
+webmux also serves a second, simplified agents UI on a separate port. It is primarily meant to give you a much better mobile UX: a worktree list, a simple chat screen, and quick access to service and PR badges without trying to squeeze a full terminal dashboard onto a phone.
 
 ### PR, CI & Comments
 
@@ -55,8 +59,11 @@ cd /path/to/your/project
 webmux init                     # creates .webmux.yaml
 
 # 4. Start the dashboard
-webmux serve                         # opens on http://localhost:5111
+webmux serve                         # dashboard on http://localhost:5111
+                                     # agents chat UI on http://localhost:5112
 ```
+
+The primary dashboard remains the best desktop experience. The separate agents UI is primarily intended as a better mobile companion for browsing worktrees and chatting with existing Codex or Claude sessions from your phone.
 
 ## Prerequisites
 

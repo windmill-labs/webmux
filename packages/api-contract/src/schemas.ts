@@ -82,6 +82,10 @@ export const SendWorktreePromptRequestSchema = z.object({
   preamble: z.string().optional(),
 });
 
+export const AgentsSendMessageRequestSchema = z.object({
+  text: z.string().trim().min(1),
+});
+
 export const PullMainRequestSchema = z.object({
   force: z.boolean().optional(),
   repo: z.string().optional(),
@@ -223,6 +227,124 @@ export const ProjectSnapshotSchema = z.object({
   notifications: z.array(AppNotificationSchema),
 });
 
+export const WorktreeConversationProviderSchema = z.enum(["codexAppServer", "claudeCode"]);
+
+export const CodexWorktreeConversationRefSchema = z.object({
+  provider: z.literal("codexAppServer"),
+  conversationId: z.string(),
+  cwd: z.string(),
+  lastSeenAt: z.string(),
+  threadId: z.string(),
+});
+
+export const ClaudeWorktreeConversationRefSchema = z.object({
+  provider: z.literal("claudeCode"),
+  conversationId: z.string(),
+  cwd: z.string(),
+  lastSeenAt: z.string(),
+  sessionId: z.string(),
+});
+
+export const WorktreeConversationRefSchema = z.discriminatedUnion("provider", [
+  CodexWorktreeConversationRefSchema,
+  ClaudeWorktreeConversationRefSchema,
+]);
+
+export const AgentsUiProjectInfoSchema = z.object({
+  name: z.string(),
+  mainBranch: z.string(),
+});
+
+export const AgentsUiCapabilitiesSchema = z.object({
+  codexWorktreeChat: z.boolean(),
+  claudeWorktreeChat: z.boolean(),
+});
+
+export const AgentsUiWorktreeSummarySchema = z.object({
+  branch: z.string(),
+  baseBranch: z.string().optional(),
+  path: z.string(),
+  archived: z.boolean(),
+  profile: z.string().nullable(),
+  agentName: AgentKindSchema.nullable(),
+  status: z.string(),
+  dirty: z.boolean(),
+  unpushed: z.boolean(),
+  services: z.array(ServiceStatusSchema),
+  prs: z.array(PrEntrySchema),
+  creating: z.boolean(),
+  creationPhase: WorktreeCreationPhaseSchema.nullable(),
+  conversation: WorktreeConversationRefSchema.nullable(),
+});
+
+export const AgentsUiBootstrapResponseSchema = z.object({
+  project: AgentsUiProjectInfoSchema,
+  capabilities: AgentsUiCapabilitiesSchema,
+  worktrees: z.array(AgentsUiWorktreeSummarySchema),
+});
+
+export const AgentsUiConversationMessageRoleSchema = z.enum(["user", "assistant"]);
+export const AgentsUiConversationMessageStatusSchema = z.enum(["completed", "inProgress"]);
+
+export const AgentsUiConversationMessageSchema = z.object({
+  id: z.string(),
+  turnId: z.string(),
+  role: AgentsUiConversationMessageRoleSchema,
+  text: z.string(),
+  status: AgentsUiConversationMessageStatusSchema,
+  createdAt: z.string().nullable(),
+});
+
+export const AgentsUiConversationStateSchema = z.object({
+  provider: WorktreeConversationProviderSchema,
+  conversationId: z.string(),
+  cwd: z.string(),
+  running: z.boolean(),
+  activeTurnId: z.string().nullable(),
+  messages: z.array(AgentsUiConversationMessageSchema),
+});
+
+export const AgentsUiWorktreeConversationResponseSchema = z.object({
+  worktree: AgentsUiWorktreeSummarySchema,
+  conversation: AgentsUiConversationStateSchema,
+});
+
+export const AgentsUiSendMessageResponseSchema = z.object({
+  conversationId: z.string(),
+  turnId: z.string(),
+  running: z.literal(true),
+});
+
+export const AgentsUiInterruptResponseSchema = z.object({
+  conversationId: z.string(),
+  turnId: z.string(),
+  interrupted: z.literal(true),
+});
+
+export const AgentsUiConversationSnapshotEventSchema = z.object({
+  type: z.literal("snapshot"),
+  data: AgentsUiWorktreeConversationResponseSchema,
+});
+
+export const AgentsUiConversationMessageDeltaEventSchema = z.object({
+  type: z.literal("messageDelta"),
+  conversationId: z.string(),
+  turnId: z.string(),
+  itemId: z.string(),
+  delta: z.string(),
+});
+
+export const AgentsUiConversationErrorEventSchema = z.object({
+  type: z.literal("error"),
+  message: z.string(),
+});
+
+export const AgentsUiConversationEventSchema = z.discriminatedUnion("type", [
+  AgentsUiConversationSnapshotEventSchema,
+  AgentsUiConversationMessageDeltaEventSchema,
+  AgentsUiConversationErrorEventSchema,
+]);
+
 export const WorktreeListResponseSchema = z.object({
   worktrees: z.array(ProjectWorktreeSnapshotSchema),
 });
@@ -299,6 +421,7 @@ export type SetWorktreeArchivedRequest = z.infer<typeof SetWorktreeArchivedReque
 export type SetWorktreeArchivedResponse = z.infer<typeof SetWorktreeArchivedResponseSchema>;
 export type ToggleEnabledRequest = z.infer<typeof ToggleEnabledRequestSchema>;
 export type SendWorktreePromptRequest = z.infer<typeof SendWorktreePromptRequestSchema>;
+export type AgentsSendMessageRequest = z.infer<typeof AgentsSendMessageRequestSchema>;
 export type PullMainRequest = z.infer<typeof PullMainRequestSchema>;
 export type PullMainResult = z.infer<typeof PullMainResponseSchema>;
 export type ServiceStatus = z.infer<typeof ServiceStatusSchema>;
@@ -315,6 +438,25 @@ export type WorktreeCreationState = z.infer<typeof WorktreeCreationStateSchema>;
 export type AppNotification = z.infer<typeof AppNotificationSchema>;
 export type ProjectWorktreeSnapshot = z.infer<typeof ProjectWorktreeSnapshotSchema>;
 export type ProjectSnapshot = z.infer<typeof ProjectSnapshotSchema>;
+export type WorktreeConversationProvider = z.infer<typeof WorktreeConversationProviderSchema>;
+export type CodexWorktreeConversationRef = z.infer<typeof CodexWorktreeConversationRefSchema>;
+export type ClaudeWorktreeConversationRef = z.infer<typeof ClaudeWorktreeConversationRefSchema>;
+export type WorktreeConversationRef = z.infer<typeof WorktreeConversationRefSchema>;
+export type AgentsUiProjectInfo = z.infer<typeof AgentsUiProjectInfoSchema>;
+export type AgentsUiCapabilities = z.infer<typeof AgentsUiCapabilitiesSchema>;
+export type AgentsUiWorktreeSummary = z.infer<typeof AgentsUiWorktreeSummarySchema>;
+export type AgentsUiBootstrapResponse = z.infer<typeof AgentsUiBootstrapResponseSchema>;
+export type AgentsUiConversationMessageRole = z.infer<typeof AgentsUiConversationMessageRoleSchema>;
+export type AgentsUiConversationMessageStatus = z.infer<typeof AgentsUiConversationMessageStatusSchema>;
+export type AgentsUiConversationMessage = z.infer<typeof AgentsUiConversationMessageSchema>;
+export type AgentsUiConversationState = z.infer<typeof AgentsUiConversationStateSchema>;
+export type AgentsUiWorktreeConversationResponse = z.infer<typeof AgentsUiWorktreeConversationResponseSchema>;
+export type AgentsUiSendMessageResponse = z.infer<typeof AgentsUiSendMessageResponseSchema>;
+export type AgentsUiInterruptResponse = z.infer<typeof AgentsUiInterruptResponseSchema>;
+export type AgentsUiConversationSnapshotEvent = z.infer<typeof AgentsUiConversationSnapshotEventSchema>;
+export type AgentsUiConversationMessageDeltaEvent = z.infer<typeof AgentsUiConversationMessageDeltaEventSchema>;
+export type AgentsUiConversationErrorEvent = z.infer<typeof AgentsUiConversationErrorEventSchema>;
+export type AgentsUiConversationEvent = z.infer<typeof AgentsUiConversationEventSchema>;
 export type WorktreeListResponse = z.infer<typeof WorktreeListResponseSchema>;
 export type UnpushedCommit = z.infer<typeof UnpushedCommitSchema>;
 export type WorktreeDiffResponse = z.infer<typeof WorktreeDiffResponseSchema>;

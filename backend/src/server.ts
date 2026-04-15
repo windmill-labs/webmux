@@ -3,6 +3,7 @@ import { join, resolve } from "node:path";
 import { mkdirSync } from "node:fs";
 import { networkInterfaces } from "node:os";
 import {
+  AgentsSendMessageRequestSchema,
   apiPaths,
   AvailableBranchesQuerySchema,
   CreateWorktreeRequestSchema,
@@ -30,8 +31,12 @@ import {
   type TerminalAttachTarget,
 } from "./adapters/terminal";
 import { loadControlToken } from "./adapters/control-token";
+import { ClaudeCliClient } from "./adapters/claude-cli";
+import { CodexAppServerClient } from "./adapters/codex-app-server";
+import { readWorktreeMeta } from "./adapters/fs";
 import { getDefaultProfileName, persistLocalLinearConfig, persistLocalGitHubConfig, type ProjectConfig } from "./adapters/config";
 import { jsonResponse, errorResponse } from "./lib/http";
+import { isRecord, isStringArray } from "./lib/type-guards";
 import { parseJsonBody, parseParams, parseQuery } from "./api-validation";
 import { hasRecentDashboardActivity, touchDashboardActivity } from "./services/dashboard-activity";
 import { buildArchivedWorktreePathSet, normalizeArchivePath } from "./services/archive-service";
@@ -48,10 +53,19 @@ import { startPrMonitor } from "./services/pr-service";
 import { startLinearAutoCreateMonitor, resetProcessedIssues } from "./services/linear-auto-create-service";
 import { runAutoRemove, type AutoRemoveDependencies } from "./services/auto-remove-service";
 import { pullMainBranch, forcePullMainBranch, startAutoPullMonitor } from "./services/auto-pull-service";
-import { buildWorktreeSnapshots } from "./services/snapshot-service";
+import { buildAgentsUiBootstrap } from "./services/agents-ui-service";
+import {
+  buildAgentsUiMessageDeltaEvent,
+  readAgentsNotificationThreadId,
+  shouldRefreshAgentsConversationSnapshot,
+} from "./services/agents-ui-stream-service";
+import { buildProjectSnapshot } from "./services/snapshot-service";
+import { ClaudeConversationService } from "./services/claude-conversation-service";
+import { WorktreeConversationService } from "./services/worktree-conversation-service";
 import { parseRuntimeEvent } from "./domain/events";
 import type { CreateWorktreeAgentSelection } from "./domain/config";
-import type { WorktreeSnapshot } from "./domain/model";
+import type { AgentsUiConversationEvent, AgentsUiWorktreeConversationResponse } from "./domain/agents-ui";
+import type { ProjectSnapshot, WorktreeConversationMeta, WorktreeSnapshot } from "./domain/model";
 import { isValidBranchName, isValidWorktreeName } from "./domain/policies";
 import { createWebmuxRuntime } from "./runtime";
 
@@ -70,6 +84,19 @@ const projectRuntime = runtime.projectRuntime;
 const worktreeCreationTracker = runtime.worktreeCreationTracker;
 const runtimeNotifications = runtime.runtimeNotifications;
 const reconciliationService = runtime.reconciliationService;
+const codexAppServerClient = new CodexAppServerClient({
+  clientName: "webmux-agents",
+  clientVersion: "0.0.0",
+});
+const claudeCliClient = new ClaudeCliClient();
+const worktreeConversationService = new WorktreeConversationService({
+  appServer: codexAppServerClient,
+  git,
+});
+const claudeConversationService = new ClaudeConversationService({
+  claude: claudeCliClient,
+  git,
+});
 const removingBranches = new Set<string>();
 const lifecycleService = runtime.lifecycleService;
 let linearAutoCreateEnabled = config.integrations.linear.autoCreateWorktrees;
@@ -149,12 +176,23 @@ function getFrontendConfig(): {
 
 // --- WebSocket protocol types ---
 
-interface WsData {
+interface TerminalWsData {
+  kind: "terminal";
   branch: string;
   worktreeId: string | null;
   attachId: string | null;
   attached: boolean;
 }
+
+interface AgentsWsData {
+  kind: "agents";
+  branch: string;
+  conversationId: string | null;
+  unsubscribe: (() => void) | null;
+}
+
+type WsData = TerminalWsData | AgentsWsData;
+type ParamsRequest = Request & { params: Record<string, string> };
 
 type WsInboundMessage =
   | { type: "input"; data: string }
@@ -168,18 +206,20 @@ type WsOutboundMessage =
   | { type: "error"; message: string }
   | { type: "scrollback"; data: string };
 
+const AGENTS_WORKTREE_API_PREFIX = apiPaths.attachAgentsWorktreeConversation.split(":name")[0];
+
 function parseWsMessage(raw: string | Buffer): WsInboundMessage | null {
   try {
     const str = typeof raw === "string" ? raw : new TextDecoder().decode(raw);
     const msg: unknown = JSON.parse(str);
-    if (!msg || typeof msg !== "object") return null;
-    const m = msg as Record<string, unknown>;
+    if (!isRecord(msg)) return null;
+    const m = msg;
     switch (m.type) {
       case "input":
         return typeof m.data === "string" ? { type: "input", data: m.data } : null;
       case "sendKeys":
-        return Array.isArray(m.hexBytes) && m.hexBytes.every((b: unknown) => typeof b === "string")
-          ? { type: "sendKeys", hexBytes: m.hexBytes as string[] }
+        return isStringArray(m.hexBytes)
+          ? { type: "sendKeys", hexBytes: m.hexBytes }
           : null;
       case "selectPane":
         return typeof m.pane === "number" ? { type: "selectPane", pane: m.pane } : null;
@@ -217,6 +257,12 @@ function sendWs(ws: { send: (data: string) => void }, msg: WsOutboundMessage): v
   }
 }
 
+function sendAgentsWs(ws: { readyState: number; send: (data: string) => void }, msg: AgentsUiConversationEvent): void {
+  if (ws.readyState <= 1) {
+    ws.send(JSON.stringify(msg));
+  }
+}
+
 /** Wrap an async API handler to catch and log unhandled errors. */
 function catching(label: string, fn: () => Promise<Response>): Promise<Response> {
   return fn().catch((err: unknown) => {
@@ -245,6 +291,40 @@ function ensureBranchNotCreating(branch: string): void {
 function ensureBranchNotBusy(branch: string): void {
   ensureBranchNotRemoving(branch);
   ensureBranchNotCreating(branch);
+}
+
+function isAgentsApiPath(pathname: string): boolean {
+  return pathname === apiPaths.fetchAgentsBootstrap || pathname.startsWith(AGENTS_WORKTREE_API_PREFIX);
+}
+
+function withAgentsCors(response: Response): Response {
+  const headers = new Headers(response.headers);
+  headers.set("Access-Control-Allow-Origin", "*");
+  headers.set("Access-Control-Allow-Headers", "Content-Type");
+  headers.set("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+function agentsPreflightResponse(): Response {
+  return withAgentsCors(new Response(null, { status: 204 }));
+}
+
+function handleAgentsRoute(label: string, fn: () => Promise<Response>): Promise<Response> {
+  return catching(label, fn).then(withAgentsCors);
+}
+
+function handleAgentsWorktreeRoute(
+  req: ParamsRequest,
+  label: string,
+  fn: (name: string) => Promise<Response>,
+): Promise<Response> | Response {
+  const parsed = parseWorktreeNameParam(req.params);
+  if (!parsed.ok) return withAgentsCors(parsed.response);
+  return handleAgentsRoute(label, () => fn(parsed.data));
 }
 
 async function withRemovingBranch<T>(branch: string, fn: () => Promise<T>): Promise<T> {
@@ -299,9 +379,12 @@ async function apiGetNativeTerminalLaunch(branch: string): Promise<Response> {
   return jsonResponse(launch.data);
 }
 
-function getAttachedSessionId(ws: { data: WsData; readyState: number; send: (data: string) => void }): string | null {
-  if (ws.data.attached && ws.data.attachId) {
-    return ws.data.attachId;
+function getAttachedSessionId(
+  data: TerminalWsData,
+  ws: { readyState: number; send: (data: string) => void },
+): string | null {
+  if (data.attached && data.attachId) {
+    return data.attachId;
   }
 
   sendWs(ws, { type: "error", message: "Terminal not attached" });
@@ -340,31 +423,7 @@ function makeCallbacks(ws: { send: (data: string) => void; readyState: number })
   };
 }
 
-function buildLinkedLinearIssue(
-  linearIssues: Array<{
-    identifier: string;
-    url: string;
-    state: {
-      name: string;
-      color: string;
-      type: string;
-    };
-    branchName: string;
-  }>,
-  branch: string,
-): { identifier: string; url: string; state: { name: string; color: string; type: string } } | null {
-  const match = linearIssues.find((issue) => branchMatchesIssue(branch, issue.branchName));
-  return match
-    ? {
-        identifier: match.identifier,
-        url: match.url,
-        state: match.state,
-      }
-    : null;
-}
-
-async function buildDashboardWorktrees(): Promise<WorktreeSnapshot[]> {
-  touchDashboardActivity();
+async function readProjectSnapshot(): Promise<ProjectSnapshot> {
   const linearApiKey = Bun.env.LINEAR_API_KEY;
   const linearIssuesPromise = config.integrations.linear.enabled && linearApiKey?.trim()
     ? fetchAssignedIssues()
@@ -374,31 +433,231 @@ async function buildDashboardWorktrees(): Promise<WorktreeSnapshot[]> {
   const linearResult = await linearIssuesPromise;
   const archivedPaths = buildArchivedWorktreePathSet(archiveState);
   const linearIssues = linearResult.ok ? linearResult.data : [];
-  return buildWorktreeSnapshots({
+  return buildProjectSnapshot({
+    projectName: config.name,
+    mainBranch: config.workspace.mainBranch,
     runtime: projectRuntime,
     creatingWorktrees: worktreeCreationTracker.list(),
+    notifications: runtimeNotifications.list(),
     isArchived: (path) => archivedPaths.has(normalizeArchivePath(path)),
-    findLinearIssue: (branch) => buildLinkedLinearIssue(linearIssues, branch),
+    findLinearIssue: (branch) => {
+      const match = linearIssues.find((issue) => branchMatchesIssue(branch, issue.branchName));
+      return match
+        ? {
+            identifier: match.identifier,
+            url: match.url,
+            state: match.state,
+          }
+        : null;
+    },
   });
 }
 
 // --- API handler functions (thin I/O layer, testable by injecting deps) ---
 
 async function apiGetProject(): Promise<Response> {
-  const worktrees = await buildDashboardWorktrees();
-  return jsonResponse({
-    project: {
-      name: config.name,
-      mainBranch: config.workspace.mainBranch,
-    },
-    worktrees,
-    notifications: runtimeNotifications.list(),
-  });
+  touchDashboardActivity();
+  return jsonResponse(await readProjectSnapshot());
 }
 
 async function apiGetWorktrees(): Promise<Response> {
   return jsonResponse({
-    worktrees: await buildDashboardWorktrees(),
+    worktrees: (await readProjectSnapshot()).worktrees,
+  });
+}
+
+async function readAgentsConversations(snapshot: ProjectSnapshot): Promise<Map<string, WorktreeConversationMeta | null>> {
+  const entries = await Promise.all(snapshot.worktrees.map(async (worktree) => {
+    try {
+      const gitDir = git.resolveWorktreeGitDir(worktree.path);
+      const meta = await readWorktreeMeta(gitDir);
+      return [worktree.branch, meta?.conversation ?? null] as const;
+    } catch {
+      return [worktree.branch, null] as const;
+    }
+  }));
+  return new Map(entries);
+}
+
+async function apiGetAgentsBootstrap(): Promise<Response> {
+  touchDashboardActivity();
+  const snapshot = await readProjectSnapshot();
+  const conversations = await readAgentsConversations(snapshot);
+  return jsonResponse(buildAgentsUiBootstrap({ snapshot, conversations }));
+}
+
+function findSnapshotWorktree(snapshot: ProjectSnapshot, branch: string): WorktreeSnapshot | null {
+  return snapshot.worktrees.find((worktree) => worktree.branch === branch) ?? null;
+}
+
+async function resolveAgentsWorktree(branch: string): Promise<{
+  ok: true;
+  worktree: WorktreeSnapshot;
+} | {
+  ok: false;
+  response: Response;
+}> {
+  const snapshot = await readProjectSnapshot();
+  const worktree = findSnapshotWorktree(snapshot, branch);
+  if (!worktree) {
+    return {
+      ok: false,
+      response: errorResponse(`Worktree not found: ${branch}`, 404),
+    };
+  }
+
+  return {
+    ok: true,
+    worktree,
+  };
+}
+
+async function apiAttachAgentsWorktree(branch: string): Promise<Response> {
+  touchDashboardActivity();
+  const resolved = await resolveAgentsWorktree(branch);
+  if (!resolved.ok) return resolved.response;
+
+  const result = resolved.worktree.agentName === "claude"
+    ? await claudeConversationService.attachWorktreeConversation(resolved.worktree)
+    : await worktreeConversationService.attachWorktreeConversation(resolved.worktree);
+  return result.ok
+    ? jsonResponse(result.data)
+    : errorResponse(result.error, result.status);
+}
+
+async function apiGetAgentsWorktreeHistory(branch: string): Promise<Response> {
+  touchDashboardActivity();
+  const resolved = await resolveAgentsWorktree(branch);
+  if (!resolved.ok) return resolved.response;
+
+  const result = resolved.worktree.agentName === "claude"
+    ? await claudeConversationService.readWorktreeConversation(resolved.worktree)
+    : await worktreeConversationService.readWorktreeConversation(resolved.worktree);
+  return result.ok
+    ? jsonResponse(result.data)
+    : errorResponse(result.error, result.status);
+}
+
+async function apiSendAgentsWorktreeMessage(branch: string, req: Request): Promise<Response> {
+  touchDashboardActivity();
+  const parsed = await parseJsonBody(req, AgentsSendMessageRequestSchema);
+  if (!parsed.ok) return parsed.response;
+
+  const resolved = await resolveAgentsWorktree(branch);
+  if (!resolved.ok) return resolved.response;
+
+  const result = resolved.worktree.agentName === "claude"
+    ? await claudeConversationService.sendWorktreeMessage(resolved.worktree, parsed.data.text)
+    : await worktreeConversationService.sendWorktreeMessage(resolved.worktree, parsed.data.text);
+  return result.ok
+    ? jsonResponse(result.data)
+    : errorResponse(result.error, result.status);
+}
+
+async function apiInterruptAgentsWorktree(branch: string): Promise<Response> {
+  touchDashboardActivity();
+  const resolved = await resolveAgentsWorktree(branch);
+  if (!resolved.ok) return resolved.response;
+
+  const result = resolved.worktree.agentName === "claude"
+    ? await claudeConversationService.interruptWorktreeConversation(resolved.worktree)
+    : await worktreeConversationService.interruptWorktreeConversation(resolved.worktree);
+  return result.ok
+    ? jsonResponse(result.data)
+    : errorResponse(result.error, result.status);
+}
+
+async function loadAgentsConversationSnapshot(
+  branch: string,
+): Promise<{
+  ok: true;
+  data: AgentsUiWorktreeConversationResponse;
+} | {
+  ok: false;
+  message: string;
+}> {
+  const resolved = await resolveAgentsWorktree(branch);
+  if (!resolved.ok) {
+    return {
+      ok: false,
+      message: await readErrorMessage(resolved.response),
+    };
+  }
+
+  const result = resolved.worktree.agentName === "claude"
+    ? await claudeConversationService.readWorktreeConversation(resolved.worktree)
+    : await worktreeConversationService.readWorktreeConversation(resolved.worktree);
+  return result.ok
+    ? { ok: true, data: result.data }
+    : { ok: false, message: result.error };
+}
+
+async function readErrorMessage(response: Response): Promise<string> {
+  const contentType = response.headers.get("Content-Type") ?? "";
+  if (contentType.includes("application/json")) {
+    try {
+      const body: unknown = await response.json();
+      if (isRecord(body) && typeof body.error === "string" && body.error.length > 0) {
+        return body.error;
+      }
+    } catch {
+      // Ignore parse failures and fall through to raw text.
+    }
+  }
+
+  const text = await response.text();
+  return text.length > 0 ? text : `HTTP ${response.status}`;
+}
+
+async function openAgentsSocket(
+  ws: { readyState: number; send: (data: string) => void; close: (code?: number, reason?: string) => void },
+  data: AgentsWsData,
+): Promise<void> {
+  const snapshot = await loadAgentsConversationSnapshot(data.branch);
+  if (!snapshot.ok) {
+    sendAgentsWs(ws, { type: "error", message: snapshot.message });
+    ws.close(1011, snapshot.message.slice(0, 123));
+    return;
+  }
+
+  data.conversationId = snapshot.data.conversation.conversationId;
+  sendAgentsWs(ws, {
+    type: "snapshot",
+    data: snapshot.data,
+  });
+
+  if (snapshot.data.conversation.provider === "claudeCode") {
+    data.unsubscribe = claudeConversationService.subscribe(data.branch, (event) => {
+      sendAgentsWs(ws, event);
+    });
+    return;
+  }
+
+  data.unsubscribe = codexAppServerClient.onNotification((notification) => {
+    const notificationThreadId = readAgentsNotificationThreadId(notification);
+    if (!notificationThreadId || notificationThreadId !== data.conversationId) return;
+
+    const deltaEvent = buildAgentsUiMessageDeltaEvent(notification);
+    if (deltaEvent) {
+      sendAgentsWs(ws, deltaEvent);
+      return;
+    }
+
+    if (!shouldRefreshAgentsConversationSnapshot(notification)) return;
+
+    void (async () => {
+      const nextSnapshot = await loadAgentsConversationSnapshot(data.branch);
+      if (!nextSnapshot.ok) {
+        sendAgentsWs(ws, { type: "error", message: nextSnapshot.message });
+        return;
+      }
+
+      data.conversationId = nextSnapshot.data.conversation.conversationId;
+      sendAgentsWs(ws, {
+        type: "snapshot",
+        data: nextSnapshot.data,
+      });
+    })();
   });
 }
 
@@ -830,9 +1089,18 @@ Bun.serve({
   idleTimeout: 255, // seconds; worktree removal can take >10s
 
   routes: {
+    [apiPaths.streamAgentsWorktreeConversation]: (req, server) => {
+      const branch = decodeURIComponent(req.params.name);
+      return server.upgrade(req, { data: { kind: "agents", branch, conversationId: null, unsubscribe: null } })
+        ? undefined
+        : new Response("WebSocket upgrade failed", { status: 400 });
+    },
+
     "/ws/:worktree": (req, server) => {
       const branch = decodeURIComponent(req.params.worktree);
-      return server.upgrade(req, { data: { branch, worktreeId: null, attachId: null, attached: false } })
+      return server.upgrade(req, {
+        data: { kind: "terminal", branch, worktreeId: null, attachId: null, attached: false },
+      })
         ? undefined
         : new Response("WebSocket upgrade failed", { status: 400 });
     },
@@ -851,6 +1119,42 @@ Bun.serve({
 
     [apiPaths.fetchProject]: {
       GET: () => catching("GET /api/project", () => apiGetProject()),
+    },
+
+    [apiPaths.fetchAgentsBootstrap]: {
+      GET: () => handleAgentsRoute(`GET ${apiPaths.fetchAgentsBootstrap}`, () => apiGetAgentsBootstrap()),
+    },
+
+    [apiPaths.attachAgentsWorktreeConversation]: {
+      POST: (req) => handleAgentsWorktreeRoute(
+        req,
+        `POST ${apiPaths.attachAgentsWorktreeConversation}`,
+        (name) => apiAttachAgentsWorktree(name),
+      ),
+    },
+
+    [apiPaths.fetchAgentsWorktreeConversationHistory]: {
+      GET: (req) => handleAgentsWorktreeRoute(
+        req,
+        `GET ${apiPaths.fetchAgentsWorktreeConversationHistory}`,
+        (name) => apiGetAgentsWorktreeHistory(name),
+      ),
+    },
+
+    [apiPaths.sendAgentsWorktreeConversationMessage]: {
+      POST: (req) => handleAgentsWorktreeRoute(
+        req,
+        `POST ${apiPaths.sendAgentsWorktreeConversationMessage}`,
+        (name) => apiSendAgentsWorktreeMessage(name, req),
+      ),
+    },
+
+    [apiPaths.interruptAgentsWorktreeConversation]: {
+      POST: (req) => handleAgentsWorktreeRoute(
+        req,
+        `POST ${apiPaths.interruptAgentsWorktreeConversation}`,
+        (name) => apiInterruptAgentsWorktree(name),
+      ),
     },
 
     "/api/runtime/events": {
@@ -983,9 +1287,13 @@ Bun.serve({
   },
 
   async fetch(req) {
+    const url = new URL(req.url);
+    if (req.method === "OPTIONS" && isAgentsApiPath(url.pathname)) {
+      return agentsPreflightResponse();
+    }
+
     // Static frontend files in production mode (fallback for unmatched routes)
     if (STATIC_DIR) {
-      const url = new URL(req.url);
       const rawPath = url.pathname === "/" ? "index.html" : url.pathname;
       const filePath = join(STATIC_DIR, rawPath);
       const staticRoot = resolve(STATIC_DIR);
@@ -1017,42 +1325,55 @@ Bun.serve({
     data: {} as WsData,
 
     open(ws) {
-      log.debug(`[ws] open branch=${ws.data.branch}`);
+      const data = ws.data;
+      if (data.kind === "terminal") {
+        log.debug(`[ws] open branch=${data.branch}`);
+        return;
+      }
+
+      log.debug(`[ws:agents] open branch=${data.branch}`);
+      void openAgentsSocket(ws, data);
     },
 
     async message(ws, message) {
+      const data = ws.data;
+      if (data.kind === "agents") {
+        log.debug(`[ws:agents] ignoring inbound message branch=${data.branch}`);
+        return;
+      }
+
       const msg = parseWsMessage(message);
       if (!msg) {
         sendWs(ws, { type: "error", message: "malformed message" });
         return;
       }
-      const { branch } = ws.data;
+      const { branch } = data;
 
       switch (msg.type) {
         case "input": {
-          const attachId = getAttachedSessionId(ws);
+          const attachId = getAttachedSessionId(data, ws);
           if (!attachId) return;
           write(attachId, msg.data);
           break;
         }
         case "sendKeys": {
-          const attachId = getAttachedSessionId(ws);
+          const attachId = getAttachedSessionId(data, ws);
           if (!attachId) return;
           await sendKeys(attachId, msg.hexBytes);
           break;
         }
         case "selectPane":
           {
-            const attachId = getAttachedSessionId(ws);
+            const attachId = getAttachedSessionId(data, ws);
             if (!attachId) return;
             log.debug(`[ws] selectPane pane=${msg.pane} branch=${branch} attachId=${attachId}`);
             await selectPane(attachId, msg.pane);
           }
           break;
         case "resize":
-          if (!ws.data.attached) {
+          if (!data.attached) {
             // First resize = client reporting actual dimensions. Attach now.
-            ws.data.attached = true;
+            data.attached = true;
             log.debug(`[ws] first resize (attaching) branch=${branch} cols=${msg.cols} rows=${msg.rows}`);
             try {
               if (msg.initialPane !== undefined) {
@@ -1060,8 +1381,8 @@ Bun.serve({
               }
               const terminalWorktree = await resolveTerminalWorktree(branch);
               const attachId = `${terminalWorktree.worktreeId}:${randomUUID()}`;
-              ws.data.worktreeId = terminalWorktree.worktreeId;
-              ws.data.attachId = attachId;
+              data.worktreeId = terminalWorktree.worktreeId;
+              data.attachId = attachId;
               await attach(
                 attachId,
                 terminalWorktree.attachTarget,
@@ -1080,15 +1401,15 @@ Bun.serve({
               }
             } catch (err: unknown) {
               const errMsg = err instanceof Error ? err.message : String(err);
-              ws.data.attached = false;
-              ws.data.worktreeId = null;
-              ws.data.attachId = null;
+              data.attached = false;
+              data.worktreeId = null;
+              data.attachId = null;
               log.error(`[ws] attach failed branch=${branch}: ${errMsg}`);
               sendWs(ws, { type: "error", message: errMsg });
               ws.close(1011, errMsg.slice(0, 123)); // 1011 = Internal Error
             }
           } else {
-            const attachId = getAttachedSessionId(ws);
+            const attachId = getAttachedSessionId(data, ws);
             if (!attachId) return;
             await resize(attachId, msg.cols, msg.rows);
           }
@@ -1097,12 +1418,20 @@ Bun.serve({
     },
 
     async close(ws, code, reason) {
+      const data = ws.data;
+      if (data.kind === "agents") {
+        log.debug(`[ws:agents] close branch=${data.branch} code=${code} reason=${reason}`);
+        data.unsubscribe?.();
+        data.unsubscribe = null;
+        return;
+      }
+
       log.debug(
-        `[ws] close branch=${ws.data.branch} code=${code} reason=${reason} attached=${ws.data.attached} worktreeId=${ws.data.worktreeId} attachId=${ws.data.attachId}`,
+        `[ws] close branch=${data.branch} code=${code} reason=${reason} attached=${data.attached} worktreeId=${data.worktreeId} attachId=${data.attachId}`,
       );
-      if (ws.data.attachId) {
-        clearCallbacks(ws.data.attachId);
-        await detach(ws.data.attachId);
+      if (data.attachId) {
+        clearCallbacks(data.attachId);
+        await detach(data.attachId);
       }
     },
   },

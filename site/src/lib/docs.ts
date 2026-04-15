@@ -32,6 +32,11 @@ export const featureHighlights: DocFeature[] = [
       "Each worktree can launch an agent pane plus shell or command panes so the browser mirrors the tmux layout you actually use for development.",
   },
   {
+    title: "Mobile-friendly worktree chat",
+    description:
+      "webmux also serves a separate agents UI with a simple worktree list and chat screen. It is primarily designed as a much better mobile UX than trying to use the full terminal dashboard on a phone.",
+  },
+  {
     title: "PR, CI, and comment visibility",
     description:
       "GitHub PR state, CI checks, and review comments are surfaced alongside each worktree instead of living in a separate tab.",
@@ -58,6 +63,7 @@ export const installCommand = "bun install -g webmux";
 export const defaultsAtAGlance: DocFact[] = [
   { label: "Dashboard command", value: "webmux serve" },
   { label: "Default port", value: "5111 via --port or PORT" },
+  { label: "Agents UI port", value: "5112 by default via --agents-port" },
   { label: "Main branch default", value: "main" },
   { label: "Worktree root default", value: "../worktrees" },
   { label: "Default agent", value: "claude" },
@@ -90,7 +96,7 @@ export const landingQuickStartSteps: DocStep[] = [
     description: "Launch the local dashboard server for the current project.",
     command: "webmux serve",
     outcome:
-      "The dashboard runs on http://localhost:5111 by default. Add --app for Chromium app mode or use --port / PORT to override the port.",
+      "The terminal dashboard runs on http://localhost:5111 by default, and the separate agents chat UI runs on http://localhost:5112. That second UI is primarily intended as a better mobile experience. Add --app for Chromium app mode or use --port / --agents-port to override the ports.",
   },
 ];
 
@@ -113,7 +119,7 @@ export const quickStartSteps: DocStep[] = [
     description: "Launch the local app and open the UI in your browser.",
     command: "webmux serve",
     outcome:
-      "Starts the dashboard on http://localhost:5111 unless you override the port with --port or PORT. Add --app to open it in Chromium app mode.",
+      "Starts the main dashboard on http://localhost:5111 and the separate agents chat UI on http://localhost:5112 unless you override them with --port / --agents-port. The agents UI is primarily there for better mobile UX.",
   },
   {
     title: "Create your first worktree",
@@ -158,11 +164,13 @@ export const prerequisites: DocTool[] = [
 export const rootCommands: DocCommand[] = [
   {
     title: "serve",
-    usage: "webmux serve [--port <number>] [--app] [--debug]",
+    usage: "webmux serve [--port <number>] [--agents-port <number>] [--app] [--debug]",
     description: "Start the dashboard server for the current project.",
     details: [
       "Requires .webmux.yaml in the current directory.",
       "Reads .env.local first, then .env, before launching.",
+      "Starts the main terminal dashboard on --port and the separate agents chat UI on --agents-port (default: port + 1).",
+      "The agents UI is primarily intended as a much better mobile experience for browsing worktrees and sending simple chat messages.",
       "Uses PORT as a fallback when --port is omitted.",
       "Use --app to open a Chromium-based app window after the backend starts.",
     ],

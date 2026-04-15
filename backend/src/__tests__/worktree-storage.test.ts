@@ -371,6 +371,33 @@ describe("initializeManagedWorktree", () => {
     expect(paths.prsPath).toBe(`${paths.webmuxDir}/prs.json`);
   });
 
+  it("normalizes legacy codex conversation metadata when reading", async () => {
+    gitDir = await mkdtemp(join(tmpdir(), "webmux-meta-normalize-"));
+
+    const paths = getWorktreeStoragePaths(gitDir);
+    await mkdir(paths.webmuxDir, { recursive: true });
+    await Bun.write(paths.metaPath, JSON.stringify({
+      ...makeMeta(),
+      conversation: {
+        provider: "codexAppServer",
+        threadId: "thread-legacy",
+        cwd: "/repo/__worktrees/feature-search",
+        lastSeenAt: "2026-04-14T10:00:00.000Z",
+      },
+    }, null, 2));
+
+    expect(await readWorktreeMeta(gitDir)).toEqual({
+      ...makeMeta(),
+      conversation: {
+        provider: "codexAppServer",
+        conversationId: "thread-legacy",
+        threadId: "thread-legacy",
+        cwd: "/repo/__worktrees/feature-search",
+        lastSeenAt: "2026-04-14T10:00:00.000Z",
+      },
+    });
+  });
+
   it("round-trips PR storage through the worktree webmux dir", async () => {
     gitDir = await mkdtemp(join(tmpdir(), "webmux-prs-gitdir-"));
 

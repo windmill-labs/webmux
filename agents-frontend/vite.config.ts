@@ -5,27 +5,16 @@ import tailwindcss from "@tailwindcss/vite";
 const backendPort = process.env.PORT || "5111";
 const backendUrl = `http://localhost:${backendPort}`;
 const backendWs = `ws://localhost:${backendPort}`;
-const port = parseInt(process.env.FRONTEND_PORT || "5112");
+const port = parseInt(process.env.AGENTS_FRONTEND_PORT || "5183", 10);
 
 export default defineConfig({
   plugins: [svelte(), tailwindcss()],
-  build: {
-    rollupOptions: {
-      output: {
-        manualChunks(id) {
-          if (id.includes("node_modules/@xterm/")) {
-            return "vendor-xterm";
-          }
-        },
-      },
-    },
-  },
   server: {
     host: "0.0.0.0",
     port,
     proxy: {
-      "/api": backendUrl,
-      "/ws": {
+      "/api/agents": backendUrl,
+      "/ws/agents": {
         target: backendWs,
         ws: true,
       },
@@ -33,10 +22,10 @@ export default defineConfig({
   },
   preview: {
     host: "0.0.0.0",
-    port: 4173,
+    port: 4183,
     proxy: {
-      "/api": backendUrl,
-      "/ws": {
+      "/api/agents": backendUrl,
+      "/ws/agents": {
         target: backendWs,
         ws: true,
       },

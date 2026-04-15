@@ -4,10 +4,13 @@ backend/node_modules/
 backend/bun.lock
 frontend/node_modules/
 frontend/bun.lock
+agents-frontend/node_modules/
 backend/dist/
 frontend/dist/
+agents-frontend/dist/
 bin/webmux.js
 frontend/.vite/
+agents-frontend/.vite/
 public/
 .env
 .env.local

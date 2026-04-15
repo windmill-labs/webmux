@@ -20,6 +20,11 @@ export function buildAgentsUiWorktreeSummary(
     dirty: worktree.dirty,
     unpushed: worktree.unpushed,
     services: worktree.services.map((service) => ({ ...service })),
+    prs: worktree.prs.map((pr) => ({
+      ...pr,
+      ciChecks: pr.ciChecks.map((check) => ({ ...check })),
+      comments: pr.comments.map((comment) => ({ ...comment })),
+    })),
     creating: worktree.creation !== null,
     creationPhase: worktree.creation?.phase ?? null,
     conversation: cloneConversationMeta(conversation),

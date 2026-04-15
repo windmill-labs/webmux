@@ -27,7 +27,18 @@ describe("buildAgentsUiBootstrap", () => {
             services: [
               { name: "frontend", port: 3010, running: true, url: "http://127.0.0.1:3010" },
             ],
-            prs: [],
+            prs: [
+              {
+                repo: "webmux",
+                number: 216,
+                state: "open",
+                url: "https://github.com/windmill-labs/webmux/pull/216",
+                updatedAt: "2026-04-15T10:00:00.000Z",
+                ciStatus: "pending",
+                ciChecks: [],
+                comments: [],
+              },
+            ],
             linearIssue: null,
             creation: {
               phase: "starting_session",
@@ -72,6 +83,18 @@ describe("buildAgentsUiBootstrap", () => {
           unpushed: false,
           services: [
             { name: "frontend", port: 3010, running: true, url: "http://127.0.0.1:3010" },
+          ],
+          prs: [
+            {
+              repo: "webmux",
+              number: 216,
+              state: "open",
+              url: "https://github.com/windmill-labs/webmux/pull/216",
+              updatedAt: "2026-04-15T10:00:00.000Z",
+              ciStatus: "pending",
+              ciChecks: [],
+              comments: [],
+            },
           ],
           creating: true,
           creationPhase: "starting_session",

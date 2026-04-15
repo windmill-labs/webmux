@@ -1,3 +1,5 @@
+import type { PrEntry } from "@webmux/api-contract";
+
 export interface ServiceStatus {
   name: string;
   port: number | null;
@@ -47,6 +49,7 @@ export interface AgentsUiWorktreeSummary {
   dirty: boolean;
   unpushed: boolean;
   services: ServiceStatus[];
+  prs: PrEntry[];
   creating: boolean;
   creationPhase:
     | "creating_worktree"

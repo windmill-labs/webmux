@@ -1,5 +1,8 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import ConversationPanel from "./lib/components/ConversationPanel.svelte";
+  import AgentsSidebar from "./lib/components/AgentsSidebar.svelte";
+  import AgentsTopBar from "./lib/components/AgentsTopBar.svelte";
   import {
     attachWorktreeConversation,
     connectWorktreeConversationStream,
@@ -29,7 +32,9 @@
   let hasRequestedBootstrap = false;
   let attachedBranch = $state<string | null>(null);
   let conversationRequestToken = 0;
-  let mobileListOpen = $state(true);
+  let searchQuery = $state("");
+  let isMobile = $state(false);
+  let sidebarOpen = $state(false);
   let streamConnection: {
     branch: string;
     conversationId: string;
@@ -40,10 +45,25 @@
     return worktree?.agentName === "codex" || worktree?.agentName === "claude";
   }
 
+  function matchesWorktreeSearch(worktree: AgentsUiWorktreeSummary, query: string): boolean {
+    const trimmedQuery = query.trim().toLowerCase();
+    if (trimmedQuery.length === 0) return true;
+
+    return [
+      worktree.branch,
+      worktree.agentName ?? "",
+      worktree.status,
+      worktree.profile ?? "",
+    ].some((value) => value.toLowerCase().includes(trimmedQuery));
+  }
+
   const selectedWorktree = $derived(
     bootstrap?.worktrees.find((worktree) => worktree.branch === selectedBranch) ?? null,
   );
   const listedWorktrees = $derived(bootstrap?.worktrees ?? []);
+  const filteredWorktrees = $derived(
+    listedWorktrees.filter((worktree) => matchesWorktreeSearch(worktree, searchQuery)),
+  );
 
   function updateWorktreeSummary(nextWorktree: AgentsUiWorktreeSummary): void {
     if (!bootstrap) return;
@@ -193,18 +213,15 @@
       selectedBranch = branch;
       resetConversation(null);
     }
-    mobileListOpen = false;
+    if (isMobile) {
+      sidebarOpen = false;
+    }
   }
 
-  function showWorktreeList(): void {
-    mobileListOpen = true;
-  }
-
-  function describeWorktree(worktree: AgentsUiWorktreeSummary): string {
-    if (worktree.creating && worktree.creationPhase) return `Creating: ${worktree.creationPhase}`;
-    if (isChatWorktree(worktree) && worktree.conversation) return "Chat ready";
-    if (isChatWorktree(worktree)) return "Attach on open";
-    return "Terminal only";
+  function describeEmptyState(): string {
+    if (!bootstrap) return "Loading worktrees…";
+    if (searchQuery.trim().length > 0) return "No worktrees match that search.";
+    return "No worktrees found.";
   }
 
   async function refreshSelectedConversation(): Promise<void> {
@@ -249,6 +266,22 @@
     }
   }
 
+  async function handleTopBarPrimaryAction(): Promise<void> {
+    if (!isChatWorktree(selectedWorktree)) return;
+
+    if (conversation?.running) {
+      await interruptSelectedConversation();
+      return;
+    }
+
+    if (conversation || conversationError) {
+      await refreshSelectedConversation();
+      return;
+    }
+
+    await loadConversation(selectedWorktree.branch, "attach");
+  }
+
   $effect(() => {
     if (hasRequestedBootstrap) return;
     hasRequestedBootstrap = true;
@@ -267,108 +300,106 @@
       closeConversationStream();
     };
   });
+
+  onMount(() => {
+    const mediaQuery = window.matchMedia("(max-width: 768px)");
+    isMobile = mediaQuery.matches;
+    sidebarOpen = mediaQuery.matches;
+
+    function handleChange(event: MediaQueryListEvent): void {
+      isMobile = event.matches;
+      if (event.matches) {
+        sidebarOpen = true;
+      }
+    }
+
+    mediaQuery.addEventListener("change", handleChange);
+    return () => {
+      mediaQuery.removeEventListener("change", handleChange);
+    };
+  });
 </script>
 
 <svelte:head>
   <title>Webmux Worktree Chat</title>
 </svelte:head>
 
-<div class="h-[100dvh] overflow-hidden text-[var(--color-ink)]">
-  <div class="mx-auto flex h-full min-h-0 max-w-[84rem] flex-col px-3 py-3 md:px-5 md:py-5">
-    <header class="mb-3 rounded-[1.6rem] border border-[var(--color-line)] bg-[var(--color-panel)]/92 px-4 py-4 shadow-[0_12px_40px_rgba(66,40,18,0.08)] backdrop-blur md:mb-4 md:px-5">
-      <div class="flex items-center justify-between gap-3">
-        <div class="min-w-0">
-          <div class="text-[0.7rem] font-semibold uppercase tracking-[0.22em] text-[var(--color-muted)]">
-            {bootstrap?.project.name ?? "Project"}
-          </div>
-          <h1 class="mt-1 font-serif text-2xl leading-none md:text-4xl">Worktree Chat</h1>
-        </div>
+<div class="flex h-dvh bg-surface text-primary">
+  {#if !isMobile || sidebarOpen}
+    {#if isMobile}
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div
+        class="fixed inset-0 z-40 bg-black/50"
+        onclick={() => {
+          sidebarOpen = false;
+        }}
+        onkeydown={(event) => {
+          if (event.key === "Escape") {
+            sidebarOpen = false;
+          }
+        }}
+      ></div>
+    {/if}
 
-        <button
-          class="rounded-full border border-[var(--color-line)] bg-[var(--color-paper)] px-4 py-2 text-sm font-medium transition hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
-          onclick={() => void loadBootstrap()}
-          disabled={isLoading}
-        >
-          {isLoading ? "Refreshing..." : "Refresh"}
-        </button>
+    <AgentsSidebar
+      projectName={bootstrap?.project.name ?? "Worktree Chat"}
+      worktrees={filteredWorktrees}
+      totalCount={listedWorktrees.length}
+      selectedBranch={selectedBranch}
+      searchQuery={searchQuery}
+      emptyMessage={describeEmptyState()}
+      isMobile={isMobile}
+      onClose={() => {
+        sidebarOpen = false;
+      }}
+      onSearchChange={(value) => {
+        searchQuery = value;
+      }}
+      onSelect={selectWorktree}
+    />
+  {/if}
+
+  <main class="flex min-w-0 flex-1 flex-col overflow-hidden">
+    <AgentsTopBar
+      projectName={bootstrap?.project.name ?? "Worktree Chat"}
+      worktree={selectedWorktree}
+      conversation={conversation}
+      conversationError={conversationError}
+      conversationLoading={conversationLoading}
+      isSending={isSending}
+      isMobile={isMobile}
+      onPrimaryAction={() => void handleTopBarPrimaryAction()}
+      onToggleSidebar={() => {
+        sidebarOpen = !sidebarOpen;
+      }}
+    />
+
+    {#if errorMessage}
+      <div class="mx-4 mt-4 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-primary">
+        {errorMessage}
       </div>
+    {/if}
 
-      {#if errorMessage}
-        <div class="mt-3 rounded-[1.1rem] border border-[var(--color-accent)]/30 bg-[var(--color-accent-soft)] px-4 py-3 text-sm text-[var(--color-ink)]">
-          {errorMessage}
-        </div>
-      {/if}
-    </header>
-
-    <main class="grid min-h-0 flex-1 gap-3 md:grid-cols-[20rem_minmax(0,1fr)] md:gap-4">
-      <section class={`${mobileListOpen ? "flex" : "hidden"} min-h-0 min-w-0 flex-col overflow-hidden rounded-[1.6rem] border border-[var(--color-line)] bg-[var(--color-panel)]/95 p-3 shadow-[0_12px_40px_rgba(66,40,18,0.06)] md:flex md:p-4`}>
-        <div class="mb-3 flex items-center justify-between gap-3">
-          <div class="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--color-muted)]">Worktrees</div>
-          <div class="text-sm text-[var(--color-muted)]">{listedWorktrees.length}</div>
-        </div>
-
-        {#if !bootstrap}
-          <div class="rounded-[1.1rem] border border-dashed border-[var(--color-line)] bg-[var(--color-paper)] px-4 py-6 text-sm text-[var(--color-muted)]">
-            Loading worktrees…
-          </div>
-        {:else if listedWorktrees.length === 0}
-          <div class="rounded-[1.1rem] border border-dashed border-[var(--color-line)] bg-[var(--color-paper)] px-4 py-6 text-sm text-[var(--color-muted)]">
-            No worktrees found.
-          </div>
-        {:else}
-          <div class="min-h-0 space-y-2 overflow-y-auto pr-1">
-            {#each listedWorktrees as worktree (worktree.branch)}
-              <button
-                class={`block w-full rounded-[1.2rem] border px-4 py-4 text-left transition ${
-                  selectedBranch === worktree.branch
-                    ? "border-[var(--color-accent)] bg-[var(--color-accent-soft)]/55"
-                    : "border-[var(--color-line)] bg-[var(--color-paper)] hover:border-[var(--color-accent)]/40"
-                }`}
-                onclick={() => selectWorktree(worktree.branch)}
-              >
-                <div class="flex items-start justify-between gap-3">
-                  <div class="min-w-0">
-                    <div class="truncate text-sm font-semibold">{worktree.branch}</div>
-                    <div class="mt-1 text-xs uppercase tracking-[0.16em] text-[var(--color-muted)]">
-                      {worktree.agentName ?? "unassigned"}
-                    </div>
-                  </div>
-                  <span class="rounded-full border border-[var(--color-line)] px-2 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-[var(--color-muted)]">
-                    {worktree.status}
-                  </span>
-                </div>
-                <p class="mt-2 text-sm text-[var(--color-muted)]">{describeWorktree(worktree)}</p>
-              </button>
-            {/each}
-          </div>
-        {/if}
-      </section>
-
-      <section class={`${mobileListOpen ? "hidden" : "block"} min-h-0 min-w-0 overflow-hidden rounded-[1.6rem] border border-[var(--color-line)] bg-[var(--color-panel)]/95 p-3 shadow-[0_12px_40px_rgba(66,40,18,0.06)] md:block md:p-4`}>
-        {#if selectedWorktree}
-          <ConversationPanel
-            worktree={selectedWorktree}
-            conversation={conversation}
-            conversationError={conversationError}
-            conversationLoading={conversationLoading}
-            composerText={composerText}
-            isSending={isSending}
-            showBackButton={mobileListOpen === false}
-            onAttach={() => void loadConversation(selectedWorktree.branch, "attach")}
-            onBack={showWorktreeList}
-            onComposerInput={(value) => {
-              composerText = value;
-            }}
-            onInterrupt={() => void interruptSelectedConversation()}
-            onRefresh={() => void refreshSelectedConversation()}
-            onSend={() => void sendSelectedConversationMessage()}
-          />
-        {:else}
-          <div class="flex h-full min-h-[24rem] items-center justify-center rounded-[1.4rem] border border-dashed border-[var(--color-line)] bg-[var(--color-paper)] p-6 text-center text-[var(--color-muted)]">
-            Select a worktree to open chat.
-          </div>
-        {/if}
-      </section>
-    </main>
-  </div>
+    {#if selectedWorktree}
+      <ConversationPanel
+        worktree={selectedWorktree}
+        conversation={conversation}
+        conversationError={conversationError}
+        conversationLoading={conversationLoading}
+        composerText={composerText}
+        isSending={isSending}
+        onAttach={() => void loadConversation(selectedWorktree.branch, "attach")}
+        onComposerInput={(value) => {
+          composerText = value;
+        }}
+        onInterrupt={() => void interruptSelectedConversation()}
+        onRefresh={() => void refreshSelectedConversation()}
+        onSend={() => void sendSelectedConversationMessage()}
+      />
+    {:else}
+      <div class="flex flex-1 items-center justify-center px-6 text-center text-sm text-muted">
+        Select a worktree from the sidebar to open chat.
+      </div>
+    {/if}
+  </main>
 </div>

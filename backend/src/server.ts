@@ -190,6 +190,7 @@ interface AgentsWsData {
 }
 
 type WsData = TerminalWsData | AgentsWsData;
+type ParamsRequest = Request & { params: Record<string, string> };
 
 type WsInboundMessage =
   | { type: "input"; data: string }
@@ -202,6 +203,8 @@ type WsOutboundMessage =
   | { type: "exit"; exitCode: number }
   | { type: "error"; message: string }
   | { type: "scrollback"; data: string };
+
+const AGENTS_WORKTREE_API_PREFIX = apiPaths.attachAgentsWorktreeConversation.split(":name")[0];
 
 function isRecord(raw: unknown): raw is Record<string, unknown> {
   return typeof raw === "object" && raw !== null && !Array.isArray(raw);
@@ -293,7 +296,7 @@ function ensureBranchNotBusy(branch: string): void {
 }
 
 function isAgentsApiPath(pathname: string): boolean {
-  return pathname === "/api/agents/bootstrap" || pathname.startsWith("/api/agents/worktrees/");
+  return pathname === apiPaths.fetchAgentsBootstrap || pathname.startsWith(AGENTS_WORKTREE_API_PREFIX);
 }
 
 function withAgentsCors(response: Response): Response {
@@ -310,6 +313,20 @@ function withAgentsCors(response: Response): Response {
 
 function agentsPreflightResponse(): Response {
   return withAgentsCors(new Response(null, { status: 204 }));
+}
+
+function handleAgentsRoute(label: string, fn: () => Promise<Response>): Promise<Response> {
+  return catching(label, fn).then(withAgentsCors);
+}
+
+function handleAgentsWorktreeRoute(
+  req: ParamsRequest,
+  label: string,
+  fn: (name: string) => Promise<Response>,
+): Promise<Response> | Response {
+  const parsed = parseWorktreeNameParam(req.params);
+  if (!parsed.ok) return withAgentsCors(parsed.response);
+  return handleAgentsRoute(label, () => fn(parsed.data));
 }
 
 async function withRemovingBranch<T>(branch: string, fn: () => Promise<T>): Promise<T> {
@@ -1087,7 +1104,7 @@ Bun.serve({
   idleTimeout: 255, // seconds; worktree removal can take >10s
 
   routes: {
-    "/ws/agents/worktrees/:name": (req, server) => {
+    [apiPaths.streamAgentsWorktreeConversation]: (req, server) => {
       const branch = decodeURIComponent(req.params.name);
       return server.upgrade(req, { data: { kind: "agents", branch, conversationId: null, unsubscribe: null } })
         ? undefined
@@ -1119,40 +1136,40 @@ Bun.serve({
       GET: () => catching("GET /api/project", () => apiGetProject()),
     },
 
-    "/api/agents/bootstrap": {
-      GET: () => catching("GET /api/agents/bootstrap", () => apiGetAgentsBootstrap()).then(withAgentsCors),
+    [apiPaths.fetchAgentsBootstrap]: {
+      GET: () => handleAgentsRoute(`GET ${apiPaths.fetchAgentsBootstrap}`, () => apiGetAgentsBootstrap()),
     },
 
-    "/api/agents/worktrees/:name/attach": {
-      POST: (req) => {
-        const name = decodeURIComponent(req.params.name);
-        if (!isValidWorktreeName(name)) return withAgentsCors(errorResponse("Invalid worktree name", 400));
-        return catching(`POST /api/agents/worktrees/${name}/attach`, () => apiAttachAgentsWorktree(name)).then(withAgentsCors);
-      },
+    [apiPaths.attachAgentsWorktreeConversation]: {
+      POST: (req) => handleAgentsWorktreeRoute(
+        req,
+        `POST ${apiPaths.attachAgentsWorktreeConversation}`,
+        (name) => apiAttachAgentsWorktree(name),
+      ),
     },
 
-    "/api/agents/worktrees/:name/history": {
-      GET: (req) => {
-        const name = decodeURIComponent(req.params.name);
-        if (!isValidWorktreeName(name)) return withAgentsCors(errorResponse("Invalid worktree name", 400));
-        return catching(`GET /api/agents/worktrees/${name}/history`, () => apiGetAgentsWorktreeHistory(name)).then(withAgentsCors);
-      },
+    [apiPaths.fetchAgentsWorktreeConversationHistory]: {
+      GET: (req) => handleAgentsWorktreeRoute(
+        req,
+        `GET ${apiPaths.fetchAgentsWorktreeConversationHistory}`,
+        (name) => apiGetAgentsWorktreeHistory(name),
+      ),
     },
 
-    "/api/agents/worktrees/:name/messages": {
-      POST: (req) => {
-        const name = decodeURIComponent(req.params.name);
-        if (!isValidWorktreeName(name)) return withAgentsCors(errorResponse("Invalid worktree name", 400));
-        return catching(`POST /api/agents/worktrees/${name}/messages`, () => apiSendAgentsWorktreeMessage(name, req)).then(withAgentsCors);
-      },
+    [apiPaths.sendAgentsWorktreeConversationMessage]: {
+      POST: (req) => handleAgentsWorktreeRoute(
+        req,
+        `POST ${apiPaths.sendAgentsWorktreeConversationMessage}`,
+        (name) => apiSendAgentsWorktreeMessage(name, req),
+      ),
     },
 
-    "/api/agents/worktrees/:name/interrupt": {
-      POST: (req) => {
-        const name = decodeURIComponent(req.params.name);
-        if (!isValidWorktreeName(name)) return withAgentsCors(errorResponse("Invalid worktree name", 400));
-        return catching(`POST /api/agents/worktrees/${name}/interrupt`, () => apiInterruptAgentsWorktree(name)).then(withAgentsCors);
-      },
+    [apiPaths.interruptAgentsWorktreeConversation]: {
+      POST: (req) => handleAgentsWorktreeRoute(
+        req,
+        `POST ${apiPaths.interruptAgentsWorktreeConversation}`,
+        (name) => apiInterruptAgentsWorktree(name),
+      ),
     },
 
     "/api/runtime/events": {

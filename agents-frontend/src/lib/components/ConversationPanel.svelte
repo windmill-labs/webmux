@@ -10,12 +10,10 @@
     composerText: string;
     isSending: boolean;
     onAttach: () => void;
-    onBack: () => void;
     onComposerInput: (value: string) => void;
     onInterrupt: () => void;
     onRefresh: () => void;
     onSend: () => void;
-    showBackButton: boolean;
   }
 
   const {
@@ -26,12 +24,10 @@
     composerText,
     isSending,
     onAttach,
-    onBack,
     onComposerInput,
     onInterrupt,
     onRefresh,
     onSend,
-    showBackButton,
   }: Props = $props();
 
   const agentLabel = $derived(worktree.agentName === "claude" ? "Claude" : "Codex");
@@ -47,19 +43,19 @@
 
   let transcriptViewport = $state<HTMLDivElement | null>(null);
 
-  function formatTimestamp(value: string | null): string {
-    if (!value) return "Pending";
-    const timestamp = new Date(value);
-    return timestamp.toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  }
-
   function handleComposerInput(event: Event): void {
     const target = event.currentTarget;
     if (!(target instanceof HTMLTextAreaElement)) return;
     onComposerInput(target.value);
+  }
+
+  function handleComposerKeydown(event: KeyboardEvent): void {
+    if (event.key !== "Enter") return;
+    if (event.shiftKey) return;
+    event.preventDefault();
+    if (canSend) {
+      onSend();
+    }
   }
 
   async function scrollTranscriptToBottom(): Promise<void> {
@@ -85,134 +81,100 @@
 </script>
 
 {#if !chatAvailable}
-  <article class="flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-[1.4rem] border border-[var(--color-line)] bg-[var(--color-paper)] p-4">
-    <div class="flex items-center gap-3">
-      {#if showBackButton}
-        <button
-          class="rounded-full border border-[var(--color-line)] bg-[var(--color-panel)] px-3 py-2 text-sm font-medium transition hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] md:hidden"
-          onclick={onBack}
-        >
-          Back
-        </button>
-      {/if}
-
-      <div>
-        <div class="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--color-muted)]">Chat</div>
-        <h2 class="mt-1 text-lg font-semibold">{worktree.branch}</h2>
-      </div>
-    </div>
-
-    <div class="mt-4 rounded-[1.1rem] border border-dashed border-[var(--color-line)] bg-[var(--color-panel)] px-4 py-5 text-sm text-[var(--color-muted)]">
-      Chat is not available for this worktree yet.
-    </div>
-  </article>
+  <div class="flex flex-1 items-center justify-center px-6 text-center text-sm text-muted">
+    Chat is not available for this worktree yet.
+  </div>
 {:else}
-  <article class="flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-[1.4rem] border border-[var(--color-line)] bg-[var(--color-paper)]">
-    <div class="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--color-line)] px-4 py-4">
-      <div class="flex min-w-0 items-center gap-3">
-        {#if showBackButton}
+  <section class="flex min-h-0 flex-1 flex-col overflow-hidden bg-surface">
+    {#if conversationError}
+      <div class="mx-4 mt-4 rounded-md border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-primary">
+        <div>{conversationError}</div>
+        <div class="mt-3 flex items-center gap-2">
           <button
-            class="rounded-full border border-[var(--color-line)] bg-[var(--color-panel)] px-3 py-2 text-sm font-medium transition hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] md:hidden"
-            onclick={onBack}
-          >
-            Back
-          </button>
-        {/if}
-
-        <div class="min-w-0">
-          <div class="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--color-muted)]">Chat</div>
-          <h2 class="mt-1 truncate text-lg font-semibold">{worktree.branch}</h2>
-        </div>
-      </div>
-
-      <div class="flex min-w-0 flex-wrap items-center gap-2">
-        {#if conversation?.running}
-          <button
-            class="rounded-full border border-[var(--color-accent)] bg-[var(--color-accent-soft)] px-4 py-2 text-sm font-medium text-[var(--color-ink)] transition hover:border-[var(--color-accent)]"
-            onclick={onInterrupt}
-          >
-            Interrupt
-          </button>
-        {:else if conversationError || !conversation}
-          <button
-            class="rounded-full border border-[var(--color-line)] bg-[var(--color-panel)] px-4 py-2 text-sm font-medium transition hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+            type="button"
+            class="rounded-md border border-edge bg-surface px-3 py-1.5 text-xs font-medium text-primary hover:bg-hover"
             onclick={conversation ? onRefresh : onAttach}
             disabled={conversationLoading || isSending}
           >
             {conversation ? "Reconnect" : "Attach"}
           </button>
-        {/if}
-      </div>
-    </div>
-
-    {#if conversationError}
-      <div class="mx-4 mt-4 rounded-[1.1rem] border border-[var(--color-accent)]/30 bg-[var(--color-accent-soft)] px-4 py-3 text-sm text-[var(--color-ink)]">
-        {conversationError}
+          {#if conversation?.running}
+            <button
+              type="button"
+              class="rounded-md border border-danger px-3 py-1.5 text-xs font-medium text-danger hover:bg-danger/10"
+              onclick={onInterrupt}
+            >
+              Interrupt
+            </button>
+          {/if}
+        </div>
       </div>
     {/if}
 
-    <div class="flex min-h-0 min-w-0 flex-1 flex-col px-4 pb-4 pt-4">
-      <div class="mb-3 flex items-center justify-between gap-3 text-xs uppercase tracking-[0.16em] text-[var(--color-muted)]">
+    <div class="flex min-h-0 flex-1 flex-col px-4 pt-4">
+      <div class="mb-3 flex items-center justify-between gap-3 text-[11px] uppercase tracking-[0.12em] text-muted">
         <div>{conversation?.running ? "Turn in progress" : "Ready"}</div>
-        <div>{conversationLoading && !conversation ? "Connecting" : "Live"}</div>
+        <div>{conversationLoading && !conversation ? `Connecting to ${agentLabel}` : agentLabel}</div>
       </div>
 
-      <div bind:this={transcriptViewport} class="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto overflow-x-hidden pr-1">
+      <div bind:this={transcriptViewport} class="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overflow-x-hidden pb-4 pr-1">
         {#if conversationLoading && !conversation}
-          <div class="rounded-[1.1rem] border border-dashed border-[var(--color-line)] bg-[var(--color-panel)] px-4 py-5 text-sm text-[var(--color-muted)]">
+          <div class="rounded-md border border-edge bg-topbar px-4 py-5 text-sm text-muted">
             Connecting to the {agentLabel} session…
           </div>
         {:else if !conversation || conversation.messages.length === 0}
-          <div class="rounded-[1.1rem] border border-dashed border-[var(--color-line)] bg-[var(--color-panel)] px-4 py-5 text-sm text-[var(--color-muted)]">
+          <div class="rounded-md border border-edge bg-topbar px-4 py-5 text-sm text-muted">
             No messages yet. Send the first prompt to start this chat.
           </div>
         {:else}
           {#each conversation.messages as message (message.id)}
             <div
-              class={`max-w-[88%] min-w-0 rounded-[1.2rem] px-4 py-3 text-sm ${
+              class={`max-w-[88%] min-w-0 rounded-2xl px-4 py-3 text-sm ${
                 message.role === "user"
-                  ? "self-end bg-[var(--color-accent)] text-[var(--color-paper)]"
-                  : "self-start border border-[var(--color-line)] bg-[var(--color-panel)] text-[var(--color-ink)]"
+                  ? "self-end bg-accent text-white"
+                  : "self-start border border-edge bg-topbar text-primary"
               }`}
             >
-              <div class="min-w-0 whitespace-pre-wrap break-words">{message.text}</div>
-              <div
-                class={`mt-2 text-[0.7rem] uppercase tracking-[0.14em] ${
-                  message.role === "user" ? "text-[var(--color-paper)]/75" : "text-[var(--color-muted)]"
-                }`}
-              >
-                {message.role} · {formatTimestamp(message.createdAt)}{message.status === "inProgress" ? " · typing" : ""}
-              </div>
+              <div class="whitespace-pre-wrap break-words">{message.text}</div>
+              {#if message.status === "inProgress"}
+                <div class="mt-2 text-[10px] uppercase tracking-[0.12em] text-muted">
+                  typing
+                </div>
+              {/if}
             </div>
           {/each}
         {/if}
       </div>
+    </div>
 
-      <div class="mt-4 border-t border-[var(--color-line)] pt-4">
-        <label class="text-sm font-medium" for="conversation-composer">Message</label>
-        <textarea
-          id="conversation-composer"
-          class="mt-3 block min-h-[8rem] w-full max-w-full rounded-[1.1rem] border border-[var(--color-line)] bg-[var(--color-panel)] px-4 py-3 text-sm text-[var(--color-ink)] outline-none transition focus:border-[var(--color-accent)]"
-          placeholder={`Ask ${agentLabel} about this worktree…`}
-          value={composerText}
-          oninput={handleComposerInput}
-          disabled={isSending}
-        ></textarea>
+    <div
+      class="border-t border-edge bg-topbar px-4 pb-4 pt-3"
+      style="padding-bottom: max(1rem, env(safe-area-inset-bottom, 0px));"
+    >
+      <textarea
+        id="conversation-composer"
+        class="block min-h-[7rem] w-full max-w-full rounded-md border border-edge bg-surface px-3 py-2 text-sm text-primary outline-none transition focus:border-accent"
+        placeholder="ask anything"
+        value={composerText}
+        oninput={handleComposerInput}
+        onkeydown={handleComposerKeydown}
+        disabled={isSending}
+      ></textarea>
 
-        <div class="mt-3 flex items-center justify-between gap-3">
-          <div class="text-xs uppercase tracking-[0.16em] text-[var(--color-muted)]">
-            {conversation?.running ? "Wait for the current turn" : "Ready to send"}
-          </div>
-
-          <button
-            class="rounded-full border border-[var(--color-accent)] bg-[var(--color-accent)] px-4 py-2 text-sm font-medium text-[var(--color-paper)] transition disabled:cursor-not-allowed disabled:border-[var(--color-line)] disabled:bg-[var(--color-line)] disabled:text-[var(--color-muted)]"
-            onclick={onSend}
-            disabled={!canSend}
-          >
-            {isSending ? "Sending..." : "Send"}
-          </button>
+      <div class="mt-3 flex items-center justify-between gap-3">
+        <div class="text-[11px] text-muted">
+          {conversation?.running ? "Wait for the current turn to finish" : "Enter to send, Shift+Enter for newline"}
         </div>
+
+        <button
+          type="button"
+          class="rounded-md border border-accent bg-accent px-4 py-2 text-sm font-medium text-white transition disabled:cursor-not-allowed disabled:border-edge disabled:bg-edge disabled:text-muted"
+          onclick={onSend}
+          disabled={!canSend}
+        >
+          {isSending ? "Sending..." : "Send"}
+        </button>
       </div>
     </div>
-  </article>
+  </section>
 {/if}

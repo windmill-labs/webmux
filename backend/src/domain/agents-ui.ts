@@ -1,5 +1,6 @@
 import type { AgentKind } from "./config";
 import type {
+  PrEntry,
   ServiceRuntimeState,
   WorktreeConversationProvider,
   WorktreeConversationMeta,
@@ -27,6 +28,7 @@ export interface AgentsUiWorktreeSummary {
   dirty: boolean;
   unpushed: boolean;
   services: ServiceRuntimeState[];
+  prs: PrEntry[];
   creating: boolean;
   creationPhase: WorktreeCreationPhase | null;
   conversation: WorktreeConversationMeta | null;

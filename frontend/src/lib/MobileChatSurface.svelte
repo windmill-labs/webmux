@@ -30,7 +30,7 @@
   let conversationLoading = $state(false);
   let composerText = $state("");
   let isSending = $state(false);
-  let refreshPollingToken = 0;
+  let refreshPollingToken = $state(0);
   let streamConnection: {
     conversationId: string;
     disconnect: () => void;

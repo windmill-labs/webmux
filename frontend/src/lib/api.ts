@@ -62,7 +62,6 @@ export async function fetchWorktrees(): Promise<WorktreeInfo[]> {
 export function attachWorktreeConversation(branch: string): Promise<AgentsUiWorktreeConversationResponse> {
   return api.attachAgentsWorktreeConversation({
     params: { name: branch },
-    body: undefined,
   });
 }
 
@@ -85,7 +84,6 @@ export function sendWorktreeConversationMessage(
 export function interruptWorktreeConversation(branch: string): Promise<AgentsUiInterruptResponse> {
   return api.interruptAgentsWorktreeConversation({
     params: { name: branch },
-    body: undefined,
   });
 }
 

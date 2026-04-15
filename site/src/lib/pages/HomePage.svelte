@@ -26,7 +26,8 @@
     </h1>
     <p class="mx-auto mb-10 max-w-2xl text-lg text-muted md:text-xl">
       Run multiple AI agents in isolated worktrees, monitor their output in
-      real-time, and manage PRs — all from a single browser tab.
+      real-time, manage PRs, and keep a separate mobile-friendly chat UI handy
+      for checking in on worktrees away from your desktop.
     </p>
 
     <!-- Install CTA -->
@@ -214,7 +215,36 @@
         </h3>
         <p class="text-sm leading-relaxed text-muted">
           Live WebSocket terminal streaming in the browser. Watch agents work,
-          send prompts, and switch instantly.
+          send prompts, and switch instantly from the full desktop dashboard.
+        </p>
+      </div>
+
+      <!-- Mobile-Friendly Chat -->
+      <div class="rounded-xl border border-edge bg-surface p-6">
+        <div
+          class="mb-4 flex h-10 w-10 items-center justify-center rounded-lg bg-accent/10"
+        >
+          <svg
+            class="h-5 w-5 text-accent"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            stroke-width="1.5"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M7.5 4.5h9A2.25 2.25 0 0118.75 6.75v10.5A2.25 2.25 0 0116.5 19.5h-9a2.25 2.25 0 01-2.25-2.25V6.75A2.25 2.25 0 017.5 4.5zm3 12h3"
+            />
+          </svg>
+        </div>
+        <h3 class="mb-2 text-lg font-semibold text-primary">
+          Mobile-Friendly Agents Chat
+        </h3>
+        <p class="text-sm leading-relaxed text-muted">
+          A separate agents UI gives you a much better mobile UX: worktree
+          list, simple chat screen, and quick PR or service badges without
+          trying to squeeze terminals onto a phone.
         </p>
       </div>
 

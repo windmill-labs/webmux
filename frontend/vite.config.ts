@@ -9,6 +9,17 @@ const port = parseInt(process.env.FRONTEND_PORT || "5112");
 
 export default defineConfig({
   plugins: [svelte(), tailwindcss()],
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes("node_modules/@xterm/")) {
+            return "vendor-xterm";
+          }
+        },
+      },
+    },
+  },
   server: {
     port,
     proxy: {

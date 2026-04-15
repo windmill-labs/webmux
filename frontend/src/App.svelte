@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, type Component } from "svelte";
   import WorktreeList from "./lib/WorktreeList.svelte";
   import TopBar from "./lib/TopBar.svelte";
   import Terminal from "./lib/Terminal.svelte";
@@ -8,7 +8,6 @@
   import SettingsDialog from "./lib/SettingsDialog.svelte";
   import CiDetailsDialog from "./lib/CiDetailsDialog.svelte";
   import CommentReviewDialog from "./lib/CommentReviewDialog.svelte";
-  import DiffDialog from "./lib/DiffDialog.svelte";
   import PaneBar from "./lib/PaneBar.svelte";
   import ToastStack from "./lib/ToastStack.svelte";
   import LinearPanel from "./lib/LinearPanel.svelte";
@@ -52,6 +51,12 @@
   import { setToastController } from "./lib/toast-context";
   import { api, fetchWorktrees, subscribeNotifications } from "./lib/api";
 
+  type DiffDialogProps = {
+    branch: string;
+    cursorUrl?: string | null;
+    onclose: () => void;
+  };
+
   function createDefaultConfig(): AppConfig {
     return {
       name: "",
@@ -81,6 +86,7 @@
   let ciDetailsPr = $state<PrEntry | null>(null);
   let commentReviewPr = $state<PrEntry | null>(null);
   let showDiffDialog = $state(false);
+  let DiffDialogComponent = $state<Component<DiffDialogProps> | null>(null);
   let pullMainConfirm = $state(false);
   let pullMainLoading = $state(false);
   let pullMainError = $state("");
@@ -114,6 +120,7 @@
   let availableBranchRequests: Partial<Record<BranchCacheKey, Promise<AvailableBranch[]>>> = {};
   let baseBranchCache: AvailableBranch[] | null = null;
   let baseBranchRequest: Promise<AvailableBranch[]> | null = null;
+  let diffDialogLoad: Promise<void> | null = null;
 
   // Linear integration
   let linearIssues = $state<LinearIssue[]>([]);
@@ -227,6 +234,34 @@
     setTimeout(() => {
       uiToasts = uiToasts.filter((item) => item.id !== id);
     }, AUTO_DISMISS_MS);
+  }
+
+  function ensureDiffDialogLoaded(): Promise<void> {
+    if (DiffDialogComponent) return Promise.resolve();
+    if (diffDialogLoad) return diffDialogLoad;
+
+    diffDialogLoad = import("./lib/DiffDialog.svelte")
+      .then(({ default: component }) => {
+        DiffDialogComponent = component;
+      })
+      .finally(() => {
+        diffDialogLoad = null;
+      });
+
+    return diffDialogLoad;
+  }
+
+  async function openDiffDialog(): Promise<void> {
+    try {
+      await ensureDiffDialogLoaded();
+      showDiffDialog = true;
+    } catch (err: unknown) {
+      showToast({
+        tone: "error",
+        message: "Failed to load changes view.",
+        detail: errorMessage(err),
+      });
+    }
   }
 
   function handleInitialNotification(n: AppNotification): void {
@@ -1068,7 +1103,7 @@
         if (selectedBranch) removeBranch = selectedBranch;
       }}
       onsettings={() => (showSettingsDialog = true)}
-      ondirtyclick={() => (showDiffDialog = true)}
+      ondirtyclick={openDiffDialog}
       onCiClick={(pr) => (ciDetailsPr = pr)}
       onReviewsClick={(pr) => (commentReviewPr = pr)}
       onbellopen={handleBellOpen}
@@ -1241,11 +1276,13 @@
 {/if}
 
 {#if showDiffDialog && selectedBranch}
-  <DiffDialog
-    branch={selectedBranch}
-    cursorUrl={makeCursorUrl(selectedWorktree?.dir, sshHost)}
-    onclose={() => (showDiffDialog = false)}
-  />
+  {#if DiffDialogComponent}
+    <DiffDialogComponent
+      branch={selectedBranch}
+      cursorUrl={makeCursorUrl(selectedWorktree?.dir, sshHost)}
+      onclose={() => (showDiffDialog = false)}
+    />
+  {/if}
 {/if}
 
 {#if detailIssue}

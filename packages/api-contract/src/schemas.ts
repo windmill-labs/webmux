@@ -267,6 +267,7 @@ export const AgentsUiWorktreeSummarySchema = z.object({
   archived: z.boolean(),
   profile: z.string().nullable(),
   agentName: AgentKindSchema.nullable(),
+  mux: z.boolean(),
   status: z.string(),
   dirty: z.boolean(),
   unpushed: z.boolean(),

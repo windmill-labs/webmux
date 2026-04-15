@@ -35,6 +35,8 @@
   let searchQuery = $state("");
   let isMobile = $state(false);
   let sidebarOpen = $state(false);
+  let refreshPollingBranch = $state<string | null>(null);
+  let refreshPollingToken = 0;
   let streamConnection: {
     branch: string;
     conversationId: string;
@@ -42,7 +44,7 @@
   } | null = null;
 
   function isChatWorktree(worktree: AgentsUiWorktreeSummary | null): worktree is AgentsUiWorktreeSummary {
-    return worktree?.agentName === "codex" || worktree?.agentName === "claude";
+    return (worktree?.agentName === "codex" || worktree?.agentName === "claude") && worktree.mux;
   }
 
   function matchesWorktreeSearch(worktree: AgentsUiWorktreeSummary, query: string): boolean {
@@ -89,6 +91,7 @@
     conversation = null;
     conversationError = null;
     composerText = "";
+    refreshPollingBranch = null;
   }
 
   function closeConversationStream(): void {
@@ -248,6 +251,7 @@
       }
       conversation = markConversationTurnStarted(conversation, response.turnId, text);
       syncConversationStream();
+      startRefreshPolling(selectedWorktree.branch);
     } catch (error) {
       conversationError = error instanceof Error ? error.message : String(error);
     } finally {
@@ -261,9 +265,15 @@
     conversationError = null;
     try {
       await interruptWorktreeConversation(selectedWorktree.branch);
+      startRefreshPolling(selectedWorktree.branch);
     } catch (error) {
       conversationError = error instanceof Error ? error.message : String(error);
     }
+  }
+
+  function startRefreshPolling(branch: string): void {
+    refreshPollingBranch = branch;
+    refreshPollingToken += 1;
   }
 
   async function handleTopBarPrimaryAction(): Promise<void> {
@@ -293,6 +303,26 @@
     if (!isChatWorktree(worktree)) return;
     if (attachedBranch === worktree.branch) return;
     void loadConversation(worktree.branch, "attach");
+  });
+
+  $effect(() => {
+    const branch = refreshPollingBranch;
+    const token = refreshPollingToken;
+    if (!branch || token === 0) return;
+
+    let refreshCount = 0;
+    const interval = window.setInterval(() => {
+      if (refreshPollingBranch !== branch || refreshPollingToken !== token) return;
+      refreshCount += 1;
+      void loadConversation(branch, "history");
+      if (refreshCount >= 30) {
+        refreshPollingBranch = null;
+      }
+    }, 1000);
+
+    return () => {
+      window.clearInterval(interval);
+    };
   });
 
   $effect(() => {

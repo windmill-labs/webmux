@@ -16,6 +16,7 @@ export function buildAgentsUiWorktreeSummary(
     archived: worktree.archived,
     profile: worktree.profile,
     agentName: worktree.agentName,
+    mux: worktree.mux,
     status: worktree.status,
     dirty: worktree.dirty,
     unpushed: worktree.unpushed,

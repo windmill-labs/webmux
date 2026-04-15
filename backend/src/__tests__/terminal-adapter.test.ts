@@ -3,6 +3,8 @@ import {
   attach,
   cleanupStaleSessions,
   detach,
+  interruptPrompt,
+  sendPrompt,
   setTerminalAdapterDependenciesForTests,
 } from "../adapters/terminal";
 
@@ -130,5 +132,73 @@ describe("terminal adapter", () => {
     expect(new Set(afterAttach).size).toBe(2);
     expect(afterFirstDetach).toHaveLength(1);
     expect(afterSecondDetach).toHaveLength(0);
+  });
+
+  it("sends ctrl-c to the target pane when interrupting a prompt", async () => {
+    const tmuxCalls: string[][] = [];
+
+    setTerminalAdapterDependenciesForTests({
+      spawnTmuxProcess: (args) => {
+        tmuxCalls.push(args);
+        return {
+          stderr: closedStream(),
+          exited: Promise.resolve(0),
+          kill(): void {},
+        };
+      },
+    });
+
+    const result = await interruptPrompt({
+      ownerSessionName: "owner",
+      windowName: "wm-feature/search",
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(tmuxCalls).toContainEqual([
+      "tmux",
+      "send-keys",
+      "-t",
+      "owner:wm-feature/search.0",
+      "C-c",
+    ]);
+  });
+
+  it("waits before submitting a pasted prompt when a submit delay is provided", async () => {
+    const tmuxCalls: string[][] = [];
+    const slept: number[] = [];
+
+    setTerminalAdapterDependenciesForTests({
+      sleep: async (ms) => {
+        slept.push(ms);
+      },
+      spawnTmuxProcess: (args) => {
+        tmuxCalls.push(args);
+        return {
+          stderr: closedStream(),
+          exited: Promise.resolve(0),
+          kill(): void {},
+        };
+      },
+    });
+
+    const result = await sendPrompt(
+      "worktree-1",
+      {
+        ownerSessionName: "owner",
+        windowName: "wm-feature/search",
+      },
+      "reply with EXACTLY OK",
+      0,
+      undefined,
+      200,
+    );
+
+    expect(result).toEqual({ ok: true });
+    expect(slept).toEqual([200]);
+    expect(tmuxCalls).toEqual([
+      ["tmux", "load-buffer", "-b", expect.stringMatching(/^wm-prompt-/), "-",],
+      ["tmux", "paste-buffer", "-b", expect.stringMatching(/^wm-prompt-/), "-t", "owner:wm-feature/search.0", "-d"],
+      ["tmux", "send-keys", "-t", "owner:wm-feature/search.0", "Enter"],
+    ]);
   });
 });

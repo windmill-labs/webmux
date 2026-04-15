@@ -19,6 +19,7 @@ import { log } from "./lib/log";
 import {
   attach,
   detach,
+  interruptPrompt,
   write,
   resize,
   selectPane,
@@ -71,6 +72,7 @@ import { createWebmuxRuntime } from "./runtime";
 
 const PORT = parseInt(Bun.env.PORT || "5111", 10);
 const STATIC_DIR = Bun.env.WEBMUX_STATIC_DIR || "";
+const CODEX_TMUX_PROMPT_SUBMIT_DELAY_MS = 200;
 const runtime = createWebmuxRuntime({
   port: PORT,
   projectDir: Bun.env.WEBMUX_PROJECT_DIR || process.cwd(),
@@ -545,26 +547,63 @@ async function apiSendAgentsWorktreeMessage(branch: string, req: Request): Promi
 
   const resolved = await resolveAgentsWorktree(branch);
   if (!resolved.ok) return resolved.response;
+  if (!resolved.worktree.mux) {
+    return errorResponse("Open this worktree in the main dashboard before sending messages here", 409);
+  }
 
-  const result = resolved.worktree.agentName === "claude"
-    ? await claudeConversationService.sendWorktreeMessage(resolved.worktree, parsed.data.text)
-    : await worktreeConversationService.sendWorktreeMessage(resolved.worktree, parsed.data.text);
-  return result.ok
-    ? jsonResponse(result.data)
-    : errorResponse(result.error, result.status);
+  const conversationResult = resolved.worktree.agentName === "claude"
+    ? await claudeConversationService.readWorktreeConversation(resolved.worktree)
+    : await worktreeConversationService.readWorktreeConversation(resolved.worktree);
+  if (!conversationResult.ok) {
+    return errorResponse(conversationResult.error, conversationResult.status);
+  }
+
+  const terminalWorktree = await resolveTerminalWorktree(branch);
+  const sendResult = await sendTerminalPrompt(
+    terminalWorktree.worktreeId,
+    terminalWorktree.attachTarget,
+    parsed.data.text,
+    0,
+    undefined,
+    resolved.worktree.agentName === "codex" ? CODEX_TMUX_PROMPT_SUBMIT_DELAY_MS : 0,
+  );
+  if (!sendResult.ok) {
+    return errorResponse(sendResult.error, 503);
+  }
+
+  return jsonResponse({
+    conversationId: conversationResult.data.conversation.conversationId,
+    turnId: `tmux:${crypto.randomUUID()}`,
+    running: true,
+  });
 }
 
 async function apiInterruptAgentsWorktree(branch: string): Promise<Response> {
   touchDashboardActivity();
   const resolved = await resolveAgentsWorktree(branch);
   if (!resolved.ok) return resolved.response;
+  if (!resolved.worktree.mux) {
+    return errorResponse("Open this worktree in the main dashboard before interrupting it here", 409);
+  }
 
-  const result = resolved.worktree.agentName === "claude"
-    ? await claudeConversationService.interruptWorktreeConversation(resolved.worktree)
-    : await worktreeConversationService.interruptWorktreeConversation(resolved.worktree);
-  return result.ok
-    ? jsonResponse(result.data)
-    : errorResponse(result.error, result.status);
+  const conversationResult = resolved.worktree.agentName === "claude"
+    ? await claudeConversationService.readWorktreeConversation(resolved.worktree)
+    : await worktreeConversationService.readWorktreeConversation(resolved.worktree);
+  if (!conversationResult.ok) {
+    return errorResponse(conversationResult.error, conversationResult.status);
+  }
+
+  const terminalWorktree = await resolveTerminalWorktree(branch);
+  const interruptResult = await interruptPrompt(terminalWorktree.attachTarget, 0);
+  if (!interruptResult.ok) {
+    return errorResponse(interruptResult.error, 503);
+  }
+
+  return jsonResponse({
+    conversationId: conversationResult.data.conversation.conversationId,
+    turnId: conversationResult.data.conversation.activeTurnId ?? `tmux:${crypto.randomUUID()}`,
+    interrupted: true,
+  });
 }
 
 async function loadAgentsConversationSnapshot(

@@ -31,7 +31,8 @@
   }: Props = $props();
 
   const agentLabel = $derived(worktree.agentName === "claude" ? "Claude" : "Codex");
-  const chatAvailable = $derived(worktree.agentName === "codex" || worktree.agentName === "claude");
+  const supportsAgentChat = $derived(worktree.agentName === "codex" || worktree.agentName === "claude");
+  const chatAvailable = $derived(supportsAgentChat && worktree.mux);
   const canSend = $derived(
     chatAvailable
       && conversation !== null
@@ -80,9 +81,13 @@
   });
 </script>
 
-{#if !chatAvailable}
+{#if !supportsAgentChat}
   <div class="flex flex-1 items-center justify-center px-6 text-center text-sm text-muted">
     Chat is not available for this worktree yet.
+  </div>
+{:else if !worktree.mux}
+  <div class="flex flex-1 items-center justify-center px-6 text-center text-sm text-muted">
+    Open this worktree in the main dashboard first, then use mobile chat here.
   </div>
 {:else}
   <section class="flex min-h-0 flex-1 flex-col overflow-hidden bg-surface">

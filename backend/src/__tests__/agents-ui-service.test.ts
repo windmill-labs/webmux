@@ -78,6 +78,7 @@ describe("buildAgentsUiBootstrap", () => {
           archived: false,
           profile: "default",
           agentName: "codex",
+          mux: true,
           status: "running",
           dirty: true,
           unpushed: false,
@@ -145,5 +146,6 @@ describe("buildAgentsUiBootstrap", () => {
     expect(bootstrap.worktrees[0]?.conversation).toBeNull();
     expect(bootstrap.worktrees[0]?.creating).toBe(false);
     expect(bootstrap.worktrees[0]?.creationPhase).toBeNull();
+    expect(bootstrap.worktrees[0]?.mux).toBe(false);
   });
 });

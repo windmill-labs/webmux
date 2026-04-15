@@ -26,6 +26,7 @@ interface SpawnSyncResult {
 
 type SpawnPtyProcess = (args: string[], env: Record<string, string>) => PtyProcess;
 type SpawnTmuxProcess = (args: string[], opts?: { stdin?: Uint8Array }) => TmuxProcess;
+type Sleep = (ms: number) => Promise<void>;
 type SpawnSyncCommand = (
   args: string[],
   opts?: {
@@ -77,6 +78,7 @@ const defaultSpawnTmuxProcess: SpawnTmuxProcess = (args, opts = {}) =>
     stdout: "ignore",
     stderr: "pipe",
   });
+const defaultSleep: Sleep = (ms) => Bun.sleep(ms);
 
 const defaultSpawnSyncCommand: SpawnSyncCommand = (args, opts = {}) => {
   const result = Bun.spawnSync(args, opts);
@@ -89,15 +91,18 @@ const defaultSpawnSyncCommand: SpawnSyncCommand = (args, opts = {}) => {
 
 let spawnPtyProcess: SpawnPtyProcess = defaultSpawnPtyProcess;
 let spawnTmuxProcess: SpawnTmuxProcess = defaultSpawnTmuxProcess;
+let sleep: Sleep = defaultSleep;
 let spawnSyncCommand: SpawnSyncCommand = defaultSpawnSyncCommand;
 
 export function setTerminalAdapterDependenciesForTests(deps: {
   spawnPtyProcess?: SpawnPtyProcess;
   spawnTmuxProcess?: SpawnTmuxProcess;
+  sleep?: Sleep;
   spawnSyncCommand?: SpawnSyncCommand;
 } = {}): void {
   spawnPtyProcess = deps.spawnPtyProcess ?? defaultSpawnPtyProcess;
   spawnTmuxProcess = deps.spawnTmuxProcess ?? defaultSpawnTmuxProcess;
+  sleep = deps.sleep ?? defaultSleep;
   spawnSyncCommand = deps.spawnSyncCommand ?? defaultSpawnSyncCommand;
 }
 
@@ -395,6 +400,7 @@ export async function sendPrompt(
   text: string,
   paneIndex = 0,
   preamble?: string,
+  submitDelayMs = 0,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const paneTarget = `${target.ownerSessionName}:${target.windowName}.${paneIndex}`;
   log.debug(`[term] sendPrompt(${worktreeId}) target=${paneTarget} textBytes=${text.length}`);
@@ -421,10 +427,26 @@ export async function sendPrompt(
     return { ok: false, error: `paste-buffer failed${paste.stderr ? `: ${paste.stderr}` : ""}` };
   }
 
+  if (submitDelayMs > 0) {
+    await sleep(submitDelayMs);
+  }
+
   const enter = await tmuxExec(["tmux", "send-keys", "-t", paneTarget, "Enter"]);
   if (enter.exitCode !== 0) {
     return { ok: false, error: `send-keys Enter failed${enter.stderr ? `: ${enter.stderr}` : ""}` };
   }
 
+  return { ok: true };
+}
+
+export async function interruptPrompt(
+  target: TerminalAttachTarget,
+  paneIndex = 0,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const paneTarget = `${target.ownerSessionName}:${target.windowName}.${paneIndex}`;
+  const result = await tmuxExec(["tmux", "send-keys", "-t", paneTarget, "C-c"]);
+  if (result.exitCode !== 0) {
+    return { ok: false, error: `send-keys C-c failed${result.stderr ? `: ${result.stderr}` : ""}` };
+  }
   return { ok: true };
 }

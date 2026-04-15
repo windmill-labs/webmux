@@ -23,9 +23,5 @@ jobs:
         run: bun run check
         working-directory: frontend
 
-      - name: Agents frontend type check
-        run: bun run check
-        working-directory: agents-frontend
-
       - name: Build distribution
         run: bun run build

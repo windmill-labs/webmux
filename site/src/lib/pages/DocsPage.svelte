@@ -103,8 +103,8 @@
             webmux is a Bun-powered dashboard and CLI for managing parallel AI
             coding worktrees. It owns the worktree lifecycle, tmux layout,
             runtime env materialization, service health checks, linked PR or
-            issue context, and a built-in mobile chat surface for open Codex
-            and Claude worktrees.
+            issue context, and a separate agents chat UI that is primarily meant
+            to provide a better mobile UX.
           </p>
         </div>
         <div class="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
@@ -125,8 +125,8 @@
           <p class="mt-3 leading-7 text-muted">
             webmux init expects a git repository and checks the local toolchain
             before it writes configuration. The dashboard itself is started with
-            webmux serve. On mobile, open Codex and Claude worktrees use the
-            built-in chat surface instead of the embedded terminal.
+            webmux serve, which also starts the separate agents UI on its own
+            port for mobile-friendly worktree chat.
           </p>
         </div>
         <div class="grid gap-8 xl:grid-cols-[0.9fr_1.1fr]">

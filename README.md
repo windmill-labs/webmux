@@ -60,9 +60,10 @@ webmux init                     # creates .webmux.yaml
 
 # 4. Start the dashboard
 webmux serve                         # dashboard on http://localhost:5111
+                                     # agents chat UI on http://localhost:5112
 ```
 
-The primary dashboard remains the best desktop experience. On mobile, the same dashboard swaps the embedded terminal for a chat view on open Codex and Claude worktrees.
+The primary dashboard remains the best desktop experience. The separate agents UI is primarily intended as a better mobile companion for browsing worktrees and chatting with existing Codex or Claude sessions from your phone.
 
 ## Prerequisites
 

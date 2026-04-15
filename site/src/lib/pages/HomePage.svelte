@@ -242,9 +242,9 @@
           Mobile-Friendly Agents Chat
         </h3>
         <p class="text-sm leading-relaxed text-muted">
-          The main dashboard keeps the same worktree list and controls on
-          mobile, then swaps the embedded terminal for a chat view on open
-          Codex and Claude worktrees.
+          A separate agents UI gives you a much better mobile UX: worktree
+          list, simple chat screen, and quick PR or service badges without
+          trying to squeeze terminals onto a phone.
         </p>
       </div>
 

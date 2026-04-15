@@ -5,7 +5,7 @@
   import BaseDialog from "./BaseDialog.svelte";
   import Btn from "./Btn.svelte";
   import Toggle from "./Toggle.svelte";
-  import * as api from "./api";
+  import { api } from "./api";
 
   let {
     currentTheme,
@@ -39,7 +39,7 @@
   function handleAutoCreateToggle(enabled: boolean) {
     pendingAutoCreate = enabled;
     autoCreateSaving = true;
-    api.setLinearAutoCreate(enabled)
+    api.setLinearAutoCreate({ body: { enabled } })
       .then((result) => {
         onlinearautocreatechange(result.enabled);
       })
@@ -52,7 +52,7 @@
   function handleAutoRemoveToggle(enabled: boolean) {
     pendingAutoRemove = enabled;
     autoRemoveSaving = true;
-    api.setAutoRemoveOnMerge(enabled)
+    api.setAutoRemoveOnMerge({ body: { enabled } })
       .then((result) => {
         onautoremovechange(result.enabled);
       })

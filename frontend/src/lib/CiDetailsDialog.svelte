@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { PrEntry } from "./types";
-  import { fetchCiLogs, sendWorktreePrompt } from "./api";
+  import { api } from "./api";
   import { normalizeTextForPrompt } from "./promptUtils";
   import { prLabel, errorMessage } from "./utils";
   import { getToastController } from "./toast-context";
@@ -66,7 +66,7 @@
     logsError = "";
     loadingRunId = check.runId;
     try {
-      const logs = await fetchCiLogs(check.runId);
+      const { logs } = await api.fetchCiLogs({ params: { runId: check.runId } });
       logsByRunId.set(check.runId, logs);
       logsByRunId = new Map(logsByRunId);
     } catch (err) {
@@ -92,7 +92,10 @@
       ].join("\n") + "\n";
     const sanitizedLogs = normalizeTextForPrompt(filteredLogs);
     try {
-      await sendWorktreePrompt(branch, sanitizedLogs, preamble);
+      await api.sendWorktreePrompt({
+        params: { name: branch },
+        body: { text: sanitizedLogs, preamble },
+      });
       toast.success(`Asked agent to fix ${checkName}`);
       onfixsuccess();
     } catch (err) {

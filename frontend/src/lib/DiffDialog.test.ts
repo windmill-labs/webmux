@@ -2,11 +2,13 @@ import { cleanup, render, screen } from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("./api", () => ({
-  fetchWorktreeDiff: vi.fn(),
+  api: {
+    fetchWorktreeDiff: vi.fn(),
+  },
 }));
 
 import DiffDialog from "./DiffDialog.svelte";
-import * as api from "./api";
+import { api } from "./api";
 
 const originalDialogShowModal = HTMLDialogElement.prototype.showModal;
 const originalDialogClose = HTMLDialogElement.prototype.close;

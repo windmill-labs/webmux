@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.28.0](https://github.com/windmill-labs/webmux/compare/v0.27.1...v0.28.0) (2026-04-20)
+
+
+### Features
+
+* add non-terminal chat ui for codex and claude ([#216](https://github.com/windmill-labs/webmux/issues/216)) ([bd1b91a](https://github.com/windmill-labs/webmux/commit/bd1b91a2af6a39c8a0fd75aff746bf110f8d0d74))
+* share api contract across backend and frontend ([#213](https://github.com/windmill-labs/webmux/issues/213)) ([47b26be](https://github.com/windmill-labs/webmux/commit/47b26be5aec24716144278c836ffb3020d33a4af))
+
+
+### Bug Fixes
+
+* keep dashboard pr sync active ([#219](https://github.com/windmill-labs/webmux/issues/219)) ([79371cb](https://github.com/windmill-labs/webmux/commit/79371cb5fa337c53d0e91bbbef075b0cf2c87867))
+
+
+### Performance
+
+* lazy-load diff dialog ([#217](https://github.com/windmill-labs/webmux/issues/217)) ([93b5cce](https://github.com/windmill-labs/webmux/commit/93b5cce472550ed530bdbdcdf54910d42a3f4f2a))
+* trim dashboard polling and test overhead ([#202](https://github.com/windmill-labs/webmux/issues/202)) ([32baa8b](https://github.com/windmill-labs/webmux/commit/32baa8baa864cab3228dd6d090985471defbd344))
+
 ## [0.27.1](https://github.com/windmill-labs/webmux/compare/v0.27.0...v0.27.1) (2026-04-09)
 
 

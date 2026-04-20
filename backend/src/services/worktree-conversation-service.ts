@@ -249,15 +249,6 @@ export class WorktreeConversationService {
     cwd: string,
     allowCreate: boolean,
   ): Promise<CodexAppServerThread | null> {
-    const savedThreadId = isCodexConversationMeta(meta.conversation)
-      ? meta.conversation.threadId
-      : null;
-    if (savedThreadId) {
-      const savedThread = await this.tryLoadThread(savedThreadId, cwd);
-      if (savedThread) return savedThread;
-      log.warn(`[agents] saved codex thread missing, rediscovering cwd=${cwd} threadId=${savedThreadId}`);
-    }
-
     const discoveredThread = selectDiscoveredThread((await this.deps.appServer.threadList({
       cwd,
       limit: 20,
@@ -265,6 +256,15 @@ export class WorktreeConversationService {
     })).data);
     if (discoveredThread) {
       return await this.ensureThreadLoaded(discoveredThread.id, cwd);
+    }
+
+    const savedThreadId = isCodexConversationMeta(meta.conversation)
+      ? meta.conversation.threadId
+      : null;
+    if (savedThreadId) {
+      const savedThread = await this.tryLoadThread(savedThreadId, cwd);
+      if (savedThread) return savedThread;
+      log.warn(`[agents] saved codex thread missing, rediscovering cwd=${cwd} threadId=${savedThreadId}`);
     }
 
     if (!allowCreate) return null;

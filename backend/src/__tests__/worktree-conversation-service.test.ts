@@ -449,6 +449,102 @@ describe("WorktreeConversationService", () => {
     );
   });
 
+  it("switches to the newest discovered thread when saved metadata points to an older thread", async () => {
+    const metaStore = new Map<string, WorktreeMeta>();
+    const worktree = makeWorktree();
+    const gitDir = `${worktree.path}/.git`;
+    metaStore.set(gitDir, {
+      ...makeMeta(),
+      conversation: makeCodexConversationMeta("thread-old", worktree.path),
+    });
+
+    const appServer = new FakeCodexAppServer();
+    const olderThread = makeThread({
+      id: "thread-old",
+      cwd: worktree.path,
+      updatedAt: 200,
+      statusType: "idle",
+      source: "cli",
+      turns: [
+        makeTurn({
+          id: "turn-old",
+          status: "completed",
+          startedAt: 111,
+          items: [
+            {
+              type: "userMessage",
+              id: "user-old",
+              content: [{ type: "text", text: "Old prompt" }],
+            },
+            {
+              type: "agentMessage",
+              id: "assistant-old",
+              text: "Old reply",
+              phase: "final_answer",
+              memoryCitation: null,
+            },
+          ],
+        }),
+      ],
+    });
+    const newestThread = makeThread({
+      id: "thread-new",
+      cwd: worktree.path,
+      updatedAt: 250,
+      statusType: "idle",
+      source: "cli",
+      turns: [
+        makeTurn({
+          id: "turn-new",
+          status: "completed",
+          startedAt: 222,
+          items: [
+            {
+              type: "userMessage",
+              id: "user-new",
+              content: [{ type: "text", text: "Latest prompt" }],
+            },
+            {
+              type: "agentMessage",
+              id: "assistant-new",
+              text: "Latest reply",
+              phase: "final_answer",
+              memoryCitation: null,
+            },
+          ],
+        }),
+      ],
+    });
+    appServer.listedThreads = [olderThread, newestThread];
+    appServer.threads.set(olderThread.id, structuredClone(olderThread));
+    appServer.threads.set(newestThread.id, structuredClone(newestThread));
+
+    const service = new WorktreeConversationService({
+      appServer,
+      git: new FakeGitGateway(),
+      now: () => new Date("2026-04-16T09:00:00.000Z"),
+      readMeta: async (path) => structuredClone(metaStore.get(path) ?? null),
+      writeMeta: async (path, meta) => {
+        metaStore.set(path, structuredClone(meta));
+      },
+    });
+
+    const result = await service.readWorktreeConversation(worktree);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.data.worktree.conversation?.conversationId).toBe("thread-new");
+    expect(result.data.conversation.messages.at(-1)?.text).toBe("Latest reply");
+    expect(appServer.calls).toEqual([
+      "threadList",
+      "threadRead:thread-new:false",
+      "threadRead:thread-new:true",
+    ]);
+    expect(metaStore.get(gitDir)?.conversation).toEqual(
+      makeCodexConversationMeta("thread-new", worktree.path, "2026-04-16T09:00:00.000Z"),
+    );
+  });
+
   it("does not create a new thread when reading history without an existing conversation", async () => {
     const metaStore = new Map<string, WorktreeMeta>();
     const worktree = makeWorktree();

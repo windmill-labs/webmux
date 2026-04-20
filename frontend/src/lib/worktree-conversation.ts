@@ -75,3 +75,18 @@ export function markConversationTurnStarted(
     messages: nextMessages,
   };
 }
+
+export function buildConversationProgressSignature(conversation: AgentsUiConversationState | null): string | null {
+  if (!conversation) return null;
+
+  const lastMessage = conversation.messages[conversation.messages.length - 1] ?? null;
+  return JSON.stringify({
+    conversationId: conversation.conversationId,
+    running: conversation.running,
+    activeTurnId: conversation.activeTurnId,
+    messageCount: conversation.messages.length,
+    lastMessageId: lastMessage?.id ?? null,
+    lastMessageStatus: lastMessage?.status ?? null,
+    lastMessageTextLength: lastMessage?.text.length ?? 0,
+  });
+}

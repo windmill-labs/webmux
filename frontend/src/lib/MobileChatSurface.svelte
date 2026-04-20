@@ -9,6 +9,7 @@
   } from "./api";
   import {
     applyConversationMessageDelta,
+    buildConversationProgressSignature,
     markConversationTurnStarted,
   } from "./worktree-conversation";
   import type {
@@ -30,11 +31,23 @@
   let conversationLoading = $state(false);
   let composerText = $state("");
   let isSending = $state(false);
-  let refreshPollingToken = $state(0);
+  let refreshPollingState = $state<{
+    token: number;
+    baselineSignature: string | null;
+    lastSignature: string | null;
+    sawProgress: boolean;
+    unchangedTicks: number;
+    tickCount: number;
+  } | null>(null);
   let streamConnection: {
     conversationId: string;
     disconnect: () => void;
   } | null = null;
+  let nextRefreshPollingToken = 1;
+
+  const REFRESH_POLL_INTERVAL_MS = 1000;
+  const REFRESH_POLL_MAX_TICKS = 120;
+  const REFRESH_POLL_SETTLE_TICKS = 3;
 
   function closeConversationStream(): void {
     streamConnection?.disconnect();
@@ -110,19 +123,19 @@
     streamConnection = { conversationId, disconnect };
   }
 
+  function requestConversation(mode: "attach" | "history"): Promise<AgentsUiWorktreeConversationResponse> {
+    return mode === "attach"
+      ? attachWorktreeConversation(worktree.branch)
+      : fetchWorktreeConversationHistory(worktree.branch);
+  }
+
   async function loadConversation(mode: "attach" | "history"): Promise<void> {
     conversationLoading = true;
     conversationError = null;
 
     try {
-      const response = mode === "attach"
-        ? await attachWorktreeConversation(worktree.branch)
-        : await fetchWorktreeConversationHistory(worktree.branch);
-
+      const response = await requestConversation(mode);
       applyConversationResponse(response);
-      if (!response.conversation.running) {
-        refreshPollingToken = 0;
-      }
     } catch (error) {
       conversationError = error instanceof Error ? error.message : String(error);
     } finally {
@@ -130,12 +143,52 @@
     }
   }
 
-  function startRefreshPolling(): void {
-    refreshPollingToken += 1;
+  function startRefreshPolling(
+    baselineConversation: AgentsUiConversationState | null = conversation,
+  ): void {
+    const baselineSignature = buildConversationProgressSignature(baselineConversation);
+    refreshPollingState = {
+      token: nextRefreshPollingToken,
+      baselineSignature,
+      lastSignature: baselineSignature,
+      sawProgress: false,
+      unchangedTicks: 0,
+      tickCount: 0,
+    };
+    nextRefreshPollingToken += 1;
+  }
+
+  function updateRefreshPollingState(
+    token: number,
+    nextConversation: AgentsUiConversationState,
+  ): void {
+    const currentState = refreshPollingState;
+    if (!currentState || currentState.token !== token) return;
+
+    const nextSignature = buildConversationProgressSignature(nextConversation);
+    const sawProgress = currentState.sawProgress || nextSignature !== currentState.baselineSignature;
+    const unchangedTicks = nextSignature === currentState.lastSignature
+      ? currentState.unchangedTicks + 1
+      : 0;
+    const tickCount = currentState.tickCount + 1;
+
+    if (tickCount >= REFRESH_POLL_MAX_TICKS || (sawProgress && unchangedTicks >= REFRESH_POLL_SETTLE_TICKS)) {
+      refreshPollingState = null;
+      return;
+    }
+
+    refreshPollingState = {
+      ...currentState,
+      lastSignature: nextSignature,
+      sawProgress,
+      unchangedTicks,
+      tickCount,
+    };
   }
 
   async function sendSelectedConversationMessage(): Promise<void> {
     if (!conversation) return;
+    const baselineConversation = conversation;
     const text = composerText.trim();
     if (text.length === 0) return;
 
@@ -152,7 +205,7 @@
       }
       conversation = markConversationTurnStarted(conversation, response.turnId, text);
       syncConversationStream();
-      startRefreshPolling();
+      startRefreshPolling(baselineConversation);
     } catch (error) {
       conversationError = error instanceof Error ? error.message : String(error);
     } finally {
@@ -161,10 +214,11 @@
   }
 
   async function interruptSelectedConversation(): Promise<void> {
+    const baselineConversation = conversation;
     conversationError = null;
     try {
       await interruptWorktreeConversation(worktree.branch);
-      startRefreshPolling();
+      startRefreshPolling(baselineConversation);
     } catch (error) {
       conversationError = error instanceof Error ? error.message : String(error);
     }
@@ -178,18 +232,27 @@
   });
 
   $effect(() => {
-    const token = refreshPollingToken;
-    if (token === 0) return;
+    const pollingState = refreshPollingState;
+    if (!pollingState) return;
 
-    let refreshCount = 0;
+    const token = pollingState.token;
+    let requestInFlight = false;
+
     const interval = window.setInterval(() => {
-      if (refreshPollingToken !== token) return;
-      refreshCount += 1;
-      void loadConversation("history");
-      if (refreshCount >= 30) {
-        refreshPollingToken = 0;
-      }
-    }, 1000);
+      if (!refreshPollingState || refreshPollingState.token !== token || requestInFlight) return;
+      requestInFlight = true;
+      void (async () => {
+        try {
+          const response = await requestConversation("history");
+          applyConversationResponse(response);
+          updateRefreshPollingState(token, response.conversation);
+        } catch (error) {
+          conversationError = error instanceof Error ? error.message : String(error);
+        } finally {
+          requestInFlight = false;
+        }
+      })();
+    }, REFRESH_POLL_INTERVAL_MS);
 
     return () => {
       window.clearInterval(interval);

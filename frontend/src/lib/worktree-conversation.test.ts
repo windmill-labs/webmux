@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   applyConversationMessageDelta,
+  buildConversationProgressSignature,
   markConversationTurnStarted,
 } from "./worktree-conversation";
 import type { AgentsUiConversationState } from "./types";
@@ -64,5 +65,25 @@ describe("worktree conversation helpers", () => {
     });
     expect(updated?.running).toBe(true);
     expect(updated?.activeTurnId).toBe("turn-2");
+  });
+
+  it("captures progress when the latest message grows", () => {
+    const started = applyConversationMessageDelta(makeConversation(), {
+      type: "messageDelta",
+      conversationId: "thread-1",
+      turnId: "turn-2",
+      itemId: "assistant-2",
+      delta: "Looking",
+    });
+
+    const updated = applyConversationMessageDelta(started, {
+      type: "messageDelta",
+      conversationId: "thread-1",
+      turnId: "turn-2",
+      itemId: "assistant-2",
+      delta: " better",
+    });
+
+    expect(buildConversationProgressSignature(started)).not.toBe(buildConversationProgressSignature(updated));
   });
 });

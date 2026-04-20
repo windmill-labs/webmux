@@ -33,6 +33,7 @@
   const agentLabel = $derived(worktree.agentName === "claude" ? "Claude" : "Codex");
   const supportsAgentChat = $derived(worktree.agentName === "codex" || worktree.agentName === "claude");
   const chatAvailable = $derived(supportsAgentChat && worktree.mux === "✓");
+  const showInterrupt = $derived(chatAvailable && (conversation?.running ?? false));
   const canSend = $derived(
     chatAvailable
       && conversation !== null
@@ -80,6 +81,16 @@
   });
 </script>
 
+{#snippet interruptButton()}
+  <button
+    type="button"
+    class="rounded-md border border-danger px-3 py-1.5 text-xs font-medium text-danger hover:bg-danger/10"
+    onclick={onInterrupt}
+  >
+    Interrupt
+  </button>
+{/snippet}
+
 {#if !supportsAgentChat}
   <div class="flex flex-1 items-center justify-center px-6 text-center text-sm text-muted">
     Chat is not available for this worktree yet.
@@ -102,14 +113,8 @@
           >
             {conversation ? "Reconnect" : "Attach"}
           </button>
-          {#if conversation?.running}
-            <button
-              type="button"
-              class="rounded-md border border-danger px-3 py-1.5 text-xs font-medium text-danger hover:bg-danger/10"
-              onclick={onInterrupt}
-            >
-              Interrupt
-            </button>
+          {#if showInterrupt}
+            {@render interruptButton()}
           {/if}
         </div>
       </div>
@@ -171,14 +176,18 @@
           {conversation?.running ? "Wait for the current turn to finish" : "Enter to send, Shift+Enter for newline"}
         </div>
 
-        <button
-          type="button"
-          class="rounded-md border border-accent bg-accent px-4 py-2 text-sm font-medium text-white transition disabled:cursor-not-allowed disabled:border-edge disabled:bg-edge disabled:text-muted"
-          onclick={onSend}
-          disabled={!canSend}
-        >
-          {isSending ? "Sending..." : "Send"}
-        </button>
+        {#if showInterrupt && !conversationError}
+          {@render interruptButton()}
+        {:else}
+          <button
+            type="button"
+            class="rounded-md border border-accent bg-accent px-4 py-2 text-sm font-medium text-white transition disabled:cursor-not-allowed disabled:border-edge disabled:bg-edge disabled:text-muted"
+            onclick={onSend}
+            disabled={!canSend}
+          >
+            {isSending ? "Sending..." : "Send"}
+          </button>
+        {/if}
       </div>
     </div>
   </section>

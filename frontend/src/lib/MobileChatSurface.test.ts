@@ -223,4 +223,65 @@ describe("MobileChatSurface", () => {
     });
     await screen.findByText("Done.");
   });
+
+  it("keeps polling beyond two minutes until a quiet conversation finally changes", async () => {
+    vi.mocked(attachWorktreeConversation).mockResolvedValue(createConversationResponse("claudeCode"));
+    vi.mocked(sendWorktreeConversationMessage).mockResolvedValue({
+      conversationId: "session-1",
+      turnId: "turn-1",
+      running: true,
+    } satisfies AgentsUiSendMessageResponse);
+
+    let historyRequestCount = 0;
+    vi.mocked(fetchWorktreeConversationHistory).mockImplementation(async () => {
+      historyRequestCount += 1;
+      return historyRequestCount < 122
+        ? createConversationResponse("claudeCode")
+        : createConversationResponse("claudeCode", {
+          running: false,
+          messages: [
+            {
+              id: "user-1",
+              turnId: "turn-1",
+              role: "user",
+              text: "Ship it",
+              status: "completed",
+              createdAt: "2026-04-15T12:00:00.000Z",
+            },
+            {
+              id: "assistant-1",
+              turnId: "turn-1",
+              role: "assistant",
+              text: "Done.",
+              status: "completed",
+              createdAt: "2026-04-15T12:03:01.000Z",
+            },
+          ],
+        });
+    });
+
+    render(MobileChatSurface, {
+      props: {
+        worktree: createWorktree(),
+      },
+    });
+
+    await screen.findByText("No messages yet. Send the first prompt to start this chat.");
+
+    await fireEvent.input(screen.getByLabelText("Message"), {
+      target: { value: "Ship it" },
+    });
+    await fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await vi.advanceTimersByTimeAsync(121000);
+    await waitFor(() => {
+      expect(fetchWorktreeConversationHistory).toHaveBeenCalledTimes(121);
+    });
+
+    await vi.advanceTimersByTimeAsync(1000);
+    await waitFor(() => {
+      expect(fetchWorktreeConversationHistory).toHaveBeenCalledTimes(122);
+    });
+    await screen.findByText("Done.");
+  });
 });

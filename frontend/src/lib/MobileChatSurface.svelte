@@ -37,7 +37,6 @@
     lastSignature: string | null;
     sawProgress: boolean;
     unchangedTicks: number;
-    tickCount: number;
   } | null>(null);
   let streamConnection: {
     conversationId: string;
@@ -46,7 +45,6 @@
   let nextRefreshPollingToken = 1;
 
   const REFRESH_POLL_INTERVAL_MS = 1000;
-  const REFRESH_POLL_MAX_TICKS = 120;
   const REFRESH_POLL_SETTLE_TICKS = 3;
 
   function closeConversationStream(): void {
@@ -153,7 +151,6 @@
       lastSignature: baselineSignature,
       sawProgress: false,
       unchangedTicks: 0,
-      tickCount: 0,
     };
     nextRefreshPollingToken += 1;
   }
@@ -170,9 +167,8 @@
     const unchangedTicks = nextSignature === currentState.lastSignature
       ? currentState.unchangedTicks + 1
       : 0;
-    const tickCount = currentState.tickCount + 1;
 
-    if (tickCount >= REFRESH_POLL_MAX_TICKS || (sawProgress && unchangedTicks >= REFRESH_POLL_SETTLE_TICKS)) {
+    if (sawProgress && unchangedTicks >= REFRESH_POLL_SETTLE_TICKS) {
       refreshPollingState = null;
       return;
     }
@@ -182,7 +178,6 @@
       lastSignature: nextSignature,
       sawProgress,
       unchangedTicks,
-      tickCount,
     };
   }
 
@@ -238,6 +233,8 @@
     const token = pollingState.token;
     let requestInFlight = false;
 
+    // Codex websocket deltas help when app-server notifications arrive, but tmux-sent turns can
+    // still miss them, so history polling stays active until the conversation snapshot settles.
     const interval = window.setInterval(() => {
       if (!refreshPollingState || refreshPollingState.token !== token || requestInFlight) return;
       requestInFlight = true;

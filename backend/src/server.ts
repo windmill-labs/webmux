@@ -58,6 +58,7 @@ import {
   readAgentsNotificationThreadId,
   shouldRefreshAgentsConversationSnapshot,
 } from "./services/agents-ui-stream-service";
+import { classifyAgentsTerminalWorktreeError } from "./services/agents-ui-action-service";
 import { buildProjectSnapshot } from "./services/snapshot-service";
 import { ClaudeConversationService } from "./services/claude-conversation-service";
 import { WorktreeConversationService } from "./services/worktree-conversation-service";
@@ -70,6 +71,7 @@ import { createWebmuxRuntime } from "./runtime";
 
 const PORT = parseInt(Bun.env.PORT || "5111", 10);
 const STATIC_DIR = Bun.env.WEBMUX_STATIC_DIR || "";
+// Codex can read Enter before tmux has fully flushed pasted bytes into the pane PTY.
 const CODEX_TMUX_PROMPT_SUBMIT_DELAY_MS = 200;
 const runtime = createWebmuxRuntime({
   port: PORT,
@@ -327,6 +329,31 @@ async function resolveTerminalWorktree(branch: string): Promise<{
   };
 }
 
+async function resolveAgentsTerminalWorktree(branch: string): Promise<{
+  ok: true;
+  data: {
+    worktreeId: string;
+    attachTarget: TerminalAttachTarget;
+  };
+} | {
+  ok: false;
+  response: Response;
+}> {
+  try {
+    return {
+      ok: true,
+      data: await resolveTerminalWorktree(branch),
+    };
+  } catch (error) {
+    const classified = classifyAgentsTerminalWorktreeError(error);
+    if (!classified) throw error;
+    return {
+      ok: false,
+      response: errorResponse(classified.error, classified.status),
+    };
+  }
+}
+
 async function apiGetNativeTerminalLaunch(branch: string): Promise<Response> {
   touchDashboardActivity();
   ensureBranchNotBusy(branch);
@@ -500,10 +527,11 @@ async function apiSendAgentsWorktreeMessage(branch: string, req: Request): Promi
     return errorResponse(conversationResult.error, conversationResult.status);
   }
 
-  const terminalWorktree = await resolveTerminalWorktree(branch);
+  const terminalWorktree = await resolveAgentsTerminalWorktree(branch);
+  if (!terminalWorktree.ok) return terminalWorktree.response;
   const sendResult = await sendTerminalPrompt(
-    terminalWorktree.worktreeId,
-    terminalWorktree.attachTarget,
+    terminalWorktree.data.worktreeId,
+    terminalWorktree.data.attachTarget,
     parsed.data.text,
     0,
     undefined,
@@ -513,6 +541,7 @@ async function apiSendAgentsWorktreeMessage(branch: string, req: Request): Promi
     return errorResponse(sendResult.error, 503);
   }
 
+  // tmux send has no real turn id yet; history replaces this optimistic placeholder on refresh.
   return jsonResponse({
     conversationId: conversationResult.data.conversation.conversationId,
     turnId: `tmux:${crypto.randomUUID()}`,
@@ -535,8 +564,9 @@ async function apiInterruptAgentsWorktree(branch: string): Promise<Response> {
     return errorResponse(conversationResult.error, conversationResult.status);
   }
 
-  const terminalWorktree = await resolveTerminalWorktree(branch);
-  const interruptResult = await interruptPrompt(terminalWorktree.attachTarget, 0);
+  const terminalWorktree = await resolveAgentsTerminalWorktree(branch);
+  if (!terminalWorktree.ok) return terminalWorktree.response;
+  const interruptResult = await interruptPrompt(terminalWorktree.data.attachTarget, 0);
   if (!interruptResult.ok) {
     return errorResponse(interruptResult.error, 503);
   }

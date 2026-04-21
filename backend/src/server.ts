@@ -137,7 +137,20 @@ function getFrontendConfig(): {
   name: string;
   services: ProjectConfig["services"];
   profiles: Array<{ name: string; systemPrompt?: string }>;
+  agents: Array<{
+    id: string;
+    label: string;
+    kind: "builtin";
+    capabilities: {
+      terminal: true;
+      inAppChat: boolean;
+      conversationHistory: boolean;
+      interrupt: boolean;
+      resume: boolean;
+    };
+  }>;
   defaultProfileName: string;
+  defaultAgentId: string;
   autoName: boolean;
   linearCreateTicketOption: boolean;
   startupEnvs: ProjectConfig["startupEnvs"];
@@ -161,7 +174,34 @@ function getFrontendConfig(): {
       name,
       ...(profile.systemPrompt ? { systemPrompt: profile.systemPrompt } : {}),
     })),
+    agents: [
+      {
+        id: "claude",
+        label: "Claude",
+        kind: "builtin",
+        capabilities: {
+          terminal: true,
+          inAppChat: true,
+          conversationHistory: true,
+          interrupt: true,
+          resume: true,
+        },
+      },
+      {
+        id: "codex",
+        label: "Codex",
+        kind: "builtin",
+        capabilities: {
+          terminal: true,
+          inAppChat: true,
+          conversationHistory: true,
+          interrupt: true,
+          resume: true,
+        },
+      },
+    ],
     defaultProfileName,
+    defaultAgentId: config.workspace.defaultAgent,
     autoName: config.autoName !== null,
     linearCreateTicketOption: config.integrations.linear.enabled && config.integrations.linear.createTicketOption,
     startupEnvs: config.startupEnvs,

@@ -14,10 +14,10 @@
 - [x] Add write/remove helpers for custom agents in the backend config adapter.
 
 ## 3. Introduce an agent registry in the backend
-- [ ] Create a central registry/service that returns all available agents.
-- [ ] Ensure built-in agents are always present.
-- [ ] Prevent collisions with built-in ids.
-- [ ] Make the registry the source of truth for labels, capabilities, and launch behavior.
+- [x] Create a central registry/service that returns all available agents.
+- [x] Ensure built-in agents are always present.
+- [x] Prevent collisions with built-in ids.
+- [x] Make the registry the source of truth for labels, capabilities, and launch behavior.
 
 ## 4. Refactor launch logic around agent definitions
 - Extract built-in launch behavior into dedicated launcher logic.

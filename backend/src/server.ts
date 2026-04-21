@@ -40,6 +40,7 @@ import { isRecord, isStringArray } from "./lib/type-guards";
 import { parseJsonBody, parseParams, parseQuery } from "./api-validation";
 import { hasRecentDashboardActivity, touchDashboardActivity } from "./services/dashboard-activity";
 import { buildArchivedWorktreePathSet, normalizeArchivePath } from "./services/archive-service";
+import { listAgentSummaries } from "./services/agent-registry";
 import {
   branchMatchesIssue,
   buildLinearIssuesResponse,
@@ -137,18 +138,7 @@ function getFrontendConfig(): {
   name: string;
   services: ProjectConfig["services"];
   profiles: Array<{ name: string; systemPrompt?: string }>;
-  agents: Array<{
-    id: string;
-    label: string;
-    kind: "builtin";
-    capabilities: {
-      terminal: true;
-      inAppChat: boolean;
-      conversationHistory: boolean;
-      interrupt: boolean;
-      resume: boolean;
-    };
-  }>;
+  agents: ReturnType<typeof listAgentSummaries>;
   defaultProfileName: string;
   defaultAgentId: string;
   autoName: boolean;
@@ -174,32 +164,7 @@ function getFrontendConfig(): {
       name,
       ...(profile.systemPrompt ? { systemPrompt: profile.systemPrompt } : {}),
     })),
-    agents: [
-      {
-        id: "claude",
-        label: "Claude",
-        kind: "builtin",
-        capabilities: {
-          terminal: true,
-          inAppChat: true,
-          conversationHistory: true,
-          interrupt: true,
-          resume: true,
-        },
-      },
-      {
-        id: "codex",
-        label: "Codex",
-        kind: "builtin",
-        capabilities: {
-          terminal: true,
-          inAppChat: true,
-          conversationHistory: true,
-          interrupt: true,
-          resume: true,
-        },
-      },
-    ],
+    agents: listAgentSummaries(config),
     defaultProfileName,
     defaultAgentId: config.workspace.defaultAgent,
     autoName: config.autoName !== null,

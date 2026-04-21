@@ -571,13 +571,18 @@
   async function handleCreate(request: CreateWorktreeRequest) {
     const requestId = nextCreateRequestId++;
     const shouldAutoSelectCreatedWorktree = selectedWorktree == null;
-    const expectedCreatedCount = request.agent === "both" ? 2 : 1;
+    const requestedAgentIds = request.agents && request.agents.length > 0
+      ? request.agents
+      : request.agent
+        ? [request.agent]
+        : [config.defaultAgentId];
+    const expectedCreatedCount = requestedAgentIds.length;
     if (shouldAutoSelectCreatedWorktree) {
       latestAutoSelectCreateId = requestId;
     }
     pendingCreateCount += expectedCreatedCount;
     if (shouldAutoSelectCreatedWorktree) {
-      pendingCreateBranchHint = request.agent === "both" ? null : request.branch ?? null;
+      pendingCreateBranchHint = expectedCreatedCount > 1 ? null : request.branch ?? null;
     }
     showCreateDialog = false;
     assignIssue = null;
@@ -1177,7 +1182,9 @@
 {#if showCreateDialog}
   <CreateWorktreeDialog
     profiles={config.profiles}
+    agents={config.agents}
     defaultProfileName={config.defaultProfileName}
+    defaultAgentId={config.defaultAgentId}
     autoNameEnabled={config.autoName}
     initialBranch={assignIssue?.branchName ?? ""}
     initialPrompt={assignIssue ? `${assignIssue.title}${assignIssue.description ? '\n\n' + assignIssue.description : ''}` : ""}

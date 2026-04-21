@@ -62,7 +62,32 @@ function createConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     services: [],
     startupEnvs: {},
     profiles: [{ name: "default" }],
-    agents: [],
+    agents: [
+      {
+        id: "claude",
+        label: "Claude",
+        kind: "builtin",
+        capabilities: {
+          terminal: true,
+          inAppChat: true,
+          conversationHistory: true,
+          interrupt: true,
+          resume: true,
+        },
+      },
+      {
+        id: "codex",
+        label: "Codex",
+        kind: "builtin",
+        capabilities: {
+          terminal: true,
+          inAppChat: true,
+          conversationHistory: true,
+          interrupt: true,
+          resume: true,
+        },
+      },
+    ],
     defaultProfileName: "default",
     defaultAgentId: "claude",
     autoName: false,
@@ -374,7 +399,7 @@ describe("App create selection", () => {
 
     await fireEvent.click(screen.getByTitle("New Worktree (Cmd+K)"));
     await screen.findByText("New Worktree");
-    await fireEvent.click(screen.getByRole("radio", { name: "Both" }));
+    await fireEvent.click(screen.getByRole("checkbox", { name: /Codex builtin chat resume/i }));
     await fireEvent.input(screen.getByLabelText(/Branch name/i), {
       target: { value: "feature/new" },
     });
@@ -552,7 +577,7 @@ describe("App create selection", () => {
         body: {
           mode: "new",
           profile: "default",
-          agent: "claude",
+          agents: ["claude"],
           prompt: "Implement the new flow",
           createLinearTicket: true,
           linearTitle: "Ship Linear-backed worktree creation",
@@ -561,7 +586,7 @@ describe("App create selection", () => {
     });
   });
 
-  it("submits paired worktree creation when Both is selected", async () => {
+  it("submits multi-agent worktree creation when multiple agents are selected", async () => {
     vi.mocked(fetchWorktrees).mockResolvedValue([]);
     vi.mocked(api.createWorktree).mockResolvedValue({
       primaryBranch: "claude-feature/new",
@@ -573,7 +598,7 @@ describe("App create selection", () => {
     await fireEvent.click(screen.getByTitle("New Worktree (Cmd+K)"));
     await screen.findByText("New Worktree");
 
-    await fireEvent.click(screen.getByRole("radio", { name: "Both" }));
+    await fireEvent.click(screen.getByRole("checkbox", { name: /Codex builtin chat resume/i }));
     await waitFor(() => {
       expect(screen.queryByRole("button", { name: "Use existing branch" })).not.toBeInTheDocument();
     });
@@ -589,7 +614,7 @@ describe("App create selection", () => {
           mode: "new",
           branch: "feature/new",
           profile: "default",
-          agent: "both",
+          agents: ["claude", "codex"],
         },
       });
     });
@@ -614,7 +639,7 @@ describe("App create selection", () => {
           branch: "feature/from-release",
           baseBranch: "release/base",
           profile: "default",
-          agent: "claude",
+          agents: ["claude"],
         },
       });
     });

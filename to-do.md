@@ -48,9 +48,9 @@
 - Update backend endpoints to return clear errors or unsupported behavior when chat features are unavailable.
 
 ## 8. Extend frontend API contracts first
-- Add typed frontend API methods for agent CRUD and validation/test flows.
-- Extend app config fetching to include available agents and the default agent id.
-- Update create-worktree request typing to send multiple selected agents.
+- [ ] Add typed frontend API methods for agent CRUD and validation/test flows.
+- [x] Extend app config fetching to include available agents and the default agent id.
+- [x] Update create-worktree request typing to send multiple selected agents.
 
 ## 9. Build the frontend agent-management UI
 - Add an Agents section to settings or a dedicated management dialog.
@@ -60,12 +60,12 @@
 - Make built-in agents visible but not editable/deletable.
 
 ## 10. Update the create-worktree dialog UX
-- Replace fixed radio options with dynamic multi-select agent UI.
-- Require at least one selected agent.
-- Show selection count.
-- Show capability badges.
-- Show a multi-worktree branch preview when multiple agents are selected.
-- Persist the preferred default selection locally if desired.
+- [x] Replace fixed radio options with dynamic multi-select agent UI.
+- [x] Require at least one selected agent.
+- [x] Show selection count.
+- [x] Show capability badges.
+- [x] Show a multi-worktree branch preview when multiple agents are selected.
+- [x] Persist the preferred default selection locally if desired.
 
 ## 11. Update worktree list and detail UI
 - Display agent labels from the backend instead of hardcoded names.

@@ -1,7 +1,8 @@
 <script lang="ts">
   import type {
+    AgentId,
+    AgentSummary,
     AvailableBranch,
-    CreateWorktreeAgentSelection,
     CreateWorktreeRequest,
     ProfileConfig,
     WorktreeCreateMode,
@@ -12,9 +13,38 @@
   import StartupEnvFields from "./StartupEnvFields.svelte";
   import Toggle from "./Toggle.svelte";
 
+  const DEFAULT_AGENTS: AgentSummary[] = [
+    {
+      id: "claude",
+      label: "Claude",
+      kind: "builtin",
+      capabilities: {
+        terminal: true,
+        inAppChat: true,
+        conversationHistory: true,
+        interrupt: true,
+        resume: true,
+      },
+    },
+    {
+      id: "codex",
+      label: "Codex",
+      kind: "builtin",
+      capabilities: {
+        terminal: true,
+        inAppChat: true,
+        conversationHistory: true,
+        interrupt: true,
+        resume: true,
+      },
+    },
+  ];
+
   let {
     profiles = [],
+    agents = [],
     defaultProfileName = "",
+    defaultAgentId = "claude",
     autoNameEnabled = false,
     initialBranch = "",
     initialPrompt = "",
@@ -32,7 +62,9 @@
     oncancel,
   }: {
     profiles: ProfileConfig[];
+    agents?: AgentSummary[];
     defaultProfileName?: string;
+    defaultAgentId?: AgentId;
     autoNameEnabled?: boolean;
     initialBranch?: string;
     initialPrompt?: string;
@@ -50,42 +82,38 @@
     oncancel: () => void;
   } = $props();
 
-  const AGENTS: Array<{ value: CreateWorktreeAgentSelection; label: string }> = [
-    { value: "claude", label: "Claude" },
-    { value: "codex", label: "Codex" },
-    { value: "both", label: "Both" },
-  ];
-
   const STORAGE_KEY = "wt-default-profile";
-  const AGENT_STORAGE_KEY = "wt-default-agent";
+  const AGENT_STORAGE_KEY = "wt-default-agents";
   const ENV_STORAGE_KEY = "wt-default-envs";
   const savedProfile = localStorage.getItem(STORAGE_KEY);
-  const savedAgent = localStorage.getItem(AGENT_STORAGE_KEY);
   const savedEnvs = localStorage.getItem(ENV_STORAGE_KEY);
 
-  let fallbackProfile = $derived(defaultProfileName || profiles[0]?.name || "default");
-  let mode = $state<WorktreeCreateMode>("new");
-  // svelte-ignore state_referenced_locally
-  let newBranchName = $state(initialBranch);
-  // svelte-ignore state_referenced_locally
-  let prompt = $state(initialPrompt);
-  let selectedExistingBranch = $state("");
-  let selectedBaseBranch = $state("");
-  let agent = $state<CreateWorktreeAgentSelection>(
-    savedAgent === "codex" || savedAgent === "both" ? savedAgent : "claude",
-  );
-  let profile = $state(savedProfile ?? "");
-  let createLinearTicket = $state(false);
-  let linearTitle = $state("");
-  const hasSavedDefaults = savedProfile != null || savedAgent != null || savedEnvs != null;
-  let saveDefault = $state(hasSavedDefaults);
+  function sameAgentIds(left: AgentId[], right: AgentId[]): boolean {
+    return left.length === right.length && left.every((id, index) => id === right[index]);
+  }
+
+  function loadSavedAgentIds(): AgentId[] {
+    const saved = localStorage.getItem(AGENT_STORAGE_KEY);
+    if (!saved) return [];
+
+    try {
+      const parsed = JSON.parse(saved) as unknown;
+      if (Array.isArray(parsed)) {
+        return parsed.filter((entry): entry is AgentId => typeof entry === "string" && entry.trim().length > 0);
+      }
+    } catch {
+      if (saved.trim().length > 0) return [saved.trim()];
+    }
+
+    return saved.trim().length > 0 ? [saved.trim()] : [];
+  }
 
   function loadSavedEnvs(): Record<string, string | boolean> {
     if (!savedEnvs) return { ...startupEnvs };
     try {
       const parsed = JSON.parse(savedEnvs) as Record<string, string | boolean>;
       const filtered = Object.fromEntries(
-        Object.entries(parsed).filter(([k]) => k in startupEnvs),
+        Object.entries(parsed).filter(([key]) => key in startupEnvs),
       );
       return { ...startupEnvs, ...filtered };
     } catch {
@@ -93,25 +121,64 @@
     }
   }
 
-  // svelte-ignore state_referenced_locally
-  let envValues = $state<Record<string, string | boolean>>(loadSavedEnvs());
-
   function focus(node: HTMLElement) {
     node.focus();
   }
+
+  const savedAgentIds = loadSavedAgentIds();
+  let availableAgentOptions = $derived(agents.length > 0 ? agents : DEFAULT_AGENTS);
+  let fallbackProfile = $derived(defaultProfileName || profiles[0]?.name || "default");
+  let fallbackAgentId = $derived(defaultAgentId || availableAgentOptions[0]?.id || "claude");
+  let mode = $state<WorktreeCreateMode>("new");
+  // svelte-ignore state_referenced_locally
+  let newBranchName = $state(initialBranch);
+  // svelte-ignore state_referenced_locally
+  let prompt = $state(initialPrompt);
+  let selectedExistingBranch = $state("");
+  let selectedBaseBranch = $state("");
+  let selectedAgentIds = $state<AgentId[]>(savedAgentIds);
+  let profile = $state(savedProfile ?? "");
+  let createLinearTicket = $state(false);
+  let linearTitle = $state("");
+  const hasSavedDefaults = savedProfile != null || localStorage.getItem(AGENT_STORAGE_KEY) != null || savedEnvs != null;
+  let saveDefault = $state(hasSavedDefaults);
+  // svelte-ignore state_referenced_locally
+  let envValues = $state<Record<string, string | boolean>>(loadSavedEnvs());
+
   let showLinearTicketOption = $derived(
     linearCreateTicketOption && !openedFromLinearIssue && mode === "new",
   );
-  let creatingBothAgents = $derived(agent === "both");
+  let selectedAgents = $derived(
+    availableAgentOptions.filter((agent) => selectedAgentIds.includes(agent.id)),
+  );
+  let creatingMultipleAgents = $derived(selectedAgentIds.length > 1);
   let promptRequired = $derived(showLinearTicketOption && createLinearTicket);
+  let branchPreview = $derived(
+    mode === "new" && !createLinearTicket && creatingMultipleAgents && newBranchName.trim().length > 0
+      ? selectedAgentIds.map((agentId) => `${agentId}-${newBranchName.trim()}`)
+      : [],
+  );
   let canSubmit = $derived(
-    (mode === "new" || selectedExistingBranch.length > 0) &&
-      (!promptRequired || prompt.trim().length > 0),
+    selectedAgentIds.length > 0
+      && (mode === "new" || selectedExistingBranch.length > 0)
+      && (!promptRequired || prompt.trim().length > 0),
   );
 
   $effect(() => {
     if (!profiles.some((p) => p.name === profile)) {
       profile = fallbackProfile;
+    }
+  });
+
+  $effect(() => {
+    const validAgentIds = new Set(availableAgentOptions.map((agent) => agent.id));
+    const filteredIds = selectedAgentIds.filter((agentId) => validAgentIds.has(agentId));
+    const nextSelectedAgentIds = filteredIds.length > 0
+      ? filteredIds
+      : (validAgentIds.has(fallbackAgentId) ? [fallbackAgentId] : availableAgentOptions[0] ? [availableAgentOptions[0].id] : []);
+
+    if (!sameAgentIds(selectedAgentIds, nextSelectedAgentIds)) {
+      selectedAgentIds = nextSelectedAgentIds;
     }
   });
 
@@ -123,11 +190,21 @@
   });
 
   $effect(() => {
-    if (creatingBothAgents && mode === "existing") {
+    if (creatingMultipleAgents && mode === "existing") {
       mode = "new";
       selectedExistingBranch = "";
     }
   });
+
+  function toggleAgent(agentId: AgentId): void {
+    if (selectedAgentIds.includes(agentId)) {
+      if (selectedAgentIds.length === 1) return;
+      selectedAgentIds = selectedAgentIds.filter((id) => id !== agentId);
+      return;
+    }
+
+    selectedAgentIds = [...selectedAgentIds, agentId];
+  }
 
   function selectExistingBranch(name: string): void {
     selectedExistingBranch = name;
@@ -152,7 +229,7 @@
       if (!canSubmit) return;
       if (saveDefault) {
         localStorage.setItem(STORAGE_KEY, profile);
-        localStorage.setItem(AGENT_STORAGE_KEY, agent);
+        localStorage.setItem(AGENT_STORAGE_KEY, JSON.stringify(selectedAgentIds));
         localStorage.setItem(ENV_STORAGE_KEY, JSON.stringify(envValues));
       } else {
         localStorage.removeItem(STORAGE_KEY);
@@ -174,7 +251,7 @@
         ...(branchName && !(mode === "new" && createLinearTicket) ? { branch: branchName } : {}),
         ...(mode === "new" && selectedBaseBranch ? { baseBranch: selectedBaseBranch } : {}),
         profile,
-        agent,
+        agents: [...selectedAgentIds],
         ...(trimmedPrompt ? { prompt: trimmedPrompt } : {}),
         ...(Object.keys(filteredEnvs).length > 0 ? { envOverrides: filteredEnvs } : {}),
         ...(createLinearTicket ? { createLinearTicket: true } : {}),
@@ -225,10 +302,17 @@
           <p class="mt-2 text-[11px] text-muted">
             The worktree branch will use the Linear ticket branch name.
           </p>
-        {:else if creatingBothAgents}
-          <p class="mt-2 text-[11px] text-muted">
-            Creates paired <span class="font-mono">claude-...</span> and <span class="font-mono">codex-...</span> branches from this task name.
-          </p>
+        {:else if creatingMultipleAgents}
+          <div class="mt-2 text-[11px] text-muted">
+            <p>A separate prefixed branch will be created for each selected agent.</p>
+            {#if branchPreview.length > 0}
+              <ul class="mt-1 space-y-0.5 font-mono text-[11px] text-primary/80">
+                {#each branchPreview as branch}
+                  <li>{branch}</li>
+                {/each}
+              </ul>
+            {/if}
+          </div>
         {:else}
           <button
             type="button"
@@ -288,25 +372,46 @@
       </div>
     {/if}
     <StartupEnvFields {startupEnvs} bind:envValues />
-    <div class="flex gap-2 mb-4">
-      {#each AGENTS as a}
-        <label
-          class="flex-1 flex items-center justify-center gap-2 p-2.5 rounded-lg border cursor-pointer text-[13px] transition-colors
-            {agent === a.value
-            ? 'border-accent bg-accent/10'
-            : 'border-edge hover:bg-hover'}"
-        >
-          <input
-            type="radio"
-            name="agent"
-            value={a.value}
-            checked={agent === a.value}
-            onchange={() => (agent = a.value)}
-            class="accent-[var(--accent)]"
-          />
-          {a.label}
-        </label>
-      {/each}
+    <div class="mb-4">
+      <div class="mb-2 flex items-center justify-between gap-2">
+        <span class="text-xs text-muted">Agents ({selectedAgentIds.length} selected)</span>
+        {#if creatingMultipleAgents}
+          <span class="text-[11px] text-muted">Creates one worktree per agent</span>
+        {/if}
+      </div>
+      <div class="grid gap-2 sm:grid-cols-2">
+        {#each availableAgentOptions as agentOption}
+          <label
+            class="flex items-start gap-2.5 p-2.5 rounded-lg border cursor-pointer text-[13px] transition-colors
+              {selectedAgentIds.includes(agentOption.id)
+              ? 'border-accent bg-accent/10'
+              : 'border-edge hover:bg-hover'}"
+          >
+            <input
+              type="checkbox"
+              checked={selectedAgentIds.includes(agentOption.id)}
+              onchange={() => toggleAgent(agentOption.id)}
+              class="mt-0.5 accent-[var(--accent)]"
+            />
+            <span class="min-w-0 flex-1">
+              <span class="flex items-center gap-1.5 text-primary">
+                <span class="truncate">{agentOption.label}</span>
+                <span class="rounded-full border border-edge px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted">
+                  {agentOption.kind}
+                </span>
+              </span>
+              <span class="mt-1 flex flex-wrap gap-1 text-[10px] uppercase tracking-wide text-muted">
+                <span class="rounded-full border border-edge px-1.5 py-0.5">
+                  {agentOption.capabilities.inAppChat ? 'chat' : 'terminal only'}
+                </span>
+                {#if agentOption.capabilities.resume}
+                  <span class="rounded-full border border-edge px-1.5 py-0.5">resume</span>
+                {/if}
+              </span>
+            </span>
+          </label>
+        {/each}
+      </div>
     </div>
     {#if profiles.length > 1}
       <div class="flex flex-col gap-2 mb-6">

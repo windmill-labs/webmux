@@ -298,10 +298,14 @@ describe("LifecycleService", () => {
     return repoRoot;
   }
 
-  it("builds paired claude and codex targets from one task branch", () => {
-    expect(buildCreateWorktreeTargets("feature/search", "both")).toEqual([
+  it("builds original and agent-prefixed targets from selected agents", () => {
+    expect(buildCreateWorktreeTargets("feature/search", ["claude"])).toEqual([
+      { branch: "feature/search", agent: "claude" },
+    ]);
+    expect(buildCreateWorktreeTargets("feature/search", ["claude", "codex", "gemini"])).toEqual([
       { branch: "claude-feature/search", agent: "claude" },
       { branch: "codex-feature/search", agent: "codex" },
+      { branch: "gemini-feature/search", agent: "gemini" },
     ]);
   });
 
@@ -368,7 +372,7 @@ describe("LifecycleService", () => {
     expect(state?.session.paneCount).toBe(2);
   });
 
-  it("creates paired managed worktrees for both agents from one task branch", async () => {
+  it("creates one managed worktree per selected agent from one task branch", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
     const tmux = new FakeTmuxGateway();
@@ -378,7 +382,7 @@ describe("LifecycleService", () => {
     const created = await lifecycle.createWorktrees({
       branch: "feature/search",
       prompt: "fix the search flow",
-      agent: "both",
+      agents: ["claude", "codex"],
     });
 
     const claudeBranch = "claude-feature/search";
@@ -415,7 +419,7 @@ describe("LifecycleService", () => {
 
     await expect(lifecycle.createWorktrees({
       branch: "feature/search",
-      agent: "both",
+      agents: ["claude", "codex"],
     })).rejects.toThrow("Branch already exists: codex-feature/search");
 
     expect(run(["git", "branch", "--list", "codex-feature/search"], repoRoot)).toContain("codex-feature/search");
@@ -425,6 +429,29 @@ describe("LifecycleService", () => {
       buildProjectSessionName(repoRoot),
       buildWorktreeWindowName("claude-feature/search"),
     )).toBe(false);
+  });
+
+  it("rejects invalid multi-agent selections", async () => {
+    const repoRoot = await initRepo();
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const lifecycle = makeLifecycleService(repoRoot, tmux, runtime);
+
+    await expect(lifecycle.createWorktrees({
+      branch: "main",
+      mode: "existing",
+      agents: ["claude", "codex"],
+    })).rejects.toThrow("Creating multiple agents is only supported for new worktrees");
+
+    await expect(lifecycle.createWorktrees({
+      branch: "feature/search",
+      agents: ["", "   "],
+    })).rejects.toThrow("At least one agent must be selected");
+
+    await expect(lifecycle.createWorktrees({
+      branch: "feature/search",
+      agents: ["missing"],
+    })).rejects.toThrow("Unknown agent: missing");
   });
 
   it("refreshes runtime env after postCreate so system prompts see .env.local values", async () => {
@@ -1211,7 +1238,7 @@ describe("LifecycleService", () => {
 
     const created = await lifecycle.createWorktrees({
       prompt: "Fix the login flow for OAuth redirects",
-      agent: "both",
+      agents: ["claude", "codex"],
     });
 
     expect(created).toEqual({

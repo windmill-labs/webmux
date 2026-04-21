@@ -27,13 +27,13 @@
 - [x] Update the lifecycle launch path so it resolves agents through definitions instead of hardcoded built-in checks.
 
 ## 5. Refactor worktree creation for multiple agents
-- Update backend worktree creation input to accept `agents: string[]`.
-- Add validation for missing, empty, and unknown agent selections.
-- Replace `both` expansion with generic multi-agent target expansion.
-- Implement branch naming rules:
-  - one selected agent => original branch
-  - multiple selected agents => agent-prefixed branches
-- Update creation progress/state handling to work for any number of agents.
+- [x] Update backend worktree creation input to accept `agents: string[]`.
+- [x] Add validation for missing, empty, and unknown agent selections.
+- [x] Replace `both` expansion with generic multi-agent target expansion.
+- [x] Implement branch naming rules:
+  - [x] one selected agent => original branch
+  - [x] multiple selected agents => agent-prefixed branches
+- [x] Update creation progress/state handling to work for any number of agents.
 
 ## 6. Update worktree metadata and snapshots
 - [x] Store dynamic agent identity in worktree metadata.

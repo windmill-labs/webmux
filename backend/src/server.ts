@@ -64,7 +64,6 @@ import { buildProjectSnapshot } from "./services/snapshot-service";
 import { ClaudeConversationService } from "./services/claude-conversation-service";
 import { WorktreeConversationService } from "./services/worktree-conversation-service";
 import { parseRuntimeEvent } from "./domain/events";
-import type { CreateWorktreeAgentSelection } from "./domain/config";
 import type { AgentsUiConversationEvent, AgentsUiWorktreeConversationResponse } from "./domain/agents-ui";
 import type { ProjectSnapshot, WorktreeSnapshot } from "./domain/model";
 import { isValidBranchName, isValidWorktreeName } from "./domain/policies";
@@ -742,11 +741,20 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
   const baseBranch = body.baseBranch?.trim() ? body.baseBranch.trim() : undefined;
   const prompt = body.prompt?.trim() ? body.prompt.trim() : undefined;
   const profile = body.profile;
-  const agent: CreateWorktreeAgentSelection | undefined = body.agent;
+  const agent = body.agent?.trim() || undefined;
+  const agents = body.agents?.map((entry) => entry.trim()).filter((entry) => entry.length > 0);
   const createLinearTicket = body.createLinearTicket === true;
   const linearTitle = body.linearTitle?.trim() ? body.linearTitle.trim() : undefined;
   const mode = body.mode;
-  const agentSelection = agent ?? config.workspace.defaultAgent;
+  const selectedAgents = agents && agents.length > 0
+    ? agents
+    : agent
+      ? [agent]
+      : [config.workspace.defaultAgent];
+
+  if (body.agents && selectedAgents.length === 0) {
+    return errorResponse("At least one agent must be selected", 400);
+  }
 
   if (baseBranch && !isValidBranchName(baseBranch)) {
     return errorResponse("Invalid base branch name", 400);
@@ -800,7 +808,7 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
   }
 
   if (resolvedBranch) {
-    const targetBranches = buildCreateWorktreeTargets(resolvedBranch, agentSelection).map((target) => target.branch);
+    const targetBranches = buildCreateWorktreeTargets(resolvedBranch, selectedAgents).map((target) => target.branch);
     for (const targetBranch of targetBranches) {
       ensureBranchNotBusy(targetBranch);
     }
@@ -811,7 +819,7 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
   }
 
   log.info(
-    `[worktree:add] mode=${mode ?? "new"}${resolvedBranch ? ` branch=${resolvedBranch}` : ""}${baseBranch ? ` base=${baseBranch}` : ""}${profile ? ` profile=${profile}` : ""} agent=${agentSelection}${createLinearTicket ? " linearTicket=true" : ""}${prompt ? ` prompt="${prompt.slice(0, 80)}"` : ""}`,
+    `[worktree:add] mode=${mode ?? "new"}${resolvedBranch ? ` branch=${resolvedBranch}` : ""}${baseBranch ? ` base=${baseBranch}` : ""}${profile ? ` profile=${profile}` : ""} agents=${selectedAgents.join(",")}${createLinearTicket ? " linearTicket=true" : ""}${prompt ? ` prompt="${prompt.slice(0, 80)}"` : ""}`,
   );
   const result = await lifecycleService.createWorktrees({
     mode,
@@ -819,7 +827,7 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
     baseBranch,
     prompt,
     profile,
-    agent: agentSelection,
+    ...(agents && agents.length > 0 ? { agents } : { agent }),
     envOverrides,
   });
   log.debug(`[worktree:add] done branches=${result.branches.join(",")}`);

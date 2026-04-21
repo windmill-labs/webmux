@@ -87,16 +87,17 @@ export function prefixAgentBranch(agent: AgentId, branch: string): string {
 
 export function buildCreateWorktreeTargets(
   branch: string,
-  agentSelection: CreateWorktreeAgentSelection,
+  agentIds: AgentId[],
 ): CreateWorktreeTarget[] {
-  if (agentSelection === "both") {
-    return [
-      { branch: prefixAgentBranch("claude", branch), agent: "claude" },
-      { branch: prefixAgentBranch("codex", branch), agent: "codex" },
-    ];
+  if (agentIds.length <= 1) {
+    const agent = agentIds[0];
+    return agent ? [{ branch, agent }] : [];
   }
 
-  return [{ branch, agent: agentSelection }];
+  return agentIds.map((agent) => ({
+    branch: prefixAgentBranch(agent, branch),
+    agent,
+  }));
 }
 
 interface ResolvedLifecycleWorktree {
@@ -141,6 +142,7 @@ export interface CreateLifecycleWorktreeInput {
 }
 
 export interface CreateLifecycleWorktreesInput extends Omit<CreateLifecycleWorktreeInput, "agent"> {
+  agents?: AgentId[];
   agent?: CreateWorktreeAgentSelection;
 }
 
@@ -182,13 +184,13 @@ export class LifecycleService {
 
   async createWorktrees(input: CreateLifecycleWorktreesInput): Promise<CreateLifecycleWorktreesResult> {
     const mode = input.mode ?? "new";
-    const agentSelection = input.agent ?? this.deps.config.workspace.defaultAgent;
-    if (agentSelection === "both" && mode === "existing") {
-      throw new LifecycleError("Creating both agents is only supported for new worktrees", 400);
+    const agentIds = this.resolveSelectedAgents(input);
+    if (agentIds.length > 1 && mode === "existing") {
+      throw new LifecycleError("Creating multiple agents is only supported for new worktrees", 400);
     }
 
     const branch = await this.resolveBranch(input.branch, input.prompt, mode);
-    const targets = buildCreateWorktreeTargets(branch, agentSelection);
+    const targets = buildCreateWorktreeTargets(branch, agentIds);
     const createdBranches: string[] = [];
 
     try {
@@ -438,6 +440,21 @@ export class LifecycleService {
       throw new LifecycleError(`Unknown agent: ${resolvedAgentId}`, 400);
     }
     return agent;
+  }
+
+  private resolveSelectedAgents(input: CreateLifecycleWorktreesInput): AgentId[] {
+    const selectedAgents = input.agents && input.agents.length > 0
+      ? input.agents
+      : input.agent === "both"
+        ? ["claude", "codex"]
+        : [input.agent ?? this.deps.config.workspace.defaultAgent];
+
+    const dedupedAgentIds = [...new Set(selectedAgents.map((agent) => agent.trim()).filter((agent) => agent.length > 0))];
+    if (dedupedAgentIds.length === 0) {
+      throw new LifecycleError("At least one agent must be selected", 400);
+    }
+
+    return dedupedAgentIds.map((agentId) => this.resolveAgentDefinition(agentId).id);
   }
 
   private async buildStartupEnvValues(

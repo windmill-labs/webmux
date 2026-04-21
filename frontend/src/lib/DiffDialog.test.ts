@@ -58,4 +58,25 @@ describe("DiffDialog", () => {
       "cursor://file/tmp/feature/status",
     );
   });
+
+  it("renders uncommitted diffs with the app's dark color scheme", async () => {
+    vi.mocked(api.fetchWorktreeDiff).mockResolvedValue({
+      uncommitted:
+        "diff --git a/src/example.ts b/src/example.ts\nindex e69de29..4b825dc 100644\n--- a/src/example.ts\n+++ b/src/example.ts\n@@ -0,0 +1 @@\n+const value = 1;\n",
+      uncommittedTruncated: false,
+      gitStatus: "",
+      unpushedCommits: [],
+    });
+
+    const { container } = render(DiffDialog, {
+      props: {
+        branch: "feature/diff-colors",
+        onclose: vi.fn(),
+      },
+    });
+
+    await screen.findByRole("button", { name: "Current diff" });
+
+    expect(container.querySelector(".d2h-wrapper")).toHaveClass("d2h-dark-color-scheme");
+  });
 });

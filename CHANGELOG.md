@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.28.1](https://github.com/windmill-labs/webmux/compare/v0.28.0...v0.28.1) (2026-04-21)
+
+
+### Bug Fixes
+
+* lock diff viewer to dark colors ([#220](https://github.com/windmill-labs/webmux/issues/220)) ([efdf13f](https://github.com/windmill-labs/webmux/commit/efdf13fda1875e7bc27c9dfd2324e3a58ef97942))
+
 ## [0.28.0](https://github.com/windmill-labs/webmux/compare/v0.27.1...v0.28.0) (2026-04-20)
 
 

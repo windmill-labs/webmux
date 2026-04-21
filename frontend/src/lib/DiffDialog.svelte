@@ -42,7 +42,7 @@
 
   const diffOpts = {
     outputFormat: "line-by-line" as const,
-    colorScheme: ColorSchemeType.AUTO,
+    colorScheme: ColorSchemeType.DARK,
     drawFileList: false,
   };
 

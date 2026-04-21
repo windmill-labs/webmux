@@ -20,11 +20,11 @@
 - [x] Make the registry the source of truth for labels, capabilities, and launch behavior.
 
 ## 4. Refactor launch logic around agent definitions
-- Extract built-in launch behavior into dedicated launcher logic.
-- Add a generic custom-command launcher.
-- Support placeholder interpolation for custom commands.
-- Keep resume behavior capability-driven.
-- Remove scattered assumptions that only Claude and Codex can exist.
+- [x] Extract built-in launch behavior into dedicated launcher logic.
+- [x] Add a generic custom-command launcher.
+- [x] Support placeholder interpolation for custom commands.
+- [x] Keep resume behavior capability-driven.
+- [x] Update the lifecycle launch path so it resolves agents through definitions instead of hardcoded built-in checks.
 
 ## 5. Refactor worktree creation for multiple agents
 - Update backend worktree creation input to accept `agents: string[]`.
@@ -36,10 +36,10 @@
 - Update creation progress/state handling to work for any number of agents.
 
 ## 6. Update worktree metadata and snapshots
-- Store dynamic agent identity in worktree metadata.
-- Expose both agent id and label in snapshot responses.
-- Update reconciliation and runtime state logic to stop relying on a fixed agent union.
-- Ensure existing worktree list/detail responses remain stable except for the new dynamic fields.
+- [x] Store dynamic agent identity in worktree metadata.
+- [ ] Expose both agent id and label in snapshot responses.
+- [x] Update reconciliation and runtime state logic to stop relying on a fixed agent union.
+- [ ] Ensure existing worktree list/detail responses remain stable except for the new dynamic fields.
 
 ## 7. Make conversation features capability-driven
 - Add capability checks for chat/history/interrupt support.

@@ -15,7 +15,7 @@ import {
 import { expandTemplate, getDefaultProfileName, isDockerProfile, type DockerProfileConfig } from "../adapters/config";
 import { type DockerGateway } from "../adapters/docker";
 import { buildProjectSessionName, buildWorktreeWindowName, type TmuxGateway } from "../adapters/tmux";
-import type { AgentKind, CreateWorktreeAgentSelection, ProfileConfig, ProjectConfig, RuntimeKind } from "../domain/config";
+import type { AgentId, CreateWorktreeAgentSelection, ProfileConfig, ProjectConfig, RuntimeKind } from "../domain/config";
 import type { WorktreeCreationPhase, WorktreeMeta } from "../domain/model";
 import { allocateServicePorts, isValidBranchName, isValidEnvKey } from "../domain/policies";
 import type { AutoNameGenerator } from "./auto-name-service";
@@ -26,6 +26,7 @@ import {
   buildDockerShellCommand,
   buildManagedShellCommand,
 } from "./agent-service";
+import { getAgentDefinition, type AgentDefinition } from "./agent-registry";
 import type { ReconciliationService } from "./reconciliation-service";
 import { ensureSessionLayout, planSessionLayout } from "./session-service";
 import { ArchiveStateService } from "./archive-state-service";
@@ -77,10 +78,10 @@ function buildRuntimeControlBaseUrl(controlBaseUrl: string, runtime: RuntimeKind
 
 export interface CreateWorktreeTarget {
   branch: string;
-  agent: AgentKind;
+  agent: AgentId;
 }
 
-export function prefixAgentBranch(agent: AgentKind, branch: string): string {
+export function prefixAgentBranch(agent: AgentId, branch: string): string {
   return `${agent}-${branch}`;
 }
 
@@ -109,7 +110,7 @@ export interface CreateWorktreeProgress {
   baseBranch?: string;
   path: string;
   profile: string;
-  agent: AgentKind;
+  agent: AgentId;
   phase: WorktreeCreationPhase;
 }
 
@@ -135,7 +136,7 @@ export interface CreateLifecycleWorktreeInput {
   baseBranch?: string;
   prompt?: string;
   profile?: string;
-  agent?: AgentKind;
+  agent?: AgentId;
   envOverrides?: Record<string, string>;
 }
 
@@ -151,7 +152,7 @@ export interface CreateLifecycleWorktreesResult {
 interface ResolvedCreateLifecycleWorktreeInput extends Omit<CreateLifecycleWorktreeInput, "mode" | "branch" | "agent"> {
   mode: CreateWorktreeMode;
   branch: string;
-  agent: AgentKind;
+  agent: AgentId;
 }
 
 export interface PruneWorktreesResult {
@@ -220,12 +221,12 @@ export class LifecycleService {
   }> {
     const mode = input.mode ?? "new";
     const branch = await this.resolveBranch(input.branch, input.prompt, mode);
-    const agent = this.resolveAgent(input.agent);
+    const agent = this.resolveAgentDefinition(input.agent);
     return await this.createResolvedWorktree({
       ...input,
       mode,
       branch,
-      agent,
+      agent: agent.id,
     });
   }
 
@@ -239,7 +240,8 @@ export class LifecycleService {
       const initialized = resolved.meta
         ? await this.refreshManagedArtifacts(resolved)
         : await this.initializeUnmanagedWorktree(resolved);
-      const { profile } = this.resolveProfile(initialized.meta.profile);
+      const { profileName, profile } = this.resolveProfile(initialized.meta.profile);
+      const agent = this.resolveAgentDefinition(initialized.meta.agent);
       await ensureAgentRuntimeArtifacts({
         gitDir: initialized.paths.gitDir,
         worktreePath: resolved.entry.path,
@@ -247,8 +249,9 @@ export class LifecycleService {
 
       await this.materializeRuntimeSession({
         branch,
+        profileName,
         profile,
-        agent: initialized.meta.agent,
+        agent,
         initialized,
         worktreePath: resolved.entry.path,
         launchMode,
@@ -428,10 +431,11 @@ export class LifecycleService {
     };
   }
 
-  private resolveAgent(agent: AgentKind | undefined): AgentKind {
-    if (!agent) return this.deps.config.workspace.defaultAgent;
-    if (agent !== "claude" && agent !== "codex") {
-      throw new LifecycleError(`Unknown agent: ${agent}`, 400);
+  private resolveAgentDefinition(agentId: AgentId | undefined): AgentDefinition {
+    const resolvedAgentId = agentId ?? this.deps.config.workspace.defaultAgent;
+    const agent = getAgentDefinition(this.deps.config, resolvedAgentId);
+    if (!agent) {
+      throw new LifecycleError(`Unknown agent: ${resolvedAgentId}`, 400);
     }
     return agent;
   }
@@ -595,8 +599,9 @@ export class LifecycleService {
 
   private async materializeRuntimeSession(input: {
     branch: string;
+    profileName: string;
     profile: ProfileConfig;
-    agent: AgentKind;
+    agent: AgentDefinition;
     initialized: InitializeManagedWorktreeResult;
     worktreePath: string;
     prompt?: string;
@@ -614,6 +619,7 @@ export class LifecycleService {
       });
       ensureSessionLayout(this.deps.tmux, this.buildSessionLayout({
         branch: input.branch,
+        profileName: input.profileName,
         profile: input.profile,
         agent: input.agent,
         initialized: input.initialized,
@@ -627,6 +633,7 @@ export class LifecycleService {
 
     ensureSessionLayout(this.deps.tmux, this.buildSessionLayout({
       branch: input.branch,
+      profileName: input.profileName,
       profile: input.profile,
       agent: input.agent,
       initialized: input.initialized,
@@ -638,8 +645,9 @@ export class LifecycleService {
 
   private buildSessionLayout(input: {
     branch: string;
+    profileName: string;
     profile: ProfileConfig;
-    agent: AgentKind;
+    agent: AgentDefinition;
     initialized: InitializeManagedWorktreeResult;
     worktreePath: string;
     prompt?: string;
@@ -663,6 +671,10 @@ export class LifecycleService {
               agent: buildDockerAgentPaneCommand({
                 agent: input.agent,
                 runtimeEnvPath: input.initialized.paths.runtimeEnvPath,
+                repoRoot: this.deps.projectRoot,
+                worktreePath: input.worktreePath,
+                branch: input.branch,
+                profileName: input.profileName,
                 yolo: input.profile.yolo === true,
                 systemPrompt,
                 prompt: input.launchMode === "fresh" ? input.prompt : undefined,
@@ -678,6 +690,10 @@ export class LifecycleService {
               agent: buildAgentPaneCommand({
                 agent: input.agent,
                 runtimeEnvPath: input.initialized.paths.runtimeEnvPath,
+                repoRoot: this.deps.projectRoot,
+                worktreePath: input.worktreePath,
+                branch: input.branch,
+                profileName: input.profileName,
                 yolo: input.profile.yolo === true,
                 systemPrompt,
                 prompt: input.launchMode === "fresh" ? input.prompt : undefined,
@@ -851,6 +867,7 @@ export class LifecycleService {
     const baseBranch = input.mode === "new" ? (requestedBaseBranch || this.deps.config.workspace.mainBranch) : undefined;
     const branchAvailability = this.resolveBranchAvailability(input.branch, input.mode);
     const { profileName, profile } = this.resolveProfile(input.profile);
+    const agent = this.resolveAgentDefinition(input.agent);
     const worktreePath = this.resolveWorktreePath(input.branch);
     const createProgressBase = {
       branch: input.branch,
@@ -879,7 +896,7 @@ export class LifecycleService {
           ...(baseBranch ? { baseBranch } : {}),
           ...(branchAvailability.startPoint ? { startPoint: branchAvailability.startPoint } : {}),
           profile: profileName,
-          agent: input.agent,
+          agent: agent.id,
           runtime: profile.runtime,
           startupEnvValues: await this.buildStartupEnvValues(input.envOverrides),
           allocatedPorts: await this.allocatePorts(),
@@ -923,8 +940,9 @@ export class LifecycleService {
       });
       await this.materializeRuntimeSession({
         branch: input.branch,
+        profileName,
         profile,
-        agent: input.agent,
+        agent,
         initialized,
         worktreePath,
         prompt: input.prompt,

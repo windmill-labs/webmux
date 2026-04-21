@@ -1,5 +1,5 @@
 import type {
-  AgentKind,
+  AgentId,
   LinkedLinearIssue,
   PrEntry,
   ServiceStatus,
@@ -76,7 +76,7 @@ export interface WorktreeInfo {
   status: string;
   elapsed: string;
   profile: string | null;
-  agentName: AgentKind | null;
+  agentName: AgentId | null;
   services: ServiceStatus[];
   paneCount: number;
   prs: PrEntry[];

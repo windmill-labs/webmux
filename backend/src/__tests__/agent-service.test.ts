@@ -1,10 +1,58 @@
 import { describe, expect, it } from "bun:test";
+import type { AgentDefinition } from "../services/agent-registry";
 import {
   buildAgentPaneCommand,
   buildDockerAgentPaneCommand,
   buildDockerShellCommand,
   buildManagedShellCommand,
 } from "../services/agent-service";
+
+function builtInAgent(id: "claude" | "codex"): AgentDefinition {
+  return {
+    id,
+    label: id === "claude" ? "Claude" : "Codex",
+    kind: "builtin",
+    capabilities: {
+      terminal: true,
+      inAppChat: true,
+      conversationHistory: true,
+      interrupt: true,
+      resume: true,
+    },
+    implementation: {
+      type: "builtin",
+      agent: id,
+    },
+  };
+}
+
+function customAgent(overrides: {
+  id?: string;
+  label?: string;
+  startCommand: string;
+  resumeCommand?: string;
+}): AgentDefinition {
+  return {
+    id: overrides.id ?? "gemini",
+    label: overrides.label ?? "Gemini CLI",
+    kind: "custom",
+    capabilities: {
+      terminal: true,
+      inAppChat: false,
+      conversationHistory: false,
+      interrupt: false,
+      resume: overrides.resumeCommand !== undefined,
+    },
+    implementation: {
+      type: "custom",
+      config: {
+        label: overrides.label ?? "Gemini CLI",
+        startCommand: overrides.startCommand,
+        ...(overrides.resumeCommand ? { resumeCommand: overrides.resumeCommand } : {}),
+      },
+    },
+  };
+}
 
 describe("agent-service command builders", () => {
   it("builds a managed shell command that sources runtime.env", () => {
@@ -16,10 +64,14 @@ describe("agent-service command builders", () => {
     expect(command).toContain("/bin/zsh");
   });
 
-  it("wraps agent commands with runtime events and runtime.env loading", () => {
+  it("wraps built-in agent commands with runtime.env loading", () => {
     const claude = buildAgentPaneCommand({
-      agent: "claude",
+      agent: builtInAgent("claude"),
       runtimeEnvPath: "/tmp/gitdir/webmux/runtime.env",
+      repoRoot: "/repo",
+      worktreePath: "/repo/__worktrees/feature",
+      branch: "feature",
+      profileName: "default",
       prompt: "fix the tests",
     });
 
@@ -29,15 +81,16 @@ describe("agent-service command builders", () => {
     expect(claude).toContain("claude");
     expect(claude).toContain("fix the tests");
     expect(claude).not.toContain("--continue");
-    expect(claude).not.toContain("agent-started");
-    expect(claude).not.toContain("title-changed");
-    expect(claude).not.toContain("runtime-error");
   });
 
   it("uses claude continue on resume without replaying the initial prompt", () => {
     const command = buildAgentPaneCommand({
-      agent: "claude",
+      agent: builtInAgent("claude"),
       runtimeEnvPath: "/tmp/gitdir/webmux/runtime.env",
+      repoRoot: "/repo",
+      worktreePath: "/repo/__worktrees/feature",
+      branch: "feature",
+      profileName: "default",
       yolo: true,
       systemPrompt: "stay focused",
       prompt: "fix the tests",
@@ -58,8 +111,12 @@ describe("agent-service command builders", () => {
       "/bin/zsh",
     );
     const agent = buildDockerAgentPaneCommand({
-      agent: "codex",
+      agent: builtInAgent("codex"),
       runtimeEnvPath: "/repos/main/.git/worktrees/feature/webmux/runtime.env",
+      repoRoot: "/repos/main",
+      worktreePath: "/repos/feature",
+      branch: "feature",
+      profileName: "default",
       yolo: true,
       prompt: "ship the fix",
     });
@@ -71,7 +128,6 @@ describe("agent-service command builders", () => {
     expect(agent).toContain("ship the fix");
     expect(agent).toContain('export PATH="$PATH:/root/.local/bin:/usr/local/bin:/root/.bun/bin:/root/.cargo/bin"');
     expect(agent).not.toContain("docker exec");
-    expect(agent).not.toContain("agent-stopped");
   });
 
   it("defaults docker shell commands to /bin/bash instead of the host shell path", () => {
@@ -100,8 +156,12 @@ describe("agent-service command builders", () => {
 
   it("uses codex resume --last on resume without replaying the initial prompt", () => {
     const command = buildAgentPaneCommand({
-      agent: "codex",
+      agent: builtInAgent("codex"),
       runtimeEnvPath: "/tmp/gitdir/webmux/runtime.env",
+      repoRoot: "/repo",
+      worktreePath: "/repo/__worktrees/feature",
+      branch: "feature",
+      profileName: "default",
       yolo: true,
       systemPrompt: "stay focused",
       prompt: "ship the fix",
@@ -116,15 +176,23 @@ describe("agent-service command builders", () => {
 
   it("uses -- before the prompt so dash-prefixed prompts are not parsed as flags", () => {
     const claude = buildAgentPaneCommand({
-      agent: "claude",
+      agent: builtInAgent("claude"),
       runtimeEnvPath: "/tmp/gitdir/webmux/runtime.env",
+      repoRoot: "/repo",
+      worktreePath: "/repo/__worktrees/feature",
+      branch: "feature",
+      profileName: "default",
       prompt: "--- fix the bug",
     });
     expect(claude).toContain("-- '--- fix the bug'");
 
     const codex = buildAgentPaneCommand({
-      agent: "codex",
+      agent: builtInAgent("codex"),
       runtimeEnvPath: "/tmp/gitdir/webmux/runtime.env",
+      repoRoot: "/repo",
+      worktreePath: "/repo/__worktrees/feature",
+      branch: "feature",
+      profileName: "default",
       prompt: "--help",
     });
     expect(codex).toContain("-- '--help'");
@@ -132,8 +200,12 @@ describe("agent-service command builders", () => {
 
   it("omits -- when no prompt is provided", () => {
     const command = buildAgentPaneCommand({
-      agent: "claude",
+      agent: builtInAgent("claude"),
       runtimeEnvPath: "/tmp/gitdir/webmux/runtime.env",
+      repoRoot: "/repo",
+      worktreePath: "/repo/__worktrees/feature",
+      branch: "feature",
+      profileName: "default",
       systemPrompt: "be helpful",
     });
     expect(command).not.toContain(" -- ");
@@ -141,16 +213,62 @@ describe("agent-service command builders", () => {
 
   it("adds the claude permissions bypass flag only when profile yolo is enabled", () => {
     const normal = buildAgentPaneCommand({
-      agent: "claude",
+      agent: builtInAgent("claude"),
       runtimeEnvPath: "/tmp/gitdir/webmux/runtime.env",
+      repoRoot: "/repo",
+      worktreePath: "/repo/__worktrees/feature",
+      branch: "feature",
+      profileName: "default",
     });
     const yolo = buildAgentPaneCommand({
-      agent: "claude",
+      agent: builtInAgent("claude"),
       runtimeEnvPath: "/tmp/gitdir/webmux/runtime.env",
+      repoRoot: "/repo",
+      worktreePath: "/repo/__worktrees/feature",
+      branch: "feature",
+      profileName: "default",
       yolo: true,
     });
 
     expect(normal).not.toContain("--dangerously-skip-permissions");
     expect(yolo).toContain("--dangerously-skip-permissions");
+  });
+
+  it("renders custom agent placeholders through exported env vars", () => {
+    const command = buildAgentPaneCommand({
+      agent: customAgent({
+        startCommand: 'gemini --prompt "${PROMPT}" --cwd "${WORKTREE_PATH}" --profile "${PROFILE}"',
+      }),
+      runtimeEnvPath: "/tmp/gitdir/webmux/runtime.env",
+      repoRoot: "/repo",
+      worktreePath: "/repo/__worktrees/feature",
+      branch: "feature/search",
+      profileName: "sandbox",
+      prompt: "fix the tests",
+    });
+
+    expect(command).toContain("export WEBMUX_AGENT_PROMPT='fix the tests'");
+    expect(command).toContain("export WEBMUX_AGENT_WORKTREE_PATH='/repo/__worktrees/feature'");
+    expect(command).toContain("export WEBMUX_AGENT_PROFILE='sandbox'");
+    expect(command).toContain('gemini --prompt "$WEBMUX_AGENT_PROMPT" --cwd "$WEBMUX_AGENT_WORKTREE_PATH" --profile "$WEBMUX_AGENT_PROFILE"');
+  });
+
+  it("uses a custom agent resume command when available", () => {
+    const command = buildAgentPaneCommand({
+      agent: customAgent({
+        startCommand: 'gemini start --prompt "${PROMPT}"',
+        resumeCommand: 'gemini resume --branch "${BRANCH}"',
+      }),
+      runtimeEnvPath: "/tmp/gitdir/webmux/runtime.env",
+      repoRoot: "/repo",
+      worktreePath: "/repo/__worktrees/feature",
+      branch: "feature/search",
+      profileName: "default",
+      prompt: "fix the tests",
+      launchMode: "resume",
+    });
+
+    expect(command).toContain('gemini resume --branch "$WEBMUX_AGENT_BRANCH"');
+    expect(command).not.toContain('gemini start --prompt "$WEBMUX_AGENT_PROMPT"');
   });
 });

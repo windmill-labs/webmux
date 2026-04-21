@@ -468,6 +468,52 @@ describe("LifecycleService", () => {
     expect(agentCommand).toContain(`Database: ${databaseUrl}`);
   });
 
+  it("launches custom agents through interpolated command templates", async () => {
+    const repoRoot = await initRepo();
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const lifecycle = makeLifecycleService(
+      repoRoot,
+      tmux,
+      runtime,
+      new FakeDockerGateway(),
+      new FakeHookRunner(),
+      {
+        ...TEST_CONFIG,
+        agents: {
+          gemini: {
+            label: "Gemini CLI",
+            startCommand: 'gemini --task "${PROMPT}" --cwd "${WORKTREE_PATH}" --repo "${REPO_PATH}" --branch "${BRANCH}" --profile "${PROFILE}"',
+            resumeCommand: 'gemini resume --branch "${BRANCH}"',
+          },
+        },
+      },
+    );
+
+    await lifecycle.createWorktree({
+      branch: "feature/custom-agent",
+      prompt: "fix the search flow",
+      agent: "gemini",
+    });
+
+    const agentCommand = tmux.commands.at(-1)?.command;
+    const meta = await readWorktreeMeta(
+      new BunGitGateway().resolveWorktreeGitDir(join(repoRoot, "__worktrees", "feature", "custom-agent")),
+    );
+
+    expect(meta?.agent).toBe("gemini");
+    expect(agentCommand).toContain("export WEBMUX_AGENT_PROMPT='fix the search flow'");
+    expect(agentCommand).toContain(`export WEBMUX_AGENT_REPO_PATH='${repoRoot}'`);
+    expect(agentCommand).toContain('gemini --task "$WEBMUX_AGENT_PROMPT" --cwd "$WEBMUX_AGENT_WORKTREE_PATH" --repo "$WEBMUX_AGENT_REPO_PATH" --branch "$WEBMUX_AGENT_BRANCH" --profile "$WEBMUX_AGENT_PROFILE"');
+
+    tmux.commands.length = 0;
+    await lifecycle.closeWorktree("feature/custom-agent");
+    await lifecycle.openWorktree("feature/custom-agent");
+
+    const reopenCommand = tmux.commands.at(-1)?.command;
+    expect(reopenCommand).toContain('gemini resume --branch "$WEBMUX_AGENT_BRANCH"');
+  });
+
   it("reinstalls Claude runtime hooks after postCreate rewrites settings.local.json", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();

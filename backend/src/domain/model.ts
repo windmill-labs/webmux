@@ -1,4 +1,4 @@
-import type { AgentKind, RuntimeKind } from "./config";
+import type { AgentId, RuntimeKind } from "./config";
 
 export const WORKTREE_META_SCHEMA_VERSION = 1;
 export const WORKTREE_ARCHIVE_STATE_VERSION = 1;
@@ -33,7 +33,7 @@ export interface WorktreeMeta {
   baseBranch?: string;
   createdAt: string;
   profile: string;
-  agent: AgentKind;
+  agent: AgentId;
   runtime: RuntimeKind;
   startupEnvValues: Record<string, string>;
   allocatedPorts: Record<string, number>;
@@ -151,7 +151,7 @@ export interface CreatingWorktreeState {
   baseBranch?: string;
   path: string;
   profile: string | null;
-  agentName: AgentKind | null;
+  agentName: AgentId | null;
   phase: WorktreeCreationPhase;
 }
 
@@ -165,7 +165,7 @@ export interface ManagedWorktreeRuntimeState {
   baseBranch: string | null;
   path: string;
   profile: string | null;
-  agentName: AgentKind | null;
+  agentName: AgentId | null;
   git: GitWorktreeRuntimeState;
   session: SessionRuntimeState;
   agent: AgentRuntimeState;
@@ -189,7 +189,7 @@ export interface WorktreeSnapshot {
   dir: string;
   archived: boolean;
   profile: string | null;
-  agentName: AgentKind | null;
+  agentName: AgentId | null;
   mux: boolean;
   dirty: boolean;
   unpushed: boolean;

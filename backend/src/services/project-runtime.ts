@@ -1,6 +1,6 @@
 import type { AgentStatusChangedEvent, RuntimeEvent, RuntimeErrorEvent } from "../domain/events";
 import type {
-  AgentKind,
+  AgentId,
   RuntimeKind,
 } from "../domain/config";
 import type {
@@ -20,7 +20,7 @@ function makeDefaultState(input: {
   baseBranch?: string | null;
   path: string;
   profile?: string | null;
-  agentName?: AgentKind | null;
+  agentName?: AgentId | null;
   runtime?: RuntimeKind;
 }): ManagedWorktreeRuntimeState {
   return {
@@ -73,7 +73,7 @@ export class ProjectRuntime {
     baseBranch?: string | null;
     path: string;
     profile?: string | null;
-    agentName?: AgentKind | null;
+    agentName?: AgentId | null;
     runtime?: RuntimeKind;
   }): ManagedWorktreeRuntimeState {
     const existing = this.worktrees.get(input.worktreeId);

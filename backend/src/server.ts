@@ -3,6 +3,7 @@ import { join, resolve } from "node:path";
 import { mkdirSync } from "node:fs";
 import { networkInterfaces } from "node:os";
 import {
+  AgentIdParamsSchema,
   AgentsSendMessageRequestSchema,
   apiPaths,
   AvailableBranchesQuerySchema,
@@ -13,6 +14,7 @@ import {
   SendWorktreePromptRequestSchema,
   SetWorktreeArchivedRequestSchema,
   ToggleEnabledRequestSchema,
+  UpsertCustomAgentRequestSchema,
   WorktreeNameParamsSchema,
 } from "@webmux/api-contract";
 import { log } from "./lib/log";
@@ -34,13 +36,20 @@ import {
 import { loadControlToken } from "./adapters/control-token";
 import { ClaudeCliClient } from "./adapters/claude-cli";
 import { CodexAppServerClient } from "./adapters/codex-app-server";
-import { getDefaultProfileName, persistLocalLinearConfig, persistLocalGitHubConfig, type ProjectConfig } from "./adapters/config";
+import {
+  getDefaultProfileName,
+  persistLocalCustomAgent,
+  persistLocalGitHubConfig,
+  persistLocalLinearConfig,
+  removeLocalCustomAgent,
+  type ProjectConfig,
+} from "./adapters/config";
 import { jsonResponse, errorResponse } from "./lib/http";
 import { isRecord, isStringArray } from "./lib/type-guards";
 import { parseJsonBody, parseParams, parseQuery } from "./api-validation";
 import { hasRecentDashboardActivity, touchDashboardActivity } from "./services/dashboard-activity";
 import { buildArchivedWorktreePathSet, normalizeArchivePath } from "./services/archive-service";
-import { listAgentSummaries } from "./services/agent-registry";
+import { isBuiltInAgentId, listAgentDetails, listAgentSummaries, normalizeCustomAgentId } from "./services/agent-registry";
 import {
   branchMatchesIssue,
   buildLinearIssuesResponse,
@@ -902,6 +911,78 @@ async function apiMergeWorktree(name: string): Promise<Response> {
   return jsonResponse({ ok: true });
 }
 
+async function apiListAgents(): Promise<Response> {
+  return jsonResponse({ agents: listAgentDetails(config) });
+}
+
+async function apiCreateAgent(req: Request): Promise<Response> {
+  const parsed = await parseJsonBody(req, UpsertCustomAgentRequestSchema);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.data;
+  const agentId = normalizeCustomAgentId(body.label);
+
+  if (isBuiltInAgentId(agentId) || config.agents[agentId]) {
+    return errorResponse(`Agent already exists: ${agentId}`, 409);
+  }
+
+  const agentConfig = {
+    label: body.label,
+    startCommand: body.startCommand,
+    ...(body.resumeCommand?.trim() ? { resumeCommand: body.resumeCommand.trim() } : {}),
+  };
+
+  await persistLocalCustomAgent(PROJECT_DIR, agentId, agentConfig);
+  config.agents[agentId] = agentConfig;
+
+  const agent = listAgentDetails(config).find((entry) => entry.id === agentId);
+  if (!agent) {
+    return errorResponse(`Created agent could not be loaded: ${agentId}`, 500);
+  }
+
+  return jsonResponse({ agent });
+}
+
+async function apiUpdateAgent(agentId: string, req: Request): Promise<Response> {
+  if (isBuiltInAgentId(agentId)) {
+    return errorResponse(`Built-in agent cannot be edited: ${agentId}`, 400);
+  }
+  if (!config.agents[agentId]) {
+    return errorResponse(`Unknown agent: ${agentId}`, 404);
+  }
+
+  const parsed = await parseJsonBody(req, UpsertCustomAgentRequestSchema);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.data;
+  const agentConfig = {
+    label: body.label,
+    startCommand: body.startCommand,
+    ...(body.resumeCommand?.trim() ? { resumeCommand: body.resumeCommand.trim() } : {}),
+  };
+
+  await persistLocalCustomAgent(PROJECT_DIR, agentId, agentConfig);
+  config.agents[agentId] = agentConfig;
+
+  const agent = listAgentDetails(config).find((entry) => entry.id === agentId);
+  if (!agent) {
+    return errorResponse(`Updated agent could not be loaded: ${agentId}`, 500);
+  }
+
+  return jsonResponse({ agent });
+}
+
+async function apiDeleteAgent(agentId: string): Promise<Response> {
+  if (isBuiltInAgentId(agentId)) {
+    return errorResponse(`Built-in agent cannot be deleted: ${agentId}`, 400);
+  }
+  if (!config.agents[agentId]) {
+    return errorResponse(`Unknown agent: ${agentId}`, 404);
+  }
+
+  await removeLocalCustomAgent(PROJECT_DIR, agentId);
+  delete config.agents[agentId];
+  return jsonResponse({ ok: true });
+}
+
 async function apiSetLinearAutoCreate(req: Request): Promise<Response> {
   const parsed = await parseJsonBody(req, ToggleEnabledRequestSchema);
   if (!parsed.ok) return parsed.response;
@@ -1104,6 +1185,24 @@ function parseNotificationIdParam(params: Record<string, string>):
   };
 }
 
+function parseAgentIdParam(params: Record<string, string>):
+  | { ok: true; data: string }
+  | { ok: false; response: Response } {
+  const parsed = parseParams(params, AgentIdParamsSchema);
+  if (!parsed.ok) return parsed;
+  const agentId = parsed.data.id.trim();
+  if (!agentId) {
+    return {
+      ok: false,
+      response: errorResponse("Invalid agent id", 400),
+    };
+  }
+  return {
+    ok: true,
+    data: agentId,
+  };
+}
+
 // --- Server ---
 
 Bun.serve({
@@ -1141,6 +1240,24 @@ Bun.serve({
 
     [apiPaths.fetchProject]: {
       GET: () => catching("GET /api/project", () => apiGetProject()),
+    },
+
+    [apiPaths.fetchAgents]: {
+      GET: () => catching("GET /api/agents", () => apiListAgents()),
+      POST: (req) => catching("POST /api/agents", () => apiCreateAgent(req)),
+    },
+
+    [apiPaths.updateAgent]: {
+      PUT: (req) => {
+        const parsed = parseAgentIdParam(req.params);
+        if (!parsed.ok) return parsed.response;
+        return catching("PUT /api/agents/:id", () => apiUpdateAgent(parsed.data, req));
+      },
+      DELETE: (req) => {
+        const parsed = parseAgentIdParam(req.params);
+        if (!parsed.ok) return parsed.response;
+        return catching("DELETE /api/agents/:id", () => apiDeleteAgent(parsed.data));
+      },
     },
 
     [apiPaths.attachAgentsWorktreeConversation]: {

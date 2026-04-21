@@ -1,6 +1,13 @@
 import { describe, expect, it } from "bun:test";
 import type { ProjectConfig } from "../domain/config";
-import { getAgentDefinition, listAgentDefinitions, listAgentSummaries } from "../services/agent-registry";
+import {
+  getAgentDefinition,
+  isBuiltInAgentId,
+  listAgentDefinitions,
+  listAgentDetails,
+  listAgentSummaries,
+  normalizeCustomAgentId,
+} from "../services/agent-registry";
 
 const TEST_CONFIG: ProjectConfig = {
   name: "Project",
@@ -105,5 +112,59 @@ describe("agent-registry", () => {
     expect(gemini?.kind).toBe("custom");
     expect(gemini?.implementation.type).toBe("custom");
     expect(missing).toBeNull();
+  });
+
+  it("exposes agent details for settings screens", () => {
+    expect(listAgentDetails(TEST_CONFIG)).toEqual([
+      {
+        id: "claude",
+        label: "Claude",
+        kind: "builtin",
+        capabilities: {
+          terminal: true,
+          inAppChat: true,
+          conversationHistory: true,
+          interrupt: true,
+          resume: true,
+        },
+        startCommand: null,
+        resumeCommand: null,
+      },
+      {
+        id: "codex",
+        label: "Codex",
+        kind: "builtin",
+        capabilities: {
+          terminal: true,
+          inAppChat: true,
+          conversationHistory: true,
+          interrupt: true,
+          resume: true,
+        },
+        startCommand: null,
+        resumeCommand: null,
+      },
+      {
+        id: "gemini",
+        label: "Gemini CLI",
+        kind: "custom",
+        capabilities: {
+          terminal: true,
+          inAppChat: false,
+          conversationHistory: false,
+          interrupt: false,
+          resume: true,
+        },
+        startCommand: 'gemini --prompt "${PROMPT}"',
+        resumeCommand: "gemini resume --last",
+      },
+    ]);
+  });
+
+  it("normalizes custom agent ids and detects built-ins", () => {
+    expect(normalizeCustomAgentId("Gemini CLI")).toBe("gemini-cli");
+    expect(normalizeCustomAgentId("!!!")).toBe("agent");
+    expect(isBuiltInAgentId("claude")).toBe(true);
+    expect(isBuiltInAgentId("gemini")).toBe(false);
   });
 });

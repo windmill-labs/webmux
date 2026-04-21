@@ -1,4 +1,4 @@
-import type { AgentSummary } from "@webmux/api-contract";
+import type { AgentDetails, AgentSummary } from "@webmux/api-contract";
 import type { AgentId, AgentKind, CustomAgentConfig, ProjectConfig } from "../domain/config";
 
 export interface AgentCapabilities {
@@ -72,6 +72,20 @@ function cloneCapabilities(capabilities: AgentCapabilities): AgentCapabilities {
   return { ...capabilities };
 }
 
+export function isBuiltInAgentId(agentId: AgentId): boolean {
+  return BUILTIN_AGENT_DEFINITIONS.some((agent) => agent.id === agentId);
+}
+
+export function normalizeCustomAgentId(label: string): AgentId {
+  const normalized = label
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  return normalized || "agent";
+}
+
 function cloneDefinition(definition: AgentDefinition): AgentDefinition {
   if (definition.kind === "builtin") {
     return {
@@ -140,5 +154,16 @@ export function listAgentSummaries(config: Pick<ProjectConfig, "agents">): Agent
     label: agent.label,
     kind: agent.kind,
     capabilities: cloneCapabilities(agent.capabilities),
+  }));
+}
+
+export function listAgentDetails(config: Pick<ProjectConfig, "agents">): AgentDetails[] {
+  return listAgentDefinitions(config).map((agent) => ({
+    id: agent.id,
+    label: agent.label,
+    kind: agent.kind,
+    capabilities: cloneCapabilities(agent.capabilities),
+    startCommand: agent.kind === "custom" ? agent.implementation.config.startCommand : null,
+    resumeCommand: agent.kind === "custom" ? agent.implementation.config.resumeCommand ?? null : null,
   }));
 }

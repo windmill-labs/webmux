@@ -38,6 +38,29 @@ export const AgentSummarySchema = z.object({
   kind: z.enum(["builtin", "custom"]),
   capabilities: AgentCapabilitiesSchema,
 });
+
+export const AgentDetailsSchema = z.object({
+  id: AgentIdSchema,
+  label: z.string(),
+  kind: z.enum(["builtin", "custom"]),
+  capabilities: AgentCapabilitiesSchema,
+  startCommand: z.string().nullable(),
+  resumeCommand: z.string().nullable(),
+});
+
+export const AgentListResponseSchema = z.object({
+  agents: z.array(AgentDetailsSchema),
+});
+
+export const UpsertCustomAgentRequestSchema = z.object({
+  label: z.string().trim().min(1),
+  startCommand: z.string().trim().min(1),
+  resumeCommand: z.string().trim().optional(),
+});
+
+export const AgentResponseSchema = z.object({
+  agent: AgentDetailsSchema,
+});
 export const WorktreeCreationPhaseSchema = z.enum([
   "creating_worktree",
   "preparing_runtime",
@@ -407,6 +430,10 @@ export const NotificationIdParamsSchema = z.object({
   id: NumberLikePathParamSchema,
 });
 
+export const AgentIdParamsSchema = z.object({
+  id: AgentIdSchema,
+});
+
 export const RunIdParamsSchema = z.object({
   runId: NumberLikePathParamSchema,
 });
@@ -417,6 +444,10 @@ export type AgentKind = z.infer<typeof AgentKindSchema>;
 export type CreateWorktreeAgentSelection = AgentId;
 export type AgentCapabilities = z.infer<typeof AgentCapabilitiesSchema>;
 export type AgentSummary = z.infer<typeof AgentSummarySchema>;
+export type AgentDetails = z.infer<typeof AgentDetailsSchema>;
+export type AgentListResponse = z.infer<typeof AgentListResponseSchema>;
+export type UpsertCustomAgentRequest = z.infer<typeof UpsertCustomAgentRequestSchema>;
+export type AgentResponse = z.infer<typeof AgentResponseSchema>;
 export type WorktreeCreateMode = z.infer<typeof WorktreeCreateModeSchema>;
 export type WorktreeCreationPhase = z.infer<typeof WorktreeCreationPhaseSchema>;
 export type AvailableBranch = z.infer<typeof AvailableBranchSchema>;

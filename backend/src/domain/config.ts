@@ -1,6 +1,13 @@
 export type AgentKind = "claude" | "codex";
+export type AgentId = string;
 export type CreateWorktreeAgentSelection = AgentKind | "both";
 export type RuntimeKind = "host" | "docker";
+
+export interface CustomAgentConfig {
+  label: string;
+  startCommand: string;
+  resumeCommand?: string;
+}
 export type PaneKind = "agent" | "shell" | "command";
 export type PaneSplit = "right" | "bottom";
 
@@ -89,6 +96,7 @@ export interface ProjectConfig {
   name: string;
   workspace: WorkspaceConfig;
   profiles: Record<string, ProfileConfig>;
+  agents: Record<AgentId, CustomAgentConfig>;
   services: ServiceSpec[];
   startupEnvs: Record<string, string | boolean>;
   integrations: IntegrationConfig;

@@ -8,22 +8,16 @@
 - [x] Extend config payloads with agent summaries and a default agent id.
 
 ## 2. Design the config and persistence layer
-- [ ] Extend local config support in `.webmux.local.yaml` to persist custom agents.
-- [ ] Decide the exact YAML shape for custom agent definitions.
-- [ ] Add read/merge logic so built-ins and local custom agents appear as one registry.
-- [ ] Add write/update/remove helpers for custom agents in the backend config adapter.
+- [x] Extend local config support in `.webmux.local.yaml` to persist custom agents.
+- [x] Set the local YAML shape to `agents.<id>.{label,startCommand,resumeCommand?}`.
+- [x] Add read/merge logic so custom agents load into the project config.
+- [x] Add write/remove helpers for custom agents in the backend config adapter.
 
 ## 3. Introduce an agent registry in the backend
-- Extend local config support in `.webmux.local.yaml` to persist custom agents.
-- Decide the exact YAML shape for custom agent definitions.
-- Add read/merge logic so built-ins and local custom agents appear as one registry.
-- Add write/update/remove helpers for custom agents in the backend config adapter.
-
-## 3. Introduce an agent registry in the backend
-- Create a central registry/service that returns all available agents.
-- Ensure built-in agents are always present.
-- Prevent collisions with built-in ids.
-- Make the registry the source of truth for labels, capabilities, and launch behavior.
+- [ ] Create a central registry/service that returns all available agents.
+- [ ] Ensure built-in agents are always present.
+- [ ] Prevent collisions with built-in ids.
+- [ ] Make the registry the source of truth for labels, capabilities, and launch behavior.
 
 ## 4. Refactor launch logic around agent definitions
 - Extract built-in launch behavior into dedicated launcher logic.

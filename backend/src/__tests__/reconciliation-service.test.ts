@@ -182,6 +182,7 @@ const TEST_CONFIG: ProjectConfig = {
       panes: [],
     },
   },
+  agents: {},
   services: [
     {
       name: "frontend",

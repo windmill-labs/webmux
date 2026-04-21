@@ -2,9 +2,11 @@ import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import type {
+  AgentId,
   AgentKind,
   AutoNameConfig,
   AutoPullConfig,
+  CustomAgentConfig,
   GitHubIntegrationConfig,
   LifecycleHooksConfig,
   LinearIntegrationConfig,
@@ -16,7 +18,7 @@ import type {
   ServiceSpec,
 } from "../domain/config";
 
-export type { LinkedRepoConfig, MountSpec, PaneTemplate, ProfileConfig, ProjectConfig };
+export type { CustomAgentConfig, LinkedRepoConfig, MountSpec, PaneTemplate, ProfileConfig, ProjectConfig };
 export type ServiceConfig = ServiceSpec;
 export type DockerProfileConfig = ProfileConfig & { runtime: "docker"; image: string };
 
@@ -27,6 +29,7 @@ interface LoadConfigOptions {
 interface LocalProjectConfigOverlay {
   worktreeRoot: string | null;
   profiles: Record<string, ProfileConfig>;
+  agents: Record<AgentId, CustomAgentConfig>;
   lifecycleHooks: LifecycleHooksConfig;
   linear: Partial<LinearIntegrationConfig> | null;
   github: Partial<GitHubIntegrationConfig> | null;
@@ -53,6 +56,7 @@ const DEFAULT_CONFIG: ProjectConfig = {
       panes: clonePanes(DEFAULT_PANES),
     },
   },
+  agents: {},
   services: [],
   startupEnvs: {},
   integrations: {
@@ -194,6 +198,43 @@ function parseProfiles(raw: unknown, includeDefaultProfile: boolean): Record<str
   return profiles;
 }
 
+function cloneAgentConfig(agent: CustomAgentConfig): CustomAgentConfig {
+  return { ...agent };
+}
+
+function cloneAgents(agents: Record<AgentId, CustomAgentConfig>): Record<AgentId, CustomAgentConfig> {
+  return Object.fromEntries(
+    Object.entries(agents).map(([id, agent]) => [id, cloneAgentConfig(agent)]),
+  );
+}
+
+function parseCustomAgent(raw: unknown): CustomAgentConfig | null {
+  if (!isRecord(raw)) return null;
+  if (typeof raw.label !== "string" || !raw.label.trim()) return null;
+  if (typeof raw.startCommand !== "string" || !raw.startCommand.trim()) return null;
+
+  return {
+    label: raw.label.trim(),
+    startCommand: raw.startCommand.trim(),
+    ...(typeof raw.resumeCommand === "string" && raw.resumeCommand.trim()
+      ? { resumeCommand: raw.resumeCommand.trim() }
+      : {}),
+  };
+}
+
+function parseCustomAgents(raw: unknown): Record<AgentId, CustomAgentConfig> {
+  if (!isRecord(raw)) return {};
+
+  return Object.entries(raw).reduce<Record<AgentId, CustomAgentConfig>>((acc, [id, value]) => {
+    if (!id.trim()) return acc;
+    const parsed = parseCustomAgent(value);
+    if (parsed) {
+      acc[id.trim()] = parsed;
+    }
+    return acc;
+  }, {});
+}
+
 function parseServices(raw: unknown): ServiceSpec[] {
   if (!Array.isArray(raw)) return [];
 
@@ -318,6 +359,7 @@ function parseProjectConfig(parsed: Record<string, unknown>): ProjectConfig {
         : DEFAULT_CONFIG.workspace.autoPull,
     },
     profiles: parseProfiles(parsed.profiles, true),
+    agents: {},
     services: parseServices(parsed.services),
     startupEnvs: parseStartupEnvs(parsed.startupEnvs),
     integrations: {
@@ -400,7 +442,7 @@ function loadLocalProjectConfigOverlay(root: string): LocalProjectConfigOverlay 
   try {
     const text = readLocalConfigFile(root).trim();
     if (!text) {
-      return { worktreeRoot: null, profiles: {}, lifecycleHooks: {}, linear: null, github: null, autoPull: null };
+      return { worktreeRoot: null, profiles: {}, agents: {}, lifecycleHooks: {}, linear: null, github: null, autoPull: null };
     }
 
     const parsed = parseConfigDocument(text);
@@ -408,13 +450,14 @@ function loadLocalProjectConfigOverlay(root: string): LocalProjectConfigOverlay 
     return {
       worktreeRoot: ws && typeof ws.worktreeRoot === "string" ? ws.worktreeRoot : null,
       profiles: parseProfiles(parsed.profiles, false),
+      agents: parseCustomAgents(parsed.agents),
       lifecycleHooks: parseLifecycleHooks(parsed.lifecycleHooks),
       linear: parseLocalLinearOverlay(parsed),
       github: parseLocalGitHubOverlay(parsed),
       autoPull: parseLocalAutoPullOverlay(parsed),
     };
   } catch {
-    return { worktreeRoot: null, profiles: {}, lifecycleHooks: {}, linear: null, github: null, autoPull: null };
+    return { worktreeRoot: null, profiles: {}, agents: {}, lifecycleHooks: {}, linear: null, github: null, autoPull: null };
   }
 }
 
@@ -494,9 +537,25 @@ export function loadConfig(dir: string, options: LoadConfigOptions = {}): Projec
       ...cloneProfiles(projectConfig.profiles),
       ...cloneProfiles(localOverlay.profiles),
     },
+    agents: {
+      ...cloneAgents(projectConfig.agents),
+      ...cloneAgents(localOverlay.agents),
+    },
     lifecycleHooks: mergeLifecycleHooks(projectConfig.lifecycleHooks, localOverlay.lifecycleHooks),
     integrations,
   };
+}
+
+function readLocalConfigDocument(root: string): { localPath: string; existing: Record<string, unknown> } {
+  const localPath = join(root, ".webmux.local.yaml");
+
+  let existing: Record<string, unknown> = {};
+  try {
+    const text = readFileSync(localPath, "utf8").trim();
+    if (text) existing = parseConfigDocument(text);
+  } catch { /* file doesn't exist yet */ }
+
+  return { localPath, existing };
 }
 
 /** Persist a partial Linear integration config override into `.webmux.local.yaml`.
@@ -506,13 +565,7 @@ export async function persistLocalLinearConfig(
   changes: Partial<LinearIntegrationConfig>,
 ): Promise<void> {
   const root = projectRoot(dir);
-  const localPath = join(root, ".webmux.local.yaml");
-
-  let existing: Record<string, unknown> = {};
-  try {
-    const text = readFileSync(localPath, "utf8").trim();
-    if (text) existing = parseConfigDocument(text);
-  } catch { /* file doesn't exist yet */ }
+  const { localPath, existing } = readLocalConfigDocument(root);
 
   const integrations = isRecord(existing.integrations) ? { ...existing.integrations } : {};
   const linear = isRecord(integrations.linear) ? { ...integrations.linear } : {};
@@ -529,19 +582,51 @@ export async function persistLocalGitHubConfig(
   changes: Partial<GitHubIntegrationConfig>,
 ): Promise<void> {
   const root = projectRoot(dir);
-  const localPath = join(root, ".webmux.local.yaml");
-
-  let existing: Record<string, unknown> = {};
-  try {
-    const text = readFileSync(localPath, "utf8").trim();
-    if (text) existing = parseConfigDocument(text);
-  } catch { /* file doesn't exist yet */ }
+  const { localPath, existing } = readLocalConfigDocument(root);
 
   const integrations = isRecord(existing.integrations) ? { ...existing.integrations } : {};
   const github = isRecord(integrations.github) ? { ...integrations.github } : {};
   Object.assign(github, changes);
   integrations.github = github;
   existing.integrations = integrations;
+
+  await Bun.write(localPath, stringifyYaml(existing));
+}
+
+export async function persistLocalCustomAgent(
+  dir: string,
+  agentId: AgentId,
+  agent: CustomAgentConfig,
+): Promise<void> {
+  const root = projectRoot(dir);
+  const { localPath, existing } = readLocalConfigDocument(root);
+  const agents = isRecord(existing.agents) ? { ...existing.agents } : {};
+
+  agents[agentId] = {
+    label: agent.label,
+    startCommand: agent.startCommand,
+    ...(agent.resumeCommand ? { resumeCommand: agent.resumeCommand } : {}),
+  } satisfies Record<string, unknown>;
+  existing.agents = agents;
+
+  await Bun.write(localPath, stringifyYaml(existing));
+}
+
+export async function removeLocalCustomAgent(dir: string, agentId: AgentId): Promise<void> {
+  const root = projectRoot(dir);
+  const { localPath, existing } = readLocalConfigDocument(root);
+  if (!isRecord(existing.agents) || !(agentId in existing.agents)) {
+    return;
+  }
+
+  const agents = { ...existing.agents };
+  delete agents[agentId];
+
+  if (Object.keys(agents).length === 0) {
+    delete existing.agents;
+  } else {
+    existing.agents = agents;
+  }
 
   await Bun.write(localPath, stringifyYaml(existing));
 }

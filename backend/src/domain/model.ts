@@ -190,6 +190,7 @@ export interface WorktreeSnapshot {
   archived: boolean;
   profile: string | null;
   agentName: AgentId | null;
+  agentLabel: string | null;
   mux: boolean;
   dirty: boolean;
   unpushed: boolean;

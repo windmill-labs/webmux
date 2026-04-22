@@ -131,8 +131,8 @@
           {/if}
         </span>
         <span class="flex gap-2 text-[11px] text-muted items-center flex-wrap">
-          {#if wt.agentName}
-            <span>{wt.agentName}</span>
+          {#if wt.agentLabel ?? wt.agentName}
+            <span>{wt.agentLabel ?? wt.agentName}</span>
           {/if}
           {#if wt.profile}
             <span>{wt.profile}</span>

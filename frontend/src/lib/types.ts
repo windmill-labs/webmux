@@ -81,6 +81,7 @@ export interface WorktreeInfo {
   elapsed: string;
   profile: string | null;
   agentName: AgentId | null;
+  agentLabel: string | null;
   services: ServiceStatus[];
   paneCount: number;
   prs: PrEntry[];

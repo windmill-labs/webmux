@@ -37,9 +37,9 @@
 
 ## 6. Update worktree metadata and snapshots
 - [x] Store dynamic agent identity in worktree metadata.
-- [ ] Expose both agent id and label in snapshot responses.
+- [x] Expose both agent id and label in snapshot responses.
 - [x] Update reconciliation and runtime state logic to stop relying on a fixed agent union.
-- [ ] Ensure existing worktree list/detail responses remain stable except for the new dynamic fields.
+- [x] Ensure existing worktree list/detail responses remain stable except for the new dynamic fields.
 
 ## 7. Make conversation features capability-driven
 - Add capability checks for chat/history/interrupt support.
@@ -73,9 +73,9 @@
 - [x] Persist the preferred default selection locally if desired.
 
 ## 11. Update worktree list and detail UI
-- Display agent labels from the backend instead of hardcoded names.
-- Hide or disable chat affordances for terminal-only agents.
-- Add clear UI messaging when a selected or running agent does not support in-app chat.
+- [x] Display agent labels from the backend instead of hardcoded names.
+- [ ] Hide or disable chat affordances for terminal-only agents.
+- [x] Add clear UI messaging when a selected or running agent does not support in-app chat.
 
 ## 12. Update CLI worktree creation support
 - [x] Keep CLI management out of scope.

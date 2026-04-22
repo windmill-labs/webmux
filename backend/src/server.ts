@@ -49,7 +49,7 @@ import { isRecord, isStringArray } from "./lib/type-guards";
 import { parseJsonBody, parseParams, parseQuery } from "./api-validation";
 import { hasRecentDashboardActivity, touchDashboardActivity } from "./services/dashboard-activity";
 import { buildArchivedWorktreePathSet, normalizeArchivePath } from "./services/archive-service";
-import { isBuiltInAgentId, listAgentDetails, listAgentSummaries, normalizeCustomAgentId } from "./services/agent-registry";
+import { getAgentDefinition, isBuiltInAgentId, listAgentDetails, listAgentSummaries, normalizeCustomAgentId } from "./services/agent-registry";
 import {
   branchMatchesIssue,
   buildLinearIssuesResponse,
@@ -453,6 +453,10 @@ async function readProjectSnapshot(): Promise<ProjectSnapshot> {
             state: match.state,
           }
         : null;
+    },
+    findAgentLabel: (agentId) => {
+      if (!agentId) return null;
+      return getAgentDefinition(config, agentId)?.label ?? agentId;
     },
   });
 }

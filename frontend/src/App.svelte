@@ -1149,8 +1149,11 @@
             {#if selectedWorktree.profile}
               <span class="text-xs text-muted">Profile: {selectedWorktree.profile}</span>
             {/if}
-            {#if selectedWorktree.agentName}
-              <span class="text-xs text-muted">Agent: {selectedWorktree.agentName}</span>
+            {#if selectedWorktree.agentLabel ?? selectedWorktree.agentName}
+              <span class="text-xs text-muted">Agent: {selectedWorktree.agentLabel ?? selectedWorktree.agentName}</span>
+            {/if}
+            {#if selectedWorktree.agentName && !supportsWorktreeChat(selectedWorktree)}
+              <span class="text-xs text-muted">This agent runs in the terminal only.</span>
             {/if}
           </div>
           <button

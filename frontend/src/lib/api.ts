@@ -48,6 +48,7 @@ function mapWorktree(snapshot: ProjectWorktreeSnapshot): WorktreeInfo {
     elapsed: snapshot.elapsed,
     profile: snapshot.profile,
     agentName: snapshot.agentName,
+    agentLabel: snapshot.agentLabel,
     services: snapshot.services,
     paneCount: snapshot.paneCount,
     prs: snapshot.prs,

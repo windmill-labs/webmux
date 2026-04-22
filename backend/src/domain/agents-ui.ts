@@ -14,6 +14,7 @@ export interface AgentsUiWorktreeSummary {
   archived: boolean;
   profile: string | null;
   agentName: AgentId | null;
+  agentLabel: string | null;
   mux: boolean;
   status: string;
   dirty: boolean;

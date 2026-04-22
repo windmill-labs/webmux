@@ -249,12 +249,6 @@
                   <div class="min-w-0 flex-1">
                     <div class="flex flex-wrap items-center gap-1.5">
                       <span class="text-[13px] text-primary">{agent.label}</span>
-                      <span class="rounded-full border border-edge px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted">
-                        {agent.kind}
-                      </span>
-                      <span class="rounded-full border border-edge px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted">
-                        {agent.capabilities.inAppChat ? 'chat' : 'terminal only'}
-                      </span>
                     </div>
                     <p class="mt-1 text-[11px] text-muted font-mono break-all">
                       {agent.startCommand ?? 'Built-in integration'}

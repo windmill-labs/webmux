@@ -376,22 +376,7 @@
                 onchange={() => toggleAgent(agentOption.id)}
                 class="mt-0.5 accent-[var(--accent)]"
               />
-              <span class="min-w-0 flex-1">
-                <span class="flex items-center gap-1.5 text-primary">
-                  <span class="truncate">{agentOption.label}</span>
-                  <span class="rounded-full border border-edge px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted">
-                    {agentOption.kind}
-                  </span>
-                </span>
-                <span class="mt-1 flex flex-wrap gap-1 text-[10px] uppercase tracking-wide text-muted">
-                  <span class="rounded-full border border-edge px-1.5 py-0.5">
-                    {agentOption.capabilities.inAppChat ? 'chat' : 'terminal only'}
-                  </span>
-                  {#if agentOption.capabilities.resume}
-                    <span class="rounded-full border border-edge px-1.5 py-0.5">resume</span>
-                  {/if}
-                </span>
-              </span>
+              <span class="min-w-0 flex-1 truncate text-primary">{agentOption.label}</span>
             </label>
           {/each}
         </div>

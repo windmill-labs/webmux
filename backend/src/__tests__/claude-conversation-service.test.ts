@@ -51,6 +51,7 @@ function makeWorktree(): WorktreeSnapshot {
     archived: false,
     profile: "default",
     agentName: "claude",
+    agentLabel: "Claude",
     mux: true,
     dirty: false,
     unpushed: false,

@@ -167,6 +167,7 @@ function makeWorktree(): WorktreeSnapshot {
     archived: false,
     profile: "default",
     agentName: "codex",
+    agentLabel: "Codex",
     mux: true,
     dirty: false,
     unpushed: false,

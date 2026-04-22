@@ -11,6 +11,7 @@ import type {
   FileUploadResult,
   ProjectWorktreeSnapshot,
   UpsertCustomAgentRequest,
+  ValidateCustomAgentResponse,
   WorktreeInfo,
 } from "./types";
 
@@ -149,6 +150,10 @@ export function updateAgent(id: string, body: UpsertCustomAgentRequest): Promise
 
 export function deleteAgent(id: string): Promise<void> {
   return api.deleteAgent({ params: { id } }).then(() => undefined);
+}
+
+export function validateAgent(body: UpsertCustomAgentRequest): Promise<ValidateCustomAgentResponse> {
+  return api.validateAgent({ body });
 }
 
 export function subscribeNotifications(

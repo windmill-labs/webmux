@@ -61,6 +61,11 @@ export const UpsertCustomAgentRequestSchema = z.object({
 export const AgentResponseSchema = z.object({
   agent: AgentDetailsSchema,
 });
+
+export const ValidateCustomAgentResponseSchema = z.object({
+  normalizedId: AgentIdSchema,
+  warnings: z.array(z.string()),
+});
 export const WorktreeCreationPhaseSchema = z.enum([
   "creating_worktree",
   "preparing_runtime",
@@ -450,6 +455,7 @@ export type AgentDetails = z.infer<typeof AgentDetailsSchema>;
 export type AgentListResponse = z.infer<typeof AgentListResponseSchema>;
 export type UpsertCustomAgentRequest = z.infer<typeof UpsertCustomAgentRequestSchema>;
 export type AgentResponse = z.infer<typeof AgentResponseSchema>;
+export type ValidateCustomAgentResponse = z.infer<typeof ValidateCustomAgentResponseSchema>;
 export type WorktreeCreateMode = z.infer<typeof WorktreeCreateModeSchema>;
 export type WorktreeCreationPhase = z.infer<typeof WorktreeCreationPhaseSchema>;
 export type AvailableBranch = z.infer<typeof AvailableBranchSchema>;

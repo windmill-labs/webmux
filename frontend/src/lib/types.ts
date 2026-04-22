@@ -21,6 +21,7 @@ export type {
   AgentListResponse,
   AgentResponse,
   AgentSummary,
+  ValidateCustomAgentResponse,
   AppConfig,
   AppNotification,
   AvailableBranch,

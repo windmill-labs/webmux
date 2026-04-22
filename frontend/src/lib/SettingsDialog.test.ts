@@ -13,9 +13,10 @@ vi.mock("./api", () => ({
   createAgent: vi.fn(),
   updateAgent: vi.fn(),
   deleteAgent: vi.fn(),
+  validateAgent: vi.fn(),
 }));
 
-import { api, createAgent, deleteAgent, fetchAgents } from "./api";
+import { api, createAgent, deleteAgent, fetchAgents, validateAgent } from "./api";
 
 const originalDialogShowModal = HTMLDialogElement.prototype.showModal;
 const originalDialogClose = HTMLDialogElement.prototype.close;
@@ -124,13 +125,14 @@ describe("SettingsDialog agent management", () => {
     expect(screen.getByText('gemini --prompt "${PROMPT}"')).toBeInTheDocument();
   });
 
-  it("creates and deletes custom agents", async () => {
+  it("validates, creates, and deletes custom agents", async () => {
     const onagentschange = vi.fn();
     vi.mocked(fetchAgents)
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([createAgentDetails()])
       .mockResolvedValueOnce([]);
     vi.mocked(createAgent).mockResolvedValue({ agent: createAgentDetails() });
+    vi.mocked(validateAgent).mockResolvedValue({ normalizedId: "gemini-cli", warnings: [] });
     vi.mocked(deleteAgent).mockResolvedValue();
     vi.mocked(api.fetchConfig)
       .mockResolvedValueOnce(createConfig({ agents: [createAgentSummary()] }))
@@ -152,6 +154,16 @@ describe("SettingsDialog agent management", () => {
     await fireEvent.click(screen.getByRole("button", { name: "Add agent" }));
     await fireEvent.input(screen.getByLabelText("Agent name"), { target: { value: "Gemini CLI" } });
     await fireEvent.input(screen.getByLabelText("Start command"), { target: { value: 'gemini --prompt "${PROMPT}"' } });
+    await fireEvent.click(screen.getByRole("button", { name: "Test" }));
+
+    await waitFor(() => {
+      expect(validateAgent).toHaveBeenCalledWith({
+        label: "Gemini CLI",
+        startCommand: 'gemini --prompt "${PROMPT}"',
+      });
+    });
+    expect(await screen.findByText("Configuration looks good.")).toBeInTheDocument();
+
     await fireEvent.click(screen.getAllByRole("button", { name: "Save" }).at(-1)!);
 
     await waitFor(() => {

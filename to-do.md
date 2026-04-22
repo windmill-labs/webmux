@@ -48,19 +48,19 @@
 - [x] Update backend endpoints to return clear errors or unsupported behavior when chat features are unavailable.
 
 ## 8. Extend frontend API contracts first
-- [ ] Add typed frontend API methods for agent CRUD and validation/test flows.
+- [x] Add typed frontend API methods for agent CRUD and validation/test flows.
 - [x] Extend app config fetching to include available agents and the default agent id.
 - [x] Update create-worktree request typing to send multiple selected agents.
 
 ## 9. Build the frontend agent-management UI
 - [x] Add an Agents section to settings or a dedicated management dialog.
 - [x] Show the list of built-in and custom agents.
-- [ ] Implement add/edit/delete/duplicate/test actions for custom agents.
+- [x] Implement add/edit/delete/duplicate/test actions for custom agents.
   - [x] add
   - [x] edit
   - [x] delete
   - [x] duplicate
-  - [ ] test
+  - [x] test
 - [x] Add form validation and placeholder help text.
 - [x] Make built-in agents visible but not editable/deletable.
 

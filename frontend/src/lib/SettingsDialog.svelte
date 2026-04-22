@@ -7,7 +7,7 @@
   import Toggle from "./Toggle.svelte";
   import ConfirmDialog from "./ConfirmDialog.svelte";
   import AgentEditorDialog from "./AgentEditorDialog.svelte";
-  import { api, createAgent, deleteAgent, fetchAgents, updateAgent } from "./api";
+  import { api, createAgent, deleteAgent, fetchAgents, updateAgent, validateAgent } from "./api";
   import type { AgentDetails, AgentSummary, UpsertCustomAgentRequest } from "./types";
 
   interface AgentEditorState {
@@ -177,6 +177,10 @@
     await loadAgentList();
     syncAgentSummaries();
     editor = null;
+  }
+
+  function handleValidateAgent(input: UpsertCustomAgentRequest) {
+    return validateAgent(input);
   }
 
   async function handleDeleteAgent(): Promise<void> {
@@ -353,6 +357,7 @@
     title={editor.title}
     initialValue={editor.initialValue}
     onsave={handleSaveAgent}
+    onvalidate={handleValidateAgent}
     onclose={() => (editor = null)}
   />
 {/if}

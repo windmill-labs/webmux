@@ -50,6 +50,7 @@ import { parseJsonBody, parseParams, parseQuery } from "./api-validation";
 import { hasRecentDashboardActivity, touchDashboardActivity } from "./services/dashboard-activity";
 import { buildArchivedWorktreePathSet, normalizeArchivePath } from "./services/archive-service";
 import { resolveAgentChatSupport } from "./services/agent-chat-service";
+import { validateCustomAgentInput } from "./services/agent-validation-service";
 import { getAgentDefinition, isBuiltInAgentId, listAgentDetails, listAgentSummaries, normalizeCustomAgentId } from "./services/agent-registry";
 import {
   branchMatchesIssue,
@@ -955,6 +956,12 @@ async function apiListAgents(): Promise<Response> {
   return jsonResponse({ agents: listAgentDetails(config) });
 }
 
+async function apiValidateAgent(req: Request): Promise<Response> {
+  const parsed = await parseJsonBody(req, UpsertCustomAgentRequestSchema);
+  if (!parsed.ok) return parsed.response;
+  return jsonResponse(validateCustomAgentInput(parsed.data));
+}
+
 async function apiCreateAgent(req: Request): Promise<Response> {
   const parsed = await parseJsonBody(req, UpsertCustomAgentRequestSchema);
   if (!parsed.ok) return parsed.response;
@@ -1285,6 +1292,10 @@ Bun.serve({
     [apiPaths.fetchAgents]: {
       GET: () => catching("GET /api/agents", () => apiListAgents()),
       POST: (req) => catching("POST /api/agents", () => apiCreateAgent(req)),
+    },
+
+    [apiPaths.validateAgent]: {
+      POST: (req) => catching("POST /api/agents/validate", () => apiValidateAgent(req)),
     },
 
     [apiPaths.updateAgent]: {

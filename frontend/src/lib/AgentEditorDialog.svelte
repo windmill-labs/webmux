@@ -1,13 +1,14 @@
 <script lang="ts">
   import BaseDialog from "./BaseDialog.svelte";
   import Btn from "./Btn.svelte";
-  import type { UpsertCustomAgentRequest } from "./types";
+  import type { UpsertCustomAgentRequest, ValidateCustomAgentResponse } from "./types";
   import { errorMessage } from "./utils";
 
   let {
     title,
     initialValue,
     onsave,
+    onvalidate,
     onclose,
   }: {
     title: string;
@@ -17,6 +18,7 @@
       resumeCommand: string;
     };
     onsave: (value: UpsertCustomAgentRequest) => Promise<void>;
+    onvalidate?: (value: UpsertCustomAgentRequest) => Promise<ValidateCustomAgentResponse>;
     onclose: () => void;
   } = $props();
 
@@ -25,7 +27,9 @@
   let resumeCommand = $state("");
   let initialized = false;
   let saving = $state(false);
+  let validating = $state(false);
   let error = $state<string | null>(null);
+  let validation = $state<ValidateCustomAgentResponse | null>(null);
   let canSave = $derived(label.trim().length > 0 && startCommand.trim().length > 0);
 
   $effect(() => {
@@ -36,17 +40,36 @@
     resumeCommand = initialValue.resumeCommand;
   });
 
+  function buildRequest(): UpsertCustomAgentRequest {
+    return {
+      label: label.trim(),
+      startCommand: startCommand.trim(),
+      ...(resumeCommand.trim() ? { resumeCommand: resumeCommand.trim() } : {}),
+    };
+  }
+
+  async function handleValidate(): Promise<void> {
+    if (!canSave || saving || validating || !onvalidate) return;
+    validating = true;
+    error = null;
+
+    try {
+      validation = await onvalidate(buildRequest());
+    } catch (err) {
+      error = errorMessage(err);
+      validation = null;
+    } finally {
+      validating = false;
+    }
+  }
+
   async function handleSubmit(): Promise<void> {
     if (!canSave || saving) return;
     saving = true;
     error = null;
 
     try {
-      await onsave({
-        label: label.trim(),
-        startCommand: startCommand.trim(),
-        ...(resumeCommand.trim() ? { resumeCommand: resumeCommand.trim() } : {}),
-      });
+      await onsave(buildRequest());
     } catch (err) {
       error = errorMessage(err);
     } finally {
@@ -106,12 +129,32 @@
       </p>
     </div>
 
+    {#if validation}
+      <div class="mb-4 rounded-lg border border-edge bg-surface/40 p-3 text-[12px]">
+        <p class="text-primary">Agent id: <span class="font-mono">{validation.normalizedId}</span></p>
+        {#if validation.warnings.length > 0}
+          <ul class="mt-2 space-y-1 text-muted">
+            {#each validation.warnings as warning}
+              <li>{warning}</li>
+            {/each}
+          </ul>
+        {:else}
+          <p class="mt-2 text-success">Configuration looks good.</p>
+        {/if}
+      </div>
+    {/if}
+
     {#if error}
       <p class="mb-4 text-[12px] text-danger">{error}</p>
     {/if}
 
     <div class="flex justify-end gap-2">
       <Btn type="button" onclick={onclose}>Cancel</Btn>
+      {#if onvalidate}
+        <Btn type="button" onclick={() => { void handleValidate(); }} disabled={!canSave || validating || saving}>
+          {validating ? "Testing..." : "Test"}
+        </Btn>
+      {/if}
       <Btn type="submit" variant="cta" disabled={!canSave || saving}>
         {saving ? "Saving..." : "Save"}
       </Btn>

@@ -85,24 +85,24 @@
 - [x] Update help text and tests accordingly.
 
 ## 13. Add backend tests
-- Registry tests
-- Config read/write tests for custom agents
-- Multi-agent target expansion tests
-- Launch command generation tests for custom agents
-- Validation tests for unknown/duplicate/invalid agents
-- Conversation capability tests for unsupported agents
+- [x] Registry tests
+- [x] Config read/write tests for custom agents
+- [x] Multi-agent target expansion tests
+- [x] Launch command generation tests for custom agents
+- [x] Validation tests for unknown/duplicate/invalid agents
+- [x] Conversation capability tests for unsupported agents
 
 ## 14. Add frontend tests
-- Settings agent-management flows
-- Create-worktree multi-select behavior
-- Branch preview behavior
-- Capability-driven chat visibility
-- API integration typing and state transitions
+- [x] Settings agent-management flows
+- [x] Create-worktree multi-select behavior
+- [x] Branch preview behavior
+- [ ] Capability-driven chat visibility
+- [x] API integration typing and state transitions
 
 ## 15. Add CLI tests
-- Parsing repeated or multiple agent selections
-- Validation behavior for invalid agent ids
-- Successful multi-agent worktree creation inputs
+- [x] Parsing repeated or multiple agent selections
+- [x] Validation behavior for invalid agent ids
+- [x] Successful multi-agent worktree creation inputs
 
 ## 16. Roll out incrementally
 - First land types and contracts.

@@ -144,6 +144,10 @@ describe("parseAddCommandArgs", () => {
     });
   });
 
+  it("rejects empty agent ids", () => {
+    expect(() => parseAddCommandArgs(["feature/search", "--agent", "   "])).toThrow("Agent id cannot be empty");
+  });
+
   it("returns null for help", () => {
     expect(parseAddCommandArgs(["--help"])).toBeNull();
   });

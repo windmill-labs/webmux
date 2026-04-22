@@ -587,6 +587,23 @@ describe("App create selection", () => {
     });
   });
 
+  it("shows prefixed branch previews when multiple agents are selected", async () => {
+    vi.mocked(fetchWorktrees).mockResolvedValue([]);
+
+    render(App);
+
+    await fireEvent.click(screen.getByTitle("New Worktree (Cmd+K)"));
+    await screen.findByText("New Worktree");
+
+    await fireEvent.click(screen.getByRole("checkbox", { name: /Codex builtin chat resume/i }));
+    await fireEvent.input(screen.getByLabelText(/Branch name/i), {
+      target: { value: "feature/new" },
+    });
+
+    expect(screen.getByText("claude-feature/new")).toBeInTheDocument();
+    expect(screen.getByText("codex-feature/new")).toBeInTheDocument();
+  });
+
   it("submits multi-agent worktree creation when multiple agents are selected", async () => {
     vi.mocked(fetchWorktrees).mockResolvedValue([]);
     vi.mocked(api.createWorktree).mockResolvedValue({

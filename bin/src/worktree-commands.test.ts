@@ -20,7 +20,11 @@ function stubLifecycleService(calls: Array<{ method: string; value: unknown }>) 
     async createWorktrees(input: CreateLifecycleWorktreesInput): Promise<{ primaryBranch: string; branches: string[] }> {
       calls.push({ method: "createWorktrees", value: input });
       const branch = input.branch ?? "generated-branch";
-      return { primaryBranch: `claude/${branch}`, branches: [`claude/${branch}`, `codex/${branch}`] };
+      const selectedAgents = input.agents ?? (input.agent ? [input.agent] : ["claude"]);
+      const branches = selectedAgents.length > 1
+        ? selectedAgents.map((agent) => `${agent}/${branch}`)
+        : [branch];
+      return { primaryBranch: branches[0] ?? branch, branches };
     },
     async openWorktree(branch: string): Promise<{ branch: string; worktreeId: string }> {
       calls.push({ method: "openWorktree", value: branch });
@@ -94,7 +98,7 @@ describe("parseAddCommandArgs", () => {
         branch: "feature/search",
         baseBranch: "release/2026.03",
         profile: "sandbox",
-        agent: "codex",
+        agents: ["codex"],
         prompt: "Fix the search ranking",
         envOverrides: {
           FOO: "bar",
@@ -114,7 +118,7 @@ describe("parseAddCommandArgs", () => {
 
   it("parses --existing with other flags", () => {
     expect(parseAddCommandArgs(["feature/search", "--existing", "--agent", "claude", "--detach"])).toEqual({
-      input: { branch: "feature/search", mode: "existing", agent: "claude" },
+      input: { branch: "feature/search", mode: "existing", agents: ["claude"] },
       detach: true,
     });
   });
@@ -133,9 +137,9 @@ describe("parseAddCommandArgs", () => {
     });
   });
 
-  it("parses --agent=both", () => {
-    expect(parseAddCommandArgs(["feature/search", "--agent=both"])).toEqual({
-      input: { branch: "feature/search", agent: "both" },
+  it("parses repeated --agent flags", () => {
+    expect(parseAddCommandArgs(["feature/search", "--agent=claude", "--agent", "gemini"])).toEqual({
+      input: { branch: "feature/search", agents: ["claude", "gemini"] },
       detach: false,
     });
   });
@@ -245,11 +249,11 @@ describe("runWorktreeCommand", () => {
     expect(exitCode).toBe(0);
     expect(calls).toEqual([
       {
-        method: "createWorktree",
+        method: "createWorktrees",
         value: {
           branch: "feature/search",
           baseBranch: "release/base",
-          agent: "codex",
+          agents: ["codex"],
           envOverrides: { FOO: "bar" },
         },
       },
@@ -280,7 +284,7 @@ describe("runWorktreeCommand", () => {
     expect(exitCode).toBe(0);
     expect(calls).toEqual([
       {
-        method: "createWorktree",
+        method: "createWorktrees",
         value: {
           branch: "feature/remote-branch",
           mode: "existing",
@@ -314,7 +318,7 @@ describe("runWorktreeCommand", () => {
     expect(switchCalls).toEqual([]);
   });
 
-  it("dispatches add --agent=both through createWorktrees and switches to primary branch", async () => {
+  it("dispatches repeated --agent flags through createWorktrees and switches to primary branch", async () => {
     const { runtime, calls } = makeRuntime();
     const stdout: string[] = [];
     const switchCalls: Array<{ projectDir: string; branch: string }> = [];
@@ -322,7 +326,7 @@ describe("runWorktreeCommand", () => {
     const exitCode = await runWorktreeCommand(
       {
         command: "add",
-        args: ["feature/search", "--agent=both"],
+        args: ["feature/search", "--agent=claude", "--agent=codex"],
         projectDir: "/repo",
         port: 5111,
       },
@@ -339,7 +343,7 @@ describe("runWorktreeCommand", () => {
         method: "createWorktrees",
         value: {
           branch: "feature/search",
-          agent: "both",
+          agents: ["claude", "codex"],
         },
       },
     ]);

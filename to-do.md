@@ -78,11 +78,11 @@
 - Add clear UI messaging when a selected or running agent does not support in-app chat.
 
 ## 12. Update CLI worktree creation support
-- Keep CLI management out of scope.
-- Update CLI create/add parsing to accept multiple agents.
-- Validate agent ids through the backend/runtime config path.
-- Ensure custom configured agents can be used from CLI worktree creation.
-- Update help text and tests accordingly.
+- [x] Keep CLI management out of scope.
+- [x] Update CLI create/add parsing to accept multiple agents.
+- [x] Validate agent ids through the backend/runtime config path.
+- [x] Ensure custom configured agents can be used from CLI worktree creation.
+- [x] Update help text and tests accordingly.
 
 ## 13. Add backend tests
 - Registry tests

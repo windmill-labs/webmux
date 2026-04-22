@@ -49,6 +49,7 @@ import { isRecord, isStringArray } from "./lib/type-guards";
 import { parseJsonBody, parseParams, parseQuery } from "./api-validation";
 import { hasRecentDashboardActivity, touchDashboardActivity } from "./services/dashboard-activity";
 import { buildArchivedWorktreePathSet, normalizeArchivePath } from "./services/archive-service";
+import { resolveAgentChatSupport } from "./services/agent-chat-service";
 import { getAgentDefinition, isBuiltInAgentId, listAgentDetails, listAgentSummaries, normalizeCustomAgentId } from "./services/agent-registry";
 import {
   branchMatchesIssue,
@@ -80,8 +81,6 @@ import { createWebmuxRuntime } from "./runtime";
 
 const PORT = parseInt(Bun.env.PORT || "5111", 10);
 const STATIC_DIR = Bun.env.WEBMUX_STATIC_DIR || "";
-// Codex can read Enter before tmux has fully flushed pasted bytes into the pane PTY.
-const CODEX_TMUX_PROMPT_SUBMIT_DELAY_MS = 200;
 const runtime = createWebmuxRuntime({
   port: PORT,
   projectDir: Bun.env.WEBMUX_PROJECT_DIR || process.cwd(),
@@ -501,12 +500,26 @@ async function resolveAgentsWorktree(branch: string): Promise<{
   };
 }
 
+function resolveWorktreeAgentChatSupport(worktree: WorktreeSnapshot, action: "chat" | "interrupt") {
+  return resolveAgentChatSupport({
+    agentId: worktree.agentName,
+    agentLabel: worktree.agentLabel,
+    agent: worktree.agentName ? getAgentDefinition(config, worktree.agentName) : null,
+    action,
+  });
+}
+
 async function apiAttachAgentsWorktree(branch: string): Promise<Response> {
   touchDashboardActivity();
   const resolved = await resolveAgentsWorktree(branch);
   if (!resolved.ok) return resolved.response;
 
-  const result = resolved.worktree.agentName === "claude"
+  const chatSupport = resolveWorktreeAgentChatSupport(resolved.worktree, "chat");
+  if (!chatSupport.ok) {
+    return errorResponse(chatSupport.error, chatSupport.status);
+  }
+
+  const result = chatSupport.data.provider === "claude"
     ? await claudeConversationService.attachWorktreeConversation(resolved.worktree)
     : await worktreeConversationService.attachWorktreeConversation(resolved.worktree);
   return result.ok
@@ -519,7 +532,12 @@ async function apiGetAgentsWorktreeHistory(branch: string): Promise<Response> {
   const resolved = await resolveAgentsWorktree(branch);
   if (!resolved.ok) return resolved.response;
 
-  const result = resolved.worktree.agentName === "claude"
+  const chatSupport = resolveWorktreeAgentChatSupport(resolved.worktree, "chat");
+  if (!chatSupport.ok) {
+    return errorResponse(chatSupport.error, chatSupport.status);
+  }
+
+  const result = chatSupport.data.provider === "claude"
     ? await claudeConversationService.readWorktreeConversation(resolved.worktree)
     : await worktreeConversationService.readWorktreeConversation(resolved.worktree);
   return result.ok
@@ -538,7 +556,12 @@ async function apiSendAgentsWorktreeMessage(branch: string, req: Request): Promi
     return errorResponse("Open this worktree in the main dashboard before sending messages here", 409);
   }
 
-  const conversationResult = resolved.worktree.agentName === "claude"
+  const chatSupport = resolveWorktreeAgentChatSupport(resolved.worktree, "chat");
+  if (!chatSupport.ok) {
+    return errorResponse(chatSupport.error, chatSupport.status);
+  }
+
+  const conversationResult = chatSupport.data.provider === "claude"
     ? await claudeConversationService.readWorktreeConversation(resolved.worktree)
     : await worktreeConversationService.readWorktreeConversation(resolved.worktree);
   if (!conversationResult.ok) {
@@ -553,7 +576,7 @@ async function apiSendAgentsWorktreeMessage(branch: string, req: Request): Promi
     parsed.data.text,
     0,
     undefined,
-    resolved.worktree.agentName === "codex" ? CODEX_TMUX_PROMPT_SUBMIT_DELAY_MS : 0,
+    chatSupport.data.submitDelayMs,
   );
   if (!sendResult.ok) {
     return errorResponse(sendResult.error, 503);
@@ -575,7 +598,12 @@ async function apiInterruptAgentsWorktree(branch: string): Promise<Response> {
     return errorResponse("Open this worktree in the main dashboard before interrupting it here", 409);
   }
 
-  const conversationResult = resolved.worktree.agentName === "claude"
+  const chatSupport = resolveWorktreeAgentChatSupport(resolved.worktree, "interrupt");
+  if (!chatSupport.ok) {
+    return errorResponse(chatSupport.error, chatSupport.status);
+  }
+
+  const conversationResult = chatSupport.data.provider === "claude"
     ? await claudeConversationService.readWorktreeConversation(resolved.worktree)
     : await worktreeConversationService.readWorktreeConversation(resolved.worktree);
   if (!conversationResult.ok) {
@@ -613,7 +641,15 @@ async function loadAgentsConversationSnapshot(
     };
   }
 
-  const result = resolved.worktree.agentName === "claude"
+  const chatSupport = resolveWorktreeAgentChatSupport(resolved.worktree, "chat");
+  if (!chatSupport.ok) {
+    return {
+      ok: false,
+      message: chatSupport.error,
+    };
+  }
+
+  const result = chatSupport.data.provider === "claude"
     ? await claudeConversationService.readWorktreeConversation(resolved.worktree)
     : await worktreeConversationService.readWorktreeConversation(resolved.worktree);
   return result.ok

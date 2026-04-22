@@ -73,7 +73,9 @@
   }
 
   function supportsWorktreeChat(worktree: WorktreeInfo | undefined): boolean {
-    return worktree?.agentName === "codex" || worktree?.agentName === "claude";
+    if (!worktree?.agentName) return false;
+    const agent = config.agents.find((candidate) => candidate.id === worktree.agentName);
+    return agent?.capabilities.inAppChat ?? (worktree.agentName === "codex" || worktree.agentName === "claude");
   }
 
   let config = $state<AppConfig>(createDefaultConfig());

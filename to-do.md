@@ -42,10 +42,10 @@
 - [x] Ensure existing worktree list/detail responses remain stable except for the new dynamic fields.
 
 ## 7. Make conversation features capability-driven
-- Add capability checks for chat/history/interrupt support.
-- Keep Claude and Codex wired to their existing adapters.
-- Treat custom agents as terminal-only by default.
-- Update backend endpoints to return clear errors or unsupported behavior when chat features are unavailable.
+- [x] Add capability checks for chat/history/interrupt support.
+- [x] Keep Claude and Codex wired to their existing adapters.
+- [x] Treat custom agents as terminal-only by default.
+- [x] Update backend endpoints to return clear errors or unsupported behavior when chat features are unavailable.
 
 ## 8. Extend frontend API contracts first
 - [ ] Add typed frontend API methods for agent CRUD and validation/test flows.
@@ -74,7 +74,7 @@
 
 ## 11. Update worktree list and detail UI
 - [x] Display agent labels from the backend instead of hardcoded names.
-- [ ] Hide or disable chat affordances for terminal-only agents.
+- [x] Hide or disable chat affordances for terminal-only agents.
 - [x] Add clear UI messaging when a selected or running agent does not support in-app chat.
 
 ## 12. Update CLI worktree creation support

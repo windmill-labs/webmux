@@ -1,6 +1,5 @@
 export type AgentKind = "claude" | "codex";
 export type AgentId = string;
-export type CreateWorktreeAgentSelection = AgentId | "both";
 export type RuntimeKind = "host" | "docker";
 
 export interface CustomAgentConfig {

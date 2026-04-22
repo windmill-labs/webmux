@@ -15,7 +15,7 @@ import {
 import { expandTemplate, getDefaultProfileName, isDockerProfile, type DockerProfileConfig } from "../adapters/config";
 import { type DockerGateway } from "../adapters/docker";
 import { buildProjectSessionName, buildWorktreeWindowName, type TmuxGateway } from "../adapters/tmux";
-import type { AgentId, CreateWorktreeAgentSelection, ProfileConfig, ProjectConfig, RuntimeKind } from "../domain/config";
+import type { AgentId, ProfileConfig, ProjectConfig, RuntimeKind } from "../domain/config";
 import type { WorktreeCreationPhase, WorktreeMeta } from "../domain/model";
 import { allocateServicePorts, isValidBranchName, isValidEnvKey } from "../domain/policies";
 import type { AutoNameGenerator } from "./auto-name-service";
@@ -143,7 +143,7 @@ export interface CreateLifecycleWorktreeInput {
 
 export interface CreateLifecycleWorktreesInput extends Omit<CreateLifecycleWorktreeInput, "agent"> {
   agents?: AgentId[];
-  agent?: CreateWorktreeAgentSelection;
+  agent?: AgentId;
 }
 
 export interface CreateLifecycleWorktreesResult {
@@ -445,9 +445,7 @@ export class LifecycleService {
   private resolveSelectedAgents(input: CreateLifecycleWorktreesInput): AgentId[] {
     const selectedAgents = input.agents && input.agents.length > 0
       ? input.agents
-      : input.agent === "both"
-        ? ["claude", "codex"]
-        : [input.agent ?? this.deps.config.workspace.defaultAgent];
+      : [input.agent ?? this.deps.config.workspace.defaultAgent];
 
     const dedupedAgentIds = [...new Set(selectedAgents.map((agent) => agent.trim()).filter((agent) => agent.length > 0))];
     if (dedupedAgentIds.length === 0) {

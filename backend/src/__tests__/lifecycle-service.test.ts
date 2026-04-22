@@ -541,6 +541,51 @@ describe("LifecycleService", () => {
     expect(reopenCommand).toContain('gemini resume --branch "$WEBMUX_AGENT_BRANCH"');
   });
 
+  it("reopens custom agents without resume support in fresh mode", async () => {
+    const repoRoot = await initRepo();
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const lifecycle = makeLifecycleService(
+      repoRoot,
+      tmux,
+      runtime,
+      new FakeDockerGateway(),
+      new FakeHookRunner(),
+      {
+        ...TEST_CONFIG,
+        profiles: {
+          ...TEST_CONFIG.profiles,
+          default: {
+            ...TEST_CONFIG.profiles.default,
+            systemPrompt: "Database: ${FRONTEND_PORT}",
+          },
+        },
+        agents: {
+          gemini: {
+            label: "Gemini CLI",
+            startCommand: 'gemini --system "${SYSTEM_PROMPT}" --task "${PROMPT}" --branch "${BRANCH}"',
+          },
+        },
+      },
+    );
+
+    await lifecycle.createWorktree({
+      branch: "feature/custom-fresh-reopen",
+      prompt: "fix the search flow",
+      agent: "gemini",
+    });
+
+    tmux.commands.length = 0;
+    await lifecycle.closeWorktree("feature/custom-fresh-reopen");
+    await lifecycle.openWorktree("feature/custom-fresh-reopen");
+
+    const reopenCommand = tmux.commands.at(-1)?.command;
+    expect(reopenCommand).toContain('gemini --system "$WEBMUX_AGENT_SYSTEM_PROMPT" --task "$WEBMUX_AGENT_PROMPT" --branch "$WEBMUX_AGENT_BRANCH"');
+    expect(reopenCommand).toContain("export WEBMUX_AGENT_SYSTEM_PROMPT='Database: ");
+    expect(reopenCommand).not.toContain("export WEBMUX_AGENT_SYSTEM_PROMPT=''");
+    expect(reopenCommand).not.toContain("gemini resume");
+  });
+
   it("reinstalls Claude runtime hooks after postCreate rewrites settings.local.json", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();

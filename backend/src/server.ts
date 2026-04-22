@@ -148,7 +148,7 @@ function getFrontendConfig(): {
   profiles: Array<{ name: string; systemPrompt?: string }>;
   agents: ReturnType<typeof listAgentSummaries>;
   defaultProfileName: string;
-  defaultAgentId: string;
+  defaultAgentId: ProjectConfig["workspace"]["defaultAgent"];
   autoName: boolean;
   linearCreateTicketOption: boolean;
   startupEnvs: ProjectConfig["startupEnvs"];
@@ -791,20 +791,16 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
   const baseBranch = body.baseBranch?.trim() ? body.baseBranch.trim() : undefined;
   const prompt = body.prompt?.trim() ? body.prompt.trim() : undefined;
   const profile = body.profile;
-  const agent = body.agent?.trim() || undefined;
-  const agents = body.agents?.map((entry) => entry.trim()).filter((entry) => entry.length > 0);
+  const agent = body.agent;
+  const agents = body.agents;
   const createLinearTicket = body.createLinearTicket === true;
   const linearTitle = body.linearTitle?.trim() ? body.linearTitle.trim() : undefined;
   const mode = body.mode;
-  const selectedAgents = agents && agents.length > 0
+  const selectedAgents = agents
     ? agents
     : agent
       ? [agent]
       : [config.workspace.defaultAgent];
-
-  if (body.agents && selectedAgents.length === 0) {
-    return errorResponse("At least one agent must be selected", 400);
-  }
 
   if (baseBranch && !isValidBranchName(baseBranch)) {
     return errorResponse("Invalid base branch name", 400);

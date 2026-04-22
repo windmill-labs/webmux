@@ -3,6 +3,7 @@
     AgentId,
     AgentSummary,
     AvailableBranch,
+    BuiltInAgentId,
     CreateWorktreeRequest,
     ProfileConfig,
     WorktreeCreateMode,
@@ -12,33 +13,6 @@
   import Btn from "./Btn.svelte";
   import StartupEnvFields from "./StartupEnvFields.svelte";
   import Toggle from "./Toggle.svelte";
-
-  const DEFAULT_AGENTS: AgentSummary[] = [
-    {
-      id: "claude",
-      label: "Claude",
-      kind: "builtin",
-      capabilities: {
-        terminal: true,
-        inAppChat: true,
-        conversationHistory: true,
-        interrupt: true,
-        resume: true,
-      },
-    },
-    {
-      id: "codex",
-      label: "Codex",
-      kind: "builtin",
-      capabilities: {
-        terminal: true,
-        inAppChat: true,
-        conversationHistory: true,
-        interrupt: true,
-        resume: true,
-      },
-    },
-  ];
 
   let {
     profiles = [],
@@ -64,7 +38,7 @@
     profiles: ProfileConfig[];
     agents?: AgentSummary[];
     defaultProfileName?: string;
-    defaultAgentId?: AgentId;
+    defaultAgentId?: BuiltInAgentId;
     autoNameEnabled?: boolean;
     initialBranch?: string;
     initialPrompt?: string;
@@ -126,9 +100,13 @@
   }
 
   const savedAgentIds = loadSavedAgentIds();
-  let availableAgentOptions = $derived(agents.length > 0 ? agents : DEFAULT_AGENTS);
+  let availableAgentOptions = $derived(agents);
   let fallbackProfile = $derived(defaultProfileName || profiles[0]?.name || "default");
-  let fallbackAgentId = $derived(defaultAgentId || availableAgentOptions[0]?.id || "claude");
+  let fallbackAgentId = $derived(
+    availableAgentOptions.some((agent) => agent.id === defaultAgentId)
+      ? defaultAgentId
+      : (availableAgentOptions[0]?.id ?? ""),
+  );
   let mode = $state<WorktreeCreateMode>("new");
   // svelte-ignore state_referenced_locally
   let newBranchName = $state(initialBranch);
@@ -379,39 +357,45 @@
           <span class="text-[11px] text-muted">Creates one worktree per agent</span>
         {/if}
       </div>
-      <div class="grid gap-2 sm:grid-cols-2">
-        {#each availableAgentOptions as agentOption}
-          <label
-            class="flex items-start gap-2.5 p-2.5 rounded-lg border cursor-pointer text-[13px] transition-colors
-              {selectedAgentIds.includes(agentOption.id)
-              ? 'border-accent bg-accent/10'
-              : 'border-edge hover:bg-hover'}"
-          >
-            <input
-              type="checkbox"
-              checked={selectedAgentIds.includes(agentOption.id)}
-              onchange={() => toggleAgent(agentOption.id)}
-              class="mt-0.5 accent-[var(--accent)]"
-            />
-            <span class="min-w-0 flex-1">
-              <span class="flex items-center gap-1.5 text-primary">
-                <span class="truncate">{agentOption.label}</span>
-                <span class="rounded-full border border-edge px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted">
-                  {agentOption.kind}
+      {#if availableAgentOptions.length === 0}
+        <p class="rounded-lg border border-edge bg-surface px-3 py-2 text-[12px] text-muted">
+          No agents available.
+        </p>
+      {:else}
+        <div class="grid gap-2 sm:grid-cols-2">
+          {#each availableAgentOptions as agentOption}
+            <label
+              class="flex items-start gap-2.5 p-2.5 rounded-lg border cursor-pointer text-[13px] transition-colors
+                {selectedAgentIds.includes(agentOption.id)
+                ? 'border-accent bg-accent/10'
+                : 'border-edge hover:bg-hover'}"
+            >
+              <input
+                type="checkbox"
+                checked={selectedAgentIds.includes(agentOption.id)}
+                onchange={() => toggleAgent(agentOption.id)}
+                class="mt-0.5 accent-[var(--accent)]"
+              />
+              <span class="min-w-0 flex-1">
+                <span class="flex items-center gap-1.5 text-primary">
+                  <span class="truncate">{agentOption.label}</span>
+                  <span class="rounded-full border border-edge px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted">
+                    {agentOption.kind}
+                  </span>
+                </span>
+                <span class="mt-1 flex flex-wrap gap-1 text-[10px] uppercase tracking-wide text-muted">
+                  <span class="rounded-full border border-edge px-1.5 py-0.5">
+                    {agentOption.capabilities.inAppChat ? 'chat' : 'terminal only'}
+                  </span>
+                  {#if agentOption.capabilities.resume}
+                    <span class="rounded-full border border-edge px-1.5 py-0.5">resume</span>
+                  {/if}
                 </span>
               </span>
-              <span class="mt-1 flex flex-wrap gap-1 text-[10px] uppercase tracking-wide text-muted">
-                <span class="rounded-full border border-edge px-1.5 py-0.5">
-                  {agentOption.capabilities.inAppChat ? 'chat' : 'terminal only'}
-                </span>
-                {#if agentOption.capabilities.resume}
-                  <span class="rounded-full border border-edge px-1.5 py-0.5">resume</span>
-                {/if}
-              </span>
-            </span>
-          </label>
-        {/each}
-      </div>
+            </label>
+          {/each}
+        </div>
+      {/if}
     </div>
     {#if profiles.length > 1}
       <div class="flex flex-col gap-2 mb-6">

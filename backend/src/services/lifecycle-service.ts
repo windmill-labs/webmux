@@ -238,12 +238,12 @@ export class LifecycleService {
   }> {
     try {
       const resolved = await this.resolveExistingWorktree(branch);
-      const launchMode: AgentLaunchMode = resolved.meta ? "resume" : "fresh";
       const initialized = resolved.meta
         ? await this.refreshManagedArtifacts(resolved)
         : await this.initializeUnmanagedWorktree(resolved);
       const { profileName, profile } = this.resolveProfile(initialized.meta.profile);
       const agent = this.resolveAgentDefinition(initialized.meta.agent);
+      const launchMode: AgentLaunchMode = resolved.meta && agent.capabilities.resume ? "resume" : "fresh";
       await ensureAgentRuntimeArtifacts({
         gitDir: initialized.paths.gitDir,
         worktreePath: resolved.entry.path,

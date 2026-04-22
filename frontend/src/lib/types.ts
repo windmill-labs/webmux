@@ -1,5 +1,6 @@
 import type {
   AgentId,
+  BuiltInAgentId,
   LinkedLinearIssue,
   PrEntry,
   ServiceStatus,
@@ -18,6 +19,7 @@ export type {
   AgentDetails,
   AgentId,
   AgentKind,
+  BuiltInAgentId,
   AgentListResponse,
   AgentResponse,
   AgentSummary,
@@ -28,7 +30,6 @@ export type {
   AvailableBranchesQuery,
   BranchListResponse,
   CiCheck,
-  CreateWorktreeAgentSelection,
   CreateWorktreeRequest,
   CreateWorktreeResponse,
   LinearIssue,

@@ -20,7 +20,7 @@ export const EnabledResponseSchema = z.object({
 });
 
 export const BuiltInAgentIdSchema = z.enum(["claude", "codex"]);
-export const AgentIdSchema = z.string().min(1);
+export const AgentIdSchema = z.string().trim().min(1);
 export const AgentKindSchema = BuiltInAgentIdSchema;
 export const WorktreeCreateModeSchema = z.enum(["new", "existing"]);
 
@@ -414,7 +414,7 @@ export const AppConfigSchema = z.object({
   profiles: z.array(ProfileConfigSchema),
   agents: z.array(AgentSummarySchema),
   defaultProfileName: z.string(),
-  defaultAgentId: AgentIdSchema,
+  defaultAgentId: BuiltInAgentIdSchema,
   autoName: z.boolean(),
   linearCreateTicketOption: z.boolean(),
   startupEnvs: z.record(z.union([z.string(), z.boolean()])),
@@ -448,7 +448,6 @@ export const RunIdParamsSchema = z.object({
 export type BuiltInAgentId = z.infer<typeof BuiltInAgentIdSchema>;
 export type AgentId = z.infer<typeof AgentIdSchema>;
 export type AgentKind = z.infer<typeof AgentKindSchema>;
-export type CreateWorktreeAgentSelection = AgentId;
 export type AgentCapabilities = z.infer<typeof AgentCapabilitiesSchema>;
 export type AgentSummary = z.infer<typeof AgentSummarySchema>;
 export type AgentDetails = z.infer<typeof AgentDetailsSchema>;

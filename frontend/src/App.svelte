@@ -1257,6 +1257,7 @@
     onthemechange={(key) => (currentTheme = key)}
     onlinearautocreatechange={(enabled) => { config.linearAutoCreateWorktrees = enabled; }}
     onautoremovechange={(enabled) => { config.autoRemoveOnMerge = enabled; }}
+    onagentschange={(agents) => { config.agents = agents; }}
     onsave={(host) => {
       sshHost = host;
       showSettingsDialog = false;

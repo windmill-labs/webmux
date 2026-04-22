@@ -1,11 +1,25 @@
 <script lang="ts">
   import type { ThemeKey } from "./themes";
-  import { SSH_STORAGE_KEY, applyTheme } from "./utils";
+  import { SSH_STORAGE_KEY, applyTheme, errorMessage } from "./utils";
   import { THEMES } from "./themes";
   import BaseDialog from "./BaseDialog.svelte";
   import Btn from "./Btn.svelte";
   import Toggle from "./Toggle.svelte";
-  import { api } from "./api";
+  import ConfirmDialog from "./ConfirmDialog.svelte";
+  import AgentEditorDialog from "./AgentEditorDialog.svelte";
+  import { api, createAgent, deleteAgent, fetchAgents, updateAgent } from "./api";
+  import type { AgentDetails, AgentSummary, UpsertCustomAgentRequest } from "./types";
+
+  interface AgentEditorState {
+    mode: "create" | "edit";
+    agentId?: string;
+    title: string;
+    initialValue: {
+      label: string;
+      startCommand: string;
+      resumeCommand: string;
+    };
+  }
 
   let {
     currentTheme,
@@ -14,6 +28,7 @@
     onthemechange,
     onlinearautocreatechange,
     onautoremovechange,
+    onagentschange,
     onsave,
     onclose,
   }: {
@@ -23,6 +38,7 @@
     onthemechange: (key: ThemeKey) => void;
     onlinearautocreatechange: (enabled: boolean) => void;
     onautoremovechange: (enabled: boolean) => void;
+    onagentschange: (agents: AgentSummary[]) => void;
     onsave: (sshHost: string) => void;
     onclose: () => void;
   } = $props();
@@ -35,6 +51,41 @@
   let pendingAutoRemove = $state<boolean | null>(null);
   let autoRemove = $derived(pendingAutoRemove ?? autoRemoveOnMerge);
   let autoRemoveSaving = $state(false);
+
+  let agents = $state<AgentDetails[]>([]);
+  let agentsLoading = $state(true);
+  let agentsError = $state<string | null>(null);
+  let agentsLoaded = false;
+  let editor = $state<AgentEditorState | null>(null);
+  let deleteCandidate = $state<AgentDetails | null>(null);
+  let deletingAgentId = $state<string | null>(null);
+
+  async function loadAgentList(): Promise<void> {
+    agentsLoading = true;
+    agentsError = null;
+
+    try {
+      agents = await fetchAgents();
+    } catch (err) {
+      agentsError = errorMessage(err);
+    } finally {
+      agentsLoading = false;
+    }
+  }
+
+  function syncAgentSummaries(): void {
+    api.fetchConfig()
+      .then((config) => {
+        onagentschange(config.agents);
+      })
+      .catch(() => {});
+  }
+
+  $effect(() => {
+    if (agentsLoaded) return;
+    agentsLoaded = true;
+    void loadAgentList();
+  });
 
   function handleAutoCreateToggle(enabled: boolean) {
     pendingAutoCreate = enabled;
@@ -76,10 +127,75 @@
     applyTheme(key);
     onthemechange(key);
   }
+
+  function openCreateAgentEditor(): void {
+    editor = {
+      mode: "create",
+      title: "Add custom agent",
+      initialValue: {
+        label: "",
+        startCommand: "",
+        resumeCommand: "",
+      },
+    };
+  }
+
+  function openEditAgentEditor(agent: AgentDetails): void {
+    editor = {
+      mode: "edit",
+      agentId: agent.id,
+      title: `Edit ${agent.label}`,
+      initialValue: {
+        label: agent.label,
+        startCommand: agent.startCommand ?? "",
+        resumeCommand: agent.resumeCommand ?? "",
+      },
+    };
+  }
+
+  function openDuplicateAgentEditor(agent: AgentDetails): void {
+    editor = {
+      mode: "create",
+      title: `Duplicate ${agent.label}`,
+      initialValue: {
+        label: `${agent.label} Copy`,
+        startCommand: agent.startCommand ?? "",
+        resumeCommand: agent.resumeCommand ?? "",
+      },
+    };
+  }
+
+  async function handleSaveAgent(input: UpsertCustomAgentRequest): Promise<void> {
+    if (!editor) return;
+
+    if (editor.mode === "edit" && editor.agentId) {
+      await updateAgent(editor.agentId, input);
+    } else {
+      await createAgent(input);
+    }
+
+    await loadAgentList();
+    syncAgentSummaries();
+    editor = null;
+  }
+
+  async function handleDeleteAgent(): Promise<void> {
+    if (!deleteCandidate) return;
+    deletingAgentId = deleteCandidate.id;
+
+    try {
+      await deleteAgent(deleteCandidate.id);
+      await loadAgentList();
+      syncAgentSummaries();
+      deleteCandidate = null;
+    } finally {
+      deletingAgentId = null;
+    }
+  }
 </script>
 
 <BaseDialog {onclose} wide>
-  <form onsubmit={(e) => { e.preventDefault(); handleSave(); }}>
+  <form onsubmit={(event) => { event.preventDefault(); handleSave(); }}>
     <h2 class="text-base mb-4">Settings</h2>
 
     <div class="mb-5">
@@ -101,6 +217,74 @@
             <span>{theme.label}</span>
           </button>
         {/each}
+      </div>
+    </div>
+
+    <div class="mb-5">
+      <span class="block text-xs text-muted mb-2">Agents</span>
+      <div class="rounded-lg border border-edge bg-surface/40 p-3">
+        <div class="mb-3 flex items-center justify-between gap-2">
+          <div>
+            <p class="text-[13px] text-primary">Custom agents</p>
+            <p class="mt-0.5 text-[11px] text-muted">
+              Add terminal agents that webmux can launch alongside the built-in Claude and Codex integrations.
+            </p>
+          </div>
+          <Btn type="button" variant="cta" onclick={openCreateAgentEditor}>Add agent</Btn>
+        </div>
+
+        {#if agentsLoading}
+          <p class="text-[12px] text-muted">Loading agents...</p>
+        {:else if agentsError}
+          <p class="text-[12px] text-danger">{agentsError}</p>
+        {:else}
+          <div class="space-y-2">
+            {#each agents as agent (agent.id)}
+              <div class="rounded-lg border border-edge bg-surface px-3 py-2.5">
+                <div class="flex items-start justify-between gap-3">
+                  <div class="min-w-0 flex-1">
+                    <div class="flex flex-wrap items-center gap-1.5">
+                      <span class="text-[13px] text-primary">{agent.label}</span>
+                      <span class="rounded-full border border-edge px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted">
+                        {agent.kind}
+                      </span>
+                      <span class="rounded-full border border-edge px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted">
+                        {agent.capabilities.inAppChat ? 'chat' : 'terminal only'}
+                      </span>
+                    </div>
+                    <p class="mt-1 text-[11px] text-muted font-mono break-all">
+                      {agent.startCommand ?? 'Built-in integration'}
+                    </p>
+                    {#if agent.resumeCommand}
+                      <p class="mt-1 text-[11px] text-muted font-mono break-all">
+                        Resume: {agent.resumeCommand}
+                      </p>
+                    {/if}
+                  </div>
+
+                  {#if agent.kind === 'custom'}
+                    <div class="flex shrink-0 gap-2 text-[11px]">
+                      <button type="button" class="text-accent hover:underline" onclick={() => openEditAgentEditor(agent)}>
+                        Edit
+                      </button>
+                      <button type="button" class="text-accent hover:underline" onclick={() => openDuplicateAgentEditor(agent)}>
+                        Duplicate
+                      </button>
+                      <button
+                        type="button"
+                        class="text-danger hover:underline disabled:opacity-60"
+                        disabled={deletingAgentId === agent.id}
+                        onclick={() => (deleteCandidate = agent)}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  {/if}
+                </div>
+              </div>
+            {/each}
+          </div>
+        {/if}
       </div>
     </div>
 
@@ -163,3 +347,24 @@
     </div>
   </form>
 </BaseDialog>
+
+{#if editor}
+  <AgentEditorDialog
+    title={editor.title}
+    initialValue={editor.initialValue}
+    onsave={handleSaveAgent}
+    onclose={() => (editor = null)}
+  />
+{/if}
+
+{#if deleteCandidate}
+  <ConfirmDialog
+    message={`Delete agent "${deleteCandidate.label}"?`}
+    onconfirm={() => {
+      void handleDeleteAgent();
+    }}
+    oncancel={() => {
+      deleteCandidate = null;
+    }}
+  />
+{/if}

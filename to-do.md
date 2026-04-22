@@ -53,11 +53,16 @@
 - [x] Update create-worktree request typing to send multiple selected agents.
 
 ## 9. Build the frontend agent-management UI
-- Add an Agents section to settings or a dedicated management dialog.
-- Show the list of built-in and custom agents.
-- Implement add/edit/delete/duplicate/test actions for custom agents.
-- Add form validation and placeholder help text.
-- Make built-in agents visible but not editable/deletable.
+- [x] Add an Agents section to settings or a dedicated management dialog.
+- [x] Show the list of built-in and custom agents.
+- [ ] Implement add/edit/delete/duplicate/test actions for custom agents.
+  - [x] add
+  - [x] edit
+  - [x] delete
+  - [x] duplicate
+  - [ ] test
+- [x] Add form validation and placeholder help text.
+- [x] Make built-in agents visible but not editable/deletable.
 
 ## 10. Update the create-worktree dialog UX
 - [x] Replace fixed radio options with dynamic multi-select agent UI.

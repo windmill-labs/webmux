@@ -1,5 +1,7 @@
 import { AgentsUiConversationEventSchema, apiPaths, createApi } from "@webmux/api-contract";
 import type {
+  AgentDetails,
+  AgentResponse,
   AgentsUiConversationEvent,
   AgentsUiInterruptResponse,
   AgentsUiSendMessageRequest,
@@ -8,6 +10,8 @@ import type {
   AppNotification,
   FileUploadResult,
   ProjectWorktreeSnapshot,
+  UpsertCustomAgentRequest,
+  ValidateCustomAgentResponse,
   WorktreeInfo,
 } from "./types";
 
@@ -45,6 +49,7 @@ function mapWorktree(snapshot: ProjectWorktreeSnapshot): WorktreeInfo {
     elapsed: snapshot.elapsed,
     profile: snapshot.profile,
     agentName: snapshot.agentName,
+    agentLabel: snapshot.agentLabel,
     services: snapshot.services,
     paneCount: snapshot.paneCount,
     prs: snapshot.prs,
@@ -129,6 +134,26 @@ export function connectWorktreeConversationStream(
     closedByClient = true;
     socket.close();
   };
+}
+
+export function fetchAgents(): Promise<AgentDetails[]> {
+  return api.fetchAgents().then((response) => response.agents);
+}
+
+export function createAgent(body: UpsertCustomAgentRequest): Promise<AgentResponse> {
+  return api.createAgent({ body });
+}
+
+export function updateAgent(id: string, body: UpsertCustomAgentRequest): Promise<AgentResponse> {
+  return api.updateAgent({ params: { id }, body });
+}
+
+export function deleteAgent(id: string): Promise<void> {
+  return api.deleteAgent({ params: { id } }).then(() => undefined);
+}
+
+export function validateAgent(body: UpsertCustomAgentRequest): Promise<ValidateCustomAgentResponse> {
+  return api.validateAgent({ body });
 }
 
 export function subscribeNotifications(

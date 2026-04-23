@@ -19,9 +19,53 @@ export const EnabledResponseSchema = z.object({
   enabled: z.boolean(),
 });
 
-export const AgentKindSchema = z.enum(["claude", "codex"]);
-export const CreateWorktreeAgentSelectionSchema = z.enum(["claude", "codex", "both"]);
+export const BuiltInAgentIdSchema = z.enum(["claude", "codex"]);
+export const AgentIdSchema = z.string().trim().min(1);
+export const AgentKindSchema = BuiltInAgentIdSchema;
 export const WorktreeCreateModeSchema = z.enum(["new", "existing"]);
+
+export const AgentCapabilitiesSchema = z.object({
+  terminal: z.literal(true),
+  inAppChat: z.boolean(),
+  conversationHistory: z.boolean(),
+  interrupt: z.boolean(),
+  resume: z.boolean(),
+});
+
+export const AgentSummarySchema = z.object({
+  id: AgentIdSchema,
+  label: z.string(),
+  kind: z.enum(["builtin", "custom"]),
+  capabilities: AgentCapabilitiesSchema,
+});
+
+export const AgentDetailsSchema = z.object({
+  id: AgentIdSchema,
+  label: z.string(),
+  kind: z.enum(["builtin", "custom"]),
+  capabilities: AgentCapabilitiesSchema,
+  startCommand: z.string().nullable(),
+  resumeCommand: z.string().nullable(),
+});
+
+export const AgentListResponseSchema = z.object({
+  agents: z.array(AgentDetailsSchema),
+});
+
+export const UpsertCustomAgentRequestSchema = z.object({
+  label: z.string().trim().min(1),
+  startCommand: z.string().trim().min(1),
+  resumeCommand: z.string().trim().optional(),
+});
+
+export const AgentResponseSchema = z.object({
+  agent: AgentDetailsSchema,
+});
+
+export const ValidateCustomAgentResponseSchema = z.object({
+  normalizedId: AgentIdSchema,
+  warnings: z.array(z.string()),
+});
 export const WorktreeCreationPhaseSchema = z.enum([
   "creating_worktree",
   "preparing_runtime",
@@ -52,7 +96,8 @@ export const CreateWorktreeRequestSchema = z.object({
   branch: z.string().optional(),
   baseBranch: z.string().optional(),
   profile: z.string().optional(),
-  agent: CreateWorktreeAgentSelectionSchema.optional(),
+  agent: AgentIdSchema.optional(),
+  agents: z.array(AgentIdSchema).min(1).optional(),
   prompt: z.string().optional(),
   envOverrides: z.record(z.string()).optional(),
   createLinearTicket: z.literal(true).optional(),
@@ -205,7 +250,8 @@ export const ProjectWorktreeSnapshotSchema = z.object({
   dir: z.string(),
   archived: z.boolean(),
   profile: z.string().nullable(),
-  agentName: AgentKindSchema.nullable(),
+  agentName: AgentIdSchema.nullable(),
+  agentLabel: z.string().nullable(),
   mux: z.boolean(),
   dirty: z.boolean(),
   unpushed: z.boolean(),
@@ -256,7 +302,8 @@ export const AgentsUiWorktreeSummarySchema = z.object({
   path: z.string(),
   archived: z.boolean(),
   profile: z.string().nullable(),
-  agentName: AgentKindSchema.nullable(),
+  agentName: AgentIdSchema.nullable(),
+  agentLabel: z.string().nullable(),
   mux: z.boolean(),
   status: z.string(),
   dirty: z.boolean(),
@@ -365,7 +412,9 @@ export const AppConfigSchema = z.object({
   name: z.string(),
   services: z.array(ServiceConfigSchema),
   profiles: z.array(ProfileConfigSchema),
+  agents: z.array(AgentSummarySchema),
   defaultProfileName: z.string(),
+  defaultAgentId: BuiltInAgentIdSchema,
   autoName: z.boolean(),
   linearCreateTicketOption: z.boolean(),
   startupEnvs: z.record(z.union([z.string(), z.boolean()])),
@@ -388,12 +437,24 @@ export const NotificationIdParamsSchema = z.object({
   id: NumberLikePathParamSchema,
 });
 
+export const AgentIdParamsSchema = z.object({
+  id: AgentIdSchema,
+});
+
 export const RunIdParamsSchema = z.object({
   runId: NumberLikePathParamSchema,
 });
 
+export type BuiltInAgentId = z.infer<typeof BuiltInAgentIdSchema>;
+export type AgentId = z.infer<typeof AgentIdSchema>;
 export type AgentKind = z.infer<typeof AgentKindSchema>;
-export type CreateWorktreeAgentSelection = z.infer<typeof CreateWorktreeAgentSelectionSchema>;
+export type AgentCapabilities = z.infer<typeof AgentCapabilitiesSchema>;
+export type AgentSummary = z.infer<typeof AgentSummarySchema>;
+export type AgentDetails = z.infer<typeof AgentDetailsSchema>;
+export type AgentListResponse = z.infer<typeof AgentListResponseSchema>;
+export type UpsertCustomAgentRequest = z.infer<typeof UpsertCustomAgentRequestSchema>;
+export type AgentResponse = z.infer<typeof AgentResponseSchema>;
+export type ValidateCustomAgentResponse = z.infer<typeof ValidateCustomAgentResponseSchema>;
 export type WorktreeCreateMode = z.infer<typeof WorktreeCreateModeSchema>;
 export type WorktreeCreationPhase = z.infer<typeof WorktreeCreationPhaseSchema>;
 export type AvailableBranch = z.infer<typeof AvailableBranchSchema>;

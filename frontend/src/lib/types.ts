@@ -1,5 +1,6 @@
 import type {
-  AgentKind,
+  AgentId,
+  BuiltInAgentId,
   LinkedLinearIssue,
   PrEntry,
   ServiceStatus,
@@ -14,14 +15,21 @@ export type {
   AgentsUiInterruptResponse,
   AgentsUiSendMessageResponse,
   AgentsUiWorktreeConversationResponse,
+  AgentCapabilities,
+  AgentDetails,
+  AgentId,
   AgentKind,
+  BuiltInAgentId,
+  AgentListResponse,
+  AgentResponse,
+  AgentSummary,
+  ValidateCustomAgentResponse,
   AppConfig,
   AppNotification,
   AvailableBranch,
   AvailableBranchesQuery,
   BranchListResponse,
   CiCheck,
-  CreateWorktreeAgentSelection,
   CreateWorktreeRequest,
   CreateWorktreeResponse,
   LinearIssue,
@@ -38,6 +46,7 @@ export type {
   ProjectWorktreeSnapshot,
   PullMainResult,
   ServiceConfig,
+  UpsertCustomAgentRequest,
   ServiceStatus,
   SetWorktreeArchivedRequest,
   SetWorktreeArchivedResponse,
@@ -73,7 +82,8 @@ export interface WorktreeInfo {
   status: string;
   elapsed: string;
   profile: string | null;
-  agentName: AgentKind | null;
+  agentName: AgentId | null;
+  agentLabel: string | null;
   services: ServiceStatus[];
   paneCount: number;
   prs: PrEntry[];

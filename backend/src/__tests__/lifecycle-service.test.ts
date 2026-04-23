@@ -193,6 +193,7 @@ const TEST_CONFIG: ProjectConfig = {
       ],
     },
   },
+  agents: {},
   services: [
     {
       name: "frontend",
@@ -297,10 +298,14 @@ describe("LifecycleService", () => {
     return repoRoot;
   }
 
-  it("builds paired claude and codex targets from one task branch", () => {
-    expect(buildCreateWorktreeTargets("feature/search", "both")).toEqual([
+  it("builds original and agent-prefixed targets from selected agents", () => {
+    expect(buildCreateWorktreeTargets("feature/search", ["claude"])).toEqual([
+      { branch: "feature/search", agent: "claude" },
+    ]);
+    expect(buildCreateWorktreeTargets("feature/search", ["claude", "codex", "gemini"])).toEqual([
       { branch: "claude-feature/search", agent: "claude" },
       { branch: "codex-feature/search", agent: "codex" },
+      { branch: "gemini-feature/search", agent: "gemini" },
     ]);
   });
 
@@ -367,7 +372,7 @@ describe("LifecycleService", () => {
     expect(state?.session.paneCount).toBe(2);
   });
 
-  it("creates paired managed worktrees for both agents from one task branch", async () => {
+  it("creates one managed worktree per selected agent from one task branch", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
     const tmux = new FakeTmuxGateway();
@@ -377,7 +382,7 @@ describe("LifecycleService", () => {
     const created = await lifecycle.createWorktrees({
       branch: "feature/search",
       prompt: "fix the search flow",
-      agent: "both",
+      agents: ["claude", "codex"],
     });
 
     const claudeBranch = "claude-feature/search";
@@ -414,7 +419,7 @@ describe("LifecycleService", () => {
 
     await expect(lifecycle.createWorktrees({
       branch: "feature/search",
-      agent: "both",
+      agents: ["claude", "codex"],
     })).rejects.toThrow("Branch already exists: codex-feature/search");
 
     expect(run(["git", "branch", "--list", "codex-feature/search"], repoRoot)).toContain("codex-feature/search");
@@ -424,6 +429,29 @@ describe("LifecycleService", () => {
       buildProjectSessionName(repoRoot),
       buildWorktreeWindowName("claude-feature/search"),
     )).toBe(false);
+  });
+
+  it("rejects invalid multi-agent selections", async () => {
+    const repoRoot = await initRepo();
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const lifecycle = makeLifecycleService(repoRoot, tmux, runtime);
+
+    await expect(lifecycle.createWorktrees({
+      branch: "main",
+      mode: "existing",
+      agents: ["claude", "codex"],
+    })).rejects.toThrow("Creating multiple agents is only supported for new worktrees");
+
+    await expect(lifecycle.createWorktrees({
+      branch: "feature/search",
+      agents: ["", "   "],
+    })).rejects.toThrow("At least one agent must be selected");
+
+    await expect(lifecycle.createWorktrees({
+      branch: "feature/search",
+      agents: ["missing"],
+    })).rejects.toThrow("Unknown agent: missing");
   });
 
   it("refreshes runtime env after postCreate so system prompts see .env.local values", async () => {
@@ -465,6 +493,97 @@ describe("LifecycleService", () => {
 
     expect(runtimeEnvText).toContain(databaseUrl);
     expect(agentCommand).toContain(`Database: ${databaseUrl}`);
+  });
+
+  it("launches custom agents through interpolated command templates", async () => {
+    const repoRoot = await initRepo();
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const lifecycle = makeLifecycleService(
+      repoRoot,
+      tmux,
+      runtime,
+      new FakeDockerGateway(),
+      new FakeHookRunner(),
+      {
+        ...TEST_CONFIG,
+        agents: {
+          gemini: {
+            label: "Gemini CLI",
+            startCommand: 'gemini --task "${PROMPT}" --cwd "${WORKTREE_PATH}" --repo "${REPO_PATH}" --branch "${BRANCH}" --profile "${PROFILE}"',
+            resumeCommand: 'gemini resume --branch "${BRANCH}"',
+          },
+        },
+      },
+    );
+
+    await lifecycle.createWorktree({
+      branch: "feature/custom-agent",
+      prompt: "fix the search flow",
+      agent: "gemini",
+    });
+
+    const agentCommand = tmux.commands.at(-1)?.command;
+    const meta = await readWorktreeMeta(
+      new BunGitGateway().resolveWorktreeGitDir(join(repoRoot, "__worktrees", "feature", "custom-agent")),
+    );
+
+    expect(meta?.agent).toBe("gemini");
+    expect(agentCommand).toContain("export WEBMUX_AGENT_PROMPT='fix the search flow'");
+    expect(agentCommand).toContain(`export WEBMUX_AGENT_REPO_PATH='${repoRoot}'`);
+    expect(agentCommand).toContain('gemini --task "$WEBMUX_AGENT_PROMPT" --cwd "$WEBMUX_AGENT_WORKTREE_PATH" --repo "$WEBMUX_AGENT_REPO_PATH" --branch "$WEBMUX_AGENT_BRANCH" --profile "$WEBMUX_AGENT_PROFILE"');
+
+    tmux.commands.length = 0;
+    await lifecycle.closeWorktree("feature/custom-agent");
+    await lifecycle.openWorktree("feature/custom-agent");
+
+    const reopenCommand = tmux.commands.at(-1)?.command;
+    expect(reopenCommand).toContain('gemini resume --branch "$WEBMUX_AGENT_BRANCH"');
+  });
+
+  it("reopens custom agents without resume support in fresh mode", async () => {
+    const repoRoot = await initRepo();
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const lifecycle = makeLifecycleService(
+      repoRoot,
+      tmux,
+      runtime,
+      new FakeDockerGateway(),
+      new FakeHookRunner(),
+      {
+        ...TEST_CONFIG,
+        profiles: {
+          ...TEST_CONFIG.profiles,
+          default: {
+            ...TEST_CONFIG.profiles.default,
+            systemPrompt: "Database: ${FRONTEND_PORT}",
+          },
+        },
+        agents: {
+          gemini: {
+            label: "Gemini CLI",
+            startCommand: 'gemini --system "${SYSTEM_PROMPT}" --task "${PROMPT}" --branch "${BRANCH}"',
+          },
+        },
+      },
+    );
+
+    await lifecycle.createWorktree({
+      branch: "feature/custom-fresh-reopen",
+      prompt: "fix the search flow",
+      agent: "gemini",
+    });
+
+    tmux.commands.length = 0;
+    await lifecycle.closeWorktree("feature/custom-fresh-reopen");
+    await lifecycle.openWorktree("feature/custom-fresh-reopen");
+
+    const reopenCommand = tmux.commands.at(-1)?.command;
+    expect(reopenCommand).toContain('gemini --system "$WEBMUX_AGENT_SYSTEM_PROMPT" --task "$WEBMUX_AGENT_PROMPT" --branch "$WEBMUX_AGENT_BRANCH"');
+    expect(reopenCommand).toContain("export WEBMUX_AGENT_SYSTEM_PROMPT='Database: ");
+    expect(reopenCommand).not.toContain("export WEBMUX_AGENT_SYSTEM_PROMPT=''");
+    expect(reopenCommand).not.toContain("gemini resume");
   });
 
   it("reinstalls Claude runtime hooks after postCreate rewrites settings.local.json", async () => {
@@ -1164,7 +1283,7 @@ describe("LifecycleService", () => {
 
     const created = await lifecycle.createWorktrees({
       prompt: "Fix the login flow for OAuth redirects",
-      agent: "both",
+      agents: ["claude", "codex"],
     });
 
     expect(created).toEqual({

@@ -22,6 +22,7 @@ export function matchesWorktreeSearch(worktree: WorktreeInfo, query: string): bo
     worktree.branch,
     worktree.baseBranch ?? "",
     worktree.profile ?? "",
+    worktree.agentLabel ?? "",
     worktree.agentName ?? "",
     worktree.linearIssue?.identifier ?? "",
   ].some((value) => searchMatch(trimmedQuery, value));

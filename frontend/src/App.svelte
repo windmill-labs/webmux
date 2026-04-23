@@ -58,7 +58,9 @@
       name: "",
       services: [],
       profiles: [],
+      agents: [],
       defaultProfileName: "",
+      defaultAgentId: "claude",
       autoName: false,
       linearCreateTicketOption: false,
       startupEnvs: {},
@@ -71,7 +73,9 @@
   }
 
   function supportsWorktreeChat(worktree: WorktreeInfo | undefined): boolean {
-    return worktree?.agentName === "codex" || worktree?.agentName === "claude";
+    if (!worktree?.agentName) return false;
+    const agent = config.agents.find((candidate) => candidate.id === worktree.agentName);
+    return agent?.capabilities.inAppChat ?? (worktree.agentName === "codex" || worktree.agentName === "claude");
   }
 
   let config = $state<AppConfig>(createDefaultConfig());
@@ -569,13 +573,18 @@
   async function handleCreate(request: CreateWorktreeRequest) {
     const requestId = nextCreateRequestId++;
     const shouldAutoSelectCreatedWorktree = selectedWorktree == null;
-    const expectedCreatedCount = request.agent === "both" ? 2 : 1;
+    const requestedAgentIds = request.agents && request.agents.length > 0
+      ? request.agents
+      : request.agent
+        ? [request.agent]
+        : [config.defaultAgentId];
+    const expectedCreatedCount = requestedAgentIds.length;
     if (shouldAutoSelectCreatedWorktree) {
       latestAutoSelectCreateId = requestId;
     }
     pendingCreateCount += expectedCreatedCount;
     if (shouldAutoSelectCreatedWorktree) {
-      pendingCreateBranchHint = request.agent === "both" ? null : request.branch ?? null;
+      pendingCreateBranchHint = expectedCreatedCount > 1 ? null : request.branch ?? null;
     }
     showCreateDialog = false;
     assignIssue = null;
@@ -1142,8 +1151,11 @@
             {#if selectedWorktree.profile}
               <span class="text-xs text-muted">Profile: {selectedWorktree.profile}</span>
             {/if}
-            {#if selectedWorktree.agentName}
-              <span class="text-xs text-muted">Agent: {selectedWorktree.agentName}</span>
+            {#if selectedWorktree.agentLabel ?? selectedWorktree.agentName}
+              <span class="text-xs text-muted">Agent: {selectedWorktree.agentLabel ?? selectedWorktree.agentName}</span>
+            {/if}
+            {#if selectedWorktree.agentName && !supportsWorktreeChat(selectedWorktree)}
+              <span class="text-xs text-muted">This agent runs in the terminal only.</span>
             {/if}
           </div>
           <button
@@ -1175,7 +1187,9 @@
 {#if showCreateDialog}
   <CreateWorktreeDialog
     profiles={config.profiles}
+    agents={config.agents}
     defaultProfileName={config.defaultProfileName}
+    defaultAgentId={config.defaultAgentId}
     autoNameEnabled={config.autoName}
     initialBranch={assignIssue?.branchName ?? ""}
     initialPrompt={assignIssue ? `${assignIssue.title}${assignIssue.description ? '\n\n' + assignIssue.description : ''}` : ""}
@@ -1248,6 +1262,7 @@
     onthemechange={(key) => (currentTheme = key)}
     onlinearautocreatechange={(enabled) => { config.linearAutoCreateWorktrees = enabled; }}
     onautoremovechange={(enabled) => { config.autoRemoveOnMerge = enabled; }}
+    onagentschange={(agents) => { config.agents = agents; }}
     onsave={(host) => {
       sshHost = host;
       showSettingsDialog = false;

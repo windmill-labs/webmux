@@ -20,6 +20,7 @@ function createWorktree(
     elapsed: "1m",
     profile: null,
     agentName: null,
+    agentLabel: null,
     services: [],
     paneCount: 1,
     prs: [],

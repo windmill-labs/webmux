@@ -42,6 +42,7 @@ function mapWorktreeSnapshot(
   creating: CreatingWorktreeState | null,
   isArchived: (path: string) => boolean,
   findLinearIssue?: (branch: string) => WorktreeSnapshot["linearIssue"],
+  findAgentLabel?: (agentId: string | null) => string | null,
 ): WorktreeSnapshot {
   return {
     branch: state.branch,
@@ -51,6 +52,7 @@ function mapWorktreeSnapshot(
     archived: isArchived(state.path),
     profile: state.profile,
     agentName: state.agentName,
+    agentLabel: findAgentLabel ? findAgentLabel(state.agentName) : state.agentName,
     mux: state.session.exists,
     dirty: state.git.dirty,
     unpushed: state.git.aheadCount > 0,
@@ -68,6 +70,7 @@ function mapCreatingWorktreeSnapshot(
   creating: CreatingWorktreeState,
   isArchived: (path: string) => boolean,
   findLinearIssue?: (branch: string) => WorktreeSnapshot["linearIssue"],
+  findAgentLabel?: (agentId: string | null) => string | null,
 ): WorktreeSnapshot {
   return {
     branch: creating.branch,
@@ -77,6 +80,7 @@ function mapCreatingWorktreeSnapshot(
     archived: isArchived(creating.path),
     profile: creating.profile,
     agentName: creating.agentName,
+    agentLabel: findAgentLabel ? findAgentLabel(creating.agentName) : creating.agentName,
     mux: false,
     dirty: false,
     unpushed: false,
@@ -95,6 +99,7 @@ interface BuildWorktreeSnapshotsInput {
   creatingWorktrees?: CreatingWorktreeState[];
   isArchived?: (path: string) => boolean;
   findLinearIssue?: (branch: string) => WorktreeSnapshot["linearIssue"];
+  findAgentLabel?: (agentId: string | null) => string | null;
   now?: () => Date;
 }
 
@@ -106,12 +111,19 @@ export function buildWorktreeSnapshots(input: BuildWorktreeSnapshotsInput): Work
   const runtimeWorktrees = input.runtime.listWorktrees();
   const runtimeBranches = new Set(runtimeWorktrees.map((worktree) => worktree.branch));
   const worktrees = runtimeWorktrees.map((state) =>
-    mapWorktreeSnapshot(state, now, creatingByBranch.get(state.branch) ?? null, isArchived, input.findLinearIssue),
+    mapWorktreeSnapshot(
+      state,
+      now,
+      creatingByBranch.get(state.branch) ?? null,
+      isArchived,
+      input.findLinearIssue,
+      input.findAgentLabel,
+    ),
   );
 
   for (const creating of creatingWorktrees) {
     if (!runtimeBranches.has(creating.branch)) {
-      worktrees.push(mapCreatingWorktreeSnapshot(creating, isArchived, input.findLinearIssue));
+      worktrees.push(mapCreatingWorktreeSnapshot(creating, isArchived, input.findLinearIssue, input.findAgentLabel));
     }
   }
 

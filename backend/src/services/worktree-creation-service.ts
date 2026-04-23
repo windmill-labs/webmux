@@ -1,4 +1,4 @@
-import type { AgentKind } from "../domain/config";
+import type { AgentId } from "../domain/config";
 import type { CreatingWorktreeState, WorktreeCreationPhase } from "../domain/model";
 
 export interface WorktreeCreationProgress {
@@ -6,7 +6,7 @@ export interface WorktreeCreationProgress {
   baseBranch?: string;
   path: string;
   profile: string;
-  agent: AgentKind;
+  agent: AgentId;
   phase: WorktreeCreationPhase;
 }
 

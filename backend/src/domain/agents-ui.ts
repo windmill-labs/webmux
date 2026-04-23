@@ -1,4 +1,4 @@
-import type { AgentKind } from "./config";
+import type { AgentId } from "./config";
 import type {
   PrEntry,
   ServiceRuntimeState,
@@ -13,7 +13,8 @@ export interface AgentsUiWorktreeSummary {
   path: string;
   archived: boolean;
   profile: string | null;
-  agentName: AgentKind | null;
+  agentName: AgentId | null;
+  agentLabel: string | null;
   mux: boolean;
   status: string;
   dirty: boolean;

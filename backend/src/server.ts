@@ -3,6 +3,7 @@ import { join, resolve } from "node:path";
 import { mkdirSync } from "node:fs";
 import { networkInterfaces } from "node:os";
 import {
+  AgentIdParamsSchema,
   AgentsSendMessageRequestSchema,
   apiPaths,
   AvailableBranchesQuerySchema,
@@ -13,6 +14,7 @@ import {
   SendWorktreePromptRequestSchema,
   SetWorktreeArchivedRequestSchema,
   ToggleEnabledRequestSchema,
+  UpsertCustomAgentRequestSchema,
   WorktreeNameParamsSchema,
 } from "@webmux/api-contract";
 import { log } from "./lib/log";
@@ -34,12 +36,22 @@ import {
 import { loadControlToken } from "./adapters/control-token";
 import { ClaudeCliClient } from "./adapters/claude-cli";
 import { CodexAppServerClient } from "./adapters/codex-app-server";
-import { getDefaultProfileName, persistLocalLinearConfig, persistLocalGitHubConfig, type ProjectConfig } from "./adapters/config";
+import {
+  getDefaultProfileName,
+  persistLocalCustomAgent,
+  persistLocalGitHubConfig,
+  persistLocalLinearConfig,
+  removeLocalCustomAgent,
+  type ProjectConfig,
+} from "./adapters/config";
 import { jsonResponse, errorResponse } from "./lib/http";
 import { isRecord, isStringArray } from "./lib/type-guards";
 import { parseJsonBody, parseParams, parseQuery } from "./api-validation";
 import { hasRecentDashboardActivity, touchDashboardActivity } from "./services/dashboard-activity";
 import { buildArchivedWorktreePathSet, normalizeArchivePath } from "./services/archive-service";
+import { resolveAgentChatSupport } from "./services/agent-chat-service";
+import { validateCustomAgentInput } from "./services/agent-validation-service";
+import { getAgentDefinition, isBuiltInAgentId, listAgentDetails, listAgentSummaries, normalizeCustomAgentId } from "./services/agent-registry";
 import {
   branchMatchesIssue,
   buildLinearIssuesResponse,
@@ -63,7 +75,6 @@ import { buildProjectSnapshot } from "./services/snapshot-service";
 import { ClaudeConversationService } from "./services/claude-conversation-service";
 import { WorktreeConversationService } from "./services/worktree-conversation-service";
 import { parseRuntimeEvent } from "./domain/events";
-import type { CreateWorktreeAgentSelection } from "./domain/config";
 import type { AgentsUiConversationEvent, AgentsUiWorktreeConversationResponse } from "./domain/agents-ui";
 import type { ProjectSnapshot, WorktreeSnapshot } from "./domain/model";
 import { isValidBranchName, isValidWorktreeName } from "./domain/policies";
@@ -71,8 +82,6 @@ import { createWebmuxRuntime } from "./runtime";
 
 const PORT = parseInt(Bun.env.PORT || "5111", 10);
 const STATIC_DIR = Bun.env.WEBMUX_STATIC_DIR || "";
-// Codex can read Enter before tmux has fully flushed pasted bytes into the pane PTY.
-const CODEX_TMUX_PROMPT_SUBMIT_DELAY_MS = 200;
 const runtime = createWebmuxRuntime({
   port: PORT,
   projectDir: Bun.env.WEBMUX_PROJECT_DIR || process.cwd(),
@@ -137,7 +146,9 @@ function getFrontendConfig(): {
   name: string;
   services: ProjectConfig["services"];
   profiles: Array<{ name: string; systemPrompt?: string }>;
+  agents: ReturnType<typeof listAgentSummaries>;
   defaultProfileName: string;
+  defaultAgentId: ProjectConfig["workspace"]["defaultAgent"];
   autoName: boolean;
   linearCreateTicketOption: boolean;
   startupEnvs: ProjectConfig["startupEnvs"];
@@ -161,7 +172,9 @@ function getFrontendConfig(): {
       name,
       ...(profile.systemPrompt ? { systemPrompt: profile.systemPrompt } : {}),
     })),
+    agents: listAgentSummaries(config),
     defaultProfileName,
+    defaultAgentId: config.workspace.defaultAgent,
     autoName: config.autoName !== null,
     linearCreateTicketOption: config.integrations.linear.enabled && config.integrations.linear.createTicketOption,
     startupEnvs: config.startupEnvs,
@@ -441,6 +454,10 @@ async function readProjectSnapshot(): Promise<ProjectSnapshot> {
           }
         : null;
     },
+    findAgentLabel: (agentId) => {
+      if (!agentId) return null;
+      return getAgentDefinition(config, agentId)?.label ?? agentId;
+    },
   });
 }
 
@@ -484,12 +501,26 @@ async function resolveAgentsWorktree(branch: string): Promise<{
   };
 }
 
+function resolveWorktreeAgentChatSupport(worktree: WorktreeSnapshot, action: "chat" | "interrupt") {
+  return resolveAgentChatSupport({
+    agentId: worktree.agentName,
+    agentLabel: worktree.agentLabel,
+    agent: worktree.agentName ? getAgentDefinition(config, worktree.agentName) : null,
+    action,
+  });
+}
+
 async function apiAttachAgentsWorktree(branch: string): Promise<Response> {
   touchDashboardActivity();
   const resolved = await resolveAgentsWorktree(branch);
   if (!resolved.ok) return resolved.response;
 
-  const result = resolved.worktree.agentName === "claude"
+  const chatSupport = resolveWorktreeAgentChatSupport(resolved.worktree, "chat");
+  if (!chatSupport.ok) {
+    return errorResponse(chatSupport.error, chatSupport.status);
+  }
+
+  const result = chatSupport.data.provider === "claude"
     ? await claudeConversationService.attachWorktreeConversation(resolved.worktree)
     : await worktreeConversationService.attachWorktreeConversation(resolved.worktree);
   return result.ok
@@ -502,7 +533,12 @@ async function apiGetAgentsWorktreeHistory(branch: string): Promise<Response> {
   const resolved = await resolveAgentsWorktree(branch);
   if (!resolved.ok) return resolved.response;
 
-  const result = resolved.worktree.agentName === "claude"
+  const chatSupport = resolveWorktreeAgentChatSupport(resolved.worktree, "chat");
+  if (!chatSupport.ok) {
+    return errorResponse(chatSupport.error, chatSupport.status);
+  }
+
+  const result = chatSupport.data.provider === "claude"
     ? await claudeConversationService.readWorktreeConversation(resolved.worktree)
     : await worktreeConversationService.readWorktreeConversation(resolved.worktree);
   return result.ok
@@ -521,7 +557,12 @@ async function apiSendAgentsWorktreeMessage(branch: string, req: Request): Promi
     return errorResponse("Open this worktree in the main dashboard before sending messages here", 409);
   }
 
-  const conversationResult = resolved.worktree.agentName === "claude"
+  const chatSupport = resolveWorktreeAgentChatSupport(resolved.worktree, "chat");
+  if (!chatSupport.ok) {
+    return errorResponse(chatSupport.error, chatSupport.status);
+  }
+
+  const conversationResult = chatSupport.data.provider === "claude"
     ? await claudeConversationService.readWorktreeConversation(resolved.worktree)
     : await worktreeConversationService.readWorktreeConversation(resolved.worktree);
   if (!conversationResult.ok) {
@@ -536,7 +577,7 @@ async function apiSendAgentsWorktreeMessage(branch: string, req: Request): Promi
     parsed.data.text,
     0,
     undefined,
-    resolved.worktree.agentName === "codex" ? CODEX_TMUX_PROMPT_SUBMIT_DELAY_MS : 0,
+    chatSupport.data.submitDelayMs,
   );
   if (!sendResult.ok) {
     return errorResponse(sendResult.error, 503);
@@ -558,7 +599,12 @@ async function apiInterruptAgentsWorktree(branch: string): Promise<Response> {
     return errorResponse("Open this worktree in the main dashboard before interrupting it here", 409);
   }
 
-  const conversationResult = resolved.worktree.agentName === "claude"
+  const chatSupport = resolveWorktreeAgentChatSupport(resolved.worktree, "interrupt");
+  if (!chatSupport.ok) {
+    return errorResponse(chatSupport.error, chatSupport.status);
+  }
+
+  const conversationResult = chatSupport.data.provider === "claude"
     ? await claudeConversationService.readWorktreeConversation(resolved.worktree)
     : await worktreeConversationService.readWorktreeConversation(resolved.worktree);
   if (!conversationResult.ok) {
@@ -596,7 +642,15 @@ async function loadAgentsConversationSnapshot(
     };
   }
 
-  const result = resolved.worktree.agentName === "claude"
+  const chatSupport = resolveWorktreeAgentChatSupport(resolved.worktree, "chat");
+  if (!chatSupport.ok) {
+    return {
+      ok: false,
+      message: chatSupport.error,
+    };
+  }
+
+  const result = chatSupport.data.provider === "claude"
     ? await claudeConversationService.readWorktreeConversation(resolved.worktree)
     : await worktreeConversationService.readWorktreeConversation(resolved.worktree);
   return result.ok
@@ -737,11 +791,16 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
   const baseBranch = body.baseBranch?.trim() ? body.baseBranch.trim() : undefined;
   const prompt = body.prompt?.trim() ? body.prompt.trim() : undefined;
   const profile = body.profile;
-  const agent: CreateWorktreeAgentSelection | undefined = body.agent;
+  const agent = body.agent;
+  const agents = body.agents;
   const createLinearTicket = body.createLinearTicket === true;
   const linearTitle = body.linearTitle?.trim() ? body.linearTitle.trim() : undefined;
   const mode = body.mode;
-  const agentSelection = agent ?? config.workspace.defaultAgent;
+  const selectedAgents = agents
+    ? agents
+    : agent
+      ? [agent]
+      : [config.workspace.defaultAgent];
 
   if (baseBranch && !isValidBranchName(baseBranch)) {
     return errorResponse("Invalid base branch name", 400);
@@ -795,7 +854,7 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
   }
 
   if (resolvedBranch) {
-    const targetBranches = buildCreateWorktreeTargets(resolvedBranch, agentSelection).map((target) => target.branch);
+    const targetBranches = buildCreateWorktreeTargets(resolvedBranch, selectedAgents).map((target) => target.branch);
     for (const targetBranch of targetBranches) {
       ensureBranchNotBusy(targetBranch);
     }
@@ -806,7 +865,7 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
   }
 
   log.info(
-    `[worktree:add] mode=${mode ?? "new"}${resolvedBranch ? ` branch=${resolvedBranch}` : ""}${baseBranch ? ` base=${baseBranch}` : ""}${profile ? ` profile=${profile}` : ""} agent=${agentSelection}${createLinearTicket ? " linearTicket=true" : ""}${prompt ? ` prompt="${prompt.slice(0, 80)}"` : ""}`,
+    `[worktree:add] mode=${mode ?? "new"}${resolvedBranch ? ` branch=${resolvedBranch}` : ""}${baseBranch ? ` base=${baseBranch}` : ""}${profile ? ` profile=${profile}` : ""} agents=${selectedAgents.join(",")}${createLinearTicket ? " linearTicket=true" : ""}${prompt ? ` prompt="${prompt.slice(0, 80)}"` : ""}`,
   );
   const result = await lifecycleService.createWorktrees({
     mode,
@@ -814,7 +873,7 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
     baseBranch,
     prompt,
     profile,
-    agent: agentSelection,
+    ...(agents && agents.length > 0 ? { agents } : { agent }),
     envOverrides,
   });
   log.debug(`[worktree:add] done branches=${result.branches.join(",")}`);
@@ -886,6 +945,84 @@ async function apiMergeWorktree(name: string): Promise<Response> {
   log.info(`[worktree:merge] name=${name}`);
   await lifecycleService.mergeWorktree(name);
   log.debug(`[worktree:merge] done name=${name}`);
+  return jsonResponse({ ok: true });
+}
+
+async function apiListAgents(): Promise<Response> {
+  return jsonResponse({ agents: listAgentDetails(config) });
+}
+
+async function apiValidateAgent(req: Request): Promise<Response> {
+  const parsed = await parseJsonBody(req, UpsertCustomAgentRequestSchema);
+  if (!parsed.ok) return parsed.response;
+  return jsonResponse(validateCustomAgentInput(parsed.data));
+}
+
+async function apiCreateAgent(req: Request): Promise<Response> {
+  const parsed = await parseJsonBody(req, UpsertCustomAgentRequestSchema);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.data;
+  const agentId = normalizeCustomAgentId(body.label);
+
+  if (isBuiltInAgentId(agentId) || config.agents[agentId]) {
+    return errorResponse(`Agent already exists: ${agentId}`, 409);
+  }
+
+  const agentConfig = {
+    label: body.label,
+    startCommand: body.startCommand,
+    ...(body.resumeCommand?.trim() ? { resumeCommand: body.resumeCommand.trim() } : {}),
+  };
+
+  await persistLocalCustomAgent(PROJECT_DIR, agentId, agentConfig);
+  config.agents[agentId] = agentConfig;
+
+  const agent = listAgentDetails(config).find((entry) => entry.id === agentId);
+  if (!agent) {
+    return errorResponse(`Created agent could not be loaded: ${agentId}`, 500);
+  }
+
+  return jsonResponse({ agent });
+}
+
+async function apiUpdateAgent(agentId: string, req: Request): Promise<Response> {
+  if (isBuiltInAgentId(agentId)) {
+    return errorResponse(`Built-in agent cannot be edited: ${agentId}`, 400);
+  }
+  if (!config.agents[agentId]) {
+    return errorResponse(`Unknown agent: ${agentId}`, 404);
+  }
+
+  const parsed = await parseJsonBody(req, UpsertCustomAgentRequestSchema);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.data;
+  const agentConfig = {
+    label: body.label,
+    startCommand: body.startCommand,
+    ...(body.resumeCommand?.trim() ? { resumeCommand: body.resumeCommand.trim() } : {}),
+  };
+
+  await persistLocalCustomAgent(PROJECT_DIR, agentId, agentConfig);
+  config.agents[agentId] = agentConfig;
+
+  const agent = listAgentDetails(config).find((entry) => entry.id === agentId);
+  if (!agent) {
+    return errorResponse(`Updated agent could not be loaded: ${agentId}`, 500);
+  }
+
+  return jsonResponse({ agent });
+}
+
+async function apiDeleteAgent(agentId: string): Promise<Response> {
+  if (isBuiltInAgentId(agentId)) {
+    return errorResponse(`Built-in agent cannot be deleted: ${agentId}`, 400);
+  }
+  if (!config.agents[agentId]) {
+    return errorResponse(`Unknown agent: ${agentId}`, 404);
+  }
+
+  await removeLocalCustomAgent(PROJECT_DIR, agentId);
+  delete config.agents[agentId];
   return jsonResponse({ ok: true });
 }
 
@@ -1091,6 +1228,24 @@ function parseNotificationIdParam(params: Record<string, string>):
   };
 }
 
+function parseAgentIdParam(params: Record<string, string>):
+  | { ok: true; data: string }
+  | { ok: false; response: Response } {
+  const parsed = parseParams(params, AgentIdParamsSchema);
+  if (!parsed.ok) return parsed;
+  const agentId = parsed.data.id.trim();
+  if (!agentId) {
+    return {
+      ok: false,
+      response: errorResponse("Invalid agent id", 400),
+    };
+  }
+  return {
+    ok: true,
+    data: agentId,
+  };
+}
+
 // --- Server ---
 
 Bun.serve({
@@ -1128,6 +1283,28 @@ Bun.serve({
 
     [apiPaths.fetchProject]: {
       GET: () => catching("GET /api/project", () => apiGetProject()),
+    },
+
+    [apiPaths.fetchAgents]: {
+      GET: () => catching("GET /api/agents", () => apiListAgents()),
+      POST: (req) => catching("POST /api/agents", () => apiCreateAgent(req)),
+    },
+
+    [apiPaths.validateAgent]: {
+      POST: (req) => catching("POST /api/agents/validate", () => apiValidateAgent(req)),
+    },
+
+    [apiPaths.updateAgent]: {
+      PUT: (req) => {
+        const parsed = parseAgentIdParam(req.params);
+        if (!parsed.ok) return parsed.response;
+        return catching("PUT /api/agents/:id", () => apiUpdateAgent(parsed.data, req));
+      },
+      DELETE: (req) => {
+        const parsed = parseAgentIdParam(req.params);
+        if (!parsed.ok) return parsed.response;
+        return catching("DELETE /api/agents/:id", () => apiDeleteAgent(parsed.data));
+      },
     },
 
     [apiPaths.attachAgentsWorktreeConversation]: {

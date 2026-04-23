@@ -4,7 +4,7 @@ import type { GitGateway, GitWorktreeEntry } from "../adapters/git";
 import type { PortProbe } from "../adapters/port-probe";
 import { buildProjectSessionName, buildWorktreeWindowName, type TmuxGateway, type TmuxWindowSummary } from "../adapters/tmux";
 import { buildRuntimeEnvMap, readWorktreeMeta, readWorktreePrs } from "../adapters/fs";
-import type { ProjectConfig } from "../domain/config";
+import type { AgentId, ProjectConfig } from "../domain/config";
 import type { PrEntry, ServiceRuntimeState } from "../domain/model";
 import { mapWithConcurrency } from "../lib/async";
 import { ProjectRuntime } from "./project-runtime";
@@ -25,7 +25,7 @@ async function buildServiceStates(
     worktreeId: string;
     branch: string;
     profile: string;
-    agent: "claude" | "codex";
+    agent: AgentId;
     runtime: "host" | "docker";
   },
 ): Promise<ServiceRuntimeState[]> {
@@ -97,7 +97,7 @@ interface ReconciledWorktreeState {
   baseBranch: string | null;
   path: string;
   profile: string | null;
-  agentName: "claude" | "codex" | null;
+  agentName: AgentId | null;
   runtime: "host" | "docker";
   git: {
     dirty: boolean;

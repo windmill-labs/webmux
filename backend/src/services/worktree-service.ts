@@ -9,7 +9,7 @@ import {
   writeRuntimeEnv,
   writeWorktreeMeta,
 } from "../adapters/fs";
-import type { AgentKind, RuntimeKind } from "../domain/config";
+import type { AgentId, RuntimeKind } from "../domain/config";
 import {
   WORKTREE_META_SCHEMA_VERSION,
   type ControlEnvMap,
@@ -24,7 +24,7 @@ export interface InitializeManagedWorktreeOptions {
   branch: string;
   baseBranch?: string;
   profile: string;
-  agent: AgentKind;
+  agent: AgentId;
   runtime: RuntimeKind;
   startupEnvValues?: Record<string, string>;
   allocatedPorts?: Record<string, number>;
@@ -51,7 +51,7 @@ export interface CreateManagedWorktreeOptions {
   baseBranch?: string;
   startPoint?: string;
   profile: string;
-  agent: AgentKind;
+  agent: AgentId;
   runtime: RuntimeKind;
   startupEnvValues?: Record<string, string>;
   allocatedPorts?: Record<string, number>;

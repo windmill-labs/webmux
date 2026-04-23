@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expandTemplate, getDefaultProfileName, loadConfig } from "../adapters/config";
+import { expandTemplate, getDefaultProfileName, loadConfig, persistLocalCustomAgent, removeLocalCustomAgent } from "../adapters/config";
 
 describe("expandTemplate", () => {
   it("replaces known placeholders", () => {
@@ -312,6 +312,60 @@ describe("loadConfig", () => {
 
     config.profiles.default.envPassthrough.push("MUTATED");
     expect(loadConfig(dir).profiles.default.envPassthrough).toEqual([]);
+  });
+
+  it("loads custom agents from local yaml", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "webmux-config-"));
+    tempDirs.push(dir);
+    Bun.spawnSync(["git", "init"], { cwd: dir });
+
+    await Bun.write(
+      join(dir, ".webmux.local.yaml"),
+      [
+        "agents:",
+        "  gemini:",
+        "    label: Gemini CLI",
+        "    startCommand: gemini --project . --prompt \"${PROMPT}\"",
+        "    resumeCommand: gemini resume --last",
+        "",
+      ].join("\n"),
+    );
+
+    const config = loadConfig(dir);
+
+    expect(config.agents).toEqual({
+      gemini: {
+        label: "Gemini CLI",
+        startCommand: 'gemini --project . --prompt "${PROMPT}"',
+        resumeCommand: "gemini resume --last",
+      },
+    });
+  });
+
+  it("persists and removes local custom agents", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "webmux-config-"));
+    tempDirs.push(dir);
+    Bun.spawnSync(["git", "init"], { cwd: dir });
+
+    await persistLocalCustomAgent(dir, "gemini", {
+      label: "Gemini CLI",
+      startCommand: 'gemini --project . --prompt "${PROMPT}"',
+      resumeCommand: "gemini resume --last",
+    });
+
+    let config = loadConfig(dir);
+    expect(config.agents).toEqual({
+      gemini: {
+        label: "Gemini CLI",
+        startCommand: 'gemini --project . --prompt "${PROMPT}"',
+        resumeCommand: "gemini resume --last",
+      },
+    });
+
+    await removeLocalCustomAgent(dir, "gemini");
+
+    config = loadConfig(dir);
+    expect(config.agents).toEqual({});
   });
 
   it("overrides worktreeRoot from local yaml", async () => {

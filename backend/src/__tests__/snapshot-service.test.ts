@@ -89,6 +89,7 @@ describe("buildProjectSnapshot", () => {
               },
             }
           : null,
+      findAgentLabel: (agentId) => agentId === "claude" ? "Claude" : agentId,
       now: () => new Date("2026-03-06T10:05:00.000Z"),
     });
 
@@ -105,6 +106,7 @@ describe("buildProjectSnapshot", () => {
         archived: false,
         profile: "default",
         agentName: "claude",
+        agentLabel: "Claude",
         mux: true,
         dirty: true,
         unpushed: true,
@@ -211,6 +213,7 @@ describe("buildProjectSnapshot", () => {
               },
             }
           : null,
+      findAgentLabel: (agentId) => agentId === "codex" ? "Codex" : agentId,
     });
 
     expect(snapshot.worktrees).toEqual([
@@ -222,6 +225,7 @@ describe("buildProjectSnapshot", () => {
         archived: false,
         profile: "default",
         agentName: "codex",
+        agentLabel: "Codex",
         mux: false,
         dirty: false,
         unpushed: false,
@@ -275,6 +279,7 @@ describe("buildProjectSnapshot", () => {
           phase: "creating_worktree",
         },
       ],
+      findAgentLabel: (agentId) => agentId === "claude" ? "Claude" : agentId,
     });
 
     expect(snapshot.worktrees.map((worktree) => worktree.branch)).toEqual([

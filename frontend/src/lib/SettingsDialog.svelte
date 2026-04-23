@@ -53,6 +53,7 @@
   let autoRemoveSaving = $state(false);
 
   let agents = $state<AgentDetails[]>([]);
+  let customAgents = $derived(agents.filter((agent) => agent.kind === "custom"));
   let agentsLoading = $state(true);
   let agentsError = $state<string | null>(null);
   let agentsLoaded = false;
@@ -231,7 +232,7 @@
           <div>
             <p class="text-[13px] text-primary">Custom agents</p>
             <p class="mt-0.5 text-[11px] text-muted">
-              Add terminal agents that webmux can launch alongside the built-in Claude and Codex integrations.
+              Add terminal agents that webmux can launch from the dashboard.
             </p>
           </div>
           <Btn type="button" variant="cta" onclick={openCreateAgentEditor}>Add agent</Btn>
@@ -242,25 +243,27 @@
         {:else if agentsError}
           <p class="text-[12px] text-danger">{agentsError}</p>
         {:else}
-          <div class="space-y-2">
-            {#each agents as agent (agent.id)}
-              <div class="rounded-lg border border-edge bg-surface px-3 py-2.5">
-                <div class="flex items-start justify-between gap-3">
-                  <div class="min-w-0 flex-1">
-                    <div class="flex flex-wrap items-center gap-1.5">
-                      <span class="text-[13px] text-primary">{agent.label}</span>
-                    </div>
-                    <p class="mt-1 text-[11px] text-muted font-mono break-all">
-                      {agent.startCommand ?? 'Built-in integration'}
-                    </p>
-                    {#if agent.resumeCommand}
+          {#if customAgents.length === 0}
+            <p class="text-[12px] text-muted">No custom agents setup</p>
+          {:else}
+            <div class="space-y-2">
+              {#each customAgents as agent (agent.id)}
+                <div class="rounded-lg border border-edge bg-surface px-3 py-2.5">
+                  <div class="flex items-start justify-between gap-3">
+                    <div class="min-w-0 flex-1">
+                      <div class="flex flex-wrap items-center gap-1.5">
+                        <span class="text-[13px] text-primary">{agent.label}</span>
+                      </div>
                       <p class="mt-1 text-[11px] text-muted font-mono break-all">
-                        Resume: {agent.resumeCommand}
+                        {agent.startCommand}
                       </p>
-                    {/if}
-                  </div>
+                      {#if agent.resumeCommand}
+                        <p class="mt-1 text-[11px] text-muted font-mono break-all">
+                          Resume: {agent.resumeCommand}
+                        </p>
+                      {/if}
+                    </div>
 
-                  {#if agent.kind === 'custom'}
                     <div class="flex shrink-0 gap-2 text-[11px]">
                       <button type="button" class="text-accent hover:underline" onclick={() => openEditAgentEditor(agent)}>
                         Edit
@@ -277,11 +280,11 @@
                         Delete
                       </button>
                     </div>
-                  {/if}
+                  </div>
                 </div>
-              </div>
-            {/each}
-          </div>
+              {/each}
+            </div>
+          {/if}
         {/if}
       </div>
     </div>

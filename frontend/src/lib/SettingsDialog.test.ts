@@ -106,7 +106,7 @@ describe("SettingsDialog agent management", () => {
     vi.clearAllMocks();
   });
 
-  it("loads and renders built-in and custom agents", async () => {
+  it("shows only custom agents in the list", async () => {
     vi.mocked(fetchAgents).mockResolvedValue([
       createAgentDetails({ id: "claude", label: "Claude", kind: "builtin", startCommand: null, resumeCommand: null, capabilities: {
         terminal: true,
@@ -120,9 +120,26 @@ describe("SettingsDialog agent management", () => {
 
     renderDialog();
 
-    expect(await screen.findByText("Claude")).toBeInTheDocument();
-    expect(screen.getByText("Gemini CLI")).toBeInTheDocument();
+    await screen.findByText("Gemini CLI");
+    expect(screen.queryByText("Claude")).not.toBeInTheDocument();
     expect(screen.getByText('gemini --prompt "${PROMPT}"')).toBeInTheDocument();
+  });
+
+  it("shows an empty state when no custom agents are configured", async () => {
+    vi.mocked(fetchAgents).mockResolvedValue([
+      createAgentDetails({ id: "claude", label: "Claude", kind: "builtin", startCommand: null, resumeCommand: null, capabilities: {
+        terminal: true,
+        inAppChat: true,
+        conversationHistory: true,
+        interrupt: true,
+        resume: true,
+      } }),
+    ]);
+
+    renderDialog();
+
+    expect(await screen.findByText("No custom agents setup")).toBeInTheDocument();
+    expect(screen.queryByText("Claude")).not.toBeInTheDocument();
   });
 
   it("validates, creates, and deletes custom agents", async () => {

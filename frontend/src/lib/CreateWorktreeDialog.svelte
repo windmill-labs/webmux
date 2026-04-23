@@ -58,12 +58,17 @@
 
   const STORAGE_KEY = "wt-default-profile";
   const AGENT_STORAGE_KEY = "wt-default-agents";
+  const MULTI_AGENT_STORAGE_KEY = "wt-default-multi-agents";
   const ENV_STORAGE_KEY = "wt-default-envs";
   const savedProfile = localStorage.getItem(STORAGE_KEY);
   const savedEnvs = localStorage.getItem(ENV_STORAGE_KEY);
 
   function sameAgentIds(left: AgentId[], right: AgentId[]): boolean {
     return left.length === right.length && left.every((id, index) => id === right[index]);
+  }
+
+  function loadSavedMultiAgentMode(): boolean {
+    return localStorage.getItem(MULTI_AGENT_STORAGE_KEY) === "true";
   }
 
   function loadSavedAgentIds(): AgentId[] {
@@ -100,6 +105,7 @@
   }
 
   const savedAgentIds = loadSavedAgentIds();
+  const savedMultiAgentMode = loadSavedMultiAgentMode();
   let availableAgentOptions = $derived(agents);
   let fallbackProfile = $derived(defaultProfileName || profiles[0]?.name || "default");
   let fallbackAgentId = $derived(
@@ -114,11 +120,15 @@
   let prompt = $state(initialPrompt);
   let selectedExistingBranch = $state("");
   let selectedBaseBranch = $state("");
+  let multiAgentMode = $state(savedMultiAgentMode);
   let selectedAgentIds = $state<AgentId[]>(savedAgentIds);
   let profile = $state(savedProfile ?? "");
   let createLinearTicket = $state(false);
   let linearTitle = $state("");
-  const hasSavedDefaults = savedProfile != null || localStorage.getItem(AGENT_STORAGE_KEY) != null || savedEnvs != null;
+  const hasSavedDefaults = savedProfile != null
+    || localStorage.getItem(AGENT_STORAGE_KEY) != null
+    || localStorage.getItem(MULTI_AGENT_STORAGE_KEY) != null
+    || savedEnvs != null;
   let saveDefault = $state(hasSavedDefaults);
   // svelte-ignore state_referenced_locally
   let envValues = $state<Record<string, string | boolean>>(loadSavedEnvs());
@@ -129,7 +139,7 @@
   let selectedAgents = $derived(
     availableAgentOptions.filter((agent) => selectedAgentIds.includes(agent.id)),
   );
-  let creatingMultipleAgents = $derived(selectedAgentIds.length > 1);
+  let creatingMultipleAgents = $derived(multiAgentMode && selectedAgentIds.length > 1);
   let promptRequired = $derived(showLinearTicketOption && createLinearTicket);
   let branchPreview = $derived(
     mode === "new" && !createLinearTicket && creatingMultipleAgents && newBranchName.trim().length > 0
@@ -154,9 +164,10 @@
     const nextSelectedAgentIds = filteredIds.length > 0
       ? filteredIds
       : (validAgentIds.has(fallbackAgentId) ? [fallbackAgentId] : availableAgentOptions[0] ? [availableAgentOptions[0].id] : []);
+    const normalizedAgentIds = multiAgentMode ? nextSelectedAgentIds : nextSelectedAgentIds.slice(0, 1);
 
-    if (!sameAgentIds(selectedAgentIds, nextSelectedAgentIds)) {
-      selectedAgentIds = nextSelectedAgentIds;
+    if (!sameAgentIds(selectedAgentIds, normalizedAgentIds)) {
+      selectedAgentIds = normalizedAgentIds;
     }
   });
 
@@ -174,7 +185,19 @@
     }
   });
 
+  function setMultiAgentMode(enabled: boolean): void {
+    multiAgentMode = enabled;
+    if (!enabled) {
+      selectedAgentIds = selectedAgentIds.slice(0, 1);
+    }
+  }
+
   function toggleAgent(agentId: AgentId): void {
+    if (!multiAgentMode) {
+      selectedAgentIds = [agentId];
+      return;
+    }
+
     if (selectedAgentIds.includes(agentId)) {
       if (selectedAgentIds.length === 1) return;
       selectedAgentIds = selectedAgentIds.filter((id) => id !== agentId);
@@ -208,10 +231,12 @@
       if (saveDefault) {
         localStorage.setItem(STORAGE_KEY, profile);
         localStorage.setItem(AGENT_STORAGE_KEY, JSON.stringify(selectedAgentIds));
+        localStorage.setItem(MULTI_AGENT_STORAGE_KEY, String(multiAgentMode));
         localStorage.setItem(ENV_STORAGE_KEY, JSON.stringify(envValues));
       } else {
         localStorage.removeItem(STORAGE_KEY);
         localStorage.removeItem(AGENT_STORAGE_KEY);
+        localStorage.removeItem(MULTI_AGENT_STORAGE_KEY);
         localStorage.removeItem(ENV_STORAGE_KEY);
       }
       const filteredEnvs: Record<string, string> = {};
@@ -352,11 +377,20 @@
     <StartupEnvFields {startupEnvs} bind:envValues />
     <div class="mb-4">
       <div class="mb-2 flex items-center justify-between gap-2">
-        <span class="text-xs text-muted">Agents ({selectedAgentIds.length} selected)</span>
-        {#if creatingMultipleAgents}
-          <span class="text-[11px] text-muted">Creates one worktree per agent</span>
-        {/if}
+        <span class="text-xs text-muted">{multiAgentMode ? `Agents (${selectedAgentIds.length} selected)` : "Agent"}</span>
+        <label class="flex items-center gap-2 text-[11px] text-muted cursor-pointer">
+          <span>Multiple selection</span>
+          <Toggle
+            size="sm"
+            checked={multiAgentMode}
+            ontoggle={setMultiAgentMode}
+            aria-label="Enable multiple agent selection"
+          />
+        </label>
       </div>
+      {#if creatingMultipleAgents}
+        <p class="mb-2 text-[11px] text-muted">Creates one worktree per agent.</p>
+      {/if}
       {#if availableAgentOptions.length === 0}
         <p class="rounded-lg border border-edge bg-surface px-3 py-2 text-[12px] text-muted">
           No agents available.
@@ -371,7 +405,8 @@
                 : 'border-edge hover:bg-hover'}"
             >
               <input
-                type="checkbox"
+                type={multiAgentMode ? "checkbox" : "radio"}
+                name={multiAgentMode ? undefined : "agent"}
                 checked={selectedAgentIds.includes(agentOption.id)}
                 onchange={() => toggleAgent(agentOption.id)}
                 class="mt-0.5 accent-[var(--accent)]"

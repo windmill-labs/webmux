@@ -400,6 +400,7 @@ describe("App create selection", () => {
 
     await fireEvent.click(screen.getByTitle("New Worktree (Cmd+K)"));
     await screen.findByText("New Worktree");
+    await fireEvent.click(screen.getByRole("switch", { name: /enable multiple agent selection/i }));
     await fireEvent.click(screen.getByRole("checkbox", { name: "Codex" }));
     await fireEvent.input(screen.getByLabelText(/Branch name/i), {
       target: { value: "feature/new" },
@@ -595,6 +596,7 @@ describe("App create selection", () => {
     await fireEvent.click(screen.getByTitle("New Worktree (Cmd+K)"));
     await screen.findByText("New Worktree");
 
+    await fireEvent.click(screen.getByRole("switch", { name: /enable multiple agent selection/i }));
     await fireEvent.click(screen.getByRole("checkbox", { name: "Codex" }));
     await fireEvent.input(screen.getByLabelText(/Branch name/i), {
       target: { value: "feature/new" },
@@ -616,6 +618,7 @@ describe("App create selection", () => {
     await fireEvent.click(screen.getByTitle("New Worktree (Cmd+K)"));
     await screen.findByText("New Worktree");
 
+    await fireEvent.click(screen.getByRole("switch", { name: /enable multiple agent selection/i }));
     await fireEvent.click(screen.getByRole("checkbox", { name: "Codex" }));
     await waitFor(() => {
       expect(screen.queryByRole("button", { name: "Use existing branch" })).not.toBeInTheDocument();

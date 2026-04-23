@@ -99,7 +99,7 @@
         id="agent-start-command"
         rows="4"
         class="w-full px-2.5 py-1.5 rounded-md border border-edge bg-surface text-primary text-[13px] placeholder:text-muted/50 outline-none focus:border-accent resize-y font-mono"
-        placeholder={"e.g. gemini --prompt \"${PROMPT}\""}
+        placeholder={"e.g. pi --append-system-prompt \"${SYSTEM_PROMPT}\" \"${PROMPT}\""}
         bind:value={startCommand}
       ></textarea>
     </div>
@@ -112,7 +112,7 @@
         id="agent-resume-command"
         type="text"
         class="w-full px-2.5 py-1.5 rounded-md border border-edge bg-surface text-primary text-[13px] placeholder:text-muted/50 outline-none focus:border-accent font-mono"
-        placeholder={"e.g. gemini resume --branch \"${BRANCH}\""}
+        placeholder={"e.g. pi -c --append-system-prompt \"${SYSTEM_PROMPT}\""}
         bind:value={resumeCommand}
       />
     </div>
@@ -127,17 +127,6 @@
       <p class="mt-2 text-[11px] text-muted">
         webmux exports placeholder values safely before running your command.
       </p>
-      <div class="mt-3 space-y-2 text-[11px] text-muted">
-        <p class="text-primary">Examples</p>
-        <div>
-          <p>Start command</p>
-          <p class="mt-1 font-mono break-all text-primary/80">pi --append-system-prompt "{"${SYSTEM_PROMPT}"}" "{"${PROMPT}"}"</p>
-        </div>
-        <div>
-          <p>Resume command</p>
-          <p class="mt-1 font-mono break-all text-primary/80">pi -c --append-system-prompt "{"${SYSTEM_PROMPT}"}"</p>
-        </div>
-      </div>
     </div>
 
     {#if validation}

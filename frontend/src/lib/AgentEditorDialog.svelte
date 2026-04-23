@@ -127,6 +127,17 @@
       <p class="mt-2 text-[11px] text-muted">
         webmux exports placeholder values safely before running your command.
       </p>
+      <div class="mt-3 space-y-2 text-[11px] text-muted">
+        <p class="text-primary">Examples</p>
+        <div>
+          <p>Start command</p>
+          <p class="mt-1 font-mono break-all text-primary/80">pi --append-system-prompt "{"${SYSTEM_PROMPT}"}" "{"${PROMPT}"}"</p>
+        </div>
+        <div>
+          <p>Resume command</p>
+          <p class="mt-1 font-mono break-all text-primary/80">pi -c --append-system-prompt "{"${SYSTEM_PROMPT}"}"</p>
+        </div>
+      </div>
     </div>
 
     {#if validation}

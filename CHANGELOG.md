@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.29.0](https://github.com/windmill-labs/webmux/compare/v0.28.1...v0.29.0) (2026-04-28)
+
+
+### Features
+
+* add custom agents and multi-agent worktrees ([#222](https://github.com/windmill-labs/webmux/issues/222)) ([ef76e92](https://github.com/windmill-labs/webmux/commit/ef76e924e5c4b823c72049829ea2917d066906c9))
+
+
+### Bug Fixes
+
+* extend auto-name timeout fallback ([#223](https://github.com/windmill-labs/webmux/issues/223)) ([50875b1](https://github.com/windmill-labs/webmux/commit/50875b11642be1002522cf21d8c838235a960127))
+* move api-contract to devDependencies to unbreak global install ([#225](https://github.com/windmill-labs/webmux/issues/225)) ([73a6174](https://github.com/windmill-labs/webmux/commit/73a6174992a4aa2f77fe75443bf62ca868be129b))
+
 ## [0.28.1](https://github.com/windmill-labs/webmux/compare/v0.28.0...v0.28.1) (2026-04-21)
 
 

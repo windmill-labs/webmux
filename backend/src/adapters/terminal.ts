@@ -422,7 +422,7 @@ export async function sendPrompt(
     return { ok: false, error: `load-buffer failed${load.stderr ? `: ${load.stderr}` : ""}` };
   }
 
-  const paste = await tmuxExec(["tmux", "paste-buffer", "-b", bufferName, "-t", paneTarget, "-d"]);
+  const paste = await tmuxExec(["tmux", "paste-buffer", "-rp", "-b", bufferName, "-t", paneTarget, "-d"]);
   if (paste.exitCode !== 0) {
     return { ok: false, error: `paste-buffer failed${paste.stderr ? `: ${paste.stderr}` : ""}` };
   }

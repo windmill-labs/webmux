@@ -49,7 +49,7 @@ import { isRecord, isStringArray } from "./lib/type-guards";
 import { parseJsonBody, parseParams, parseQuery } from "./api-validation";
 import { hasRecentDashboardActivity, touchDashboardActivity } from "./services/dashboard-activity";
 import { buildArchivedWorktreePathSet, normalizeArchivePath } from "./services/archive-service";
-import { resolveAgentChatSupport } from "./services/agent-chat-service";
+import { resolveAgentChatSupport, resolveAgentTerminalSubmitDelayMs } from "./services/agent-chat-service";
 import { validateCustomAgentInput } from "./services/agent-validation-service";
 import { getAgentDefinition, isBuiltInAgentId, listAgentDetails, listAgentSummaries, normalizeCustomAgentId } from "./services/agent-registry";
 import {
@@ -319,6 +319,7 @@ async function withRemovingBranch<T>(branch: string, fn: () => Promise<T>): Prom
 async function resolveTerminalWorktree(branch: string): Promise<{
   worktreeId: string;
   attachTarget: TerminalAttachTarget;
+  agentName: WorktreeSnapshot["agentName"];
 }> {
   ensureBranchNotBusy(branch);
   let state = projectRuntime.getWorktreeByBranch(branch);
@@ -339,6 +340,7 @@ async function resolveTerminalWorktree(branch: string): Promise<{
       ownerSessionName: state.session.sessionName,
       windowName: state.session.windowName,
     },
+    agentName: state.agentName,
   };
 }
 
@@ -507,6 +509,13 @@ function resolveWorktreeAgentChatSupport(worktree: WorktreeSnapshot, action: "ch
     agentLabel: worktree.agentLabel,
     agent: worktree.agentName ? getAgentDefinition(config, worktree.agentName) : null,
     action,
+  });
+}
+
+function resolveWorktreeTerminalSubmitDelayMs(agentName: WorktreeSnapshot["agentName"]): number {
+  return resolveAgentTerminalSubmitDelayMs({
+    agentId: agentName,
+    agent: agentName ? getAgentDefinition(config, agentName) : null,
   });
 }
 
@@ -929,12 +938,14 @@ async function apiSendPrompt(name: string, req: Request): Promise<Response> {
   const preamble = body.preamble;
   log.info(`[worktree:send] name=${name} text="${text.slice(0, 80)}"`);
   const terminalWorktree = await resolveTerminalWorktree(name);
+  const submitDelayMs = resolveWorktreeTerminalSubmitDelayMs(terminalWorktree.agentName);
   const result = await sendTerminalPrompt(
     terminalWorktree.worktreeId,
     terminalWorktree.attachTarget,
     text,
     0,
     preamble,
+    submitDelayMs,
   );
   if (!result.ok) return errorResponse(result.error, 503);
   return jsonResponse({ ok: true });

@@ -365,14 +365,8 @@
   let terminalRef:
     | {
         sendSelectPane: (pane: number) => void;
-        sendInput: (data: string) => void;
       }
     | undefined = $state();
-
-  // Safety buffer after backend confirms paste-buffer completion.
-  // paste-buffer exits once tmux has queued the data, but the PTY write
-  // may not be fully flushed yet — this small delay lets it settle.
-  const ENTER_DELAY_MS = 200;
 
   let openingBranches = $state<Set<string>>(new Set());
   let archivingBranches = $state<Set<string>>(new Set());
@@ -1278,7 +1272,6 @@
     onclose={() => (ciDetailsPr = null)}
     onfixsuccess={() => {
       ciDetailsPr = null;
-      setTimeout(() => terminalRef?.sendInput("\r"), ENTER_DELAY_MS);
     }}
   />
 {/if}
@@ -1290,7 +1283,6 @@
     onclose={() => (commentReviewPr = null)}
     onsendsuccess={() => {
       commentReviewPr = null;
-      setTimeout(() => terminalRef?.sendInput("\r"), ENTER_DELAY_MS);
     }}
   />
 {/if}

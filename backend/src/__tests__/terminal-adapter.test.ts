@@ -189,13 +189,14 @@ describe("terminal adapter", () => {
       },
       "reply with EXACTLY OK",
       0,
-      undefined,
+      "Preamble:\n",
       200,
     );
 
     expect(result).toEqual({ ok: true });
     expect(slept).toEqual([200]);
     expect(tmuxCalls).toEqual([
+      ["tmux", "send-keys", "-t", "owner:wm-feature/search.0", "-l", "--", "Preamble:\n"],
       ["tmux", "load-buffer", "-b", expect.stringMatching(/^wm-prompt-/), "-",],
       ["tmux", "paste-buffer", "-b", expect.stringMatching(/^wm-prompt-/), "-t", "owner:wm-feature/search.0", "-d"],
       ["tmux", "send-keys", "-t", "owner:wm-feature/search.0", "Enter"],

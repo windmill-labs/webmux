@@ -5,6 +5,16 @@ export interface AgentChatSupport {
   submitDelayMs: number;
 }
 
+const CODEX_SUBMIT_DELAY_MS = 200;
+
+export function resolveAgentTerminalSubmitDelayMs(input: {
+  agentId: string | null;
+  agent: AgentDefinition | null;
+}): number {
+  if (!input.agentId || !input.agent || input.agent.kind !== "builtin") return 0;
+  return input.agent.implementation.agent === "codex" ? CODEX_SUBMIT_DELAY_MS : 0;
+}
+
 export function resolveAgentChatSupport(input: {
   agentId: string | null;
   agentLabel: string | null;
@@ -51,7 +61,7 @@ export function resolveAgentChatSupport(input: {
       ok: true,
       data: {
         provider: input.agent.implementation.agent,
-        submitDelayMs: input.agent.implementation.agent === "codex" ? 200 : 0,
+        submitDelayMs: resolveAgentTerminalSubmitDelayMs(input),
       },
     };
   }

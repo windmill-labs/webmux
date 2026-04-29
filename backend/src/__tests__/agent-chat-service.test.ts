@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { getAgentDefinition } from "../services/agent-registry";
-import { resolveAgentChatSupport } from "../services/agent-chat-service";
+import { resolveAgentChatSupport, resolveAgentTerminalSubmitDelayMs } from "../services/agent-chat-service";
 import type { ProjectConfig } from "../domain/config";
 
 const TEST_CONFIG: ProjectConfig = {
@@ -98,5 +98,22 @@ describe("resolveAgentChatSupport", () => {
       error: "Unknown agent: missing",
       status: 404,
     });
+  });
+
+  it("uses the same terminal submit delay for built-in Codex prompts", () => {
+    expect(resolveAgentTerminalSubmitDelayMs({
+      agentId: "codex",
+      agent: getAgentDefinition(TEST_CONFIG, "codex"),
+    })).toBe(200);
+
+    expect(resolveAgentTerminalSubmitDelayMs({
+      agentId: "claude",
+      agent: getAgentDefinition(TEST_CONFIG, "claude"),
+    })).toBe(0);
+
+    expect(resolveAgentTerminalSubmitDelayMs({
+      agentId: "gemini",
+      agent: getAgentDefinition(TEST_CONFIG, "gemini"),
+    })).toBe(0);
   });
 });

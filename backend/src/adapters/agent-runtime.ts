@@ -1,6 +1,24 @@
 import { chmod, mkdir } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { getWorktreeStoragePaths } from "./fs";
+
+const GENERATED_CODEX_HOOKS_EXCLUDE = ".codex/hooks.json";
+
+interface CommandHookConfig {
+  type: "command";
+  command: string;
+  async?: boolean;
+  timeout?: number;
+}
+
+interface HookMatcherConfig {
+  matcher?: string;
+  hooks: CommandHookConfig[];
+}
+
+interface HookConfigFile {
+  hooks: Record<string, HookMatcherConfig[]>;
+}
 
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
@@ -60,6 +78,11 @@ def build_parser():
 
     subparsers.add_parser("claude-user-prompt-submit")
     subparsers.add_parser("claude-post-tool-use")
+    subparsers.add_parser("codex-session-start")
+    subparsers.add_parser("codex-user-prompt-submit")
+    subparsers.add_parser("codex-permission-request")
+    subparsers.add_parser("codex-post-tool-use")
+    subparsers.add_parser("codex-stop")
 
     return parser
 
@@ -100,6 +123,41 @@ def read_hook_payload():
         return {}
 
     return parsed if isinstance(parsed, dict) else {}
+
+
+def iter_string_values(value):
+    if isinstance(value, str):
+        yield value
+        return
+    if isinstance(value, dict):
+        for child in value.values():
+            yield from iter_string_values(child)
+        return
+    if isinstance(value, list):
+        for child in value:
+            yield from iter_string_values(child)
+
+
+def find_pr_url(value):
+    for text in iter_string_values(value):
+        match = re.search(r"https://github\\.com/[^\\s\\\"]+/pull/\\d+", text)
+        if match:
+            return match.group(0)
+    return None
+
+
+def maybe_send_pr_opened(hook_payload, control_env):
+    tool_name = hook_payload.get("tool_name")
+    tool_input = hook_payload.get("tool_input")
+    if not isinstance(tool_input, dict) or tool_name != "Bash":
+        return True
+
+    command = tool_input.get("command")
+    if not isinstance(command, str) or "gh pr create" not in command:
+        return True
+
+    pr_args = argparse.Namespace(url=find_pr_url(hook_payload.get("tool_response")))
+    return send_payload(build_payload("pr-opened", pr_args, control_env), control_env)
 
 
 def send_payload(payload, control_env):
@@ -148,30 +206,30 @@ def main():
         print(f"missing control env keys: {', '.join(missing)}", file=sys.stderr)
         return 1
 
-    if parsed.command == "claude-user-prompt-submit":
+    if parsed.command == "codex-session-start":
+        if not send_payload(build_payload("status-changed", argparse.Namespace(lifecycle="idle"), control_env), control_env):
+            return 1
+        return 0
+
+    if parsed.command in ["claude-user-prompt-submit", "codex-user-prompt-submit"]:
         if not send_payload(build_payload("status-changed", argparse.Namespace(lifecycle="running"), control_env), control_env):
             return 1
         return 0
 
-    if parsed.command == "claude-post-tool-use":
+    if parsed.command == "codex-permission-request":
+        if not send_payload(build_payload("status-changed", argparse.Namespace(lifecycle="idle"), control_env), control_env):
+            return 1
+        return 0
+
+    if parsed.command in ["claude-post-tool-use", "codex-post-tool-use"]:
         hook_payload = read_hook_payload()
-        tool_name = hook_payload.get("tool_name")
-        tool_input = hook_payload.get("tool_input")
-        if not isinstance(tool_input, dict) or tool_name != "Bash":
-            return 0
+        return 0 if maybe_send_pr_opened(hook_payload, control_env) else 1
 
-        command = tool_input.get("command")
-        if not isinstance(command, str) or "gh pr create" not in command:
-            return 0
-
-        pr_args = argparse.Namespace(url=None)
-        tool_response = hook_payload.get("tool_response")
-        if isinstance(tool_response, str):
-            match = re.search(r"https://github\\.com/[^\\s\\\"]+/pull/\\d+", tool_response)
-            if match:
-                pr_args.url = match.group(0)
-
-        return 0 if send_payload(build_payload("pr-opened", pr_args, control_env), control_env) else 1
+    if parsed.command == "codex-stop":
+        if not send_payload(build_payload("agent-stopped", parsed, control_env), control_env):
+            return 1
+        print(json.dumps({"continue": True}))
+        return 0
 
     payload = build_payload(parsed.command, parsed, control_env)
     if not send_payload(payload, control_env):
@@ -188,9 +246,10 @@ if __name__ == "__main__":
 export interface AgentRuntimeArtifacts {
   agentCtlPath: string;
   claudeSettingsPath: string;
+  codexHooksPath: string;
 }
 
-function buildClaudeHookSettings(input: AgentRuntimeArtifacts): Record<string, unknown> {
+function buildClaudeHookSettings(input: AgentRuntimeArtifacts): HookConfigFile {
   return {
     hooks: {
       UserPromptSubmit: [
@@ -252,9 +311,94 @@ function buildClaudeHookSettings(input: AgentRuntimeArtifacts): Record<string, u
   };
 }
 
+function buildCodexHookSettings(input: AgentRuntimeArtifacts): HookConfigFile {
+  const statusCommand = `${shellQuote(input.agentCtlPath)} status-changed --lifecycle running`;
+  return {
+    hooks: {
+      SessionStart: [
+        {
+          matcher: "startup|resume|clear",
+          hooks: [
+            {
+              type: "command",
+              command: `${shellQuote(input.agentCtlPath)} codex-session-start`,
+              timeout: 30,
+            },
+          ],
+        },
+      ],
+      UserPromptSubmit: [
+        {
+          hooks: [
+            {
+              type: "command",
+              command: `${shellQuote(input.agentCtlPath)} codex-user-prompt-submit`,
+              timeout: 30,
+            },
+          ],
+        },
+      ],
+      PermissionRequest: [
+        {
+          hooks: [
+            {
+              type: "command",
+              command: `${shellQuote(input.agentCtlPath)} codex-permission-request`,
+              timeout: 30,
+            },
+          ],
+        },
+      ],
+      PreToolUse: [
+        {
+          hooks: [
+            {
+              type: "command",
+              command: statusCommand,
+              timeout: 30,
+            },
+          ],
+        },
+      ],
+      PostToolUse: [
+        {
+          hooks: [
+            {
+              type: "command",
+              command: statusCommand,
+              timeout: 30,
+            },
+          ],
+        },
+        {
+          matcher: "Bash",
+          hooks: [
+            {
+              type: "command",
+              command: `${shellQuote(input.agentCtlPath)} codex-post-tool-use`,
+              timeout: 30,
+            },
+          ],
+        },
+      ],
+      Stop: [
+        {
+          hooks: [
+            {
+              type: "command",
+              command: `${shellQuote(input.agentCtlPath)} codex-stop`,
+              timeout: 30,
+            },
+          ],
+        },
+      ],
+    },
+  };
+}
+
 async function mergeClaudeSettings(
   settingsPath: string,
-  hookSettings: Record<string, unknown>,
+  hookSettings: HookConfigFile["hooks"],
 ): Promise<void> {
   let existing: Record<string, unknown> = {};
 
@@ -278,6 +422,75 @@ async function mergeClaudeSettings(
   await Bun.write(settingsPath, JSON.stringify(merged, null, 2) + "\n");
 }
 
+function isWebmuxHookGroup(group: unknown): boolean {
+  if (!isRecord(group) || !Array.isArray(group.hooks)) return false;
+  return group.hooks.some((hook) =>
+    isRecord(hook)
+    && typeof hook.command === "string"
+    && hook.command.includes("webmux-agentctl")
+  );
+}
+
+async function mergeCodexHooksFile(
+  hooksPath: string,
+  hookSettings: HookConfigFile["hooks"],
+): Promise<void> {
+  let existing: Record<string, unknown> = {};
+
+  try {
+    const file = Bun.file(hooksPath);
+    if (await file.exists()) {
+      const parsed = await file.json();
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        existing = parsed as Record<string, unknown>;
+      }
+    }
+  } catch {
+    existing = {};
+  }
+
+  const existingHooks = isRecord(existing.hooks) ? existing.hooks : {};
+  const mergedHooks: Record<string, unknown> = { ...existingHooks };
+  for (const [eventName, groups] of Object.entries(hookSettings)) {
+    const eventGroups = existingHooks[eventName];
+    const preservedGroups = Array.isArray(eventGroups)
+      ? eventGroups.filter((group) => !isWebmuxHookGroup(group))
+      : [];
+    mergedHooks[eventName] = [...preservedGroups, ...groups];
+  }
+
+  await Bun.write(hooksPath, JSON.stringify({ ...existing, hooks: mergedHooks }, null, 2) + "\n");
+}
+
+async function resolveGitCommonDir(gitDir: string): Promise<string> {
+  try {
+    const commonDir = (await Bun.file(join(gitDir, "commondir")).text()).trim();
+    if (!commonDir) return gitDir;
+    return commonDir.startsWith("/") ? commonDir : resolve(gitDir, commonDir);
+  } catch {
+    return gitDir;
+  }
+}
+
+async function ensureGeneratedCodexHooksIgnored(gitDir: string): Promise<void> {
+  const commonDir = await resolveGitCommonDir(gitDir);
+  const excludePath = join(commonDir, "info", "exclude");
+  let existing = "";
+
+  try {
+    existing = await Bun.file(excludePath).text();
+  } catch {
+    existing = "";
+  }
+
+  const lines = existing.split(/\r?\n/).map((line) => line.trim());
+  if (lines.includes(GENERATED_CODEX_HOOKS_EXCLUDE)) return;
+
+  await mkdir(dirname(excludePath), { recursive: true });
+  const separator = existing.length > 0 && !existing.endsWith("\n") ? "\n" : "";
+  await Bun.write(excludePath, `${existing}${separator}${GENERATED_CODEX_HOOKS_EXCLUDE}\n`);
+}
+
 export async function ensureAgentRuntimeArtifacts(input: {
   gitDir: string;
   worktreePath: string;
@@ -286,9 +499,11 @@ export async function ensureAgentRuntimeArtifacts(input: {
   const artifacts: AgentRuntimeArtifacts = {
     agentCtlPath: join(storagePaths.webmuxDir, "webmux-agentctl"),
     claudeSettingsPath: join(input.worktreePath, ".claude", "settings.local.json"),
+    codexHooksPath: join(input.worktreePath, ".codex", "hooks.json"),
   };
 
   await mkdir(dirname(artifacts.claudeSettingsPath), { recursive: true });
+  await mkdir(dirname(artifacts.codexHooksPath), { recursive: true });
 
   await Bun.write(artifacts.agentCtlPath, buildAgentCtlScript());
   await chmod(artifacts.agentCtlPath, 0o755);
@@ -299,6 +514,8 @@ export async function ensureAgentRuntimeArtifacts(input: {
     throw new Error("Invalid Claude hook settings");
   }
   await mergeClaudeSettings(artifacts.claudeSettingsPath, hooks);
+  await ensureGeneratedCodexHooksIgnored(input.gitDir);
+  await mergeCodexHooksFile(artifacts.codexHooksPath, buildCodexHookSettings(artifacts).hooks);
 
   return artifacts;
 }

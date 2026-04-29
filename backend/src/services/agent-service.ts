@@ -33,15 +33,16 @@ function buildBuiltInAgentInvocation(input: {
   launchMode?: AgentLaunchMode;
 }): string {
   if (input.agent === "codex") {
+    const hooksFlag = " --enable codex_hooks";
     const yoloFlag = input.yolo ? " --yolo" : "";
     if (input.launchMode === "resume") {
-      return `codex${yoloFlag} resume --last`;
+      return `codex${hooksFlag}${yoloFlag} resume --last`;
     }
     const promptSuffix = input.prompt ? ` -- ${quoteShell(input.prompt)}` : "";
     if (input.systemPrompt) {
-      return `codex${yoloFlag} -c ${quoteShell(`developer_instructions=${input.systemPrompt}`)}${promptSuffix}`;
+      return `codex${hooksFlag}${yoloFlag} -c ${quoteShell(`developer_instructions=${input.systemPrompt}`)}${promptSuffix}`;
     }
-    return `codex${yoloFlag}${promptSuffix}`;
+    return `codex${hooksFlag}${yoloFlag}${promptSuffix}`;
   }
 
   const yoloFlag = input.yolo ? " --dangerously-skip-permissions" : "";

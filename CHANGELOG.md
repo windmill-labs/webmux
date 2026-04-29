@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.30.0](https://github.com/windmill-labs/webmux/compare/v0.29.0...v0.30.0) (2026-04-29)
+
+
+### Features
+
+* add codex agent lifecycle hooks ([#229](https://github.com/windmill-labs/webmux/issues/229)) ([133e8cd](https://github.com/windmill-labs/webmux/commit/133e8cd349edeaafcc3050bfa4246b1bda84e171))
+
+
+### Bug Fixes
+
+* delay codex terminal prompt submission ([#226](https://github.com/windmill-labs/webmux/issues/226)) ([6964d29](https://github.com/windmill-labs/webmux/commit/6964d29bcbdd15d4990df83f582dbbb035129ecb))
+
 ## [0.29.0](https://github.com/windmill-labs/webmux/compare/v0.28.1...v0.29.0) (2026-04-28)
 
 

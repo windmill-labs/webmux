@@ -5,6 +5,19 @@ import { join } from "node:path";
 import { ensureAgentRuntimeArtifacts } from "../adapters/agent-runtime";
 import { ensureWorktreeStorageDirs } from "../adapters/fs";
 
+async function writeControlEnv(agentCtlPath: string, controlUrl: string): Promise<void> {
+  await Bun.write(
+    join(agentCtlPath, "..", "control.env"),
+    [
+      `WEBMUX_CONTROL_URL='${controlUrl}'`,
+      "WEBMUX_CONTROL_TOKEN='test-token'",
+      "WEBMUX_WORKTREE_ID='worktree-1'",
+      "WEBMUX_BRANCH='feature/test'",
+      "",
+    ].join("\n"),
+  );
+}
+
 describe("ensureAgentRuntimeArtifacts", () => {
   const tempDirs: string[] = [];
 
@@ -61,11 +74,12 @@ describe("ensureAgentRuntimeArtifacts", () => {
     expect(codexHooks.hooks?.UserPromptSubmit?.[0]?.hooks?.[0]?.command).toContain("codex-user-prompt-submit");
     expect(codexHooks.hooks?.PermissionRequest?.[0]?.hooks?.[0]?.command).toContain("codex-permission-request");
     expect(codexHooks.hooks?.PreToolUse?.[0]?.hooks?.[0]?.command).toContain("status-changed --lifecycle running");
+    expect(codexHooks.hooks?.PreToolUse?.[0]?.hooks?.[0]?.command).toContain("--best-effort");
     expect(codexHooks.hooks?.Stop?.[0]?.hooks?.[0]?.command).toContain("codex-stop");
-    expect(codexHooks.hooks?.PostToolUse?.[0]?.hooks?.[0]?.command).toContain("status-changed --lifecycle running");
-    expect(codexHooks.hooks?.PostToolUse?.[1]?.matcher).toBe("Bash");
-    expect(codexHooks.hooks?.PostToolUse?.[1]?.hooks?.[0]?.command).toContain("codex-post-tool-use");
-    expect(codexHooks.hooks?.PostToolUse?.[1]?.hooks?.[0]?.timeout).toBe(30);
+    expect(codexHooks.hooks?.PostToolUse).toHaveLength(1);
+    expect(codexHooks.hooks?.PostToolUse?.[0]?.matcher).toBe("Bash");
+    expect(codexHooks.hooks?.PostToolUse?.[0]?.hooks?.[0]?.command).toContain("codex-post-tool-use");
+    expect(codexHooks.hooks?.PostToolUse?.[0]?.hooks?.[0]?.timeout).toBe(30);
     expect(await Bun.file(join(gitDir, "info", "exclude")).text()).toContain(".codex/hooks.json");
   });
 
@@ -75,6 +89,7 @@ describe("ensureAgentRuntimeArtifacts", () => {
     tempDirs.push(gitDir, worktreePath);
 
     await ensureWorktreeStorageDirs(gitDir);
+    const staleGeneratedCommand = `${join(gitDir, "webmux", "webmux-agentctl")} codex-user-prompt-submit`;
     await mkdir(join(worktreePath, ".codex"), { recursive: true });
     await Bun.write(
       join(worktreePath, ".codex", "hooks.json"),
@@ -93,7 +108,15 @@ describe("ensureAgentRuntimeArtifacts", () => {
               hooks: [
                 {
                   type: "command",
-                  command: "/old/webmux-agentctl codex-user-prompt-submit",
+                  command: "sh -lc 'echo webmux-agentctl wrapper'",
+                },
+              ],
+            },
+            {
+              hooks: [
+                {
+                  type: "command",
+                  command: staleGeneratedCommand,
                 },
               ],
             },
@@ -121,7 +144,90 @@ describe("ensureAgentRuntimeArtifacts", () => {
     ) ?? [];
 
     expect(commands.filter((command) => command.includes("keep-me"))).toHaveLength(1);
+    expect(commands.filter((command) => command.includes("webmux-agentctl wrapper"))).toHaveLength(1);
     expect(commands.filter((command) => command.includes("codex-user-prompt-submit"))).toHaveLength(1);
-    expect(commands.some((command) => command.includes("/old/webmux-agentctl"))).toBe(false);
+    expect(commands.some((command) => command === staleGeneratedCommand)).toBe(false);
+  });
+
+  it("lets Codex stop continue naturally when the control endpoint is unreachable", async () => {
+    const gitDir = await mkdtemp(join(tmpdir(), "webmux-agent-runtime-gitdir-"));
+    const worktreePath = await mkdtemp(join(tmpdir(), "webmux-agent-runtime-worktree-"));
+    tempDirs.push(gitDir, worktreePath);
+
+    await ensureWorktreeStorageDirs(gitDir);
+    const artifacts = await ensureAgentRuntimeArtifacts({
+      gitDir,
+      worktreePath,
+    });
+    await writeControlEnv(artifacts.agentCtlPath, "http://127.0.0.1:1/runtime-events");
+
+    const process = Bun.spawn([artifacts.agentCtlPath, "codex-stop"], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [exitCode, stdout] = await Promise.all([
+      process.exited,
+      new Response(process.stdout).text(),
+      new Response(process.stderr).text(),
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(JSON.parse(stdout)).toEqual({});
+  });
+
+  it("detects Codex Bash PR creation payloads", async () => {
+    const gitDir = await mkdtemp(join(tmpdir(), "webmux-agent-runtime-gitdir-"));
+    const worktreePath = await mkdtemp(join(tmpdir(), "webmux-agent-runtime-worktree-"));
+    tempDirs.push(gitDir, worktreePath);
+    let capturedPayload: unknown;
+
+    const server = Bun.serve({
+      port: 0,
+      async fetch(request) {
+        capturedPayload = await request.json();
+        return Response.json({ ok: true });
+      },
+    });
+
+    try {
+      await ensureWorktreeStorageDirs(gitDir);
+      const artifacts = await ensureAgentRuntimeArtifacts({
+        gitDir,
+        worktreePath,
+      });
+      await writeControlEnv(artifacts.agentCtlPath, `http://127.0.0.1:${server.port}/runtime-events`);
+
+      const process = Bun.spawn([artifacts.agentCtlPath, "codex-post-tool-use"], {
+        stdin: "pipe",
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      process.stdin.write(JSON.stringify({
+        tool_name: "Bash",
+        tool_input: {
+          command: "gh pr create --fill",
+        },
+        tool_response: {
+          stdout: "Created pull request: https://github.com/windmill-labs/webmux/pull/123",
+        },
+      }));
+      process.stdin.end();
+
+      const [exitCode] = await Promise.all([
+        process.exited,
+        new Response(process.stdout).text(),
+        new Response(process.stderr).text(),
+      ]);
+
+      expect(exitCode).toBe(0);
+      expect(capturedPayload).toEqual({
+        type: "pr_opened",
+        worktreeId: "worktree-1",
+        branch: "feature/test",
+        url: "https://github.com/windmill-labs/webmux/pull/123",
+      });
+    } finally {
+      server.stop(true);
+    }
   });
 });

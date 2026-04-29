@@ -40,6 +40,7 @@ from pathlib import Path
 
 
 CONTROL_ENV_PATH = Path(__file__).resolve().with_name("control.env")
+CONTROL_REQUEST_TIMEOUT_SECONDS = 2
 
 
 def read_control_env():
@@ -69,6 +70,7 @@ def build_parser():
 
     status_changed = subparsers.add_parser("status-changed")
     status_changed.add_argument("--lifecycle", choices=["starting", "running", "idle", "stopped"], required=True)
+    status_changed.add_argument("--best-effort", action="store_true")
 
     pr_opened = subparsers.add_parser("pr-opened")
     pr_opened.add_argument("--url")
@@ -172,7 +174,7 @@ def send_payload(payload, control_env):
     )
 
     try:
-        with urllib.request.urlopen(request, timeout=10) as response:
+        with urllib.request.urlopen(request, timeout=CONTROL_REQUEST_TIMEOUT_SECONDS) as response:
             if response.status < 200 or response.status >= 300:
                 print(f"control endpoint returned HTTP {response.status}", file=sys.stderr)
                 return False
@@ -207,33 +209,39 @@ def main():
         return 1
 
     if parsed.command == "codex-session-start":
-        if not send_payload(build_payload("status-changed", argparse.Namespace(lifecycle="idle"), control_env), control_env):
-            return 1
+        send_payload(build_payload("status-changed", argparse.Namespace(lifecycle="idle"), control_env), control_env)
         return 0
 
-    if parsed.command in ["claude-user-prompt-submit", "codex-user-prompt-submit"]:
+    if parsed.command == "codex-user-prompt-submit":
+        send_payload(build_payload("status-changed", argparse.Namespace(lifecycle="running"), control_env), control_env)
+        return 0
+
+    if parsed.command == "claude-user-prompt-submit":
         if not send_payload(build_payload("status-changed", argparse.Namespace(lifecycle="running"), control_env), control_env):
             return 1
         return 0
 
     if parsed.command == "codex-permission-request":
-        if not send_payload(build_payload("status-changed", argparse.Namespace(lifecycle="idle"), control_env), control_env):
-            return 1
+        send_payload(build_payload("status-changed", argparse.Namespace(lifecycle="idle"), control_env), control_env)
         return 0
 
-    if parsed.command in ["claude-post-tool-use", "codex-post-tool-use"]:
+    if parsed.command == "codex-post-tool-use":
+        hook_payload = read_hook_payload()
+        maybe_send_pr_opened(hook_payload, control_env)
+        return 0
+
+    if parsed.command == "claude-post-tool-use":
         hook_payload = read_hook_payload()
         return 0 if maybe_send_pr_opened(hook_payload, control_env) else 1
 
     if parsed.command == "codex-stop":
-        if not send_payload(build_payload("agent-stopped", parsed, control_env), control_env):
-            return 1
-        print(json.dumps({"continue": True}))
+        send_payload(build_payload("agent-stopped", parsed, control_env), control_env)
+        print(json.dumps({}))
         return 0
 
     payload = build_payload(parsed.command, parsed, control_env)
     if not send_payload(payload, control_env):
-        return 1
+        return 0 if getattr(parsed, "best_effort", False) else 1
 
     return 0
 
@@ -312,7 +320,7 @@ function buildClaudeHookSettings(input: AgentRuntimeArtifacts): HookConfigFile {
 }
 
 function buildCodexHookSettings(input: AgentRuntimeArtifacts): HookConfigFile {
-  const statusCommand = `${shellQuote(input.agentCtlPath)} status-changed --lifecycle running`;
+  const statusCommand = `${shellQuote(input.agentCtlPath)} status-changed --lifecycle running --best-effort`;
   return {
     hooks: {
       SessionStart: [
@@ -361,15 +369,6 @@ function buildCodexHookSettings(input: AgentRuntimeArtifacts): HookConfigFile {
         },
       ],
       PostToolUse: [
-        {
-          hooks: [
-            {
-              type: "command",
-              command: statusCommand,
-              timeout: 30,
-            },
-          ],
-        },
         {
           matcher: "Bash",
           hooks: [
@@ -422,18 +421,28 @@ async function mergeClaudeSettings(
   await Bun.write(settingsPath, JSON.stringify(merged, null, 2) + "\n");
 }
 
-function isWebmuxHookGroup(group: unknown): boolean {
+function commandStartsWithAgentCtl(command: string, agentCtlPath: string): boolean {
+  const trimmedCommand = command.trimStart();
+  const quotedAgentCtlPath = shellQuote(agentCtlPath);
+  return trimmedCommand === agentCtlPath
+    || trimmedCommand.startsWith(`${agentCtlPath} `)
+    || trimmedCommand === quotedAgentCtlPath
+    || trimmedCommand.startsWith(`${quotedAgentCtlPath} `);
+}
+
+function isWebmuxHookGroup(group: unknown, agentCtlPath: string): boolean {
   if (!isRecord(group) || !Array.isArray(group.hooks)) return false;
   return group.hooks.some((hook) =>
     isRecord(hook)
     && typeof hook.command === "string"
-    && hook.command.includes("webmux-agentctl")
+    && commandStartsWithAgentCtl(hook.command, agentCtlPath)
   );
 }
 
 async function mergeCodexHooksFile(
   hooksPath: string,
   hookSettings: HookConfigFile["hooks"],
+  agentCtlPath: string,
 ): Promise<void> {
   let existing: Record<string, unknown> = {};
 
@@ -454,7 +463,7 @@ async function mergeCodexHooksFile(
   for (const [eventName, groups] of Object.entries(hookSettings)) {
     const eventGroups = existingHooks[eventName];
     const preservedGroups = Array.isArray(eventGroups)
-      ? eventGroups.filter((group) => !isWebmuxHookGroup(group))
+      ? eventGroups.filter((group) => !isWebmuxHookGroup(group, agentCtlPath))
       : [];
     mergedHooks[eventName] = [...preservedGroups, ...groups];
   }
@@ -515,7 +524,7 @@ export async function ensureAgentRuntimeArtifacts(input: {
   }
   await mergeClaudeSettings(artifacts.claudeSettingsPath, hooks);
   await ensureGeneratedCodexHooksIgnored(input.gitDir);
-  await mergeCodexHooksFile(artifacts.codexHooksPath, buildCodexHookSettings(artifacts).hooks);
+  await mergeCodexHooksFile(artifacts.codexHooksPath, buildCodexHookSettings(artifacts).hooks, artifacts.agentCtlPath);
 
   return artifacts;
 }

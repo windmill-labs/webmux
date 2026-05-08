@@ -122,6 +122,7 @@ _webmux() {
     'service:Manage webmux as a system service'
     'update:Update webmux to the latest version'
     'add:Create a worktree'
+    'oneshot:Run a worktree start-to-finish, streaming logs to stdout'
     'list:List worktrees and their status'
     'open:Open an existing worktree session'
     'close:Close a worktree session'
@@ -180,7 +181,7 @@ const BASH_SCRIPT = `_webmux() {
   prev="\${COMP_WORDS[COMP_CWORD-1]}"
 
   if [[ \${COMP_CWORD} -eq 1 ]]; then
-    COMPREPLY=($(compgen -W "serve init service update add list open close archive unarchive remove merge send prune completion" -- "\${cur}"))
+    COMPREPLY=($(compgen -W "serve init service update add oneshot list open close archive unarchive remove merge send prune completion" -- "\${cur}"))
     return
   fi
 

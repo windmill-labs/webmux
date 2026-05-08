@@ -43,6 +43,7 @@ function createWorktree(overrides: Partial<WorktreeInfo> = {}): WorktreeInfo {
     linearIssue: null,
     creating: false,
     creationPhase: null,
+    onMergeAction: null,
     ...overrides,
   };
 }

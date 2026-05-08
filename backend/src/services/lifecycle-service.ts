@@ -11,12 +11,13 @@ import {
   readWorktreeMeta,
   writeControlEnv,
   writeRuntimeEnv,
+  writeWorktreeMeta,
 } from "../adapters/fs";
 import { expandTemplate, getDefaultProfileName, isDockerProfile, type DockerProfileConfig } from "../adapters/config";
 import { type DockerGateway } from "../adapters/docker";
 import { buildProjectSessionName, buildWorktreeWindowName, type TmuxGateway } from "../adapters/tmux";
 import type { AgentId, ProfileConfig, ProjectConfig, RuntimeKind } from "../domain/config";
-import type { WorktreeCreationPhase, WorktreeMeta } from "../domain/model";
+import type { OnMergeAction, WorktreeCreationPhase, WorktreeMeta } from "../domain/model";
 import { allocateServicePorts, isValidBranchName, isValidEnvKey } from "../domain/policies";
 import type { AutoNameGenerator } from "./auto-name-service";
 import {
@@ -139,6 +140,7 @@ export interface CreateLifecycleWorktreeInput {
   profile?: string;
   agent?: AgentId;
   envOverrides?: Record<string, string>;
+  onMergeAction?: OnMergeAction | null;
 }
 
 export interface CreateLifecycleWorktreesInput extends Omit<CreateLifecycleWorktreeInput, "agent"> {
@@ -339,6 +341,25 @@ export class LifecycleService {
         await this.closeBranchWindow(branch);
       }
       await this.updateWorktreeArchivedState(resolved.entry.path, archived);
+    } catch (error) {
+      throw this.wrapOperationError(error);
+    }
+  }
+
+  async setWorktreeOnMergeAction(branch: string, action: OnMergeAction | null): Promise<void> {
+    try {
+      const resolved = await this.resolveExistingWorktree(branch);
+      if (!resolved.meta) {
+        throw new LifecycleError(`Worktree is not managed by webmux: ${branch}`, 409);
+      }
+      const nextMeta: WorktreeMeta = action
+        ? { ...resolved.meta, onMergeAction: action }
+        : (() => {
+            const { onMergeAction: _omitted, ...rest } = resolved.meta;
+            return rest;
+          })();
+      await writeWorktreeMeta(resolved.gitDir, nextMeta);
+      await this.deps.reconciliation.reconcile(this.deps.projectRoot, { force: true });
     } catch (error) {
       throw this.wrapOperationError(error);
     }
@@ -919,6 +940,7 @@ export class LifecycleService {
           controlUrl: this.controlUrl(profile.runtime),
           controlToken: await this.deps.getControlToken(),
           deleteBranchOnRollback,
+          ...(input.onMergeAction ? { onMergeAction: input.onMergeAction } : {}),
         },
         {
           git: this.deps.git,

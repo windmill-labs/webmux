@@ -1,4 +1,4 @@
-import { readWorktreePrs } from "../adapters/fs";
+import { readWorktreeMeta, readWorktreePrs } from "../adapters/fs";
 import type { GitGateway } from "../adapters/git";
 import { log } from "../lib/log";
 import type { LifecycleService } from "./lifecycle-service";
@@ -9,22 +9,36 @@ export interface AutoRemoveDependencies {
   git: GitGateway;
   projectRoot: string;
   notifications: NotificationService;
+  globalAutoRemoveEnabled: () => boolean;
   isRemoving: (branch: string) => boolean;
   markRemoving: (branch: string) => void;
   unmarkRemoving: (branch: string) => void;
 }
 
 /** Check all worktrees for merged PRs and remove clean ones.
+ *  A worktree is removed when:
+ *    - its meta has `onMergeAction === "remove"`, OR
+ *    - the global `autoRemoveOnMerge` is on AND its meta has no `onMergeAction` set.
  *  Called after PR sync completes -- reads the PR files that sync just wrote. */
 export async function runAutoRemove(deps: AutoRemoveDependencies): Promise<void> {
   const worktrees = deps.git.listWorktrees(deps.projectRoot)
     .filter((e) => !e.bare && e.branch !== null && e.path !== deps.projectRoot);
 
+  const globalEnabled = deps.globalAutoRemoveEnabled();
+
   for (const entry of worktrees) {
     const branch = entry.branch!;
     if (deps.isRemoving(branch)) continue;
 
-    const prs = await readWorktreePrs(deps.git.resolveWorktreeGitDir(entry.path));
+    const gitDir = deps.git.resolveWorktreeGitDir(entry.path);
+    const meta = await readWorktreeMeta(gitDir);
+    const perWorktreeAction = meta?.onMergeAction ?? null;
+
+    const shouldRemove = perWorktreeAction === "remove"
+      || (perWorktreeAction === null && globalEnabled);
+    if (!shouldRemove) continue;
+
+    const prs = await readWorktreePrs(gitDir);
     if (prs.length === 0) continue;
     if (!prs.every((pr) => pr.state === "merged")) continue;
 

@@ -27,6 +27,7 @@ function createWorktree(
     linearIssue: null,
     creating: false,
     creationPhase: null,
+    onMergeAction: null,
     ...overrides,
   };
 }

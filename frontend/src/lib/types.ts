@@ -2,6 +2,7 @@ import type {
   AgentId,
   BuiltInAgentId,
   LinkedLinearIssue,
+  OnMergeAction,
   PrEntry,
   ServiceStatus,
   WorktreeCreationPhase,
@@ -39,6 +40,9 @@ export type {
   LinearIssuesResponse,
   LinkedLinearIssue,
   LinkedRepoInfo,
+  OnMergeAction,
+  SetWorktreeOnMergeActionRequest,
+  SetWorktreeOnMergeActionResponse,
   PrComment,
   PrEntry,
   ProfileConfig,
@@ -90,6 +94,7 @@ export interface WorktreeInfo {
   linearIssue: LinkedLinearIssue | null;
   creating: boolean;
   creationPhase: WorktreeCreationPhase | null;
+  onMergeAction: OnMergeAction | null;
 }
 
 export interface WorktreeListRow {

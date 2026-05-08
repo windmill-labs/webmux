@@ -24,6 +24,7 @@
     PrEntry,
     LinearIssueAvailability,
     LinearIssue,
+    OnMergeAction,
     ToastInput,
     ToastItem,
     UiToastItem,
@@ -782,6 +783,18 @@
     }
   }
 
+  async function setWorktreeOnMergeAction(branch: string, action: OnMergeAction | null): Promise<void> {
+    try {
+      await api.setWorktreeOnMergeAction({
+        params: { name: branch },
+        body: { action },
+      });
+      await refresh();
+    } catch (err) {
+      showToast({ tone: "error", message: `Failed to update on-merge action: ${errorMessage(err)}` });
+    }
+  }
+
   async function handleArchiveToggle() {
     const branch = selectedBranch;
     if (!branch) return;
@@ -1028,6 +1041,7 @@
           mergeBranch = branch;
         }}
         onremove={(b) => (removeBranch = b)}
+        onsetonmergeaction={setWorktreeOnMergeAction}
       />
       {#if config.projectDir}
         <SidebarRepoRow

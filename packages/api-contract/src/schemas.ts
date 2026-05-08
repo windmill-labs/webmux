@@ -24,6 +24,8 @@ export const AgentIdSchema = z.string().trim().min(1);
 export const AgentKindSchema = BuiltInAgentIdSchema;
 export const WorktreeCreateModeSchema = z.enum(["new", "existing"]);
 
+export const OnMergeActionSchema = z.enum(["close", "remove"]);
+
 export const AgentCapabilitiesSchema = z.object({
   terminal: z.literal(true),
   inAppChat: z.boolean(),
@@ -100,8 +102,18 @@ export const CreateWorktreeRequestSchema = z.object({
   agents: z.array(AgentIdSchema).min(1).optional(),
   prompt: z.string().optional(),
   envOverrides: z.record(z.string()).optional(),
+  onMergeAction: OnMergeActionSchema.nullable().optional(),
   createLinearTicket: z.literal(true).optional(),
   linearTitle: z.string().optional(),
+});
+
+export const SetWorktreeOnMergeActionRequestSchema = z.object({
+  action: OnMergeActionSchema.nullable(),
+});
+
+export const SetWorktreeOnMergeActionResponseSchema = z.object({
+  ok: z.literal(true),
+  action: OnMergeActionSchema.nullable(),
 });
 
 export const CreateWorktreeResponseSchema = z.object({
@@ -237,7 +249,7 @@ export const WorktreeCreationStateSchema = z.object({
 export const AppNotificationSchema = z.object({
   id: z.number(),
   branch: z.string(),
-  type: z.enum(["agent_stopped", "pr_opened", "runtime_error", "worktree_auto_removed"]),
+  type: z.enum(["agent_stopped", "pr_opened", "runtime_error", "worktree_auto_removed", "worktree_auto_closed"]),
   message: z.string(),
   url: z.string().optional(),
   timestamp: z.number(),
@@ -262,6 +274,7 @@ export const ProjectWorktreeSnapshotSchema = z.object({
   prs: z.array(PrEntrySchema),
   linearIssue: LinkedLinearIssueSchema.nullable(),
   creation: WorktreeCreationStateSchema.nullable(),
+  onMergeAction: OnMergeActionSchema.nullable(),
 });
 
 export const ProjectSnapshotSchema = z.object({
@@ -456,6 +469,9 @@ export type UpsertCustomAgentRequest = z.infer<typeof UpsertCustomAgentRequestSc
 export type AgentResponse = z.infer<typeof AgentResponseSchema>;
 export type ValidateCustomAgentResponse = z.infer<typeof ValidateCustomAgentResponseSchema>;
 export type WorktreeCreateMode = z.infer<typeof WorktreeCreateModeSchema>;
+export type OnMergeAction = z.infer<typeof OnMergeActionSchema>;
+export type SetWorktreeOnMergeActionRequest = z.infer<typeof SetWorktreeOnMergeActionRequestSchema>;
+export type SetWorktreeOnMergeActionResponse = z.infer<typeof SetWorktreeOnMergeActionResponseSchema>;
 export type WorktreeCreationPhase = z.infer<typeof WorktreeCreationPhaseSchema>;
 export type AvailableBranch = z.infer<typeof AvailableBranchSchema>;
 // Keep this manual so frontend callers pass booleans instead of raw `"true"`/`"false"` query literals.

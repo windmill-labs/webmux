@@ -20,6 +20,7 @@ Usage:
   webmux service      Manage webmux as a system service
   webmux update       Update webmux to the latest version
   webmux add          Create a worktree using the dashboard lifecycle
+  webmux oneshot      Run a worktree start-to-finish, streaming logs to stdout
   webmux list         List worktrees and their status
   webmux open         Open an existing worktree session
   webmux close        Close a worktree session without removing it
@@ -43,7 +44,7 @@ Environment:
 `);
 }
 
-type RootCommand = "serve" | "init" | "service" | "update" | "add" | "list" | "open" | "close" | "archive" | "unarchive" | "remove" | "merge" | "send" | "prune" | "completion" | null;
+type RootCommand = "serve" | "init" | "service" | "update" | "add" | "oneshot" | "list" | "open" | "close" | "archive" | "unarchive" | "remove" | "merge" | "send" | "prune" | "completion" | null;
 
 interface ParsedRootArgs {
   port: number;
@@ -59,6 +60,7 @@ function isRootCommand(value: string): value is NonNullable<RootCommand> {
     || value === "service"
     || value === "update"
     || value === "add"
+    || value === "oneshot"
     || value === "list"
     || value === "open"
     || value === "close"
@@ -294,6 +296,12 @@ async function main(args: string[] = process.argv.slice(2)): Promise<void> {
 
   await loadEnvFile(resolve(process.cwd(), ".env.local"));
   await loadEnvFile(resolve(process.cwd(), ".env"));
+
+  if (parsed.command === "oneshot") {
+    const { runOneshotCommand } = await import("./oneshot.ts");
+    const exitCode = await runOneshotCommand(parsed.commandArgs, parsed.port);
+    process.exit(exitCode);
+  }
 
   if (isWorktreeCommand(parsed.command)) {
     const { runWorktreeCommand } = await import("./worktree-commands.ts");

@@ -154,6 +154,7 @@ describe("buildProjectSnapshot", () => {
         creation: {
           phase: "starting_session",
         },
+        onMergeAction: null,
       },
     ]);
     expect(snapshot.notifications).toHaveLength(1);
@@ -246,6 +247,7 @@ describe("buildProjectSnapshot", () => {
         creation: {
           phase: "creating_worktree",
         },
+        onMergeAction: null,
       },
     ]);
   });

@@ -151,6 +151,25 @@ describe("parseAddCommandArgs", () => {
   it("returns null for help", () => {
     expect(parseAddCommandArgs(["--help"])).toBeNull();
   });
+
+  it("parses --close-on-merge", () => {
+    expect(parseAddCommandArgs(["feature/search", "--close-on-merge"])).toEqual({
+      input: { branch: "feature/search", onMergeAction: "close" },
+      detach: false,
+    });
+  });
+
+  it("parses --remove-on-merge", () => {
+    expect(parseAddCommandArgs(["feature/search", "--remove-on-merge"])).toEqual({
+      input: { branch: "feature/search", onMergeAction: "remove" },
+      detach: false,
+    });
+  });
+
+  it("rejects combining --close-on-merge with --remove-on-merge", () => {
+    expect(() => parseAddCommandArgs(["feature/search", "--close-on-merge", "--remove-on-merge"]))
+      .toThrow("Cannot use --remove-on-merge with --close-on-merge");
+  });
 });
 
 describe("parseBranchCommandArgs", () => {

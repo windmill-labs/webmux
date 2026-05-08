@@ -3,7 +3,7 @@ import type { RuntimeEvent } from "../domain/events";
 export interface RuntimeNotification {
   id: number;
   branch: string;
-  type: "agent_stopped" | "pr_opened" | "runtime_error" | "worktree_auto_removed";
+  type: "agent_stopped" | "pr_opened" | "runtime_error" | "worktree_auto_removed" | "worktree_auto_closed";
   message: string;
   url?: string;
   timestamp: number;

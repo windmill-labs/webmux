@@ -32,6 +32,7 @@ function createWorktree(branch: string): WorktreeInfo {
     },
     creating: false,
     creationPhase: null,
+    onMergeAction: null,
   };
 }
 
@@ -57,6 +58,7 @@ describe("WorktreeList", () => {
         onarchive: vi.fn(),
         onmerge: vi.fn(),
         onremove,
+        onsetonmergeaction: vi.fn(),
       },
     });
 
@@ -81,6 +83,7 @@ describe("WorktreeList", () => {
         onarchive: vi.fn(),
         onmerge: vi.fn(),
         onremove: vi.fn(),
+        onsetonmergeaction: vi.fn(),
       },
     });
 
@@ -104,6 +107,7 @@ describe("WorktreeList", () => {
         onarchive,
         onmerge: vi.fn(),
         onremove: vi.fn(),
+        onsetonmergeaction: vi.fn(),
       },
     });
 
@@ -132,6 +136,7 @@ describe("WorktreeList", () => {
         onarchive: vi.fn(),
         onmerge: vi.fn(),
         onremove: vi.fn(),
+        onsetonmergeaction: vi.fn(),
       },
     });
 

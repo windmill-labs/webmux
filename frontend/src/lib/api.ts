@@ -9,7 +9,9 @@ import type {
   AgentsUiWorktreeConversationResponse,
   AppNotification,
   FileUploadResult,
+  OnMergeAction,
   ProjectWorktreeSnapshot,
+  SetWorktreeOnMergeActionResponse,
   UpsertCustomAgentRequest,
   ValidateCustomAgentResponse,
   WorktreeInfo,
@@ -56,7 +58,18 @@ function mapWorktree(snapshot: ProjectWorktreeSnapshot): WorktreeInfo {
     linearIssue: snapshot.linearIssue,
     creating: snapshot.creation !== null,
     creationPhase: snapshot.creation?.phase ?? null,
+    onMergeAction: snapshot.onMergeAction,
   };
+}
+
+export function setWorktreeOnMergeAction(
+  branch: string,
+  action: OnMergeAction | null,
+): Promise<SetWorktreeOnMergeActionResponse> {
+  return api.setWorktreeOnMergeAction({
+    params: { name: branch },
+    body: { action },
+  });
 }
 
 export async function fetchWorktrees(): Promise<WorktreeInfo[]> {

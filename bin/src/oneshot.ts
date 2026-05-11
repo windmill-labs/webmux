@@ -40,10 +40,11 @@ export function getOneshotUsage(): string {
     "  --from-linear ID         Bootstrap a worktree from a Linear issue (loads the issue body",
     "                           as context, plus any saved webmux session / linked PR). Pass",
     "                           --branch to override the resolved branch.",
-    "  --post-to-linear TARGET  Post the conversation to Linear when done. TARGET is either",
-    "                           an issue id (ENG-123) or a team key (ENG, creates new issue)",
-    "  --linear ID              Shortcut for --from-linear ID --post-to-linear ID (round-trip",
-    "                           on the same issue)",
+    "  --post-to-linear TEAM    When done, create a new Linear issue in <TEAM> and post the",
+    "                           conversation there. For posting back to an existing issue,",
+    "                           use --linear <issue-id> instead.",
+    "  --linear ID              Shortcut for --from-linear ID --post-to-linear (existing issue ID);",
+    "                           loads context from the issue and posts results back to it.",
     "  --help                   Show this help message",
   ].join("\n");
 }
@@ -74,6 +75,7 @@ export function parseOneshotArgs(args: string[]): ParsedOneshotCommand | null {
   let keepOpen = false;
   let fromLinearIssueId: string | null = null;
   let postToLinearTarget: PostWorktreeToLinearTarget | null = null;
+  let linearShorthandUsed = false;
 
   for (let index = 0; index < args.length; index++) {
     const arg = args[index];
@@ -159,6 +161,9 @@ export function parseOneshotArgs(args: string[]): ParsedOneshotCommand | null {
     }
 
     if (arg === "--from-linear" || arg.startsWith("--from-linear=")) {
+      if (linearShorthandUsed) {
+        throw new CommandUsageError("Cannot combine --from-linear with --linear");
+      }
       const { value, nextIndex } = readOptionValue(args, index, "--from-linear");
       const trimmed = value.trim();
       if (!/^[A-Z]+-\d+$/.test(trimmed)) {
@@ -170,6 +175,9 @@ export function parseOneshotArgs(args: string[]): ParsedOneshotCommand | null {
     }
 
     if (arg === "--post-to-linear" || arg.startsWith("--post-to-linear=")) {
+      if (linearShorthandUsed) {
+        throw new CommandUsageError("Cannot combine --post-to-linear with --linear");
+      }
       const { value, nextIndex } = readOptionValue(args, index, "--post-to-linear");
       postToLinearTarget = parseLinearTargetArg(value);
       index = nextIndex;
@@ -177,17 +185,15 @@ export function parseOneshotArgs(args: string[]): ParsedOneshotCommand | null {
     }
 
     if (arg === "--linear" || arg.startsWith("--linear=")) {
+      if (fromLinearIssueId || postToLinearTarget) {
+        throw new CommandUsageError("Cannot combine --linear with --from-linear or --post-to-linear");
+      }
       const { value, nextIndex } = readOptionValue(args, index, "--linear");
       const trimmed = value.trim();
       if (!/^[A-Z]+-\d+$/.test(trimmed)) {
         throw new CommandUsageError(`--linear expects an issue id like ENG-123 (got "${trimmed}")`);
       }
-      if (fromLinearIssueId && fromLinearIssueId !== trimmed) {
-        throw new CommandUsageError("Conflicting --linear and --from-linear values");
-      }
-      if (postToLinearTarget && !(postToLinearTarget.kind === "issue" && postToLinearTarget.issueId === trimmed)) {
-        throw new CommandUsageError("Conflicting --linear and --post-to-linear values");
-      }
+      linearShorthandUsed = true;
       fromLinearIssueId = trimmed;
       postToLinearTarget = { kind: "issue", issueId: trimmed };
       index = nextIndex;

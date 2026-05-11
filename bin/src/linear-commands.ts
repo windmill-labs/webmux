@@ -16,16 +16,19 @@ export interface ParsedLinearCommand {
 export function getLinearUsage(): string {
   return [
     "Usage:",
-    "  webmux linear post <branch> <issue-or-team> [--title <text>]",
+    "  webmux linear post <branch> <team-key> [--title <text>]",
     "",
-    "Posts a worktree's conversation as a Linear attachment + summary comment.",
+    "Creates a new Linear issue in <team-key> and posts the worktree's conversation",
+    "as a JSON attachment + summary comment.",
     "",
-    "  <issue-or-team>  Either an existing issue id (e.g. ENG-123) to attach to,",
-    "                   or a team key (e.g. ENG) to create a new issue first.",
-    "  --title <text>   Override the auto-derived title when creating a new issue",
+    "  <team-key>       Linear team key (e.g. ENG). A new issue is created in that team.",
+    "  --title <text>   Override the auto-derived title for the new issue",
+    "",
+    "To post into an existing issue, kick off the session with --linear <issue-id>",
+    "(or --from-linear <issue-id> --post-to-linear ENG) so the issue is the seed.",
     "",
     "Examples:",
-    "  webmux linear post feat/foo ENG-123",
+    "  webmux linear post feat/foo ENG",
     "  webmux linear post feat/foo ENG --title \"Investigate flaky test\"",
   ].join("\n");
 }
@@ -42,14 +45,16 @@ function readOptionValue(args: string[], index: number, flag: string): { value: 
 
 export function parseLinearTargetArg(raw: string): PostWorktreeToLinearTarget {
   const trimmed = raw.trim();
-  if (/^[A-Z]+-\d+$/.test(trimmed)) {
-    return { kind: "issue", issueId: trimmed };
-  }
   if (/^[A-Z]+$/.test(trimmed)) {
     return { kind: "team", teamKey: trimmed };
   }
+  if (/^[A-Z]+-\d+$/.test(trimmed)) {
+    throw new CommandUsageError(
+      `Post target must be a team key (e.g. ENG). To post to issue ${trimmed} as part of a session, use --linear ${trimmed} on the oneshot/add command (loads issue context and posts back to it).`,
+    );
+  }
   throw new CommandUsageError(
-    `Invalid Linear target "${trimmed}". Use an issue id (ENG-123) or a team key (ENG).`,
+    `Invalid Linear team key "${trimmed}". Use a team key like ENG.`,
   );
 }
 
@@ -95,7 +100,7 @@ export function parseLinearArgs(args: string[]): ParsedLinearCommand | null {
   }
 
   if (!branch) throw new CommandUsageError("linear post requires a <branch> argument");
-  if (!targetRaw) throw new CommandUsageError("linear post requires an <issue-or-team> argument");
+  if (!targetRaw) throw new CommandUsageError("linear post requires a <team-key> argument");
 
   const baseTarget = parseLinearTargetArg(targetRaw);
   const target = baseTarget.kind === "team" && titleOverride

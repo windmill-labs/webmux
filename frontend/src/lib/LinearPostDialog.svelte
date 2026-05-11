@@ -13,35 +13,24 @@
     onclose: () => void;
   } = $props();
 
-  let raw = $state("");
+  let teamKey = $state("");
   let title = $state("");
   let loading = $state(false);
   let error = $state("");
 
-  let parsed = $derived.by((): PostWorktreeToLinearTarget | null => {
-    const trimmed = raw.trim();
-    if (!trimmed) return null;
-    if (/^[A-Z]+-\d+$/.test(trimmed)) return { kind: "issue", issueId: trimmed };
-    if (/^[A-Z]+$/.test(trimmed)) {
-      const titleTrimmed = title.trim();
-      return titleTrimmed
-        ? { kind: "team", teamKey: trimmed, title: titleTrimmed }
-        : { kind: "team", teamKey: trimmed };
-    }
-    return null;
-  });
-
-  let kindLabel = $derived.by((): string => {
-    if (!parsed) return "";
-    return parsed.kind === "issue" ? "Will post to existing issue" : "Will create a new issue in this team";
-  });
+  let teamKeyTrimmed = $derived(teamKey.trim());
+  let teamKeyLooksLikeIssue = $derived(/^[A-Z]+-\d+$/.test(teamKeyTrimmed));
+  let teamKeyValid = $derived(/^[A-Z]+$/.test(teamKeyTrimmed));
 
   async function handleSubmit(): Promise<void> {
-    if (!parsed || loading) return;
+    if (!teamKeyValid || loading) return;
     loading = true;
     error = "";
     try {
-      await onsubmit(parsed);
+      const target: PostWorktreeToLinearTarget = title.trim()
+        ? { kind: "team", teamKey: teamKeyTrimmed, title: title.trim() }
+        : { kind: "team", teamKey: teamKeyTrimmed };
+      await onsubmit(target);
       onclose();
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
@@ -55,38 +44,41 @@
   <form onsubmit={(e) => { e.preventDefault(); void handleSubmit(); }}>
     <h2 class="text-base mb-2">Post to Linear</h2>
     <p class="text-[12px] text-muted mb-4">
-      Branch <span class="font-mono">{branch}</span> — the conversation will be uploaded as a JSON attachment and a summary comment.
+      Creates a new Linear issue for branch <span class="font-mono">{branch}</span> and attaches the conversation as JSON + a summary comment.
+      To post back into an existing issue, start the worktree with "From Linear issue" so the issue is the seed.
     </p>
 
     <div class="mb-3">
-      <label class="block text-xs text-muted mb-1.5" for="linear-target">Issue id or team key</label>
+      <label class="block text-xs text-muted mb-1.5" for="linear-team">Team key</label>
       <input
-        id="linear-target"
+        id="linear-team"
         type="text"
         class="w-full px-2.5 py-1.5 rounded-md border border-edge bg-surface text-primary text-[13px] placeholder:text-muted/50 outline-none focus:border-accent font-mono"
-        placeholder="ENG-123 or ENG"
-        bind:value={raw}
+        placeholder="ENG"
+        bind:value={teamKey}
         autocomplete="off"
       />
-      {#if kindLabel}
-        <p class="mt-1 text-[11px] text-muted">{kindLabel}</p>
+      {#if teamKeyTrimmed && teamKeyLooksLikeIssue}
+        <p class="mt-1 text-[11px] text-danger">
+          Looks like an issue id. Use the "From Linear issue" field on the create-worktree dialog to start from an existing issue.
+        </p>
+      {:else if teamKeyTrimmed && !teamKeyValid}
+        <p class="mt-1 text-[11px] text-danger">Expected a team key like ENG (uppercase letters only).</p>
       {/if}
     </div>
 
-    {#if parsed?.kind === "team"}
-      <div class="mb-3">
-        <label class="block text-xs text-muted mb-1.5" for="linear-title">
-          New issue title <span class="opacity-60">(optional)</span>
-        </label>
-        <input
-          id="linear-title"
-          type="text"
-          class="w-full px-2.5 py-1.5 rounded-md border border-edge bg-surface text-primary text-[13px] placeholder:text-muted/50 outline-none focus:border-accent"
-          placeholder={`Webmux session: ${branch}`}
-          bind:value={title}
-        />
-      </div>
-    {/if}
+    <div class="mb-3">
+      <label class="block text-xs text-muted mb-1.5" for="linear-title">
+        New issue title <span class="opacity-60">(optional)</span>
+      </label>
+      <input
+        id="linear-title"
+        type="text"
+        class="w-full px-2.5 py-1.5 rounded-md border border-edge bg-surface text-primary text-[13px] placeholder:text-muted/50 outline-none focus:border-accent"
+        placeholder={`Webmux session: ${branch}`}
+        bind:value={title}
+      />
+    </div>
 
     {#if error}<p class="text-[12px] text-danger mb-3 whitespace-pre-wrap">{error}</p>{/if}
 
@@ -96,7 +88,7 @@
         type="submit"
         variant="cta"
         class="flex items-center gap-1.5"
-        disabled={loading || !parsed}
+        disabled={loading || !teamKeyValid}
       >{#if loading}<span class="spinner"></span>{/if} Post</Btn>
     </div>
   </form>

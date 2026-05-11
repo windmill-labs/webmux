@@ -82,19 +82,19 @@ describe("parseOneshotArgs", () => {
     expect(parseOneshotArgs(["--help"])).toBeNull();
   });
 
-  it("supports --post-to-linear with an issue id", () => {
-    const parsed = parseOneshotArgs(["feature/search", "--prompt", "Fix", "--post-to-linear", "ENG-42"]);
-    expect(parsed?.postToLinearTarget).toEqual({ kind: "issue", issueId: "ENG-42" });
-  });
-
   it("supports --post-to-linear with a team key", () => {
     const parsed = parseOneshotArgs(["feature/search", "--prompt", "Fix", "--post-to-linear", "ENG"]);
     expect(parsed?.postToLinearTarget).toEqual({ kind: "team", teamKey: "ENG" });
   });
 
+  it("rejects --post-to-linear with an issue id (use --linear instead)", () => {
+    expect(() => parseOneshotArgs(["feature/search", "--prompt", "Fix", "--post-to-linear", "ENG-42"]))
+      .toThrow("--linear ENG-42");
+  });
+
   it("rejects invalid --post-to-linear values", () => {
     expect(() => parseOneshotArgs(["feature/search", "--prompt", "Fix", "--post-to-linear", "eng-1"]))
-      .toThrow("Invalid Linear target");
+      .toThrow("Invalid Linear team key");
   });
 
   it("supports --from-linear without --prompt", () => {
@@ -125,14 +125,24 @@ describe("parseOneshotArgs", () => {
     expect(parsed?.postToLinearTarget).toEqual({ kind: "issue", issueId: "ENG-42" });
   });
 
-  it("--linear rejects conflicting --from-linear", () => {
+  it("rejects --linear combined with --from-linear", () => {
     expect(() => parseOneshotArgs(["--from-linear", "ENG-1", "--linear", "ENG-2"]))
-      .toThrow("Conflicting --linear and --from-linear values");
+      .toThrow("Cannot combine --linear with --from-linear or --post-to-linear");
   });
 
-  it("--linear rejects conflicting --post-to-linear", () => {
+  it("rejects --linear combined with --post-to-linear", () => {
     expect(() => parseOneshotArgs(["--post-to-linear", "ENG", "--linear", "ENG-2"]))
-      .toThrow("Conflicting --linear and --post-to-linear values");
+      .toThrow("Cannot combine --linear with --from-linear or --post-to-linear");
+  });
+
+  it("rejects --from-linear after --linear", () => {
+    expect(() => parseOneshotArgs(["--linear", "ENG-2", "--from-linear", "ENG-1"]))
+      .toThrow("Cannot combine --from-linear with --linear");
+  });
+
+  it("rejects --post-to-linear after --linear", () => {
+    expect(() => parseOneshotArgs(["--linear", "ENG-2", "--post-to-linear", "ENG"]))
+      .toThrow("Cannot combine --post-to-linear with --linear");
   });
 
   it("rejects --branch with conflicting positional branch", () => {

@@ -60,7 +60,7 @@ export const LinearIssueIdParamsSchema = z.object({
   issueId: LinearIssueIdSchema,
 });
 
-export const ResumeFromLinearInputSchema = z.object({
+export const FromLinearInputSchema = z.object({
   issueId: LinearIssueIdSchema,
   conversationContext: z.string().optional(),
 });
@@ -144,7 +144,7 @@ export const CreateWorktreeRequestSchema = z.object({
   onMergeAction: OnMergeActionSchema.nullable().optional(),
   createLinearTicket: z.literal(true).optional(),
   linearTitle: z.string().optional(),
-  resumeFromLinear: ResumeFromLinearInputSchema.optional(),
+  fromLinear: FromLinearInputSchema.optional(),
 });
 
 export const SetWorktreeOnMergeActionRequestSchema = z.object({
@@ -519,7 +519,7 @@ export type PostWorktreeToLinearRequest = z.infer<typeof PostWorktreeToLinearReq
 export type PostWorktreeToLinearResponse = z.infer<typeof PostWorktreeToLinearResponseSchema>;
 export type LinearSeedSource = z.infer<typeof LinearSeedSourceSchema>;
 export type LinearSeedResponse = z.infer<typeof LinearSeedResponseSchema>;
-export type ResumeFromLinearInput = z.infer<typeof ResumeFromLinearInputSchema>;
+export type FromLinearInput = z.infer<typeof FromLinearInputSchema>;
 export type WorktreeCreationPhase = z.infer<typeof WorktreeCreationPhaseSchema>;
 export type AvailableBranch = z.infer<typeof AvailableBranchSchema>;
 // Keep this manual so frontend callers pass booleans instead of raw `"true"`/`"false"` query literals.

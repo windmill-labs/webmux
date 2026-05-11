@@ -512,6 +512,7 @@ const ISSUE_WITH_ATTACHMENTS_QUERY = `
       id
       identifier
       title
+      description
       url
       branchName
       attachments {
@@ -595,6 +596,7 @@ interface GqlIssueWithAttachments {
   id: string;
   identifier: string;
   title: string;
+  description: string | null;
   url: string;
   branchName: string;
   attachments: { nodes: GqlAttachmentNode[] };
@@ -649,6 +651,7 @@ export interface LinearIssueWithAttachments {
   id: string;
   identifier: string;
   title: string;
+  description: string | null;
   url: string;
   branchName: string;
   attachments: LinearAttachment[];
@@ -808,6 +811,7 @@ export async function fetchIssueWithAttachments(issueIdentifierOrId: string): Pr
       id: issue.id,
       identifier: issue.identifier,
       title: issue.title,
+      description: issue.description,
       url: issue.url,
       branchName: issue.branchName,
       attachments: issue.attachments.nodes.map((node) => ({

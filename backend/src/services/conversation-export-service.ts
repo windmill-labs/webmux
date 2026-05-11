@@ -242,19 +242,28 @@ export async function exportConversationToLinear(
   };
 }
 
-// ── Seed resolution (resume-from-linear) ───────────────────────────────────
+// ── Seed resolution (from-linear) ──────────────────────────────────────────
 
-interface ResolvedSeedFromAttachment {
-  branch: string | null;
-  baseBranch: string | null;
-  conversationMarkdown: string;
+function buildIssueHeader(issue: LinearIssueWithAttachments): string {
+  const lines: string[] = [];
+  lines.push(`This worktree is for Linear issue **${issue.identifier}** — ${issue.url}`);
+  lines.push("");
+  lines.push(`When opening a PR, reference \`Fixes ${issue.identifier}\` in the title or body so Linear links it back automatically (Linear also auto-links PRs on the branch \`${issue.branchName}\`).`);
+  lines.push("");
+  lines.push(`## Issue: ${issue.title}`);
+  if (issue.description?.trim()) {
+    lines.push("");
+    lines.push(escapeFence(issue.description.trim()));
+  }
+  lines.push("");
+  return lines.join("\n");
 }
 
-function buildSeedConversationMarkdown(payload: WebmuxConversationAttachmentPayload): string {
+function buildPriorConversationSection(payload: WebmuxConversationAttachmentPayload): string {
   const lines: string[] = [];
-  lines.push(`The following conversation was previously run on branch \`${payload.branch}\` and saved to this Linear issue.`);
-  if (payload.baseBranch) lines.push(`Base: \`${payload.baseBranch}\`.`);
-  if (payload.lastSha) lines.push(`Last commit sha: \`${payload.lastSha}\`.`);
+  lines.push(`---`);
+  lines.push("");
+  lines.push(`A previous webmux session for this issue was saved here (branch \`${payload.branch}\`${payload.baseBranch ? `, base \`${payload.baseBranch}\`` : ""}${payload.lastSha ? `, last sha \`${payload.lastSha}\`` : ""}).`);
   lines.push("");
   lines.push("Previous conversation (chronological):");
   lines.push("");
@@ -267,30 +276,6 @@ function buildSeedConversationMarkdown(payload: WebmuxConversationAttachmentPayl
   return lines.join("\n");
 }
 
-function pickAttachmentSeed(
-  issue: LinearIssueWithAttachments,
-  payload: WebmuxConversationAttachmentPayload,
-): ResolvedSeedFromAttachment {
-  void issue;
-  return {
-    branch: payload.branch,
-    baseBranch: payload.baseBranch,
-    conversationMarkdown: buildSeedConversationMarkdown(payload),
-  };
-}
-
-function pickGitHubSeed(issue: LinearIssueWithAttachments): LinearSeedResult | null {
-  const pr = findLinkedGitHubPr(issue);
-  if (!pr) return null;
-  return {
-    source: "github-integration",
-    branch: pr.branch,
-    baseBranch: null,
-    prUrl: pr.url,
-    conversationMarkdown: null,
-  };
-}
-
 export async function buildSeedFromLinear(
   input: SeedFromLinearInput,
   deps: SeedFromLinearDependencies,
@@ -298,40 +283,43 @@ export async function buildSeedFromLinear(
   const issue = await deps.fetchIssueWithAttachments(input.issueId);
   if (!issue.ok) return issue;
 
+  const issueHeader = buildIssueHeader(issue.data);
   const webmuxAttachment = findWebmuxAttachment(issue.data, input.preferBranch);
-  const githubSeed = pickGitHubSeed(issue.data);
+  const pr = findLinkedGitHubPr(issue.data);
 
+  let attachmentPayload: WebmuxConversationAttachmentPayload | null = null;
   if (webmuxAttachment) {
     const payloadResult = await deps.downloadWebmuxAttachment(webmuxAttachment.url);
-    if (!payloadResult.ok) {
-      // Fall back to GitHub seed if download fails.
+    if (payloadResult.ok) {
+      attachmentPayload = payloadResult.data;
+    } else {
       log.error(`[linear] webmux attachment download failed: ${payloadResult.error}`);
-      if (githubSeed) return { ok: true, data: githubSeed };
-      return { ok: false, error: `webmux attachment found but download failed: ${payloadResult.error}`, status: 502 };
     }
-    const seed = pickAttachmentSeed(issue.data, payloadResult.data);
-    return {
-      ok: true,
-      data: {
-        source: "webmux-attachment",
-        branch: seed.branch,
-        baseBranch: seed.baseBranch,
-        prUrl: githubSeed?.prUrl ?? null,
-        conversationMarkdown: seed.conversationMarkdown,
-      },
-    };
   }
 
-  if (githubSeed) return { ok: true, data: githubSeed };
+  const source: LinearSeedResult["source"] = attachmentPayload
+    ? "webmux-attachment"
+    : pr
+      ? "github-integration"
+      : "none";
+
+  const branch = attachmentPayload?.branch
+    ?? pr?.branch
+    ?? (issue.data.branchName || null);
+  const baseBranch = attachmentPayload?.baseBranch ?? null;
+
+  const conversationMarkdown = attachmentPayload
+    ? `${issueHeader}${buildPriorConversationSection(attachmentPayload)}`
+    : issueHeader;
 
   return {
     ok: true,
     data: {
-      source: "none",
-      branch: issue.data.branchName || null,
-      baseBranch: null,
-      prUrl: null,
-      conversationMarkdown: null,
+      source,
+      branch,
+      baseBranch,
+      prUrl: pr?.url ?? null,
+      conversationMarkdown,
     },
   };
 }

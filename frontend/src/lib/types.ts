@@ -46,7 +46,7 @@ export type {
   PostWorktreeToLinearRequest,
   PostWorktreeToLinearResponse,
   PostWorktreeToLinearTarget,
-  ResumeFromLinearInput,
+  FromLinearInput,
   SetWorktreeOnMergeActionRequest,
   SetWorktreeOnMergeActionResponse,
   PrComment,

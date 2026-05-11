@@ -868,16 +868,16 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
   let resolvedPrompt = prompt;
   let resolvedMode = mode;
 
-  if (body.resumeFromLinear) {
+  if (body.fromLinear) {
     if (createLinearTicket) {
-      return errorResponse("resumeFromLinear cannot be combined with createLinearTicket", 400);
+      return errorResponse("fromLinear cannot be combined with createLinearTicket", 400);
     }
-    let conversationContext = body.resumeFromLinear.conversationContext?.trim() ?? "";
+    let conversationContext = body.fromLinear.conversationContext?.trim() ?? "";
     let seedBranch: string | null = null;
     if (!conversationContext || !resolvedBranch) {
       // Fall back to fetching the seed server-side when the client didn't pre-resolve it.
       const seedResult = await buildSeedFromLinear(
-        { issueId: body.resumeFromLinear.issueId },
+        { issueId: body.fromLinear.issueId },
         { fetchIssueWithAttachments, downloadWebmuxAttachment: downloadWebmuxAttachmentDefault },
       );
       if (!seedResult.ok) {

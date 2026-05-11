@@ -115,7 +115,7 @@ describe("exportConversationToLinear", () => {
     const deps: ExportConversationDependencies = {
       fetchIssueWithAttachments: async (id) => ({
         ok: true,
-        data: { id, identifier: "ENG-1", title: "t", url: "https://linear.app/x", branchName: "", attachments: [] },
+        data: { id, identifier: "ENG-1", title: "t", description: null, url: "https://linear.app/x", branchName: "", attachments: [] },
       }),
       fetchTeamByKey: async (key) => ({ ok: true, data: { id: `team-${key}`, key, name: "Team" } }),
       createLinearIssue: async () => ({ ok: true, data: { id: "new-issue", identifier: "ENG-2", title: "auto", url: "https://linear.app/y", branchName: "auto-branch" } }),
@@ -197,7 +197,7 @@ describe("buildSeedFromLinear", () => {
       fetchIssueWithAttachments: async (id) => ({
         ok: true,
         data: {
-          id, identifier: id, title: "t", url: `https://linear.app/${id}`, branchName: "fallback-branch",
+          id, identifier: id, title: "t", description: "Issue body here", url: `https://linear.app/${id}`, branchName: "fallback-branch",
           attachments: payload
             ? [
                 {
@@ -243,7 +243,7 @@ describe("buildSeedFromLinear", () => {
       fetchIssueWithAttachments: async (id) => ({
         ok: true,
         data: {
-          id, identifier: id, title: "t", url: `https://linear.app/${id}`, branchName: "",
+          id, identifier: id, title: "t", description: null, url: `https://linear.app/${id}`, branchName: "",
           attachments: [
             {
               id: "pr1",
@@ -268,12 +268,34 @@ describe("buildSeedFromLinear", () => {
     }
   });
 
-  it("returns source=none when neither is present", async () => {
+  it("returns source=none when neither is present, but still includes the issue body", async () => {
     const result = await buildSeedFromLinear({ issueId: "ENG-3" }, makeDeps());
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.data.source).toBe("none");
       expect(result.data.branch).toBe("fallback-branch");
+      expect(result.data.conversationMarkdown).toContain("ENG-3");
+      expect(result.data.conversationMarkdown).toContain("Issue body here");
+      expect(result.data.conversationMarkdown).toContain("Fixes ENG-3");
+    }
+  });
+
+  it("includes the Linear hint and issue header even with a webmux attachment", async () => {
+    const payload: WebmuxConversationAttachmentPayload = {
+      webmux: 1,
+      branch: "feat/foo",
+      baseBranch: "main",
+      lastSha: null,
+      agent: "codex",
+      createdAt: "2026-05-11T00:00:00.000Z",
+      conversation: makeConversation().messages,
+    };
+    const result = await buildSeedFromLinear({ issueId: "ENG-4" }, makeDeps(payload));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.conversationMarkdown).toContain("ENG-4");
+      expect(result.data.conversationMarkdown).toContain("Fixes ENG-4");
+      expect(result.data.conversationMarkdown).toContain("Do the thing");
     }
   });
 });

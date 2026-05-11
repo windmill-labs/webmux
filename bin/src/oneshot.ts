@@ -8,7 +8,7 @@ export interface ParsedOneshotCommand {
   body: CreateWorktreeRequest;
   onMergeAction: OnMergeAction | null;
   keepOpen: boolean;
-  resumeFromLinearIssueId: string | null;
+  fromLinearIssueId: string | null;
   postToLinearTarget: PostWorktreeToLinearTarget | null;
 }
 
@@ -19,7 +19,8 @@ export function getOneshotUsage(): string {
     "Usage:",
     "  webmux oneshot [branch] --prompt <text> [--agent <id>] [--base <branch>] [--profile <name>]",
     "                          [--env KEY=VALUE]... [--close-on-merge|--remove-on-merge|--keep-open]",
-    "                          [--resume-from-linear <issue-id>] [--post-to-linear <issue-or-team>]",
+    "                          [--from-linear <issue-id>] [--post-to-linear <issue-or-team>]",
+    "                          [--linear <issue-id>]",
     "  webmux oneshot --resume <branch> [--prompt <text>] [--post-to-linear <issue-or-team>]",
     "",
     "Runs an agent worktree start-to-finish, streaming the conversation to stdout.",
@@ -36,10 +37,13 @@ export function getOneshotUsage(): string {
     "  --close-on-merge         Close the session on PR merge (default for oneshot)",
     "  --remove-on-merge        Remove the worktree on PR merge",
     "  --keep-open              Stream until interrupted; do not auto-close on merge",
-    "  --resume-from-linear ID  Bootstrap a fresh worktree from a Linear issue's saved conversation/PR",
-    "                           (pass --branch to override the resolved branch)",
+    "  --from-linear ID         Bootstrap a worktree from a Linear issue (loads the issue body",
+    "                           as context, plus any saved webmux session / linked PR). Pass",
+    "                           --branch to override the resolved branch.",
     "  --post-to-linear TARGET  Post the conversation to Linear when done. TARGET is either",
     "                           an issue id (ENG-123) or a team key (ENG, creates new issue)",
+    "  --linear ID              Shortcut for --from-linear ID --post-to-linear ID (round-trip",
+    "                           on the same issue)",
     "  --help                   Show this help message",
   ].join("\n");
 }
@@ -68,7 +72,7 @@ export function parseOneshotArgs(args: string[]): ParsedOneshotCommand | null {
   let onMergeAction: OnMergeAction | null = null;
   let onMergeActionExplicit = false;
   let keepOpen = false;
-  let resumeFromLinearIssueId: string | null = null;
+  let fromLinearIssueId: string | null = null;
   let postToLinearTarget: PostWorktreeToLinearTarget | null = null;
 
   for (let index = 0; index < args.length; index++) {
@@ -154,13 +158,13 @@ export function parseOneshotArgs(args: string[]): ParsedOneshotCommand | null {
       continue;
     }
 
-    if (arg === "--resume-from-linear" || arg.startsWith("--resume-from-linear=")) {
-      const { value, nextIndex } = readOptionValue(args, index, "--resume-from-linear");
+    if (arg === "--from-linear" || arg.startsWith("--from-linear=")) {
+      const { value, nextIndex } = readOptionValue(args, index, "--from-linear");
       const trimmed = value.trim();
       if (!/^[A-Z]+-\d+$/.test(trimmed)) {
-        throw new CommandUsageError(`--resume-from-linear expects an issue id like ENG-123 (got "${trimmed}")`);
+        throw new CommandUsageError(`--from-linear expects an issue id like ENG-123 (got "${trimmed}")`);
       }
-      resumeFromLinearIssueId = trimmed;
+      fromLinearIssueId = trimmed;
       index = nextIndex;
       continue;
     }
@@ -168,6 +172,24 @@ export function parseOneshotArgs(args: string[]): ParsedOneshotCommand | null {
     if (arg === "--post-to-linear" || arg.startsWith("--post-to-linear=")) {
       const { value, nextIndex } = readOptionValue(args, index, "--post-to-linear");
       postToLinearTarget = parseLinearTargetArg(value);
+      index = nextIndex;
+      continue;
+    }
+
+    if (arg === "--linear" || arg.startsWith("--linear=")) {
+      const { value, nextIndex } = readOptionValue(args, index, "--linear");
+      const trimmed = value.trim();
+      if (!/^[A-Z]+-\d+$/.test(trimmed)) {
+        throw new CommandUsageError(`--linear expects an issue id like ENG-123 (got "${trimmed}")`);
+      }
+      if (fromLinearIssueId && fromLinearIssueId !== trimmed) {
+        throw new CommandUsageError("Conflicting --linear and --from-linear values");
+      }
+      if (postToLinearTarget && !(postToLinearTarget.kind === "issue" && postToLinearTarget.issueId === trimmed)) {
+        throw new CommandUsageError("Conflicting --linear and --post-to-linear values");
+      }
+      fromLinearIssueId = trimmed;
+      postToLinearTarget = { kind: "issue", issueId: trimmed };
       index = nextIndex;
       continue;
     }
@@ -196,8 +218,8 @@ export function parseOneshotArgs(args: string[]): ParsedOneshotCommand | null {
   }
 
   if (resume) {
-    if (resumeFromLinearIssueId) {
-      throw new CommandUsageError("Cannot use --resume with --resume-from-linear");
+    if (fromLinearIssueId) {
+      throw new CommandUsageError("Cannot use --resume with --from-linear");
     }
     if (!resumeBranch) throw new CommandUsageError("--resume requires a branch name");
     if (branch && branch !== resumeBranch) {
@@ -206,8 +228,8 @@ export function parseOneshotArgs(args: string[]): ParsedOneshotCommand | null {
     branch = resumeBranch;
   }
 
-  if (!resume && !resumeFromLinearIssueId && !prompt) {
-    throw new CommandUsageError("oneshot requires --prompt (or use --resume / --resume-from-linear)");
+  if (!resume && !fromLinearIssueId && !prompt) {
+    throw new CommandUsageError("oneshot requires --prompt (or use --resume / --from-linear)");
   }
 
   // Default for new oneshot: close-on-merge so the command has a natural exit.
@@ -229,7 +251,7 @@ export function parseOneshotArgs(args: string[]): ParsedOneshotCommand | null {
     body,
     onMergeAction,
     keepOpen,
-    resumeFromLinearIssueId,
+    fromLinearIssueId,
     postToLinearTarget,
   };
 }
@@ -469,9 +491,9 @@ export async function runOneshot(parsed: ParsedOneshotCommand, port: number): Pr
   const body: CreateWorktreeRequest = { ...parsed.body };
 
   try {
-    if (parsed.resumeFromLinearIssueId) {
-      stdout(`[${timestamp()}] [event] resolving Linear issue ${parsed.resumeFromLinearIssueId}...`);
-      const seed = await api.fetchLinearSeed({ params: { issueId: parsed.resumeFromLinearIssueId } });
+    if (parsed.fromLinearIssueId) {
+      stdout(`[${timestamp()}] [event] resolving Linear issue ${parsed.fromLinearIssueId}...`);
+      const seed = await api.fetchLinearSeed({ params: { issueId: parsed.fromLinearIssueId } });
       stdout(`[${timestamp()}] [event] seed source: ${seed.source}${seed.branch ? ` branch=${seed.branch}` : ""}${seed.prUrl ? ` pr=${seed.prUrl}` : ""}`);
 
       const resolvedBranch = branch ?? seed.branch ?? null;
@@ -481,11 +503,10 @@ export async function runOneshot(parsed: ParsedOneshotCommand, port: number): Pr
       }
       branch = resolvedBranch;
       body.branch = resolvedBranch;
-      // Treat resume-from-linear as an "existing branch" create so we attach to
-      // origin/<branch> rather than creating a fresh one (unless source was none).
+      // Use "existing" mode when the seed pointed to an existing branch (webmux session or open PR).
       if (seed.source !== "none") body.mode = "existing";
-      body.resumeFromLinear = {
-        issueId: parsed.resumeFromLinearIssueId,
+      body.fromLinear = {
+        issueId: parsed.fromLinearIssueId,
         ...(seed.conversationMarkdown ? { conversationContext: seed.conversationMarkdown } : {}),
       };
     }

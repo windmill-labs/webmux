@@ -82,67 +82,35 @@ describe("parseOneshotArgs", () => {
     expect(parseOneshotArgs(["--help"])).toBeNull();
   });
 
-  it("supports --post-to-linear with a team key", () => {
-    const parsed = parseOneshotArgs(["feature/search", "--prompt", "Fix", "--post-to-linear", "ENG"]);
-    expect(parsed?.postToLinearTarget).toEqual({ kind: "team", teamKey: "ENG" });
-  });
-
-  it("rejects --post-to-linear with an issue id (use --linear instead)", () => {
-    expect(() => parseOneshotArgs(["feature/search", "--prompt", "Fix", "--post-to-linear", "ENG-42"]))
-      .toThrow("--linear ENG-42");
-  });
-
-  it("rejects invalid --post-to-linear values", () => {
-    expect(() => parseOneshotArgs(["feature/search", "--prompt", "Fix", "--post-to-linear", "eng-1"]))
-      .toThrow("Invalid Linear team key");
-  });
-
-  it("supports --from-linear without --prompt", () => {
-    const parsed = parseOneshotArgs(["--from-linear", "ENG-12"]);
-    expect(parsed?.fromLinearIssueId).toBe("ENG-12");
-    expect(parsed?.resume).toBe(false);
-  });
-
-  it("rejects --from-linear combined with --resume", () => {
-    expect(() => parseOneshotArgs(["--resume", "feat/foo", "--from-linear", "ENG-12"]))
-      .toThrow("Cannot use --resume with --from-linear");
-  });
-
-  it("rejects malformed --from-linear values", () => {
-    expect(() => parseOneshotArgs(["--from-linear", "eng-99"]))
-      .toThrow("--from-linear expects an issue id like ENG-123");
-  });
-
-  it("accepts --branch as override alongside --from-linear", () => {
-    const parsed = parseOneshotArgs(["--from-linear", "ENG-12", "--branch", "feat/override"]);
-    expect(parsed?.branch).toBe("feat/override");
-    expect(parsed?.fromLinearIssueId).toBe("ENG-12");
-  });
-
-  it("--linear sets both --from-linear and --post-to-linear", () => {
+  it("--linear with an issue id sets both seed and post target (round-trip)", () => {
     const parsed = parseOneshotArgs(["--linear", "ENG-42"]);
     expect(parsed?.fromLinearIssueId).toBe("ENG-42");
     expect(parsed?.postToLinearTarget).toEqual({ kind: "issue", issueId: "ENG-42" });
+    expect(parsed?.resume).toBe(false);
   });
 
-  it("rejects --linear combined with --from-linear", () => {
-    expect(() => parseOneshotArgs(["--from-linear", "ENG-1", "--linear", "ENG-2"]))
-      .toThrow("Cannot combine --linear with --from-linear or --post-to-linear");
+  it("--linear with a team key sets only the post target", () => {
+    const parsed = parseOneshotArgs(["feature/search", "--prompt", "Fix", "--linear", "ENG"]);
+    expect(parsed?.fromLinearIssueId).toBeNull();
+    expect(parsed?.postToLinearTarget).toEqual({ kind: "team", teamKey: "ENG" });
   });
 
-  it("rejects --linear combined with --post-to-linear", () => {
-    expect(() => parseOneshotArgs(["--post-to-linear", "ENG", "--linear", "ENG-2"]))
-      .toThrow("Cannot combine --linear with --from-linear or --post-to-linear");
+  it("rejects invalid --linear values", () => {
+    expect(() => parseOneshotArgs(["feature/search", "--prompt", "Fix", "--linear", "eng-1"]))
+      .toThrow("--linear expects either an issue id");
+    expect(() => parseOneshotArgs(["feature/search", "--prompt", "Fix", "--linear", ""]))
+      .toThrow("--linear expects either an issue id");
   });
 
-  it("rejects --from-linear after --linear", () => {
-    expect(() => parseOneshotArgs(["--linear", "ENG-2", "--from-linear", "ENG-1"]))
-      .toThrow("Cannot combine --from-linear with --linear");
+  it("rejects --linear combined with --resume", () => {
+    expect(() => parseOneshotArgs(["--resume", "feat/foo", "--linear", "ENG-12"]))
+      .toThrow("Cannot use --resume with --from-linear");
   });
 
-  it("rejects --post-to-linear after --linear", () => {
-    expect(() => parseOneshotArgs(["--linear", "ENG-2", "--post-to-linear", "ENG"]))
-      .toThrow("Cannot combine --post-to-linear with --linear");
+  it("accepts --branch as override alongside --linear (issue id)", () => {
+    const parsed = parseOneshotArgs(["--linear", "ENG-12", "--branch", "feat/override"]);
+    expect(parsed?.branch).toBe("feat/override");
+    expect(parsed?.fromLinearIssueId).toBe("ENG-12");
   });
 
   it("rejects --branch with conflicting positional branch", () => {

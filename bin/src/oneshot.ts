@@ -1,5 +1,4 @@
 import { apiPaths, AgentsUiConversationEventSchema, createApi, type AgentsUiConversationMessage, type AgentsUiConversationEvent, type AgentsUiWorktreeConversationResponse, type CreateWorktreeRequest, type OnMergeAction, type PostWorktreeToLinearTarget, type ProjectWorktreeSnapshot } from "@webmux/api-contract";
-import { parseLinearTargetArg } from "./linear-commands";
 
 export interface ParsedOneshotCommand {
   branch: string | null;
@@ -19,9 +18,8 @@ export function getOneshotUsage(): string {
     "Usage:",
     "  webmux oneshot [branch] --prompt <text> [--agent <id>] [--base <branch>] [--profile <name>]",
     "                          [--env KEY=VALUE]... [--close-on-merge|--remove-on-merge|--keep-open]",
-    "                          [--from-linear <issue-id>] [--post-to-linear <issue-or-team>]",
-    "                          [--linear <issue-id>]",
-    "  webmux oneshot --resume <branch> [--prompt <text>] [--post-to-linear <issue-or-team>]",
+    "                          [--linear <issue-id|team-key>]",
+    "  webmux oneshot --resume <branch> [--prompt <text>] [--linear <issue-id|team-key>]",
     "",
     "Runs an agent worktree start-to-finish, streaming the conversation to stdout.",
     "Does not change the focused tmux session. Exits when the session closes",
@@ -37,14 +35,10 @@ export function getOneshotUsage(): string {
     "  --close-on-merge         Close the session on PR merge (default for oneshot)",
     "  --remove-on-merge        Remove the worktree on PR merge",
     "  --keep-open              Stream until interrupted; do not auto-close on merge",
-    "  --from-linear ID         Bootstrap a worktree from a Linear issue (loads the issue body",
-    "                           as context, plus any saved webmux session / linked PR). Pass",
-    "                           --branch to override the resolved branch.",
-    "  --post-to-linear TEAM    When done, create a new Linear issue in <TEAM> and post the",
-    "                           conversation there. For posting back to an existing issue,",
-    "                           use --linear <issue-id> instead.",
-    "  --linear ID              Shortcut for --from-linear ID --post-to-linear (existing issue ID);",
-    "                           loads context from the issue and posts results back to it.",
+    "  --linear ID|TEAM         Tie this oneshot to Linear:",
+    "                             ENG-123  — load the issue body as context, post results back",
+    "                             ENG      — create a new issue in that team when done",
+    "                           Pass --branch to override the branch resolved from an issue.",
     "  --help                   Show this help message",
   ].join("\n");
 }
@@ -75,7 +69,6 @@ export function parseOneshotArgs(args: string[]): ParsedOneshotCommand | null {
   let keepOpen = false;
   let fromLinearIssueId: string | null = null;
   let postToLinearTarget: PostWorktreeToLinearTarget | null = null;
-  let linearShorthandUsed = false;
 
   for (let index = 0; index < args.length; index++) {
     const arg = args[index];
@@ -160,42 +153,21 @@ export function parseOneshotArgs(args: string[]): ParsedOneshotCommand | null {
       continue;
     }
 
-    if (arg === "--from-linear" || arg.startsWith("--from-linear=")) {
-      if (linearShorthandUsed) {
-        throw new CommandUsageError("Cannot combine --from-linear with --linear");
-      }
-      const { value, nextIndex } = readOptionValue(args, index, "--from-linear");
-      const trimmed = value.trim();
-      if (!/^[A-Z]+-\d+$/.test(trimmed)) {
-        throw new CommandUsageError(`--from-linear expects an issue id like ENG-123 (got "${trimmed}")`);
-      }
-      fromLinearIssueId = trimmed;
-      index = nextIndex;
-      continue;
-    }
-
-    if (arg === "--post-to-linear" || arg.startsWith("--post-to-linear=")) {
-      if (linearShorthandUsed) {
-        throw new CommandUsageError("Cannot combine --post-to-linear with --linear");
-      }
-      const { value, nextIndex } = readOptionValue(args, index, "--post-to-linear");
-      postToLinearTarget = parseLinearTargetArg(value);
-      index = nextIndex;
-      continue;
-    }
-
     if (arg === "--linear" || arg.startsWith("--linear=")) {
-      if (fromLinearIssueId || postToLinearTarget) {
-        throw new CommandUsageError("Cannot combine --linear with --from-linear or --post-to-linear");
-      }
       const { value, nextIndex } = readOptionValue(args, index, "--linear");
       const trimmed = value.trim();
-      if (!/^[A-Z]+-\d+$/.test(trimmed)) {
-        throw new CommandUsageError(`--linear expects an issue id like ENG-123 (got "${trimmed}")`);
+      if (/^[A-Z]+-\d+$/.test(trimmed)) {
+        // Issue id → round-trip: load context AND post back to the same issue.
+        fromLinearIssueId = trimmed;
+        postToLinearTarget = { kind: "issue", issueId: trimmed };
+      } else if (/^[A-Z]+$/.test(trimmed)) {
+        // Team key → post a new issue in that team when done; no seed.
+        postToLinearTarget = { kind: "team", teamKey: trimmed };
+      } else {
+        throw new CommandUsageError(
+          `--linear expects either an issue id (ENG-123) or a team key (ENG); got "${trimmed}"`,
+        );
       }
-      linearShorthandUsed = true;
-      fromLinearIssueId = trimmed;
-      postToLinearTarget = { kind: "issue", issueId: trimmed };
       index = nextIndex;
       continue;
     }

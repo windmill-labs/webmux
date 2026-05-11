@@ -8,7 +8,9 @@ import {
   apiPaths,
   AvailableBranchesQuerySchema,
   CreateWorktreeRequestSchema,
+  LinearIssueIdParamsSchema,
   NotificationIdParamsSchema,
+  PostWorktreeToLinearRequestSchema,
   PullMainRequestSchema,
   RunIdParamsSchema,
   SendWorktreePromptRequestSchema,
@@ -54,12 +56,24 @@ import { resolveAgentChatSupport, resolveAgentTerminalSubmitDelayMs } from "./se
 import { validateCustomAgentInput } from "./services/agent-validation-service";
 import { getAgentDefinition, isBuiltInAgentId, listAgentDetails, listAgentSummaries, normalizeCustomAgentId } from "./services/agent-registry";
 import {
+  attachToIssue,
   branchMatchesIssue,
   buildLinearIssuesResponse,
+  createIssueComment,
   createLinearIssue,
   deriveLinearIssueTitle,
   fetchAssignedIssues,
+  fetchIssueWithAttachments,
+  fetchTeamByKey,
+  uploadAttachmentFile,
 } from "./services/linear-service";
+import {
+  buildSeedFromLinear,
+  downloadWebmuxAttachmentDefault,
+  exportConversationToLinear,
+  type ExportConversationDependencies,
+  type ExportConversationInput,
+} from "./services/conversation-export-service";
 import { buildCreateWorktreeTargets, LifecycleError } from "./services/lifecycle-service";
 import { buildNativeTerminalLaunch, buildNativeTerminalTmuxCommand } from "./services/native-terminal-service";
 import { startPrMonitor } from "./services/pr-service";
@@ -851,6 +865,41 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
   }
 
   let resolvedBranch = branch;
+  let resolvedPrompt = prompt;
+  let resolvedMode = mode;
+
+  if (body.resumeFromLinear) {
+    if (createLinearTicket) {
+      return errorResponse("resumeFromLinear cannot be combined with createLinearTicket", 400);
+    }
+    let conversationContext = body.resumeFromLinear.conversationContext?.trim() ?? "";
+    let seedBranch: string | null = null;
+    if (!conversationContext || !resolvedBranch) {
+      // Fall back to fetching the seed server-side when the client didn't pre-resolve it.
+      const seedResult = await buildSeedFromLinear(
+        { issueId: body.resumeFromLinear.issueId },
+        { fetchIssueWithAttachments, downloadWebmuxAttachment: downloadWebmuxAttachmentDefault },
+      );
+      if (!seedResult.ok) {
+        return errorResponse(`Linear seed lookup failed: ${seedResult.error}`, seedResult.status);
+      }
+      if (!conversationContext && seedResult.data.conversationMarkdown) {
+        conversationContext = seedResult.data.conversationMarkdown;
+      }
+      seedBranch = seedResult.data.branch;
+      if (!resolvedBranch && seedBranch) {
+        resolvedBranch = seedBranch;
+        // Use "existing" mode when the seed pointed to a real branch (avoids fresh-create).
+        if (seedResult.data.source !== "none") resolvedMode = "existing";
+      }
+    }
+    if (conversationContext) {
+      resolvedPrompt = resolvedPrompt
+        ? `${conversationContext}\n\n---\n\n${resolvedPrompt}`
+        : conversationContext;
+    }
+  }
+
   if (createLinearTicket) {
     const title = deriveLinearIssueTitle(linearTitle, prompt);
     if (!title) {
@@ -864,7 +913,7 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
 
     const linearResult = await createLinearIssue({
       title,
-      description: prompt ?? "",
+      description: resolvedPrompt ?? "",
       teamId,
     });
     if (!linearResult.ok) {
@@ -892,10 +941,10 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
     `[worktree:add] mode=${mode ?? "new"}${resolvedBranch ? ` branch=${resolvedBranch}` : ""}${baseBranch ? ` base=${baseBranch}` : ""}${profile ? ` profile=${profile}` : ""} agents=${selectedAgents.join(",")}${createLinearTicket ? " linearTicket=true" : ""}${prompt ? ` prompt="${prompt.slice(0, 80)}"` : ""}`,
   );
   const result = await lifecycleService.createWorktrees({
-    mode,
+    mode: resolvedMode,
     branch: resolvedBranch,
     baseBranch,
-    prompt,
+    prompt: resolvedPrompt,
     profile,
     ...(agents && agents.length > 0 ? { agents } : { agent }),
     envOverrides,
@@ -1125,6 +1174,80 @@ async function apiPullMain(req: Request): Promise<Response> {
 
   log.info(`[pull-main] ${repo || "main"} ${force ? "force " : ""}pull: ${result.status}`);
   return jsonResponse(result);
+}
+
+async function apiPostWorktreeToLinear(name: string, req: Request): Promise<Response> {
+  if (!config.integrations.linear.enabled) {
+    return errorResponse("Linear integration is disabled", 400);
+  }
+  const apiKey = Bun.env.LINEAR_API_KEY;
+  if (!apiKey?.trim()) {
+    return errorResponse("LINEAR_API_KEY not set", 503);
+  }
+
+  const parsed = await parseJsonBody(req, PostWorktreeToLinearRequestSchema);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.data;
+
+  await reconciliationService.reconcile(PROJECT_DIR);
+  const state = projectRuntime.getWorktreeByBranch(name);
+  if (!state) return errorResponse(`Worktree not found: ${name}`, 404);
+
+  const resolved = await resolveAgentsWorktree(name);
+  if (!resolved.ok) return resolved.response;
+
+  const chatSupport = resolveWorktreeAgentChatSupport(resolved.worktree, "chat");
+  if (!chatSupport.ok) return errorResponse(chatSupport.error, chatSupport.status);
+
+  const conversationResult = chatSupport.data.provider === "claude"
+    ? await claudeConversationService.readWorktreeConversation(resolved.worktree)
+    : await worktreeConversationService.readWorktreeConversation(resolved.worktree);
+  if (!conversationResult.ok) return errorResponse(conversationResult.error, conversationResult.status);
+
+  const prUrl = (state.prs ?? []).find((pr) => pr.state === "open" || pr.state === "merged")?.url ?? null;
+
+  const exportInput: ExportConversationInput = {
+    target: body.target,
+    branch: name,
+    baseBranch: state.baseBranch ?? null,
+    lastSha: null,
+    agent: resolved.worktree.agentName ?? null,
+    prUrl,
+    conversation: conversationResult.data.conversation,
+  };
+  const deps: ExportConversationDependencies = {
+    fetchIssueWithAttachments,
+    fetchTeamByKey,
+    createLinearIssue,
+    uploadAttachmentFile,
+    attachToIssue,
+    createIssueComment,
+  };
+  const result = await exportConversationToLinear(exportInput, deps);
+  if (!result.ok) return errorResponse(result.error, result.status);
+  return jsonResponse({
+    ok: true,
+    issueId: result.data.issueId,
+    issueUrl: result.data.issueUrl,
+    commentUrl: result.data.commentUrl,
+    attachmentUrl: result.data.attachmentUrl,
+  });
+}
+
+async function apiFetchLinearSeed(issueId: string): Promise<Response> {
+  if (!config.integrations.linear.enabled) {
+    return errorResponse("Linear integration is disabled", 400);
+  }
+  const apiKey = Bun.env.LINEAR_API_KEY;
+  if (!apiKey?.trim()) {
+    return errorResponse("LINEAR_API_KEY not set", 503);
+  }
+  const result = await buildSeedFromLinear({ issueId }, {
+    fetchIssueWithAttachments,
+    downloadWebmuxAttachment: downloadWebmuxAttachmentDefault,
+  });
+  if (!result.ok) return errorResponse(result.error, result.status);
+  return jsonResponse(result.data);
 }
 
 async function apiGetLinearIssues(): Promise<Response> {
@@ -1448,6 +1571,24 @@ Bun.serve({
         if (!parsed.ok) return parsed.response;
         const name = parsed.data;
         return catching(`PUT /api/worktrees/${name}/on-merge-action`, () => apiSetWorktreeOnMergeAction(name, req));
+      },
+    },
+
+    [apiPaths.postWorktreeToLinear]: {
+      POST: (req) => {
+        const parsed = parseWorktreeNameParam(req.params);
+        if (!parsed.ok) return parsed.response;
+        const name = parsed.data;
+        return catching(`POST /api/worktrees/${name}/linear/post`, () => apiPostWorktreeToLinear(name, req));
+      },
+    },
+
+    [apiPaths.fetchLinearSeed]: {
+      GET: (req) => {
+        const params = parseParams(req.params, LinearIssueIdParamsSchema);
+        if (!params.ok) return params.response;
+        const issueId = params.data.issueId;
+        return catching(`GET /api/linear/issues/${issueId}/seed`, () => apiFetchLinearSeed(issueId));
       },
     },
 

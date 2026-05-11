@@ -26,6 +26,45 @@ export const WorktreeCreateModeSchema = z.enum(["new", "existing"]);
 
 export const OnMergeActionSchema = z.enum(["close", "remove"]);
 
+export const LinearIssueIdSchema = z.string().regex(/^[A-Z]+-\d+$/, "Expected Linear issue id (e.g. ENG-123)");
+export const LinearTeamKeySchema = z.string().regex(/^[A-Z]+$/, "Expected Linear team key (e.g. ENG)");
+
+export const PostWorktreeToLinearTargetSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("issue"), issueId: LinearIssueIdSchema }),
+  z.object({ kind: z.literal("team"), teamKey: LinearTeamKeySchema, title: z.string().trim().min(1).optional() }),
+]);
+
+export const PostWorktreeToLinearRequestSchema = z.object({
+  target: PostWorktreeToLinearTargetSchema,
+});
+
+export const PostWorktreeToLinearResponseSchema = z.object({
+  ok: z.literal(true),
+  issueId: z.string(),
+  issueUrl: z.string(),
+  commentUrl: z.string().nullable(),
+  attachmentUrl: z.string(),
+});
+
+export const LinearSeedSourceSchema = z.enum(["webmux-attachment", "github-integration", "none"]);
+
+export const LinearSeedResponseSchema = z.object({
+  source: LinearSeedSourceSchema,
+  branch: z.string().nullable(),
+  baseBranch: z.string().nullable(),
+  prUrl: z.string().nullable(),
+  conversationMarkdown: z.string().nullable(),
+});
+
+export const LinearIssueIdParamsSchema = z.object({
+  issueId: LinearIssueIdSchema,
+});
+
+export const ResumeFromLinearInputSchema = z.object({
+  issueId: LinearIssueIdSchema,
+  conversationContext: z.string().optional(),
+});
+
 export const AgentCapabilitiesSchema = z.object({
   terminal: z.literal(true),
   inAppChat: z.boolean(),
@@ -105,6 +144,7 @@ export const CreateWorktreeRequestSchema = z.object({
   onMergeAction: OnMergeActionSchema.nullable().optional(),
   createLinearTicket: z.literal(true).optional(),
   linearTitle: z.string().optional(),
+  resumeFromLinear: ResumeFromLinearInputSchema.optional(),
 });
 
 export const SetWorktreeOnMergeActionRequestSchema = z.object({
@@ -472,6 +512,14 @@ export type WorktreeCreateMode = z.infer<typeof WorktreeCreateModeSchema>;
 export type OnMergeAction = z.infer<typeof OnMergeActionSchema>;
 export type SetWorktreeOnMergeActionRequest = z.infer<typeof SetWorktreeOnMergeActionRequestSchema>;
 export type SetWorktreeOnMergeActionResponse = z.infer<typeof SetWorktreeOnMergeActionResponseSchema>;
+export type LinearIssueId = z.infer<typeof LinearIssueIdSchema>;
+export type LinearTeamKey = z.infer<typeof LinearTeamKeySchema>;
+export type PostWorktreeToLinearTarget = z.infer<typeof PostWorktreeToLinearTargetSchema>;
+export type PostWorktreeToLinearRequest = z.infer<typeof PostWorktreeToLinearRequestSchema>;
+export type PostWorktreeToLinearResponse = z.infer<typeof PostWorktreeToLinearResponseSchema>;
+export type LinearSeedSource = z.infer<typeof LinearSeedSourceSchema>;
+export type LinearSeedResponse = z.infer<typeof LinearSeedResponseSchema>;
+export type ResumeFromLinearInput = z.infer<typeof ResumeFromLinearInputSchema>;
 export type WorktreeCreationPhase = z.infer<typeof WorktreeCreationPhaseSchema>;
 export type AvailableBranch = z.infer<typeof AvailableBranchSchema>;
 // Keep this manual so frontend callers pass booleans instead of raw `"true"`/`"false"` query literals.

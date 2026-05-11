@@ -125,6 +125,11 @@
   let profile = $state(savedProfile ?? "");
   let createLinearTicket = $state(false);
   let linearTitle = $state("");
+  let resumeFromLinearIssueId = $state("");
+
+  let resumeFromLinearValid = $derived(
+    resumeFromLinearIssueId.trim() === "" || /^[A-Z]+-\d+$/.test(resumeFromLinearIssueId.trim()),
+  );
   const hasSavedDefaults = savedProfile != null
     || localStorage.getItem(AGENT_STORAGE_KEY) != null
     || localStorage.getItem(MULTI_AGENT_STORAGE_KEY) != null
@@ -148,8 +153,9 @@
   );
   let canSubmit = $derived(
     selectedAgentIds.length > 0
-      && (mode === "new" || selectedExistingBranch.length > 0)
-      && (!promptRequired || prompt.trim().length > 0),
+      && (mode === "new" || selectedExistingBranch.length > 0 || resumeFromLinearIssueId.trim().length > 0)
+      && (!promptRequired || prompt.trim().length > 0)
+      && resumeFromLinearValid,
   );
 
   $effect(() => {
@@ -249,6 +255,7 @@
       }
       const trimmedPrompt = prompt.trim();
       const branchName = mode === "existing" ? selectedExistingBranch : newBranchName.trim();
+      const trimmedResumeIssue = resumeFromLinearIssueId.trim();
       oncreate({
         mode,
         ...(branchName && !(mode === "new" && createLinearTicket) ? { branch: branchName } : {}),
@@ -259,6 +266,7 @@
         ...(Object.keys(filteredEnvs).length > 0 ? { envOverrides: filteredEnvs } : {}),
         ...(createLinearTicket ? { createLinearTicket: true } : {}),
         ...(createLinearTicket && linearTitle.trim() ? { linearTitle: linearTitle.trim() } : {}),
+        ...(trimmedResumeIssue ? { resumeFromLinear: { issueId: trimmedResumeIssue } } : {}),
       });
     }}
   >
@@ -476,6 +484,24 @@
         {/if}
       </div>
     {/if}
+    <div class="mb-4">
+      <label class="block text-xs text-muted mb-1.5" for="wt-resume-linear">
+        Resume from Linear issue <span class="opacity-60">(optional)</span>
+      </label>
+      <input
+        id="wt-resume-linear"
+        type="text"
+        class="w-full px-2.5 py-1.5 rounded-md border border-edge bg-surface text-primary text-[13px] placeholder:text-muted/50 outline-none focus:border-accent font-mono"
+        placeholder="ENG-123"
+        bind:value={resumeFromLinearIssueId}
+      />
+      <p class="mt-1 text-[11px] text-muted">
+        Bootstraps the worktree from a Linear issue's saved conversation and linked PR (if any). Leave the branch blank to use the resolved one.
+      </p>
+      {#if !resumeFromLinearValid}
+        <p class="mt-1 text-[11px] text-danger">Expected an issue id like ENG-123.</p>
+      {/if}
+    </div>
     <div class="flex justify-end gap-2">
       <Btn type="button" onclick={oncancel}>Cancel</Btn>
       <Btn

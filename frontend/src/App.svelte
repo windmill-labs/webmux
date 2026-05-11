@@ -12,6 +12,7 @@
   import ToastStack from "./lib/ToastStack.svelte";
   import LinearPanel from "./lib/LinearPanel.svelte";
   import LinearDetailDialog from "./lib/LinearDetailDialog.svelte";
+  import LinearPostDialog from "./lib/LinearPostDialog.svelte";
   import MobileChatSurface from "./lib/MobileChatSurface.svelte";
   import SidebarRepoRow from "./lib/SidebarRepoRow.svelte";
   import Toggle from "./lib/Toggle.svelte";
@@ -52,7 +53,7 @@
   import { getTheme } from "./lib/themes";
   import type { ThemeKey } from "./lib/themes";
   import { setToastController } from "./lib/toast-context";
-  import { api, fetchWorktrees, subscribeNotifications } from "./lib/api";
+  import { api, fetchWorktrees, postWorktreeToLinear, subscribeNotifications } from "./lib/api";
 
   function createDefaultConfig(): AppConfig {
     return {
@@ -85,6 +86,7 @@
   let hasLoadedWorktrees = $state(false);
   let removeBranch = $state<string | null>(null);
   let mergeBranch = $state<string | null>(null);
+  let postToLinearBranch = $state<string | null>(null);
   let removingBranches = $state<Set<string>>(new Set());
   let showCreateDialog = $state(false);
   let showSettingsDialog = $state(false);
@@ -1042,6 +1044,7 @@
         }}
         onremove={(b) => (removeBranch = b)}
         onsetonmergeaction={setWorktreeOnMergeAction}
+        onposttolinear={(b) => (postToLinearBranch = b)}
       />
       {#if config.projectDir}
         <SidebarRepoRow
@@ -1314,6 +1317,22 @@
     issue={detailIssue}
     onassign={(issue) => { detailIssue = null; handleAssignIssue(issue); }}
     onclose={() => (detailIssue = null)}
+  />
+{/if}
+
+{#if postToLinearBranch}
+  <LinearPostDialog
+    branch={postToLinearBranch}
+    onsubmit={async (target) => {
+      const branch = postToLinearBranch;
+      if (!branch) return;
+      const response = await postWorktreeToLinear(branch, target);
+      showToast({
+        tone: "success",
+        message: `Posted to Linear: ${response.issueUrl}`,
+      });
+    }}
+    onclose={() => (postToLinearBranch = null)}
   />
 {/if}
 

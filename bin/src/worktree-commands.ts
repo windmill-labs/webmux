@@ -76,7 +76,7 @@ export function getWorktreeCommandUsage(command: WorktreeSubcommand): string {
     case "add":
       return [
         "Usage:",
-        "  webmux add [branch] [--existing] [--base <branch>] [--profile <name>] [--agent <id>] [--prompt <text>] [--env KEY=VALUE] [--detach] [--close-on-merge|--remove-on-merge]",
+        "  webmux add [branch] [--existing] [--base <branch>] [--profile <name>] [--agent <id>] [--prompt <text>] [--env KEY=VALUE] [--detach] [--close-on-merge|--remove-on-merge] [--resume-from-linear <issue-id>]",
         "",
         "Options:",
         "  --existing               Use an existing local or remote branch instead of creating a new one",
@@ -88,6 +88,8 @@ export function getWorktreeCommandUsage(command: WorktreeSubcommand): string {
         "  -d, --detach             Create worktree without switching to it",
         "  --close-on-merge         Close the session when all PRs are merged",
         "  --remove-on-merge        Remove the worktree when all PRs are merged",
+        "  --resume-from-linear ID  Bootstrap from a Linear issue's saved conversation/PR",
+        "                           (pass --branch to override the resolved branch)",
         "  --help                   Show this help message",
       ].join("\n");
     case "list":
@@ -167,6 +169,8 @@ function parseAgent(value: string): AgentId {
 export interface ParsedAddCommand {
   input: CreateLifecycleWorktreesInput;
   detach: boolean;
+  resumeFromLinearIssueId: string | null;
+  branchExplicit: boolean;
 }
 
 export function parseAddCommandArgs(args: string[]): ParsedAddCommand | null {
@@ -174,6 +178,8 @@ export function parseAddCommandArgs(args: string[]): ParsedAddCommand | null {
   const envOverrides: Record<string, string> = {};
   const selectedAgents: AgentId[] = [];
   let detach = false;
+  let resumeFromLinearIssueId: string | null = null;
+  let branchExplicit = false;
 
   for (let index = 0; index < args.length; index++) {
     const arg = args[index];
@@ -248,6 +254,28 @@ export function parseAddCommandArgs(args: string[]): ParsedAddCommand | null {
       continue;
     }
 
+    if (arg === "--resume-from-linear" || arg.startsWith("--resume-from-linear=")) {
+      const { value, nextIndex } = readOptionValue(args, index, "--resume-from-linear");
+      const trimmed = value.trim();
+      if (!/^[A-Z]+-\d+$/.test(trimmed)) {
+        throw new CommandUsageError(`--resume-from-linear expects an issue id like ENG-123 (got "${trimmed}")`);
+      }
+      resumeFromLinearIssueId = trimmed;
+      index = nextIndex;
+      continue;
+    }
+
+    if (arg === "--branch" || arg.startsWith("--branch=")) {
+      const { value, nextIndex } = readOptionValue(args, index, "--branch");
+      if (input.branch && input.branch !== value) {
+        throw new CommandUsageError(`Conflicting branch values: "${input.branch}" and "${value}"`);
+      }
+      input.branch = value.trim();
+      branchExplicit = true;
+      index = nextIndex;
+      continue;
+    }
+
     if (arg.startsWith("-")) {
       throw new CommandUsageError(`Unknown option: ${arg}`);
     }
@@ -257,6 +285,7 @@ export function parseAddCommandArgs(args: string[]): ParsedAddCommand | null {
     }
 
     input.branch = arg;
+    branchExplicit = true;
   }
 
   if (selectedAgents.length > 0) {
@@ -267,7 +296,7 @@ export function parseAddCommandArgs(args: string[]): ParsedAddCommand | null {
     input.envOverrides = envOverrides;
   }
 
-  return { input, detach };
+  return { input, detach, resumeFromLinearIssueId, branchExplicit };
 }
 
 export function parseBranchCommandArgs(args: string[]): string | null {
@@ -606,6 +635,36 @@ export async function runWorktreeCommand(
           stdout(PHASE_LABELS[progress.phase] ?? progress.phase);
         },
       });
+
+      if (parsed.resumeFromLinearIssueId) {
+        const { buildSeedFromLinear, downloadWebmuxAttachmentDefault } = await import("../../backend/src/services/conversation-export-service");
+        const { fetchIssueWithAttachments } = await import("../../backend/src/services/linear-service");
+        stdout(`Resolving Linear issue ${parsed.resumeFromLinearIssueId}...`);
+        const seed = await buildSeedFromLinear(
+          { issueId: parsed.resumeFromLinearIssueId },
+          { fetchIssueWithAttachments, downloadWebmuxAttachment: downloadWebmuxAttachmentDefault },
+        );
+        if (!seed.ok) {
+          stderr(`Linear seed lookup failed: ${seed.error}`);
+          return 1;
+        }
+        stdout(`Linear seed source: ${seed.data.source}${seed.data.branch ? ` branch=${seed.data.branch}` : ""}${seed.data.prUrl ? ` pr=${seed.data.prUrl}` : ""}`);
+
+        if (!parsed.branchExplicit && seed.data.branch) {
+          parsed.input.branch = seed.data.branch;
+        }
+        if (!parsed.input.branch) {
+          stderr("Linear issue did not resolve to a branch; pass --branch to override.");
+          return 1;
+        }
+        if (seed.data.source !== "none") parsed.input.mode = "existing";
+        if (seed.data.conversationMarkdown) {
+          parsed.input.prompt = parsed.input.prompt
+            ? `${seed.data.conversationMarkdown}\n\n---\n\n${parsed.input.prompt}`
+            : seed.data.conversationMarkdown;
+        }
+      }
+
       if (!parsed.input.branch && parsed.input.prompt && runtime.config.autoName) {
         stdout("Generating branch name...");
       }

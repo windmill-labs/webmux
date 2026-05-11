@@ -21,6 +21,7 @@
     onmerge,
     onremove,
     onsetonmergeaction,
+    onposttolinear,
   }: {
     rows: WorktreeListRow[];
     selected: string | null;
@@ -35,6 +36,7 @@
     onmerge: (branch: string) => void;
     onremove: (branch: string) => void;
     onsetonmergeaction: (branch: string, action: OnMergeAction | null) => void;
+    onposttolinear?: (branch: string) => void;
   } = $props();
 
   function toggleMenu(branch: string): void {
@@ -264,6 +266,20 @@
             <span>Remove worktree</span>
             {#if wt.onMergeAction === "remove"}<span aria-hidden="true">✓</span>{/if}
           </button>
+          {#if onposttolinear}
+            <div class="my-1 border-t border-edge"></div>
+            <button
+              type="button"
+              class="w-full px-2 py-1.5 rounded text-left text-xs text-primary hover:bg-hover"
+              onclick={(event) => {
+                event.stopPropagation();
+                openMenuBranch = null;
+                onposttolinear(wt.branch);
+              }}
+            >
+              Post conversation to Linear…
+            </button>
+          {/if}
         </div>
       {/if}
     </li>

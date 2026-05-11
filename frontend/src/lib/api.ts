@@ -9,7 +9,10 @@ import type {
   AgentsUiWorktreeConversationResponse,
   AppNotification,
   FileUploadResult,
+  LinearSeedResponse,
   OnMergeAction,
+  PostWorktreeToLinearResponse,
+  PostWorktreeToLinearTarget,
   ProjectWorktreeSnapshot,
   SetWorktreeOnMergeActionResponse,
   UpsertCustomAgentRequest,
@@ -69,6 +72,22 @@ export function setWorktreeOnMergeAction(
   return api.setWorktreeOnMergeAction({
     params: { name: branch },
     body: { action },
+  });
+}
+
+export function postWorktreeToLinear(
+  branch: string,
+  target: PostWorktreeToLinearTarget,
+): Promise<PostWorktreeToLinearResponse> {
+  return api.postWorktreeToLinear({
+    params: { name: branch },
+    body: { target },
+  });
+}
+
+export function fetchLinearSeed(issueId: string): Promise<LinearSeedResponse> {
+  return api.fetchLinearSeed({
+    params: { issueId },
   });
 }
 

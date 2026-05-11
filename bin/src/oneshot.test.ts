@@ -81,4 +81,46 @@ describe("parseOneshotArgs", () => {
   it("returns null for --help", () => {
     expect(parseOneshotArgs(["--help"])).toBeNull();
   });
+
+  it("supports --post-to-linear with an issue id", () => {
+    const parsed = parseOneshotArgs(["feature/search", "--prompt", "Fix", "--post-to-linear", "ENG-42"]);
+    expect(parsed?.postToLinearTarget).toEqual({ kind: "issue", issueId: "ENG-42" });
+  });
+
+  it("supports --post-to-linear with a team key", () => {
+    const parsed = parseOneshotArgs(["feature/search", "--prompt", "Fix", "--post-to-linear", "ENG"]);
+    expect(parsed?.postToLinearTarget).toEqual({ kind: "team", teamKey: "ENG" });
+  });
+
+  it("rejects invalid --post-to-linear values", () => {
+    expect(() => parseOneshotArgs(["feature/search", "--prompt", "Fix", "--post-to-linear", "eng-1"]))
+      .toThrow("Invalid Linear target");
+  });
+
+  it("supports --resume-from-linear without --prompt", () => {
+    const parsed = parseOneshotArgs(["--resume-from-linear", "ENG-12"]);
+    expect(parsed?.resumeFromLinearIssueId).toBe("ENG-12");
+    expect(parsed?.resume).toBe(false);
+  });
+
+  it("rejects --resume-from-linear combined with --resume", () => {
+    expect(() => parseOneshotArgs(["--resume", "feat/foo", "--resume-from-linear", "ENG-12"]))
+      .toThrow("Cannot use --resume with --resume-from-linear");
+  });
+
+  it("rejects malformed --resume-from-linear values", () => {
+    expect(() => parseOneshotArgs(["--resume-from-linear", "eng-99"]))
+      .toThrow("--resume-from-linear expects an issue id like ENG-123");
+  });
+
+  it("accepts --branch as override alongside --resume-from-linear", () => {
+    const parsed = parseOneshotArgs(["--resume-from-linear", "ENG-12", "--branch", "feat/override"]);
+    expect(parsed?.branch).toBe("feat/override");
+    expect(parsed?.resumeFromLinearIssueId).toBe("ENG-12");
+  });
+
+  it("rejects --branch with conflicting positional branch", () => {
+    expect(() => parseOneshotArgs(["feat/positional", "--prompt", "Fix", "--branch", "feat/override"]))
+      .toThrow("Conflicting branch values");
+  });
 });

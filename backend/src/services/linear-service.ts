@@ -504,6 +504,420 @@ export async function fetchAssignedIssues(options?: { skipCache?: boolean }): Pr
   return result;
 }
 
+// ── Issue + attachments query (for resume-from-linear / post-to-linear) ─────
+
+const ISSUE_WITH_ATTACHMENTS_QUERY = `
+  query IssueWithAttachments($id: String!) {
+    issue(id: $id) {
+      id
+      identifier
+      title
+      url
+      branchName
+      attachments {
+        nodes {
+          id
+          url
+          title
+          subtitle
+          sourceType
+          metadata
+          createdAt
+        }
+      }
+    }
+  }
+`;
+
+const TEAM_BY_KEY_QUERY = `
+  query TeamByKey($key: String!) {
+    teams(filter: { key: { eq: $key } }, first: 1) {
+      nodes {
+        id
+        key
+        name
+      }
+    }
+  }
+`;
+
+const FILE_UPLOAD_MUTATION = `
+  mutation FileUpload($contentType: String!, $filename: String!, $size: Int!) {
+    fileUpload(contentType: $contentType, filename: $filename, size: $size) {
+      success
+      uploadFile {
+        uploadUrl
+        assetUrl
+        headers {
+          key
+          value
+        }
+      }
+    }
+  }
+`;
+
+const ATTACHMENT_CREATE_MUTATION = `
+  mutation AttachmentCreate($issueId: String!, $title: String!, $url: String!, $subtitle: String) {
+    attachmentCreate(input: { issueId: $issueId, title: $title, url: $url, subtitle: $subtitle }) {
+      success
+      attachment {
+        id
+        url
+      }
+    }
+  }
+`;
+
+const COMMENT_CREATE_MUTATION = `
+  mutation CommentCreate($issueId: String!, $body: String!) {
+    commentCreate(input: { issueId: $issueId, body: $body }) {
+      success
+      comment {
+        id
+        url
+      }
+    }
+  }
+`;
+
+interface GqlAttachmentNode {
+  id: string;
+  url: string;
+  title: string;
+  subtitle: string | null;
+  sourceType: string | null;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
+}
+
+interface GqlIssueWithAttachments {
+  id: string;
+  identifier: string;
+  title: string;
+  url: string;
+  branchName: string;
+  attachments: { nodes: GqlAttachmentNode[] };
+}
+
+interface IssueWithAttachmentsQueryData {
+  issue: GqlIssueWithAttachments | null;
+}
+
+interface TeamByKeyQueryData {
+  teams: {
+    nodes: Array<{ id: string; key: string; name: string }>;
+  };
+}
+
+interface FileUploadMutationData {
+  fileUpload: {
+    success: boolean;
+    uploadFile: {
+      uploadUrl: string;
+      assetUrl: string;
+      headers: Array<{ key: string; value: string }>;
+    } | null;
+  };
+}
+
+interface AttachmentCreateMutationData {
+  attachmentCreate: {
+    success: boolean;
+    attachment: { id: string; url: string } | null;
+  };
+}
+
+interface CommentCreateMutationData {
+  commentCreate: {
+    success: boolean;
+    comment: { id: string; url: string } | null;
+  };
+}
+
+export interface LinearAttachment {
+  id: string;
+  url: string;
+  title: string;
+  subtitle: string | null;
+  sourceType: string | null;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
+}
+
+export interface LinearIssueWithAttachments {
+  id: string;
+  identifier: string;
+  title: string;
+  url: string;
+  branchName: string;
+  attachments: LinearAttachment[];
+}
+
+export type FetchIssueWithAttachmentsResult =
+  | { ok: true; data: LinearIssueWithAttachments }
+  | { ok: false; error: string; status: number };
+
+export type FetchTeamResult =
+  | { ok: true; data: { id: string; key: string; name: string } }
+  | { ok: false; error: string; status: number };
+
+export type UploadFileResult =
+  | { ok: true; data: { assetUrl: string } }
+  | { ok: false; error: string };
+
+export type AttachToIssueResult =
+  | { ok: true; data: { id: string; url: string } }
+  | { ok: false; error: string };
+
+export type CreateCommentResult =
+  | { ok: true; data: { id: string; url: string } }
+  | { ok: false; error: string };
+
+/** Internal: distinguish "issue id" (TEAM-123) vs "team key" (TEAM). */
+export type LinearTarget =
+  | { kind: "issue"; issueId: string }
+  | { kind: "team"; teamKey: string }
+  | { kind: "invalid"; raw: string };
+
+export function parseLinearTarget(raw: string): LinearTarget {
+  const trimmed = raw.trim();
+  if (/^[A-Z]+-\d+$/.test(trimmed)) return { kind: "issue", issueId: trimmed };
+  if (/^[A-Z]+$/.test(trimmed)) return { kind: "team", teamKey: trimmed };
+  return { kind: "invalid", raw: trimmed };
+}
+
+const WEBMUX_ATTACHMENT_TITLE_PREFIX = "webmux-state:";
+
+export function buildWebmuxAttachmentTitle(branch: string): string {
+  return `${WEBMUX_ATTACHMENT_TITLE_PREFIX}${branch}`;
+}
+
+export function findWebmuxAttachment(
+  issue: { attachments: LinearAttachment[] },
+  branch?: string,
+): LinearAttachment | null {
+  const candidates = issue.attachments.filter((a) => a.title.startsWith(WEBMUX_ATTACHMENT_TITLE_PREFIX));
+  if (candidates.length === 0) return null;
+  if (branch) {
+    const exact = candidates.find((a) => a.title === buildWebmuxAttachmentTitle(branch));
+    if (exact) return exact;
+  }
+  // Newest first.
+  return [...candidates].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null;
+}
+
+export interface LinkedGitHubPr {
+  url: string;
+  branch: string | null;
+  state: "open" | "closed" | "merged" | "unknown";
+}
+
+function inferPrStateFromAttachment(attachment: LinearAttachment): LinkedGitHubPr["state"] {
+  const meta = attachment.metadata ?? {};
+  const rawState = typeof meta.state === "string" ? meta.state.toLowerCase() : null;
+  if (rawState === "open" || rawState === "closed" || rawState === "merged") return rawState;
+  const status = typeof meta.status === "string" ? meta.status.toLowerCase() : null;
+  if (status === "open" || status === "closed" || status === "merged") return status;
+  return "unknown";
+}
+
+function inferPrBranchFromAttachment(attachment: LinearAttachment): string | null {
+  const meta = attachment.metadata ?? {};
+  if (typeof meta.branchName === "string" && meta.branchName.trim()) return meta.branchName.trim();
+  if (typeof meta.headRefName === "string" && meta.headRefName.trim()) return meta.headRefName.trim();
+  return null;
+}
+
+const STATE_PRIORITY: Record<LinkedGitHubPr["state"], number> = {
+  open: 0,
+  merged: 1,
+  closed: 2,
+  unknown: 3,
+};
+
+export function findLinkedGitHubPr(
+  issue: { attachments: LinearAttachment[] },
+): LinkedGitHubPr | null {
+  const githubAttachments = issue.attachments.filter((a) => {
+    if (a.sourceType === "github" || a.sourceType === "githubPR" || a.sourceType === "github_pull_request") {
+      return true;
+    }
+    return /github\.com\/.+\/pull\/\d+/i.test(a.url);
+  });
+  if (githubAttachments.length === 0) return null;
+
+  const prs: LinkedGitHubPr[] = githubAttachments.map((a) => ({
+    url: a.url,
+    branch: inferPrBranchFromAttachment(a),
+    state: inferPrStateFromAttachment(a),
+  }));
+
+  // Sort by state priority (open > merged > closed > unknown), then keep insertion order otherwise.
+  const indexed = prs.map((pr, idx) => ({ pr, idx, attachment: githubAttachments[idx] }));
+  indexed.sort((a, b) => {
+    const stateDiff = STATE_PRIORITY[a.pr.state] - STATE_PRIORITY[b.pr.state];
+    if (stateDiff !== 0) return stateDiff;
+    return b.attachment.createdAt.localeCompare(a.attachment.createdAt);
+  });
+  return indexed[0].pr;
+}
+
+export interface LinearSummaryInput {
+  branch: string;
+  baseBranch?: string;
+  turns: number;
+  prUrl?: string;
+  attachmentTitle: string;
+  webmuxVersion?: string;
+}
+
+export function buildLinearSummaryMarkdown(input: LinearSummaryInput): string {
+  const lines: string[] = [
+    `**Webmux session — branch \`${input.branch}\`**`,
+    "",
+  ];
+  if (input.baseBranch) lines.push(`- Base: \`${input.baseBranch}\``);
+  lines.push(`- Turns: ${input.turns}`);
+  if (input.prUrl) lines.push(`- PR: ${input.prUrl}`);
+  lines.push(`- Transcript: see attachment \`${input.attachmentTitle}\``);
+  if (input.webmuxVersion) lines.push(`- webmux: ${input.webmuxVersion}`);
+  lines.push("");
+  lines.push("_Resume on another machine with_ `webmux oneshot --resume-from-linear <issue-id>`.");
+  return lines.join("\n");
+}
+
+export async function fetchIssueWithAttachments(issueIdentifierOrId: string): Promise<FetchIssueWithAttachmentsResult> {
+  const response = await postLinearGraphql<IssueWithAttachmentsQueryData>(ISSUE_WITH_ATTACHMENTS_QUERY, {
+    id: issueIdentifierOrId,
+  });
+  if (!response.ok) {
+    return { ok: false, error: response.error, status: 502 };
+  }
+  const error = gqlErrorMessage(response.data);
+  if (error) {
+    return { ok: false, error, status: 502 };
+  }
+  const issue = response.data.data?.issue;
+  if (!issue) {
+    return { ok: false, error: `Linear issue not found: ${issueIdentifierOrId}`, status: 404 };
+  }
+  return {
+    ok: true,
+    data: {
+      id: issue.id,
+      identifier: issue.identifier,
+      title: issue.title,
+      url: issue.url,
+      branchName: issue.branchName,
+      attachments: issue.attachments.nodes.map((node) => ({
+        id: node.id,
+        url: node.url,
+        title: node.title,
+        subtitle: node.subtitle,
+        sourceType: node.sourceType,
+        metadata: node.metadata,
+        createdAt: node.createdAt,
+      })),
+    },
+  };
+}
+
+export async function fetchTeamByKey(teamKey: string): Promise<FetchTeamResult> {
+  const response = await postLinearGraphql<TeamByKeyQueryData>(TEAM_BY_KEY_QUERY, { key: teamKey });
+  if (!response.ok) {
+    return { ok: false, error: response.error, status: 502 };
+  }
+  const error = gqlErrorMessage(response.data);
+  if (error) {
+    return { ok: false, error, status: 502 };
+  }
+  const team = response.data.data?.teams.nodes[0];
+  if (!team) {
+    return { ok: false, error: `Linear team not found for key: ${teamKey}`, status: 404 };
+  }
+  return { ok: true, data: team };
+}
+
+export async function uploadAttachmentFile(input: {
+  filename: string;
+  contentType: string;
+  body: ArrayBuffer;
+}): Promise<UploadFileResult> {
+  const response = await postLinearGraphql<FileUploadMutationData>(FILE_UPLOAD_MUTATION, {
+    contentType: input.contentType,
+    filename: input.filename,
+    size: input.body.byteLength,
+  });
+  if (!response.ok) return { ok: false, error: response.error };
+  const error = gqlErrorMessage(response.data);
+  if (error) return { ok: false, error };
+  const upload = response.data.data?.fileUpload;
+  if (!upload?.success || !upload.uploadFile) {
+    return { ok: false, error: "Linear fileUpload did not return an upload URL" };
+  }
+
+  const headers: Record<string, string> = {};
+  for (const h of upload.uploadFile.headers) headers[h.key] = h.value;
+
+  try {
+    const putRes = await fetch(upload.uploadFile.uploadUrl, {
+      method: "PUT",
+      headers,
+      body: input.body,
+    });
+    if (!putRes.ok) {
+      const text = await putRes.text();
+      return { ok: false, error: `Asset upload failed ${putRes.status}: ${text.slice(0, 200)}` };
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: `Asset upload error: ${msg}` };
+  }
+
+  return { ok: true, data: { assetUrl: upload.uploadFile.assetUrl } };
+}
+
+export async function attachToIssue(input: {
+  issueId: string;
+  title: string;
+  url: string;
+  subtitle?: string;
+}): Promise<AttachToIssueResult> {
+  const response = await postLinearGraphql<AttachmentCreateMutationData>(ATTACHMENT_CREATE_MUTATION, {
+    issueId: input.issueId,
+    title: input.title,
+    url: input.url,
+    subtitle: input.subtitle ?? null,
+  });
+  if (!response.ok) return { ok: false, error: response.error };
+  const error = gqlErrorMessage(response.data);
+  if (error) return { ok: false, error };
+  const payload = response.data.data?.attachmentCreate;
+  if (!payload?.success || !payload.attachment) {
+    return { ok: false, error: "Linear attachmentCreate did not succeed" };
+  }
+  return { ok: true, data: payload.attachment };
+}
+
+export async function createIssueComment(input: {
+  issueId: string;
+  body: string;
+}): Promise<CreateCommentResult> {
+  const response = await postLinearGraphql<CommentCreateMutationData>(COMMENT_CREATE_MUTATION, {
+    issueId: input.issueId,
+    body: input.body,
+  });
+  if (!response.ok) return { ok: false, error: response.error };
+  const error = gqlErrorMessage(response.data);
+  if (error) return { ok: false, error };
+  const payload = response.data.data?.commentCreate;
+  if (!payload?.success || !payload.comment) {
+    return { ok: false, error: "Linear commentCreate did not succeed" };
+  }
+  return { ok: true, data: payload.comment };
+}
+
 export async function createLinearIssue(input: CreateLinearIssueInput): Promise<CreateLinearIssueResult> {
   const viewerResult = await fetchViewerId();
   if (!viewerResult.ok) {

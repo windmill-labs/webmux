@@ -30,6 +30,7 @@ Usage:
   webmux merge        Merge a worktree into the main branch and remove it
   webmux send         Send a prompt to a running worktree agent
   webmux prune        Remove all worktrees in the current project
+  webmux linear       Post a worktree conversation to a Linear issue/team
   webmux completion   Generate shell completion script (bash, zsh)
 
 Options:
@@ -44,7 +45,7 @@ Environment:
 `);
 }
 
-type RootCommand = "serve" | "init" | "service" | "update" | "add" | "oneshot" | "list" | "open" | "close" | "archive" | "unarchive" | "remove" | "merge" | "send" | "prune" | "completion" | null;
+type RootCommand = "serve" | "init" | "service" | "update" | "add" | "oneshot" | "list" | "open" | "close" | "archive" | "unarchive" | "remove" | "merge" | "send" | "prune" | "linear" | "completion" | null;
 
 interface ParsedRootArgs {
   port: number;
@@ -70,6 +71,7 @@ function isRootCommand(value: string): value is NonNullable<RootCommand> {
     || value === "merge"
     || value === "send"
     || value === "prune"
+    || value === "linear"
     || value === "completion";
 }
 
@@ -300,6 +302,12 @@ async function main(args: string[] = process.argv.slice(2)): Promise<void> {
   if (parsed.command === "oneshot") {
     const { runOneshotCommand } = await import("./oneshot.ts");
     const exitCode = await runOneshotCommand(parsed.commandArgs, parsed.port);
+    process.exit(exitCode);
+  }
+
+  if (parsed.command === "linear") {
+    const { runLinearCommand } = await import("./linear-commands.ts");
+    const exitCode = await runLinearCommand(parsed.commandArgs, parsed.port);
     process.exit(exitCode);
   }
 

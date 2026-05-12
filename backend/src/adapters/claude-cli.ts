@@ -175,13 +175,12 @@ function parseClaudeSessionRecords(text: string): ClaudeStoredRecord[] {
   return text
     .split("\n")
     .map((line) => line.trim())
-    .filter((line) => line.length > 0)
+    .filter((line) => line.length > 0 && line.startsWith("{"))
     .flatMap((line) => {
       try {
-        const parsed = JSON.parse(line) as ClaudeStoredRecord;
-        return [parsed];
-      } catch (error) {
-        log.warn(`[agents] failed to parse Claude session line: ${line.slice(0, 120)}`);
+        return [JSON.parse(line) as ClaudeStoredRecord];
+      } catch {
+        log.debug(`[agents] failed to parse Claude session line: ${line.slice(0, 120)}`);
         return [];
       }
     });

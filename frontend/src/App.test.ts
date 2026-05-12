@@ -127,7 +127,6 @@ function createWorktree(
     linearIssue: null,
     creating: false,
     creationPhase: null,
-    onMergeAction: null,
     source: "ui",
     ...overrides,
   };

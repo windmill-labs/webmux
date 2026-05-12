@@ -11,7 +11,6 @@ function makeState(overrides: Partial<ManagedWorktreeRuntimeState> = {}): Manage
     path: "/repo/__worktrees/feature-search",
     profile: "default",
     agentName: "codex",
-    onMergeAction: null,
     source: "ui",
     git: {
       exists: true,

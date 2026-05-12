@@ -9,7 +9,6 @@ import {
   getWorktreeStoragePaths,
   loadDotenvLocal,
   readWorktreeMeta,
-  writeWorktreeMeta,
   writeControlEnv,
   writeRuntimeEnv,
   writeWorktreeMeta,

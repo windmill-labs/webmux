@@ -38,7 +38,6 @@ describe("buildAgentsUiWorktreeSummary", () => {
       creation: {
         phase: "starting_session",
       },
-      onMergeAction: null,
       source: "ui",
     }, {
       provider: "codexAppServer",
@@ -107,7 +106,6 @@ describe("buildAgentsUiWorktreeSummary", () => {
       prs: [],
       linearIssue: null,
       creation: null,
-      onMergeAction: null,
       source: "ui",
     }, null);
 

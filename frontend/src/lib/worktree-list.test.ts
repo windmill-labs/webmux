@@ -24,7 +24,6 @@ function createWorktree(branch: string, overrides: Partial<WorktreeInfo> = {}): 
     linearIssue: null,
     creating: false,
     creationPhase: null,
-    onMergeAction: null,
     source: "ui",
     ...overrides,
   };

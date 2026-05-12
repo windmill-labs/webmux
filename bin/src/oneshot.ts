@@ -456,6 +456,45 @@ function printConversationHistory(
   printNewMessages(state, initial.conversation.messages);
 }
 
+/**
+ * Polls `fetchAgentsWorktreeConversationHistory` on an interval and feeds new
+ * messages through the same `printNewMessages` path the WS uses. This is the
+ * primary streaming mechanism for Claude (which has no live WS deltas — the
+ * server only forwards Codex notifications). For Codex, polling is harmless:
+ * the dedup in `printNewMessages` makes it a safe fallback for missed deltas.
+ */
+function pollConversationHistory(
+  branch: string,
+  port: number,
+  state: ConversationPrintState,
+  stderr: (line: string) => void,
+): { stop: () => void } {
+  const api = createApi(`http://localhost:${port}`);
+  let stopped = false;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+
+  const tick = async (): Promise<void> => {
+    if (stopped) return;
+    try {
+      const response = await api.fetchAgentsWorktreeConversationHistory({ params: { name: branch } });
+      printNewMessages(state, response.conversation.messages);
+    } catch {
+      // History may briefly 4xx during initialization — keep polling.
+    }
+    if (!stopped) timer = setTimeout(tick, 2000);
+  };
+
+  void tick();
+  void stderr;
+
+  return {
+    stop: () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+    },
+  };
+}
+
 export async function runOneshot(parsed: ParsedOneshotCommand, port: number): Promise<number> {
   const stdout = (line: string): void => {
     process.stdout.write(`${line}\n`);
@@ -537,6 +576,7 @@ export async function runOneshot(parsed: ParsedOneshotCommand, port: number): Pr
   }
 
   const stream = streamConversation(branch, port, conversationState, stderr);
+  const historyPoller = pollConversationHistory(branch, port, conversationState, stderr);
 
   let exitCode = 0;
   let exiting = false;
@@ -545,6 +585,7 @@ export async function runOneshot(parsed: ParsedOneshotCommand, port: number): Pr
     exiting = true;
     exitCode = code;
     stream.close();
+    historyPoller.stop();
     poller.stop();
     flushStreamingLine(conversationState);
   };

@@ -7,9 +7,7 @@ import {
   AgentsSendMessageRequestSchema,
   apiPaths,
   AvailableBranchesQuerySchema,
-  CreateLinearIssueRequestSchema,
   CreateWorktreeRequestSchema,
-  LinearIssueIdParamsSchema,
   NotificationIdParamsSchema,
   OpenWorktreeRequestSchema,
   PostWorktreeToLinearRequestSchema,
@@ -1232,54 +1230,6 @@ async function apiSyncWorktreePrs(name: string): Promise<Response> {
   return jsonResponse(worktree);
 }
 
-async function apiCreateLinearIssue(req: Request): Promise<Response> {
-  if (!config.integrations.linear.enabled) {
-    return errorResponse("Linear integration is disabled", 400);
-  }
-  const apiKey = Bun.env.LINEAR_API_KEY;
-  if (!apiKey?.trim()) {
-    return errorResponse("LINEAR_API_KEY not set", 503);
-  }
-
-  const parsed = await parseJsonBody(req, CreateLinearIssueRequestSchema);
-  if (!parsed.ok) return parsed.response;
-  const { teamKey, title, description } = parsed.data;
-
-  const team = await fetchTeamByKey(teamKey);
-  if (!team.ok) return errorResponse(team.error, team.status);
-
-  const created = await createLinearIssue({
-    teamId: team.data.id,
-    title,
-    description: description ?? "",
-  });
-  if (!created.ok) return errorResponse(created.error, 502);
-
-  return jsonResponse({
-    id: created.data.id,
-    identifier: created.data.identifier,
-    title: created.data.title,
-    url: created.data.url,
-    branchName: created.data.branchName,
-  });
-}
-
-async function apiFetchLinearSeed(issueId: string): Promise<Response> {
-  if (!config.integrations.linear.enabled) {
-    return errorResponse("Linear integration is disabled", 400);
-  }
-  const apiKey = Bun.env.LINEAR_API_KEY;
-  if (!apiKey?.trim()) {
-    return errorResponse("LINEAR_API_KEY not set", 503);
-  }
-  const result = await buildSeedFromLinear({ issueId }, {
-    fetchIssueWithAttachments,
-    downloadWebmuxAttachment: downloadWebmuxAttachmentDefault,
-  });
-  if (!result.ok) return errorResponse(result.error, result.status);
-  return jsonResponse(result.data);
-}
-
 async function apiGetLinearIssues(): Promise<Response> {
   const apiKey = Bun.env.LINEAR_API_KEY;
   const fetchResult = config.integrations.linear.enabled && apiKey?.trim()
@@ -1613,15 +1563,6 @@ Bun.serve({
       },
     },
 
-    [apiPaths.fetchLinearSeed]: {
-      GET: (req) => {
-        const params = parseParams(req.params, LinearIssueIdParamsSchema);
-        if (!params.ok) return params.response;
-        const issueId = params.data.issueId;
-        return catching(`GET /api/linear/issues/${issueId}/seed`, () => apiFetchLinearSeed(issueId));
-      },
-    },
-
     [apiPaths.setWorktreeLabel]: {
       PUT: (req) => {
         const parsed = parseWorktreeNameParam(req.params);
@@ -1669,7 +1610,6 @@ Bun.serve({
 
     [apiPaths.fetchLinearIssues]: {
       GET: () => catching("GET /api/linear/issues", () => apiGetLinearIssues()),
-      POST: (req) => catching("POST /api/linear/issues", () => apiCreateLinearIssue(req)),
     },
 
     [apiPaths.setLinearAutoCreate]: {

@@ -1,6 +1,8 @@
 import * as p from "@clack/prompts";
 import { createApi } from "@webmux/api-contract";
 import { basename, resolve } from "node:path";
+import { fetchIssueWithAttachments } from "../../backend/src/services/linear-service";
+import { buildSeedFromLinear, downloadWebmuxAttachmentDefault } from "../../backend/src/services/conversation-export-service";
 import { withServerConnection } from "./shared";
 import { readWorktreeArchiveState, readWorktreeMeta } from "../../backend/src/adapters/fs";
 import { buildProjectSessionName, buildWorktreeWindowName } from "../../backend/src/adapters/tmux";
@@ -714,8 +716,6 @@ export async function runWorktreeCommand(
       });
 
       if (parsed.fromLinearIssueId) {
-        const { buildSeedFromLinear, downloadWebmuxAttachmentDefault } = await import("../../backend/src/services/conversation-export-service");
-        const { fetchIssueWithAttachments } = await import("../../backend/src/services/linear-service");
         stdout(`Resolving Linear issue ${parsed.fromLinearIssueId}...`);
         const seed = await buildSeedFromLinear(
           { issueId: parsed.fromLinearIssueId },

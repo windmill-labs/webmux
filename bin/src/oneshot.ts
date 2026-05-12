@@ -1,4 +1,6 @@
 import { apiPaths, AgentsUiConversationEventSchema, createApi, parseLinearTarget, type AgentsUiConversationMessage, type AgentsUiConversationEvent, type AgentsUiWorktreeConversationResponse, type CreateWorktreeRequest, type PostWorktreeToLinearTarget, type ProjectWorktreeSnapshot } from "@webmux/api-contract";
+import { createLinearIssue, fetchIssueWithAttachments, fetchTeamByKey } from "../../backend/src/services/linear-service";
+import { buildSeedFromLinear, downloadWebmuxAttachmentDefault } from "../../backend/src/services/conversation-export-service";
 import { formatServerError } from "./shared";
 
 export interface ParsedOneshotCommand {
@@ -598,6 +600,21 @@ export async function runOneshot(parsed: ParsedOneshotCommand, port: number): Pr
   let postToLinearTarget = parsed.postToLinearTarget;
 
   try {
+    // Preflight: the final `postWorktreeToLinear` call runs on the server, so
+    // the server's LINEAR_API_KEY must be set. Without this check, the user
+    // could run for hours before discovering the post-back will fail.
+    if (postToLinearTarget) {
+      const availability = await api.fetchLinearIssues();
+      if (availability.availability === "missing_api_key") {
+        stderr(`[${timestamp()}] [error] server has no LINEAR_API_KEY — the post-back to Linear at the end of the run will fail. Set the env var on the webmux server and restart it.`);
+        return 1;
+      }
+      if (availability.availability === "disabled") {
+        stderr(`[${timestamp()}] [error] Linear integration is disabled on the webmux server.`);
+        return 1;
+      }
+    }
+
     // Resolve Linear in-process (using LINEAR_API_KEY from the CLI shell's env)
     // to stay consistent with `webmux add --from-linear`. The server still
     // accepts a `fromLinear.issueId` payload — it just doesn't need to re-fetch
@@ -609,7 +626,6 @@ export async function runOneshot(parsed: ParsedOneshotCommand, port: number): Pr
         return 1;
       }
       stdout(`[${timestamp()}] [event] creating Linear issue in team ${postToLinearTarget.teamKey}...`);
-      const { fetchTeamByKey, createLinearIssue } = await import("../../backend/src/services/linear-service");
       const team = await fetchTeamByKey(postToLinearTarget.teamKey);
       if (!team.ok) {
         stderr(`[${timestamp()}] [error] Linear team lookup failed: ${team.error}`);
@@ -631,8 +647,6 @@ export async function runOneshot(parsed: ParsedOneshotCommand, port: number): Pr
 
     if (fromLinearIssueId) {
       stdout(`[${timestamp()}] [event] resolving Linear issue ${fromLinearIssueId}...`);
-      const { fetchIssueWithAttachments } = await import("../../backend/src/services/linear-service");
-      const { buildSeedFromLinear, downloadWebmuxAttachmentDefault } = await import("../../backend/src/services/conversation-export-service");
       const seedResult = await buildSeedFromLinear(
         { issueId: fromLinearIssueId },
         { fetchIssueWithAttachments, downloadWebmuxAttachment: downloadWebmuxAttachmentDefault },
@@ -672,6 +686,9 @@ export async function runOneshot(parsed: ParsedOneshotCommand, port: number): Pr
       if (!branch) throw new Error("resume requires a branch name");
       const reason = parsed.resume ? "resuming" : `worktree exists, resuming ${branch}`;
       stdout(`[${timestamp()}] [event] ${reason}`);
+      if (fromLinearIssueId) {
+        stdout(`[${timestamp()}] [event] skipping Linear seed — agent's existing session history already covers it`);
+      }
       // Pass the prompt directly to the agent's CLI (`claude --continue
       // <prompt>` / `codex resume --last -- <prompt>`) so it's processed
       // before the TUI starts. Avoids the paste/Enter race against Claude's
@@ -791,7 +808,7 @@ export async function runOneshot(parsed: ParsedOneshotCommand, port: number): Pr
       if (response.commentUrl) stdout(`[${timestamp()}] [event] linear comment: ${response.commentUrl}`);
       stdout(`[${timestamp()}] [event] linear attachment: ${response.attachmentUrl}`);
     } catch (error) {
-      stderr(`[${timestamp()}] [error] post-to-linear failed: ${error instanceof Error ? error.message : String(error)}`);
+      stderr(`[${timestamp()}] [error] post-to-linear failed: ${formatServerError(error, port)}`);
     }
   }
 
@@ -803,7 +820,7 @@ export async function runOneshot(parsed: ParsedOneshotCommand, port: number): Pr
       await api.closeWorktree({ params: { name: branch } });
       stdout(`[${timestamp()}] [event] closed worktree session ${branch}`);
     } catch (error) {
-      stderr(`[${timestamp()}] [warn] close worktree failed: ${error instanceof Error ? error.message : String(error)}`);
+      stderr(`[${timestamp()}] [warn] close worktree failed: ${formatServerError(error, port)}`);
     }
   }
 

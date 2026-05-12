@@ -38,8 +38,6 @@ export type {
   LinearIssueLabel,
   LinearIssueState,
   LinearIssuesResponse,
-  LinearSeedResponse,
-  LinearSeedSource,
   LinkedLinearIssue,
   LinkedRepoInfo,
   PostWorktreeToLinearRequest,

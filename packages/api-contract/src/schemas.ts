@@ -57,34 +57,6 @@ export const PostWorktreeToLinearResponseSchema = z.object({
   attachmentUrl: z.string(),
 });
 
-export const LinearSeedSourceSchema = z.enum(["webmux-attachment", "github-integration", "none"]);
-
-export const LinearSeedResponseSchema = z.object({
-  source: LinearSeedSourceSchema,
-  branch: z.string().nullable(),
-  baseBranch: z.string().nullable(),
-  prUrl: z.string().nullable(),
-  conversationMarkdown: z.string().nullable(),
-});
-
-export const LinearIssueIdParamsSchema = z.object({
-  issueId: LinearIssueIdSchema,
-});
-
-export const CreateLinearIssueRequestSchema = z.object({
-  teamKey: LinearTeamKeySchema,
-  title: z.string().trim().min(1),
-  description: z.string().optional(),
-});
-
-export const CreateLinearIssueResponseSchema = z.object({
-  id: z.string(),
-  identifier: LinearIssueIdSchema,
-  title: z.string(),
-  url: z.string(),
-  branchName: z.string(),
-});
-
 export const FromLinearInputSchema = z.object({
   issueId: LinearIssueIdSchema,
   conversationContext: z.string().optional(),
@@ -320,7 +292,7 @@ export const WorktreeCreationStateSchema = z.object({
 export const AppNotificationSchema = z.object({
   id: z.number(),
   branch: z.string(),
-  type: z.enum(["agent_stopped", "pr_opened", "runtime_error", "worktree_auto_removed", "worktree_auto_closed"]),
+  type: z.enum(["agent_stopped", "pr_opened", "runtime_error", "worktree_auto_removed"]),
   message: z.string(),
   url: z.string().optional(),
   timestamp: z.number(),
@@ -549,10 +521,6 @@ export type LinearTeamKey = z.infer<typeof LinearTeamKeySchema>;
 export type PostWorktreeToLinearTarget = z.infer<typeof PostWorktreeToLinearTargetSchema>;
 export type PostWorktreeToLinearRequest = z.infer<typeof PostWorktreeToLinearRequestSchema>;
 export type PostWorktreeToLinearResponse = z.infer<typeof PostWorktreeToLinearResponseSchema>;
-export type LinearSeedSource = z.infer<typeof LinearSeedSourceSchema>;
-export type LinearSeedResponse = z.infer<typeof LinearSeedResponseSchema>;
-export type CreateLinearIssueRequest = z.infer<typeof CreateLinearIssueRequestSchema>;
-export type CreateLinearIssueResponse = z.infer<typeof CreateLinearIssueResponseSchema>;
 export type FromLinearInput = z.infer<typeof FromLinearInputSchema>;
 export type WorktreeCreationPhase = z.infer<typeof WorktreeCreationPhaseSchema>;
 export type AvailableBranch = z.infer<typeof AvailableBranchSchema>;

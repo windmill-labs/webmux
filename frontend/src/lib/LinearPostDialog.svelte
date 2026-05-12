@@ -47,7 +47,7 @@
     <h2 class="text-base mb-2">Post to Linear</h2>
     <p class="text-[12px] text-muted mb-4">
       Creates a new Linear issue for branch <span class="font-mono">{branch}</span> and attaches the conversation as JSON + a summary comment.
-      To post back into an existing issue, start the worktree with "From Linear issue" so the issue is the seed.
+      To post back into an existing issue, start the worktree from the Linear panel (bottom-left) — picking an issue there seeds the session and routes the post-back to that issue automatically.
     </p>
 
     <div class="mb-3">

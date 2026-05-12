@@ -492,5 +492,11 @@ describe("buildLinearSummaryMarkdown", () => {
     expect(md).toContain("PR: https://github.com/org/repo/pull/12");
     expect(md).toContain("webmux-state:feat/foo");
     expect(md).toContain("0.31.0");
+    // Guards against the rename regression that shipped --resume-from-linear
+    // (and earlier --from-linear) instructions to users after the flag was
+    // consolidated into --linear.
+    expect(md).toContain("webmux oneshot --linear");
+    expect(md).not.toContain("--resume-from-linear");
+    expect(md).not.toContain("--from-linear");
   });
 });

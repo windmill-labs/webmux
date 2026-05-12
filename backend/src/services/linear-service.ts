@@ -550,7 +550,7 @@ export async function fetchAssignedIssues(options?: { skipCache?: boolean }): Pr
   return result;
 }
 
-// ── Issue + attachments query (for resume-from-linear / post-to-linear) ─────
+// ── Issue + attachments query (for --linear / `webmux linear post`) ─────────
 
 const ISSUE_WITH_ATTACHMENTS_QUERY = `
   query IssueWithAttachments($id: String!) {
@@ -821,7 +821,7 @@ export function buildLinearSummaryMarkdown(input: LinearSummaryInput): string {
   lines.push(`- Transcript: see attachment \`${input.attachmentTitle}\``);
   if (input.webmuxVersion) lines.push(`- webmux: ${input.webmuxVersion}`);
   lines.push("");
-  lines.push("_Resume on another machine with_ `webmux oneshot --resume-from-linear <issue-id>`.");
+  lines.push("_Resume on another machine with_ `webmux oneshot --linear <issue-id>`.");
   return lines.join("\n");
 }
 

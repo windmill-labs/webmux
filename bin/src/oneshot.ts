@@ -346,21 +346,31 @@ function handleConversationEvent(
   }
 }
 
+// Cap reconnects so a permanently-down server can't leave the CLI hanging
+// silently. We reset the counter on every successful `open` — only consecutive
+// failed attempts (no `open` in between) count toward the limit.
+const MAX_CONSECUTIVE_RECONNECTS = 10;
+
 function streamConversation(
   branch: string,
   port: number,
   state: ConversationPrintState,
   stderr: (line: string) => void,
+  onFatal: (reason: string) => void,
 ): { close: () => void } {
   let closed = false;
   let socket: WebSocket | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let consecutiveFailures = 0;
 
   const connect = (): void => {
     if (closed) return;
     const url = `ws://localhost:${port}${apiPaths.streamAgentsWorktreeConversation.replace(":name", encodeURIComponent(branch))}`;
     const ws = new WebSocket(url);
     socket = ws;
+    ws.addEventListener("open", () => {
+      consecutiveFailures = 0;
+    });
     ws.addEventListener("message", (event) => {
       if (typeof event.data !== "string") return;
       try {
@@ -373,6 +383,12 @@ function streamConversation(
     ws.addEventListener("close", () => {
       socket = null;
       if (closed) return;
+      consecutiveFailures += 1;
+      if (consecutiveFailures >= MAX_CONSECUTIVE_RECONNECTS) {
+        closed = true;
+        onFatal(`webmux server unreachable after ${consecutiveFailures} reconnect attempts`);
+        return;
+      }
       reconnectTimer = setTimeout(connect, 2000);
     });
     ws.addEventListener("error", () => {
@@ -619,7 +635,7 @@ export async function runOneshot(parsed: ParsedOneshotCommand, port: number): Pr
     // to stay consistent with `webmux add --from-linear`. The server still
     // accepts a `fromLinear.issueId` payload — it just doesn't need to re-fetch
     // because we pass the resolved branch + conversationContext explicitly.
-    if (postToLinearTarget?.kind === "team" && !fromLinearIssueId) {
+    if (postToLinearTarget?.kind === "team") {
       const title = deriveOneshotIssueTitle(parsed.prompt);
       if (!title) {
         stderr(`[${timestamp()}] [error] --linear ${postToLinearTarget.teamKey} requires --prompt to derive an issue title`);
@@ -731,24 +747,29 @@ export async function runOneshot(parsed: ParsedOneshotCommand, port: number): Pr
     // Conversation history may not yet be available for non-codex agents — fall through to streaming.
   }
 
-  const stream = streamConversation(branch, port, conversationState, stderr);
-  const historyPoller = pollConversationHistory(branch, port, conversationState);
-
   let resolveExit!: (code: number) => void;
   const exitPromise = new Promise<number>((resolve) => {
     resolveExit = resolve;
   });
   let exiting = false;
+  let stream: { close: () => void } | null = null;
+  let historyPoller: { stop: () => void } | null = null;
   let poller: { stop: () => void } | null = null;
   const finalize = (code: number): void => {
     if (exiting) return;
     exiting = true;
-    stream.close();
-    historyPoller.stop();
+    stream?.close();
+    historyPoller?.stop();
     poller?.stop();
     flushStreamingLine(conversationState);
     resolveExit(code);
   };
+
+  stream = streamConversation(branch, port, conversationState, stderr, (reason) => {
+    stderr(`[${timestamp()}] [fatal] ${reason}`);
+    finalize(1);
+  });
+  historyPoller = pollConversationHistory(branch, port, conversationState);
 
   const pollState: PollState = {
     seenPrUrls: new Set(),

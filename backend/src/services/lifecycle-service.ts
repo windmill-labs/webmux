@@ -359,10 +359,10 @@ export class LifecycleService {
     try {
       const normalizedLabel = normalizeWorktreeLabel(label);
       const resolved = await this.resolveExistingWorktree(branch);
-      const initialized = resolved.meta
-        ? await this.refreshManagedArtifacts(resolved)
-        : await this.initializeUnmanagedWorktree(resolved);
-      const nextMeta = this.withUpdatedLabel(initialized.meta, normalizedLabel);
+      if (!resolved.meta) {
+        throw new LifecycleError(`Worktree ${branch} has no managed metadata to label`, 409);
+      }
+      const nextMeta = this.withUpdatedLabel(resolved.meta, normalizedLabel);
       await writeWorktreeMeta(resolved.gitDir, nextMeta);
       await this.deps.reconciliation.reconcile(this.deps.projectRoot, { force: true });
       return { label: normalizedLabel };

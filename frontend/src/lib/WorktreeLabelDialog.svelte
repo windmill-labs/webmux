@@ -20,12 +20,11 @@
     oncancel: () => void;
   } = $props();
 
-  let label = $state("");
+  let currentLabel = $state<string | null>(null);
   let inputEl = $state<HTMLInputElement | null>(null);
-
-  $effect(() => {
-    label = initialLabel ?? "";
-  });
+  let normalizedInitialLabel = $derived((initialLabel ?? "").trim());
+  let normalizedLabel = $derived((currentLabel ?? initialLabel ?? "").trim());
+  let canSave = $derived(!loading && normalizedLabel !== normalizedInitialLabel);
 
   $effect(() => {
     const currentInput = inputEl;
@@ -35,7 +34,7 @@
 </script>
 
 <BaseDialog onclose={oncancel}>
-  <form onsubmit={(event: SubmitEvent) => { event.preventDefault(); onconfirm(label); }}>
+  <form onsubmit={(event: SubmitEvent) => { event.preventDefault(); if (canSave) onconfirm(normalizedLabel); }}>
     <h2 class="text-base mb-4">Workspace label</h2>
     <div class="mb-4">
       <label class="block text-[11px] text-muted mb-1" for="worktree-label-input">Label</label>
@@ -44,7 +43,11 @@
         class="w-full px-3 py-2 rounded-md border border-edge bg-surface text-primary text-sm focus:outline-none focus:border-accent"
         maxlength="80"
         bind:this={inputEl}
-        bind:value={label}
+        value={currentLabel ?? initialLabel ?? ""}
+        oninput={(event: Event) => {
+          const target = event.currentTarget;
+          if (target instanceof HTMLInputElement) currentLabel = target.value;
+        }}
         placeholder={branch}
         disabled={loading}
       />
@@ -54,7 +57,7 @@
       <Btn type="button" onclick={onclear} disabled={loading || !initialLabel}>Clear</Btn>
       <div class="flex justify-end gap-2">
         <Btn type="button" onclick={oncancel} disabled={loading}>Cancel</Btn>
-        <Btn type="submit" variant="cta" class="flex items-center gap-1.5" disabled={loading}
+        <Btn type="submit" variant="cta" class="flex items-center gap-1.5" disabled={!canSave}
           >{#if loading}<span class="spinner"></span>{/if} Save</Btn
         >
       </div>

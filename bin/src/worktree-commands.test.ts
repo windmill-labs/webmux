@@ -251,12 +251,24 @@ describe("parseLabelCommandArgs", () => {
     });
   });
 
+  it("parses --label", () => {
+    expect(parseLabelCommandArgs(["feature/search", "--label", "Search ranking"])).toEqual({
+      branch: "feature/search",
+      label: "Search ranking",
+    });
+  });
+
   it("returns null for help", () => {
     expect(parseLabelCommandArgs(["--help"])).toBeNull();
   });
 
   it("rejects --clear with label text", () => {
     expect(() => parseLabelCommandArgs(["feature/search", "--clear", "Search"])).toThrow("Cannot use --clear with a label");
+  });
+
+  it("rejects --label with positional label text", () => {
+    expect(() => parseLabelCommandArgs(["feature/search", "--label", "Search", "extra"]))
+      .toThrow("Cannot use --label with a positional label");
   });
 });
 

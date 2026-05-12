@@ -313,6 +313,7 @@ export interface ParsedListCommand {
 export function parseLabelCommandArgs(args: string[]): ParsedLabelCommand | null {
   let branch: string | null = null;
   let clear = false;
+  let optionLabel: string | null = null;
   const labelParts: string[] = [];
 
   for (let index = 0; index < args.length; index++) {
@@ -329,8 +330,11 @@ export function parseLabelCommandArgs(args: string[]): ParsedLabelCommand | null
     }
 
     if (arg === "--label" || arg.startsWith("--label=")) {
+      if (optionLabel !== null) {
+        throw new CommandUsageError("Cannot use --label more than once");
+      }
       const { value, nextIndex } = readOptionValue(args, index, "--label");
-      labelParts.push(value);
+      optionLabel = value;
       index = nextIndex;
       continue;
     }
@@ -344,6 +348,9 @@ export function parseLabelCommandArgs(args: string[]): ParsedLabelCommand | null
       continue;
     }
 
+    if (optionLabel !== null) {
+      throw new CommandUsageError("Cannot use --label with a positional label");
+    }
     labelParts.push(arg);
   }
 
@@ -355,7 +362,11 @@ export function parseLabelCommandArgs(args: string[]): ParsedLabelCommand | null
     throw new CommandUsageError("Invalid worktree name");
   }
 
-  const label = labelParts.join(" ").trim();
+  if (optionLabel !== null && labelParts.length > 0) {
+    throw new CommandUsageError("Cannot use --label with a positional label");
+  }
+
+  const label = (optionLabel ?? labelParts.join(" ")).trim();
   if (clear && label) {
     throw new CommandUsageError("Cannot use --clear with a label");
   }

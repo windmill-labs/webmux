@@ -223,9 +223,15 @@ function normalizeOptionalString(raw: unknown): string | undefined {
 }
 
 function normalizeWorktreeMeta(meta: WorktreeMeta): WorktreeMeta {
-  const { label, conversation: rawConversation, ...rest } = meta;
-  const conversation = normalizeConversationMeta(rawConversation);
-  const normalizedLabel = normalizeOptionalString(label);
+  const conversation = normalizeConversationMeta(meta.conversation);
+  const normalizedLabel = normalizeOptionalString(meta.label);
+  if (conversation === meta.conversation && normalizedLabel === meta.label) {
+    return meta;
+  }
+
+  const rest: WorktreeMeta = { ...meta };
+  delete rest.label;
+  delete rest.conversation;
   return {
     ...rest,
     ...(normalizedLabel ? { label: normalizedLabel } : {}),

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.31.0](https://github.com/windmill-labs/webmux/compare/v0.30.0...v0.31.0) (2026-05-12)
+
+
+### Features
+
+* add workspace labels ([#231](https://github.com/windmill-labs/webmux/issues/231)) ([04162db](https://github.com/windmill-labs/webmux/commit/04162dba0af9cfaf348d8e35195a4b64a96023cc))
+
 ## [0.30.0](https://github.com/windmill-labs/webmux/compare/v0.29.0...v0.30.0) (2026-04-29)
 
 

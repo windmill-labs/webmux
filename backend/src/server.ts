@@ -7,6 +7,7 @@ import {
   AgentsSendMessageRequestSchema,
   apiPaths,
   AvailableBranchesQuerySchema,
+  CreateLinearIssueRequestSchema,
   CreateWorktreeRequestSchema,
   LinearIssueIdParamsSchema,
   NotificationIdParamsSchema,
@@ -1247,6 +1248,38 @@ async function apiSyncWorktreePrs(name: string): Promise<Response> {
   return jsonResponse(worktree);
 }
 
+async function apiCreateLinearIssue(req: Request): Promise<Response> {
+  if (!config.integrations.linear.enabled) {
+    return errorResponse("Linear integration is disabled", 400);
+  }
+  const apiKey = Bun.env.LINEAR_API_KEY;
+  if (!apiKey?.trim()) {
+    return errorResponse("LINEAR_API_KEY not set", 503);
+  }
+
+  const parsed = await parseJsonBody(req, CreateLinearIssueRequestSchema);
+  if (!parsed.ok) return parsed.response;
+  const { teamKey, title, description } = parsed.data;
+
+  const team = await fetchTeamByKey(teamKey);
+  if (!team.ok) return errorResponse(team.error, team.status);
+
+  const created = await createLinearIssue({
+    teamId: team.data.id,
+    title,
+    description: description ?? "",
+  });
+  if (!created.ok) return errorResponse(created.error, 502);
+
+  return jsonResponse({
+    id: created.data.id,
+    identifier: created.data.identifier,
+    title: created.data.title,
+    url: created.data.url,
+    branchName: created.data.branchName,
+  });
+}
+
 async function apiFetchLinearSeed(issueId: string): Promise<Response> {
   if (!config.integrations.linear.enabled) {
     return errorResponse("Linear integration is disabled", 400);
@@ -1652,6 +1685,7 @@ Bun.serve({
 
     [apiPaths.fetchLinearIssues]: {
       GET: () => catching("GET /api/linear/issues", () => apiGetLinearIssues()),
+      POST: (req) => catching("POST /api/linear/issues", () => apiCreateLinearIssue(req)),
     },
 
     [apiPaths.setLinearAutoCreate]: {

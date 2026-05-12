@@ -252,14 +252,78 @@ function formatLogLine(role: string, text: string): string {
   return `[${timestamp()}] [${role}] ${text}`;
 }
 
+// Per-tool key to surface in the compact one-liner (e.g., Bash → command,
+// Read → file_path). Tools not listed fall back to a generic summary.
+const TOOL_PRIMARY_KEY: Record<string, string[]> = {
+  bash: ["command"],
+  bashoutput: ["bash_id"],
+  killshell: ["shell_id"],
+  read: ["file_path"],
+  edit: ["file_path"],
+  multiedit: ["file_path"],
+  write: ["file_path"],
+  notebookedit: ["notebook_path"],
+  glob: ["pattern"],
+  grep: ["pattern"],
+  webfetch: ["url"],
+  websearch: ["query"],
+  task: ["description", "subagent_type"],
+  exitplanmode: ["plan"],
+};
+
+function truncateInline(text: string, limit: number): string {
+  const collapsed = text.replace(/\s+/g, " ").trim();
+  if (collapsed.length <= limit) return collapsed;
+  return `${collapsed.slice(0, limit)}…`;
+}
+
+function summarizeToolInput(toolName: string, jsonText: string): string {
+  let input: Record<string, unknown> | null = null;
+  try {
+    const parsed = JSON.parse(jsonText);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      input = parsed as Record<string, unknown>;
+    }
+  } catch {
+    return truncateInline(jsonText, 100);
+  }
+  if (!input) return truncateInline(jsonText, 100);
+
+  const keys = TOOL_PRIMARY_KEY[toolName.toLowerCase()];
+  if (keys) {
+    const values: string[] = [];
+    for (const key of keys) {
+      const v = input[key];
+      if (typeof v === "string" && v.length > 0) values.push(v);
+    }
+    if (values.length > 0) return truncateInline(values.join(" "), 120);
+  }
+
+  // Generic fallback: surface short string fields as key=value pairs.
+  const parts: string[] = [];
+  for (const [key, value] of Object.entries(input)) {
+    if (typeof value === "string") parts.push(`${key}=${truncateInline(value, 40)}`);
+  }
+  if (parts.length === 0) return "";
+  return truncateInline(parts.join(" "), 120);
+}
+
+function summarizeToolResult(text: string): string {
+  const lines = text.split("\n").map((l) => l.trimEnd()).filter((l) => l.length > 0);
+  if (lines.length === 0) return "(empty)";
+  const first = truncateInline(lines[0]!, 200);
+  return lines.length > 1 ? `${first} (+${lines.length - 1} lines)` : first;
+}
+
 function formatConversationLine(message: AgentsUiConversationMessage): string {
   const kind = message.kind ?? "text";
   if (kind === "toolUse") {
     const tool = message.toolName ?? "tool";
-    return formatLogLine(`tool: ${tool}`, message.text);
+    const summary = summarizeToolInput(tool, message.text);
+    return `[${timestamp()}] ● ${tool}(${summary})`;
   }
   if (kind === "toolResult") {
-    return formatLogLine("tool result", message.text);
+    return `[${timestamp()}]   ⎿ ${summarizeToolResult(message.text)}`;
   }
   return formatLogLine(message.role, message.text);
 }
@@ -548,6 +612,16 @@ function pollConversationHistory(
   };
 }
 
+function deriveOneshotIssueTitle(prompt: string | null): string | null {
+  if (!prompt) return null;
+  const firstLine = prompt
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line.length > 0);
+  if (!firstLine) return null;
+  return firstLine.length > 100 ? `${firstLine.slice(0, 97)}…` : firstLine;
+}
+
 export async function runOneshot(parsed: ParsedOneshotCommand, port: number): Promise<number> {
   const stdout = (line: string): void => {
     process.stdout.write(`${line}\n`);
@@ -561,6 +635,25 @@ export async function runOneshot(parsed: ParsedOneshotCommand, port: number): Pr
   const body: CreateWorktreeRequest = { ...parsed.body };
 
   try {
+    // Team-key Linear target: pre-create the issue *before* the agent runs so
+    // the PR Linear's GitHub integration sees has the issue id in its branch
+    // name (auto-linking depends on that). From there we round-trip exactly
+    // like an explicit `--linear ENG-123`.
+    if (parsed.postToLinearTarget?.kind === "team" && !parsed.fromLinearIssueId) {
+      const title = deriveOneshotIssueTitle(parsed.prompt);
+      if (!title) {
+        stderr(`[${timestamp()}] [error] --linear ${parsed.postToLinearTarget.teamKey} requires --prompt to derive an issue title`);
+        return 1;
+      }
+      stdout(`[${timestamp()}] [event] creating Linear issue in team ${parsed.postToLinearTarget.teamKey}...`);
+      const created = await api.createLinearIssue({
+        body: { teamKey: parsed.postToLinearTarget.teamKey, title },
+      });
+      stdout(`[${timestamp()}] [event] created Linear issue ${created.identifier} → ${created.url}`);
+      parsed.fromLinearIssueId = created.identifier;
+      parsed.postToLinearTarget = { kind: "issue", issueId: created.identifier };
+    }
+
     if (parsed.fromLinearIssueId) {
       stdout(`[${timestamp()}] [event] resolving Linear issue ${parsed.fromLinearIssueId}...`);
       const seed = await api.fetchLinearSeed({ params: { issueId: parsed.fromLinearIssueId } });

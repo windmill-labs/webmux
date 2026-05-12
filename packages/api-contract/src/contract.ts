@@ -33,6 +33,8 @@ import {
   ProjectWorktreeSnapshotSchema,
   LinearSeedResponseSchema,
   LinearIssueIdParamsSchema,
+  CreateLinearIssueRequestSchema,
+  CreateLinearIssueResponseSchema,
   ToggleEnabledRequestSchema,
   WorktreeDiffResponseSchema,
   WorktreeListResponseSchema,
@@ -72,6 +74,7 @@ export const apiPaths = {
   mergeWorktree: "/api/worktrees/:name/merge",
   fetchWorktreeDiff: "/api/worktrees/:name/diff",
   fetchLinearIssues: "/api/linear/issues",
+  createLinearIssue: "/api/linear/issues",
   setLinearAutoCreate: "/api/linear/auto-create",
   setAutoRemoveOnMerge: "/api/github/auto-remove-on-merge",
   pullMain: "/api/pull-main",
@@ -348,6 +351,15 @@ export const apiContract = c.router({
       200: LinearIssuesResponseSchema,
       500: ErrorResponseSchema,
       502: ErrorResponseSchema,
+    },
+  },
+  createLinearIssue: {
+    method: "POST",
+    path: apiPaths.createLinearIssue,
+    body: CreateLinearIssueRequestSchema,
+    responses: {
+      200: CreateLinearIssueResponseSchema,
+      ...commonErrorResponses,
     },
   },
   setLinearAutoCreate: {

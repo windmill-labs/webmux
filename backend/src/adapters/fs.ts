@@ -218,14 +218,25 @@ function normalizeConversationMeta(raw: WorktreeConversationMeta | null | undefi
   return normalized;
 }
 
+function normalizeOptionalString(raw: unknown): string | undefined {
+  return typeof raw === "string" && raw.trim() ? raw.trim() : undefined;
+}
+
 function normalizeWorktreeMeta(meta: WorktreeMeta): WorktreeMeta {
   const conversation = normalizeConversationMeta(meta.conversation);
-  return conversation === meta.conversation
-    ? meta
-    : {
-        ...meta,
-        conversation,
-      };
+  const normalizedLabel = normalizeOptionalString(meta.label);
+  if (conversation === meta.conversation && normalizedLabel === meta.label) {
+    return meta;
+  }
+
+  const rest: WorktreeMeta = { ...meta };
+  delete rest.label;
+  delete rest.conversation;
+  return {
+    ...rest,
+    ...(normalizedLabel ? { label: normalizedLabel } : {}),
+    ...(conversation !== undefined ? { conversation } : {}),
+  };
 }
 
 function isPrComment(raw: unknown): raw is PrComment {

@@ -57,6 +57,8 @@ export type {
   ServiceStatus,
   SetWorktreeArchivedRequest,
   SetWorktreeArchivedResponse,
+  SetWorktreeLabelRequest,
+  SetWorktreeLabelResponse,
   UnpushedCommit,
   WorktreeCreationPhase,
   WorktreeCreationState,
@@ -79,6 +81,7 @@ export interface DiffDialogProps {
 
 export interface WorktreeInfo {
   branch: string;
+  label: string | null;
   baseBranch?: string;
   archived: boolean;
   agent: string;

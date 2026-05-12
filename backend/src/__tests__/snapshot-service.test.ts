@@ -9,6 +9,7 @@ describe("buildProjectSnapshot", () => {
     runtime.upsertWorktree({
       worktreeId: "wt_search",
       branch: "feature/search",
+      label: "Search ranking",
       baseBranch: "main",
       path: "/repo/__worktrees/feature-search",
       profile: "default",
@@ -101,6 +102,7 @@ describe("buildProjectSnapshot", () => {
     expect(snapshot.worktrees).toEqual([
       {
         branch: "feature/search",
+        label: "Search ranking",
         baseBranch: "main",
         path: "/repo/__worktrees/feature-search",
         dir: "/repo/__worktrees/feature-search",
@@ -222,6 +224,7 @@ describe("buildProjectSnapshot", () => {
     expect(snapshot.worktrees).toEqual([
       {
         branch: "feature/new-flow",
+        label: null,
         baseBranch: "main",
         path: "/repo/__worktrees/feature/new-flow",
         dir: "/repo/__worktrees/feature/new-flow",

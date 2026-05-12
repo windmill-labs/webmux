@@ -120,6 +120,18 @@ describe("webmux entrypoint", () => {
     });
   });
 
+  it("parses label as a worktree command", () => {
+    delete process.env.PORT;
+
+    expect(parseRootArgs(["label", "feature/search", "Search", "ranking"])).toEqual({
+      port: 5111,
+      debug: false,
+      app: false,
+      command: "label",
+      commandArgs: ["feature/search", "Search", "ranking"],
+    });
+  });
+
   it("runs worktree commands from a project subdirectory", async () => {
     const repoRoot = await mkdtemp(join(tmpdir(), "webmux-cli-"));
     tempDirs.push(repoRoot);

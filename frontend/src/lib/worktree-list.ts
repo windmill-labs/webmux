@@ -19,6 +19,7 @@ export function matchesWorktreeSearch(worktree: WorktreeInfo, query: string): bo
   if (!trimmedQuery) return true;
 
   return [
+    worktree.label ?? "",
     worktree.branch,
     worktree.baseBranch ?? "",
     worktree.profile ?? "",

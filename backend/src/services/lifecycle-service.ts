@@ -9,6 +9,7 @@ import {
   getWorktreeStoragePaths,
   loadDotenvLocal,
   readWorktreeMeta,
+  writeWorktreeMeta,
   writeControlEnv,
   writeRuntimeEnv,
   writeWorktreeMeta,
@@ -42,6 +43,7 @@ import { log } from "../lib/log";
 import { generateFallbackBranchName } from "../lib/branch-name";
 
 const DOCKER_CONTROL_HOST = "host.docker.internal";
+const MAX_WORKTREE_LABEL_LENGTH = 80;
 
 function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -53,6 +55,15 @@ function stringifyStartupEnvValue(value: string | boolean): string {
 
 function trimTrailingSlashes(value: string): string {
   return value.replace(/\/+$/, "");
+}
+
+function normalizeWorktreeLabel(label: string | null): string | null {
+  const trimmed = label?.trim() ?? "";
+  if (!trimmed) return null;
+  if (trimmed.length > MAX_WORKTREE_LABEL_LENGTH) {
+    throw new LifecycleError(`Worktree label must be ${MAX_WORKTREE_LABEL_LENGTH} characters or fewer`, 400);
+  }
+  return trimmed;
 }
 
 function isLoopbackHostname(hostname: string): boolean {
@@ -348,6 +359,22 @@ export class LifecycleService {
     }
   }
 
+  async setWorktreeLabel(branch: string, label: string | null): Promise<{ label: string | null }> {
+    try {
+      const normalizedLabel = normalizeWorktreeLabel(label);
+      const resolved = await this.resolveExistingWorktree(branch);
+      if (!resolved.meta) {
+        throw new LifecycleError(`Worktree ${branch} has no managed metadata to label`, 409);
+      }
+      const nextMeta = this.withUpdatedLabel(resolved.meta, normalizedLabel);
+      await writeWorktreeMeta(resolved.gitDir, nextMeta);
+      await this.deps.reconciliation.reconcile(this.deps.projectRoot, { force: true });
+      return { label: normalizedLabel };
+    } catch (error) {
+      throw this.wrapOperationError(error);
+    }
+  }
+
   listAvailableBranches(options: ListAvailableBranchesOptions = {}): Array<{ name: string }> {
     const localBranches = this.listLocalBranches().filter((branch) => isValidBranchName(branch));
     const remoteBranches = options.includeRemote
@@ -606,6 +633,16 @@ export class LifecycleService {
 
   private async updateWorktreeArchivedState(path: string, archived: boolean): Promise<void> {
     await this.deps.archiveState.setArchived(path, archived);
+  }
+
+  private withUpdatedLabel(meta: WorktreeMeta, label: string | null): WorktreeMeta {
+    const nextMeta: WorktreeMeta = { ...meta };
+    if (label) {
+      nextMeta.label = label;
+    } else {
+      delete nextMeta.label;
+    }
+    return nextMeta;
   }
 
   private async closeBranchWindow(branch: string): Promise<void> {

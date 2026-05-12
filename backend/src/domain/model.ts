@@ -32,6 +32,7 @@ export interface WorktreeMeta {
   schemaVersion: number;
   worktreeId: string;
   branch: string;
+  label?: string;
   baseBranch?: string;
   createdAt: string;
   profile: string;
@@ -166,6 +167,7 @@ export interface WorktreeCreationSnapshot {
 export interface ManagedWorktreeRuntimeState {
   worktreeId: string;
   branch: string;
+  label: string | null;
   baseBranch: string | null;
   path: string;
   profile: string | null;
@@ -189,6 +191,7 @@ export interface NotificationView {
 
 export interface WorktreeSnapshot {
   branch: string;
+  label: string | null;
   baseBranch?: string;
   path: string;
   dir: string;

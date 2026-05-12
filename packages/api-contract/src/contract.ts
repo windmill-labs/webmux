@@ -33,6 +33,8 @@ import {
   LinearIssueIdParamsSchema,
   CreateLinearIssueRequestSchema,
   CreateLinearIssueResponseSchema,
+  SetWorktreeLabelRequestSchema,
+  SetWorktreeLabelResponseSchema,
   ToggleEnabledRequestSchema,
   WorktreeDiffResponseSchema,
   WorktreeListResponseSchema,
@@ -67,6 +69,7 @@ export const apiPaths = {
   syncWorktreePrs: "/api/worktrees/:name/sync-prs",
   postWorktreeToLinear: "/api/worktrees/:name/linear/post",
   fetchLinearSeed: "/api/linear/issues/:issueId/seed",
+  setWorktreeLabel: "/api/worktrees/:name/label",
   sendWorktreePrompt: "/api/worktrees/:name/send",
   mergeWorktree: "/api/worktrees/:name/merge",
   fetchWorktreeDiff: "/api/worktrees/:name/diff",
@@ -299,6 +302,16 @@ export const apiContract = c.router({
     pathParams: LinearIssueIdParamsSchema,
     responses: {
       200: LinearSeedResponseSchema,
+      ...commonErrorResponses,
+    },
+  },
+  setWorktreeLabel: {
+    method: "PUT",
+    path: apiPaths.setWorktreeLabel,
+    pathParams: WorktreeNameParamsSchema,
+    body: SetWorktreeLabelRequestSchema,
+    responses: {
+      200: SetWorktreeLabelResponseSchema,
       ...commonErrorResponses,
     },
   },

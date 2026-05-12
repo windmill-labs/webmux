@@ -1160,6 +1160,66 @@ describe("LifecycleService", () => {
     expect(archiveState.entries[0]?.path).toBe(join(repoRoot, "__worktrees", "feature-archive"));
   });
 
+  it("updates and clears a worktree label in metadata and runtime state", async () => {
+    const repoRoot = await initRepo();
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const lifecycle = makeLifecycleService(repoRoot, tmux, runtime);
+
+    const worktreePath = join(repoRoot, "__worktrees", "feature-label");
+    await lifecycle.createWorktree({ branch: "feature-label" });
+    const gitDir = new BunGitGateway().resolveWorktreeGitDir(worktreePath);
+    const paths = getWorktreeStoragePaths(gitDir);
+    await Bun.write(paths.runtimeEnvPath, "runtime-marker\n");
+    await Bun.write(paths.controlEnvPath, "control-marker\n");
+    const allocatedPorts = { ...(await readWorktreeMeta(gitDir))?.allocatedPorts };
+    const labeled = await lifecycle.setWorktreeLabel("feature-label", "  Search ranking  ");
+
+    expect(labeled).toEqual({ label: "Search ranking" });
+    expect((await readWorktreeMeta(gitDir))?.label).toBe("Search ranking");
+    expect(runtime.getWorktreeByBranch("feature-label")?.label).toBe("Search ranking");
+    expect(await Bun.file(paths.runtimeEnvPath).text()).toBe("runtime-marker\n");
+    expect(await Bun.file(paths.controlEnvPath).text()).toBe("control-marker\n");
+    expect((await readWorktreeMeta(gitDir))?.allocatedPorts).toEqual(allocatedPorts);
+
+    const cleared = await lifecycle.setWorktreeLabel("feature-label", "");
+
+    expect(cleared).toEqual({ label: null });
+    expect((await readWorktreeMeta(gitDir))?.label).toBeUndefined();
+    expect(runtime.getWorktreeByBranch("feature-label")?.label).toBeNull();
+    expect(await Bun.file(paths.runtimeEnvPath).text()).toBe("runtime-marker\n");
+    expect(await Bun.file(paths.controlEnvPath).text()).toBe("control-marker\n");
+    expect((await readWorktreeMeta(gitDir))?.allocatedPorts).toEqual(allocatedPorts);
+  });
+
+  it("rejects labeling unmanaged worktrees without creating metadata", async () => {
+    const repoRoot = await initRepo();
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const lifecycle = makeLifecycleService(repoRoot, tmux, runtime);
+    const git = new BunGitGateway();
+    const worktreePath = join(repoRoot, "__worktrees", "feature-unmanaged-label");
+
+    git.createWorktree({
+      repoRoot,
+      worktreePath,
+      branch: "feature-unmanaged-label",
+      mode: "new",
+      baseBranch: "main",
+    });
+    const gitDir = git.resolveWorktreeGitDir(worktreePath);
+    const paths = getWorktreeStoragePaths(gitDir);
+
+    await expect(lifecycle.setWorktreeLabel("feature-unmanaged-label", "Search ranking"))
+      .rejects.toMatchObject({
+        status: 409,
+        message: "Worktree feature-unmanaged-label has no managed metadata to label",
+      });
+    expect(await Bun.file(paths.metaPath).exists()).toBe(false);
+    expect(await Bun.file(paths.runtimeEnvPath).exists()).toBe(false);
+    expect(await Bun.file(paths.controlEnvPath).exists()).toBe(false);
+  });
+
   it("creates a managed docker worktree through the container runtime path", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();

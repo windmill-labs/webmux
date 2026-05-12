@@ -16,6 +16,7 @@ describe("ProjectRuntime", () => {
 
     expect(state.worktreeId).toBe("wt_search");
     expect(state.branch).toBe("feature/search");
+    expect(state.label).toBeNull();
     expect(state.baseBranch).toBe("main");
     expect(state.profile).toBe("default");
     expect(state.agentName).toBe("claude");
@@ -108,5 +109,27 @@ describe("ProjectRuntime", () => {
 
     expect(runtime.getWorktreeByBranch("feature/search")).toBeNull();
     expect(runtime.getWorktreeByBranch("feature/search-v2")?.worktreeId).toBe("wt_search");
+  });
+
+  it("updates label metadata without changing branch lookups", () => {
+    const runtime = new ProjectRuntime();
+    runtime.upsertWorktree({
+      worktreeId: "wt_search",
+      branch: "feature/search",
+      label: "Search UI",
+      path: "/repo/__worktrees/feature-search",
+      runtime: "host",
+    });
+
+    const state = runtime.upsertWorktree({
+      worktreeId: "wt_search",
+      branch: "feature/search",
+      label: "Search ranking",
+      path: "/repo/__worktrees/feature-search",
+      runtime: "host",
+    });
+
+    expect(state.label).toBe("Search ranking");
+    expect(runtime.getWorktreeByBranch("feature/search")?.label).toBe("Search ranking");
   });
 });

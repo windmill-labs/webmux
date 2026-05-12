@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { OnMergeAction, WorktreeListRow } from "./types";
+  import type { WorktreeListRow } from "./types";
   import PrBadge from "./PrBadge.svelte";
   import LinearBadge from "./LinearBadge.svelte";
   import AgentStatusIcon from "./AgentStatusIcon.svelte";
@@ -20,7 +20,6 @@
     onarchive,
     onmerge,
     onremove,
-    onsetonmergeaction,
     onposttolinear,
   }: {
     rows: WorktreeListRow[];
@@ -35,7 +34,6 @@
     onarchive: (branch: string) => void;
     onmerge: (branch: string) => void;
     onremove: (branch: string) => void;
-    onsetonmergeaction: (branch: string, action: OnMergeAction | null) => void;
     onposttolinear?: (branch: string) => void;
   } = $props();
 
@@ -235,44 +233,6 @@
             }}
           >
             Remove
-          </button>
-          <div class="my-1 border-t border-edge"></div>
-          <div class="px-2 pt-1 pb-0.5 text-[10px] uppercase tracking-wide text-muted">On PR merge</div>
-          <button
-            type="button"
-            class="w-full px-2 py-1.5 rounded text-left text-xs text-primary hover:bg-hover flex items-center justify-between"
-            onclick={(event) => {
-              event.stopPropagation();
-              openMenuBranch = null;
-              onsetonmergeaction(wt.branch, null);
-            }}
-          >
-            <span>Do nothing</span>
-            {#if wt.onMergeAction === null}<span aria-hidden="true">✓</span>{/if}
-          </button>
-          <button
-            type="button"
-            class="w-full px-2 py-1.5 rounded text-left text-xs text-primary hover:bg-hover flex items-center justify-between"
-            onclick={(event) => {
-              event.stopPropagation();
-              openMenuBranch = null;
-              onsetonmergeaction(wt.branch, wt.onMergeAction === "close" ? null : "close");
-            }}
-          >
-            <span>Close session</span>
-            {#if wt.onMergeAction === "close"}<span aria-hidden="true">✓</span>{/if}
-          </button>
-          <button
-            type="button"
-            class="w-full px-2 py-1.5 rounded text-left text-xs text-primary hover:bg-hover flex items-center justify-between"
-            onclick={(event) => {
-              event.stopPropagation();
-              openMenuBranch = null;
-              onsetonmergeaction(wt.branch, wt.onMergeAction === "remove" ? null : "remove");
-            }}
-          >
-            <span>Remove worktree</span>
-            {#if wt.onMergeAction === "remove"}<span aria-hidden="true">✓</span>{/if}
           </button>
           {#if onposttolinear}
             <div class="my-1 border-t border-edge"></div>

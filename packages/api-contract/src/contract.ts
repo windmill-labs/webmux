@@ -26,8 +26,6 @@ import {
   SendWorktreePromptRequestSchema,
   SetWorktreeArchivedRequestSchema,
   SetWorktreeArchivedResponseSchema,
-  SetWorktreeOnMergeActionRequestSchema,
-  SetWorktreeOnMergeActionResponseSchema,
   PostWorktreeToLinearRequestSchema,
   PostWorktreeToLinearResponseSchema,
   ProjectWorktreeSnapshotSchema,
@@ -66,7 +64,6 @@ export const apiPaths = {
   openWorktree: "/api/worktrees/:name/open",
   closeWorktree: "/api/worktrees/:name/close",
   setWorktreeArchived: "/api/worktrees/:name/archive",
-  setWorktreeOnMergeAction: "/api/worktrees/:name/on-merge-action",
   syncWorktreePrs: "/api/worktrees/:name/sync-prs",
   postWorktreeToLinear: "/api/worktrees/:name/linear/post",
   fetchLinearSeed: "/api/linear/issues/:issueId/seed",
@@ -273,16 +270,6 @@ export const apiContract = c.router({
     body: SetWorktreeArchivedRequestSchema,
     responses: {
       200: SetWorktreeArchivedResponseSchema,
-      ...commonErrorResponses,
-    },
-  },
-  setWorktreeOnMergeAction: {
-    method: "PUT",
-    path: apiPaths.setWorktreeOnMergeAction,
-    pathParams: WorktreeNameParamsSchema,
-    body: SetWorktreeOnMergeActionRequestSchema,
-    responses: {
-      200: SetWorktreeOnMergeActionResponseSchema,
       ...commonErrorResponses,
     },
   },

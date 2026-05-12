@@ -26,8 +26,6 @@ export type WorktreeConversationMeta =
   | CodexWorktreeConversationMeta
   | ClaudeWorktreeConversationMeta;
 
-export type OnMergeAction = "close" | "remove";
-
 export type WorktreeSource = "ui" | "oneshot";
 
 export interface WorktreeMeta {
@@ -41,7 +39,6 @@ export interface WorktreeMeta {
   runtime: RuntimeKind;
   startupEnvValues: Record<string, string>;
   allocatedPorts: Record<string, number>;
-  onMergeAction?: OnMergeAction | null;
   source?: WorktreeSource;
   conversation?: WorktreeConversationMeta | null;
 }
@@ -173,7 +170,6 @@ export interface ManagedWorktreeRuntimeState {
   path: string;
   profile: string | null;
   agentName: AgentId | null;
-  onMergeAction: OnMergeAction | null;
   source: WorktreeSource;
   git: GitWorktreeRuntimeState;
   session: SessionRuntimeState;
@@ -185,7 +181,7 @@ export interface ManagedWorktreeRuntimeState {
 export interface NotificationView {
   id: number;
   branch: string;
-  type: "agent_stopped" | "pr_opened" | "runtime_error" | "worktree_auto_removed" | "worktree_auto_closed";
+  type: "agent_stopped" | "pr_opened" | "runtime_error" | "worktree_auto_removed";
   message: string;
   url?: string;
   timestamp: number;
@@ -210,7 +206,6 @@ export interface WorktreeSnapshot {
   prs: PrEntry[];
   linearIssue: LinkedLinearIssue | null;
   creation: WorktreeCreationSnapshot | null;
-  onMergeAction: OnMergeAction | null;
   source: WorktreeSource;
 }
 

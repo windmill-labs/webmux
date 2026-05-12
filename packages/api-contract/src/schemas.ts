@@ -24,8 +24,6 @@ export const AgentIdSchema = z.string().trim().min(1);
 export const AgentKindSchema = BuiltInAgentIdSchema;
 export const WorktreeCreateModeSchema = z.enum(["new", "existing"]);
 
-export const OnMergeActionSchema = z.enum(["close", "remove"]);
-
 export const LinearIssueIdSchema = z.string().regex(/^[A-Z]+-\d+$/, "Expected Linear issue id (e.g. ENG-123)");
 export const LinearTeamKeySchema = z.string().regex(/^[A-Z]+$/, "Expected Linear team key (e.g. ENG)");
 
@@ -157,7 +155,6 @@ export const CreateWorktreeRequestSchema = z.object({
   agents: z.array(AgentIdSchema).min(1).optional(),
   prompt: z.string().optional(),
   envOverrides: z.record(z.string()).optional(),
-  onMergeAction: OnMergeActionSchema.nullable().optional(),
   createLinearTicket: z.literal(true).optional(),
   linearTitle: z.string().optional(),
   fromLinear: FromLinearInputSchema.optional(),
@@ -166,15 +163,6 @@ export const CreateWorktreeRequestSchema = z.object({
 
 export const OpenWorktreeRequestSchema = z.object({
   prompt: z.string().optional(),
-});
-
-export const SetWorktreeOnMergeActionRequestSchema = z.object({
-  action: OnMergeActionSchema.nullable(),
-});
-
-export const SetWorktreeOnMergeActionResponseSchema = z.object({
-  ok: z.literal(true),
-  action: OnMergeActionSchema.nullable(),
 });
 
 export const CreateWorktreeResponseSchema = z.object({
@@ -335,7 +323,6 @@ export const ProjectWorktreeSnapshotSchema = z.object({
   prs: z.array(PrEntrySchema),
   linearIssue: LinkedLinearIssueSchema.nullable(),
   creation: WorktreeCreationStateSchema.nullable(),
-  onMergeAction: OnMergeActionSchema.nullable(),
   source: WorktreeSourceSchema,
 });
 
@@ -534,9 +521,6 @@ export type UpsertCustomAgentRequest = z.infer<typeof UpsertCustomAgentRequestSc
 export type AgentResponse = z.infer<typeof AgentResponseSchema>;
 export type ValidateCustomAgentResponse = z.infer<typeof ValidateCustomAgentResponseSchema>;
 export type WorktreeCreateMode = z.infer<typeof WorktreeCreateModeSchema>;
-export type OnMergeAction = z.infer<typeof OnMergeActionSchema>;
-export type SetWorktreeOnMergeActionRequest = z.infer<typeof SetWorktreeOnMergeActionRequestSchema>;
-export type SetWorktreeOnMergeActionResponse = z.infer<typeof SetWorktreeOnMergeActionResponseSchema>;
 export type LinearIssueId = z.infer<typeof LinearIssueIdSchema>;
 export type LinearTeamKey = z.infer<typeof LinearTeamKeySchema>;
 export type PostWorktreeToLinearTarget = z.infer<typeof PostWorktreeToLinearTargetSchema>;

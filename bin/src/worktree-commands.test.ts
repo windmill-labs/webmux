@@ -164,29 +164,6 @@ describe("parseAddCommandArgs", () => {
     expect(parseAddCommandArgs(["--help"])).toBeNull();
   });
 
-  it("parses --close-on-merge", () => {
-    expect(parseAddCommandArgs(["feature/search", "--close-on-merge"])).toEqual({
-      input: { branch: "feature/search", onMergeAction: "close" },
-      detach: false,
-      fromLinearIssueId: null,
-      branchExplicit: true,
-    });
-  });
-
-  it("parses --remove-on-merge", () => {
-    expect(parseAddCommandArgs(["feature/search", "--remove-on-merge"])).toEqual({
-      input: { branch: "feature/search", onMergeAction: "remove" },
-      detach: false,
-      fromLinearIssueId: null,
-      branchExplicit: true,
-    });
-  });
-
-  it("rejects combining --close-on-merge with --remove-on-merge", () => {
-    expect(() => parseAddCommandArgs(["feature/search", "--close-on-merge", "--remove-on-merge"]))
-      .toThrow("Cannot use --remove-on-merge with --close-on-merge");
-  });
-
   it("parses --from-linear", () => {
     expect(parseAddCommandArgs(["--from-linear", "ENG-12"])).toEqual({
       input: {},

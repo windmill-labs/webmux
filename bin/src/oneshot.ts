@@ -1,11 +1,10 @@
-import { apiPaths, AgentsUiConversationEventSchema, createApi, type AgentsUiConversationMessage, type AgentsUiConversationEvent, type AgentsUiWorktreeConversationResponse, type CreateWorktreeRequest, type OnMergeAction, type PostWorktreeToLinearTarget, type ProjectWorktreeSnapshot } from "@webmux/api-contract";
+import { apiPaths, AgentsUiConversationEventSchema, createApi, type AgentsUiConversationMessage, type AgentsUiConversationEvent, type AgentsUiWorktreeConversationResponse, type CreateWorktreeRequest, type PostWorktreeToLinearTarget, type ProjectWorktreeSnapshot } from "@webmux/api-contract";
 
 export interface ParsedOneshotCommand {
   branch: string | null;
   prompt: string | null;
   resume: boolean;
   body: CreateWorktreeRequest;
-  onMergeAction: OnMergeAction | null;
   keepOpen: boolean;
   fromLinearIssueId: string | null;
   postToLinearTarget: PostWorktreeToLinearTarget | null;
@@ -17,8 +16,7 @@ export function getOneshotUsage(): string {
   return [
     "Usage:",
     "  webmux oneshot [branch] --prompt <text> [--agent <id>] [--base <branch>] [--profile <name>]",
-    "                          [--env KEY=VALUE]... [--close-on-merge|--remove-on-merge|--keep-open]",
-    "                          [--linear <issue-id|team-key>]",
+    "                          [--env KEY=VALUE]... [--keep-open] [--linear <issue-id|team-key>]",
     "  webmux oneshot --resume <branch> [--prompt <text>] [--linear <issue-id|team-key>]",
     "",
     "Runs an agent worktree start-to-finish, streaming the conversation to stdout.",
@@ -33,8 +31,6 @@ export function getOneshotUsage(): string {
     "  --base <branch>          Base branch for a new worktree (defaults to config)",
     "  --profile <name>         Worktree profile from .webmux.yaml",
     "  --env KEY=VALUE          Runtime env override (repeatable)",
-    "  --close-on-merge         Close the session on PR merge",
-    "  --remove-on-merge        Remove the worktree on PR merge",
     "  --keep-open              Leave the worktree session running after oneshot exits",
     "  --linear ID|TEAM         Tie this oneshot to Linear:",
     "                             ENG-123  — load the issue body as context, post results back",
@@ -65,8 +61,6 @@ export function parseOneshotArgs(args: string[]): ParsedOneshotCommand | null {
   let prompt: string | null = null;
   let resume = false;
   let resumeBranch: string | null = null;
-  let onMergeAction: OnMergeAction | null = null;
-  let onMergeActionExplicit = false;
   let keepOpen = false;
   let fromLinearIssueId: string | null = null;
   let postToLinearTarget: PostWorktreeToLinearTarget | null = null;
@@ -122,34 +116,7 @@ export function parseOneshotArgs(args: string[]): ParsedOneshotCommand | null {
       continue;
     }
 
-    if (arg === "--close-on-merge") {
-      if (keepOpen) {
-        throw new CommandUsageError("Cannot use --keep-open with --close-on-merge or --remove-on-merge");
-      }
-      if (onMergeActionExplicit && onMergeAction !== "close") {
-        throw new CommandUsageError("Conflicting on-merge options");
-      }
-      onMergeAction = "close";
-      onMergeActionExplicit = true;
-      continue;
-    }
-
-    if (arg === "--remove-on-merge") {
-      if (keepOpen) {
-        throw new CommandUsageError("Cannot use --keep-open with --close-on-merge or --remove-on-merge");
-      }
-      if (onMergeActionExplicit && onMergeAction !== "remove") {
-        throw new CommandUsageError("Conflicting on-merge options");
-      }
-      onMergeAction = "remove";
-      onMergeActionExplicit = true;
-      continue;
-    }
-
     if (arg === "--keep-open") {
-      if (onMergeActionExplicit) {
-        throw new CommandUsageError("Cannot use --keep-open with --close-on-merge or --remove-on-merge");
-      }
       keepOpen = true;
       continue;
     }
@@ -211,12 +178,9 @@ export function parseOneshotArgs(args: string[]): ParsedOneshotCommand | null {
     throw new CommandUsageError("oneshot requires --prompt (or use --resume / --from-linear)");
   }
 
-  void onMergeActionExplicit;
-
   if (branch) body.branch = branch;
   if (prompt) body.prompt = prompt;
   if (Object.keys(envOverrides).length > 0) body.envOverrides = envOverrides;
-  if (!resume && onMergeAction !== null) body.onMergeAction = onMergeAction;
 
   void branchExplicit;
 
@@ -225,7 +189,6 @@ export function parseOneshotArgs(args: string[]): ParsedOneshotCommand | null {
     prompt,
     resume,
     body,
-    onMergeAction,
     keepOpen,
     fromLinearIssueId,
     postToLinearTarget,

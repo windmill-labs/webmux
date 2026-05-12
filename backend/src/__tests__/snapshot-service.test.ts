@@ -155,7 +155,6 @@ describe("buildProjectSnapshot", () => {
         creation: {
           phase: "starting_session",
         },
-        onMergeAction: null,
         source: "ui",
       },
     ]);
@@ -250,7 +249,6 @@ describe("buildProjectSnapshot", () => {
         creation: {
           phase: "creating_worktree",
         },
-        onMergeAction: null,
         source: "ui",
       },
     ]);

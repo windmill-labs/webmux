@@ -10,11 +10,9 @@ import type {
   AppNotification,
   FileUploadResult,
   LinearSeedResponse,
-  OnMergeAction,
   PostWorktreeToLinearResponse,
   PostWorktreeToLinearTarget,
   ProjectWorktreeSnapshot,
-  SetWorktreeOnMergeActionResponse,
   UpsertCustomAgentRequest,
   ValidateCustomAgentResponse,
   WorktreeInfo,
@@ -61,19 +59,8 @@ function mapWorktree(snapshot: ProjectWorktreeSnapshot): WorktreeInfo {
     linearIssue: snapshot.linearIssue,
     creating: snapshot.creation !== null,
     creationPhase: snapshot.creation?.phase ?? null,
-    onMergeAction: snapshot.onMergeAction,
     source: snapshot.source,
   };
-}
-
-export function setWorktreeOnMergeAction(
-  branch: string,
-  action: OnMergeAction | null,
-): Promise<SetWorktreeOnMergeActionResponse> {
-  return api.setWorktreeOnMergeAction({
-    params: { name: branch },
-    body: { action },
-  });
 }
 
 export function postWorktreeToLinear(

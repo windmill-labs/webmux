@@ -6,36 +6,16 @@ describe("parseOneshotArgs", () => {
     expect(() => parseOneshotArgs(["feature/search"])).toThrow("oneshot requires --prompt");
   });
 
-  it("does not default an on-merge action — matches `webmux add`", () => {
+  it("parses positional branch and prompt", () => {
     const parsed = parseOneshotArgs(["feature/search", "--prompt", "Fix bug"]);
-    expect(parsed?.onMergeAction).toBeNull();
-    expect(parsed?.body.onMergeAction).toBeUndefined();
     expect(parsed?.body.branch).toBe("feature/search");
     expect(parsed?.body.prompt).toBe("Fix bug");
     expect(parsed?.resume).toBe(false);
   });
 
-  it("supports --remove-on-merge", () => {
-    const parsed = parseOneshotArgs(["feature/search", "--prompt", "Fix bug", "--remove-on-merge"]);
-    expect(parsed?.onMergeAction).toBe("remove");
-    expect(parsed?.body.onMergeAction).toBe("remove");
-  });
-
-  it("supports --keep-open (no on-merge action)", () => {
+  it("parses --keep-open", () => {
     const parsed = parseOneshotArgs(["feature/search", "--prompt", "Fix bug", "--keep-open"]);
-    expect(parsed?.onMergeAction).toBeNull();
-    expect(parsed?.body.onMergeAction).toBeUndefined();
     expect(parsed?.keepOpen).toBe(true);
-  });
-
-  it("rejects --keep-open with --close-on-merge", () => {
-    expect(() => parseOneshotArgs(["feature/search", "--prompt", "Fix bug", "--keep-open", "--close-on-merge"]))
-      .toThrow("Cannot use --keep-open with --close-on-merge or --remove-on-merge");
-  });
-
-  it("rejects conflicting close/remove flags", () => {
-    expect(() => parseOneshotArgs(["feature/search", "--prompt", "Fix bug", "--close-on-merge", "--remove-on-merge"]))
-      .toThrow("Conflicting on-merge options");
   });
 
   it("parses --resume without prompt", () => {
@@ -43,8 +23,6 @@ describe("parseOneshotArgs", () => {
     expect(parsed?.resume).toBe(true);
     expect(parsed?.branch).toBe("feature/search");
     expect(parsed?.prompt).toBeNull();
-    // No on-merge action defaulted on resume — it's already configured per-worktree.
-    expect(parsed?.body.onMergeAction).toBeUndefined();
   });
 
   it("parses --resume with follow-up prompt", () => {

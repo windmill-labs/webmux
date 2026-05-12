@@ -17,7 +17,6 @@ import {
   RunIdParamsSchema,
   SendWorktreePromptRequestSchema,
   SetWorktreeArchivedRequestSchema,
-  SetWorktreeOnMergeActionRequestSchema,
   ToggleEnabledRequestSchema,
   UpsertCustomAgentRequestSchema,
   WorktreeNameParamsSchema,
@@ -81,7 +80,6 @@ import { buildNativeTerminalLaunch, buildNativeTerminalTmuxCommand } from "./ser
 import { startPrMonitor, syncPrStatus } from "./services/pr-service";
 import { startLinearAutoCreateMonitor, resetProcessedIssues } from "./services/linear-auto-create-service";
 import { runAutoRemove, type AutoRemoveDependencies } from "./services/auto-remove-service";
-import { runAutoClose, type AutoCloseDependencies } from "./services/auto-close-service";
 import { pullMainBranch, forcePullMainBranch, startAutoPullMonitor } from "./services/auto-pull-service";
 import {
   buildAgentsUiMessageDeltaEvent,
@@ -127,7 +125,6 @@ const claudeConversationService = new ClaudeConversationService({
   git,
 });
 const removingBranches = new Set<string>();
-const closingBranches = new Set<string>();
 const lifecycleService = runtime.lifecycleService;
 let linearAutoCreateEnabled = config.integrations.linear.autoCreateWorktrees;
 let stopLinearAutoCreate: (() => void) | null = null;
@@ -156,21 +153,9 @@ const autoRemoveDeps: AutoRemoveDependencies = {
   git,
   projectRoot: PROJECT_DIR,
   notifications: runtimeNotifications,
-  globalAutoRemoveEnabled: () => autoRemoveOnMergeEnabled,
   isRemoving: (branch: string) => removingBranches.has(branch),
   markRemoving: (branch: string) => removingBranches.add(branch),
   unmarkRemoving: (branch: string) => removingBranches.delete(branch),
-};
-
-const autoCloseDeps: AutoCloseDependencies = {
-  lifecycleService,
-  git,
-  tmux,
-  projectRoot: PROJECT_DIR,
-  notifications: runtimeNotifications,
-  isClosing: (branch: string) => closingBranches.has(branch),
-  markClosing: (branch: string) => closingBranches.add(branch),
-  unmarkClosing: (branch: string) => closingBranches.delete(branch),
 };
 
 function getFrontendConfig(): {
@@ -950,7 +935,6 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
     profile,
     ...(agents && agents.length > 0 ? { agents } : { agent }),
     envOverrides,
-    ...(body.onMergeAction !== undefined ? { onMergeAction: body.onMergeAction } : {}),
     ...(body.source ? { source: body.source } : {}),
   });
   log.debug(`[worktree:add] done branches=${result.branches.join(",")}`);
@@ -998,18 +982,6 @@ async function apiSetWorktreeArchived(name: string, req: Request): Promise<Respo
   await lifecycleService.setWorktreeArchived(name, body.archived);
   log.debug(`[worktree:archive] done name=${name} archived=${body.archived}`);
   return jsonResponse({ ok: true, archived: body.archived });
-}
-
-async function apiSetWorktreeOnMergeAction(name: string, req: Request): Promise<Response> {
-  ensureBranchNotBusy(name);
-  const parsed = await parseJsonBody(req, SetWorktreeOnMergeActionRequestSchema);
-  if (!parsed.ok) return parsed.response;
-  const body = parsed.data;
-
-  log.info(`[worktree:on-merge-action] name=${name} action=${body.action ?? "none"}`);
-  await lifecycleService.setWorktreeOnMergeAction(name, body.action);
-  log.debug(`[worktree:on-merge-action] done name=${name} action=${body.action ?? "none"}`);
-  return jsonResponse({ ok: true, action: body.action });
 }
 
 async function apiSendPrompt(name: string, req: Request): Promise<Response> {
@@ -1611,15 +1583,6 @@ Bun.serve({
       },
     },
 
-    [apiPaths.setWorktreeOnMergeAction]: {
-      PUT: (req) => {
-        const parsed = parseWorktreeNameParam(req.params);
-        if (!parsed.ok) return parsed.response;
-        const name = parsed.data;
-        return catching(`PUT /api/worktrees/${name}/on-merge-action`, () => apiSetWorktreeOnMergeAction(name, req));
-      },
-    },
-
     [apiPaths.postWorktreeToLinear]: {
       POST: (req) => {
         const parsed = parseWorktreeNameParam(req.params);
@@ -1880,8 +1843,9 @@ if (tmuxCheck.exitCode !== 0) {
 
 cleanupStaleSessions();
 startPrMonitor(getWorktreeGitDirs, config.integrations.github.linkedRepos, PROJECT_DIR, undefined, hasRecentDashboardActivity, async () => {
-  await runAutoClose(autoCloseDeps);
-  await runAutoRemove(autoRemoveDeps);
+  if (autoRemoveOnMergeEnabled) {
+    await runAutoRemove(autoRemoveDeps);
+  }
 });
 if (linearAutoCreateEnabled) {
   startLinearAutoCreate();

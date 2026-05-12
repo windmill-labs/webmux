@@ -5,7 +5,7 @@ import type { PortProbe } from "../adapters/port-probe";
 import { buildProjectSessionName, buildWorktreeWindowName, type TmuxGateway, type TmuxWindowSummary } from "../adapters/tmux";
 import { buildRuntimeEnvMap, readWorktreeMeta, readWorktreePrs } from "../adapters/fs";
 import type { AgentId, ProjectConfig } from "../domain/config";
-import type { OnMergeAction, PrEntry, ServiceRuntimeState, WorktreeSource } from "../domain/model";
+import type { PrEntry, ServiceRuntimeState, WorktreeSource } from "../domain/model";
 import { mapWithConcurrency } from "../lib/async";
 import { ProjectRuntime } from "./project-runtime";
 
@@ -99,7 +99,6 @@ interface ReconciledWorktreeState {
   profile: string | null;
   agentName: AgentId | null;
   runtime: "host" | "docker";
-  onMergeAction: OnMergeAction | null;
   source: WorktreeSource;
   git: {
     dirty: boolean;
@@ -182,7 +181,6 @@ export class ReconciliationService {
         profile: meta?.profile ?? null,
         agentName: meta?.agent ?? null,
         runtime: meta?.runtime ?? "host",
-        onMergeAction: meta?.onMergeAction ?? null,
         source: meta?.source ?? "ui",
         git: {
           dirty: gitStatus.dirty,
@@ -220,7 +218,6 @@ export class ReconciliationService {
         profile: state.profile,
         agentName: state.agentName,
         runtime: state.runtime,
-        onMergeAction: state.onMergeAction,
         source: state.source,
       });
 

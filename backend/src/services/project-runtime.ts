@@ -5,7 +5,6 @@ import type {
 } from "../domain/config";
 import type {
   ManagedWorktreeRuntimeState,
-  OnMergeAction,
   PrEntry,
   ServiceRuntimeState,
   WorktreeSource,
@@ -24,7 +23,6 @@ function makeDefaultState(input: {
   profile?: string | null;
   agentName?: AgentId | null;
   runtime?: RuntimeKind;
-  onMergeAction?: OnMergeAction | null;
   source?: WorktreeSource;
 }): ManagedWorktreeRuntimeState {
   return {
@@ -34,7 +32,6 @@ function makeDefaultState(input: {
     path: input.path,
     profile: input.profile ?? null,
     agentName: input.agentName ?? null,
-    onMergeAction: input.onMergeAction ?? null,
     source: input.source ?? "ui",
     git: {
       exists: true,
@@ -81,7 +78,6 @@ export class ProjectRuntime {
     profile?: string | null;
     agentName?: AgentId | null;
     runtime?: RuntimeKind;
-    onMergeAction?: OnMergeAction | null;
     source?: WorktreeSource;
   }): ManagedWorktreeRuntimeState {
     const existing = this.worktrees.get(input.worktreeId);
@@ -93,7 +89,6 @@ export class ProjectRuntime {
       existing.profile = input.profile ?? existing.profile;
       existing.agentName = input.agentName ?? existing.agentName;
       if (input.runtime) existing.agent.runtime = input.runtime;
-      if (input.onMergeAction !== undefined) existing.onMergeAction = input.onMergeAction;
       if (input.source !== undefined) existing.source = input.source;
       existing.git.exists = true;
       existing.git.branch = input.branch;

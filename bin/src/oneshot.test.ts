@@ -6,10 +6,10 @@ describe("parseOneshotArgs", () => {
     expect(() => parseOneshotArgs(["feature/search"])).toThrow("oneshot requires --prompt");
   });
 
-  it("defaults to --close-on-merge for new oneshots", () => {
+  it("does not default an on-merge action — matches `webmux add`", () => {
     const parsed = parseOneshotArgs(["feature/search", "--prompt", "Fix bug"]);
-    expect(parsed?.onMergeAction).toBe("close");
-    expect(parsed?.body.onMergeAction).toBe("close");
+    expect(parsed?.onMergeAction).toBeNull();
+    expect(parsed?.body.onMergeAction).toBeUndefined();
     expect(parsed?.body.branch).toBe("feature/search");
     expect(parsed?.body.prompt).toBe("Fix bug");
     expect(parsed?.resume).toBe(false);

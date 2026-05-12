@@ -22,8 +22,9 @@ export function getOneshotUsage(): string {
     "  webmux oneshot --resume <branch> [--prompt <text>] [--linear <issue-id|team-key>]",
     "",
     "Runs an agent worktree start-to-finish, streaming the conversation to stdout.",
-    "Does not change the focused tmux session. Exits when the session closes",
-    "(after auto-merge action) or on Ctrl-C.",
+    "Does not change the focused tmux session. Exits when the agent goes idle",
+    "(success if a PR was opened) or on Ctrl-C. The worktree session is closed",
+    "on exit unless --keep-open is set.",
     "",
     "Options:",
     "  --resume <branch>        Resume an existing local worktree instead of creating one",
@@ -32,9 +33,9 @@ export function getOneshotUsage(): string {
     "  --base <branch>          Base branch for a new worktree (defaults to config)",
     "  --profile <name>         Worktree profile from .webmux.yaml",
     "  --env KEY=VALUE          Runtime env override (repeatable)",
-    "  --close-on-merge         Close the session on PR merge (default for oneshot)",
+    "  --close-on-merge         Close the session on PR merge",
     "  --remove-on-merge        Remove the worktree on PR merge",
-    "  --keep-open              Stream until interrupted; do not auto-close on merge",
+    "  --keep-open              Leave the worktree session running after oneshot exits",
     "  --linear ID|TEAM         Tie this oneshot to Linear:",
     "                             ENG-123  — load the issue body as context, post results back",
     "                             ENG      — create a new issue in that team when done",
@@ -210,10 +211,7 @@ export function parseOneshotArgs(args: string[]): ParsedOneshotCommand | null {
     throw new CommandUsageError("oneshot requires --prompt (or use --resume / --from-linear)");
   }
 
-  // Default for new oneshot: close-on-merge so the command has a natural exit.
-  if (!resume && !onMergeActionExplicit && !keepOpen) {
-    onMergeAction = "close";
-  }
+  void onMergeActionExplicit;
 
   if (branch) body.branch = branch;
   if (prompt) body.prompt = prompt;
@@ -466,7 +464,6 @@ function pollProjectState(
   branch: string,
   port: number,
   state: PollState,
-  options: { exitWhenIdle: boolean },
   callbacks: {
     onSessionClosed: () => void;
     onWorktreeRemoved: () => void;
@@ -505,28 +502,26 @@ function pollProjectState(
           callbacks.onSessionClosed();
           return;
         }
-        if (options.exitWhenIdle) {
-          const status = worktree.status;
-          // The agent's job is over once it goes idle/stopped/error. Exit
-          // success if a PR was opened, failure otherwise.
-          const isTerminal = status === "stopped" || status === "error";
-          const isIdle = status === "idle";
-          if (isTerminal || isIdle) {
-            if (state.idleSinceMs === null) state.idleSinceMs = Date.now();
-            const isStable = isTerminal || (Date.now() - state.idleSinceMs >= IDLE_GRACE_MS);
-            if (isStable) {
-              // Force one PR sync to catch a PR the agent may have just opened.
-              await forcePrSync();
-              if (state.seenPrUrls.size > 0) {
-                callbacks.onAgentDone(`agent ${status} after opening PR`);
-              } else {
-                callbacks.onAgentStuck(`agent ${status} without opening a PR`);
-              }
-              return;
+        const status = worktree.status;
+        // The agent's job is over once it goes idle/stopped/error. Exit
+        // success if a PR was opened, failure otherwise.
+        const isTerminal = status === "stopped" || status === "error";
+        const isIdle = status === "idle";
+        if (isTerminal || isIdle) {
+          if (state.idleSinceMs === null) state.idleSinceMs = Date.now();
+          const isStable = isTerminal || (Date.now() - state.idleSinceMs >= IDLE_GRACE_MS);
+          if (isStable) {
+            // Force one PR sync to catch a PR the agent may have just opened.
+            await forcePrSync();
+            if (state.seenPrUrls.size > 0) {
+              callbacks.onAgentDone(`agent ${status} after opening PR`);
+            } else {
+              callbacks.onAgentStuck(`agent ${status} without opening a PR`);
             }
-          } else {
-            state.idleSinceMs = null;
+            return;
           }
+        } else {
+          state.idleSinceMs = null;
         }
       }
     } catch {
@@ -752,9 +747,6 @@ export async function runOneshot(parsed: ParsedOneshotCommand, port: number): Pr
   };
 
   const poller = pollProjectState(branch, port, pollState, {
-    // --keep-open keeps the session running past idle, so don't auto-exit on it.
-    exitWhenIdle: !parsed.keepOpen,
-  }, {
     onSessionClosed: () => {
       stdout(`[${timestamp()}] [event] session closed — exiting`);
       finalize(0);
@@ -814,6 +806,18 @@ export async function runOneshot(parsed: ParsedOneshotCommand, port: number): Pr
       stdout(`[${timestamp()}] [event] linear attachment: ${response.attachmentUrl}`);
     } catch (error) {
       stderr(`[${timestamp()}] [error] post-to-linear failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  // Close the worktree session unless the user asked to keep it open or
+  // interrupted with Ctrl-C. The worktree on disk is untouched — only the
+  // tmux session is shut down (auto-merge actions still apply later).
+  if (branch && finalExit !== 130 && !parsed.keepOpen) {
+    try {
+      await api.closeWorktree({ params: { name: branch } });
+      stdout(`[${timestamp()}] [event] closed worktree session ${branch}`);
+    } catch (error) {
+      stderr(`[${timestamp()}] [warn] close worktree failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 

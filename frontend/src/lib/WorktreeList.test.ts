@@ -33,6 +33,7 @@ function createWorktree(branch: string): WorktreeInfo {
     creating: false,
     creationPhase: null,
     onMergeAction: null,
+    source: "ui",
   };
 }
 

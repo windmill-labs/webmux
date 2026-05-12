@@ -6,6 +6,7 @@ import type {
   PrEntry,
   ServiceStatus,
   WorktreeCreationPhase,
+  WorktreeSource,
 } from "@webmux/api-contract";
 
 export type {
@@ -66,6 +67,7 @@ export type {
   WorktreeCreateMode,
   WorktreeDiffResponse,
   WorktreeListResponse,
+  WorktreeSource,
 } from "@webmux/api-contract";
 export type { AgentsSendMessageRequest as AgentsUiSendMessageRequest } from "@webmux/api-contract";
 
@@ -101,6 +103,7 @@ export interface WorktreeInfo {
   creating: boolean;
   creationPhase: WorktreeCreationPhase | null;
   onMergeAction: OnMergeAction | null;
+  source: WorktreeSource;
 }
 
 export interface WorktreeListRow {

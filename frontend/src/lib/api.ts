@@ -62,6 +62,7 @@ function mapWorktree(snapshot: ProjectWorktreeSnapshot): WorktreeInfo {
     creating: snapshot.creation !== null,
     creationPhase: snapshot.creation?.phase ?? null,
     onMergeAction: snapshot.onMergeAction,
+    source: snapshot.source,
   };
 }
 

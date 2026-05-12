@@ -106,6 +106,14 @@
               <span class="shrink-0 text-muted/60">↳</span>
             {/if}
             <span class="font-medium truncate">{wt.branch}</span>
+            {#if wt.source === "oneshot"}
+              <span
+                class="shrink-0 text-[10px] px-1.5 py-0.5 rounded border border-edge text-muted"
+                title="Created by the oneshot CLI"
+              >
+                oneshot
+              </span>
+            {/if}
             {#if isArchived}
               <span class="shrink-0 text-[10px] px-1.5 py-0.5 rounded border border-edge text-muted">
                 archived

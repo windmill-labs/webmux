@@ -8,6 +8,7 @@ import type {
   OnMergeAction,
   PrEntry,
   ServiceRuntimeState,
+  WorktreeSource,
 } from "../domain/model";
 import { buildWorktreeWindowName } from "../adapters/tmux";
 
@@ -24,6 +25,7 @@ function makeDefaultState(input: {
   agentName?: AgentId | null;
   runtime?: RuntimeKind;
   onMergeAction?: OnMergeAction | null;
+  source?: WorktreeSource;
 }): ManagedWorktreeRuntimeState {
   return {
     worktreeId: input.worktreeId,
@@ -33,6 +35,7 @@ function makeDefaultState(input: {
     profile: input.profile ?? null,
     agentName: input.agentName ?? null,
     onMergeAction: input.onMergeAction ?? null,
+    source: input.source ?? "ui",
     git: {
       exists: true,
       branch: input.branch,
@@ -79,6 +82,7 @@ export class ProjectRuntime {
     agentName?: AgentId | null;
     runtime?: RuntimeKind;
     onMergeAction?: OnMergeAction | null;
+    source?: WorktreeSource;
   }): ManagedWorktreeRuntimeState {
     const existing = this.worktrees.get(input.worktreeId);
     if (existing) {
@@ -90,6 +94,7 @@ export class ProjectRuntime {
       existing.agentName = input.agentName ?? existing.agentName;
       if (input.runtime) existing.agent.runtime = input.runtime;
       if (input.onMergeAction !== undefined) existing.onMergeAction = input.onMergeAction;
+      if (input.source !== undefined) existing.source = input.source;
       existing.git.exists = true;
       existing.git.branch = input.branch;
       existing.session.windowName = buildWorktreeWindowName(input.branch);

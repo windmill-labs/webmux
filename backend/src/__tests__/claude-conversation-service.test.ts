@@ -63,6 +63,7 @@ function makeWorktree(): WorktreeSnapshot {
     linearIssue: null,
     creation: null,
     onMergeAction: null,
+    source: "ui",
   };
 }
 

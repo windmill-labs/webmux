@@ -949,6 +949,7 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
     ...(agents && agents.length > 0 ? { agents } : { agent }),
     envOverrides,
     ...(body.onMergeAction !== undefined ? { onMergeAction: body.onMergeAction } : {}),
+    ...(body.source ? { source: body.source } : {}),
   });
   log.debug(`[worktree:add] done branches=${result.branches.join(",")}`);
   return jsonResponse({

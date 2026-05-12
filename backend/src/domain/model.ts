@@ -28,6 +28,8 @@ export type WorktreeConversationMeta =
 
 export type OnMergeAction = "close" | "remove";
 
+export type WorktreeSource = "ui" | "oneshot";
+
 export interface WorktreeMeta {
   schemaVersion: number;
   worktreeId: string;
@@ -40,6 +42,7 @@ export interface WorktreeMeta {
   startupEnvValues: Record<string, string>;
   allocatedPorts: Record<string, number>;
   onMergeAction?: OnMergeAction | null;
+  source?: WorktreeSource;
   conversation?: WorktreeConversationMeta | null;
 }
 
@@ -156,6 +159,7 @@ export interface CreatingWorktreeState {
   profile: string | null;
   agentName: AgentId | null;
   phase: WorktreeCreationPhase;
+  source: WorktreeSource;
 }
 
 export interface WorktreeCreationSnapshot {
@@ -170,6 +174,7 @@ export interface ManagedWorktreeRuntimeState {
   profile: string | null;
   agentName: AgentId | null;
   onMergeAction: OnMergeAction | null;
+  source: WorktreeSource;
   git: GitWorktreeRuntimeState;
   session: SessionRuntimeState;
   agent: AgentRuntimeState;
@@ -206,6 +211,7 @@ export interface WorktreeSnapshot {
   linearIssue: LinkedLinearIssue | null;
   creation: WorktreeCreationSnapshot | null;
   onMergeAction: OnMergeAction | null;
+  source: WorktreeSource;
 }
 
 export interface ProjectSnapshot {

@@ -17,7 +17,7 @@ import { expandTemplate, getDefaultProfileName, isDockerProfile, type DockerProf
 import { type DockerGateway } from "../adapters/docker";
 import { buildProjectSessionName, buildWorktreeWindowName, type TmuxGateway } from "../adapters/tmux";
 import type { AgentId, ProfileConfig, ProjectConfig, RuntimeKind } from "../domain/config";
-import type { OnMergeAction, WorktreeCreationPhase, WorktreeMeta } from "../domain/model";
+import type { OnMergeAction, WorktreeCreationPhase, WorktreeMeta, WorktreeSource } from "../domain/model";
 import { allocateServicePorts, isValidBranchName, isValidEnvKey } from "../domain/policies";
 import type { AutoNameGenerator } from "./auto-name-service";
 import {
@@ -114,6 +114,7 @@ export interface CreateWorktreeProgress {
   profile: string;
   agent: AgentId;
   phase: WorktreeCreationPhase;
+  source: WorktreeSource;
 }
 
 export interface LifecycleServiceDependencies {
@@ -141,6 +142,7 @@ export interface CreateLifecycleWorktreeInput {
   agent?: AgentId;
   envOverrides?: Record<string, string>;
   onMergeAction?: OnMergeAction | null;
+  source?: WorktreeSource;
 }
 
 export interface CreateLifecycleWorktreesInput extends Omit<CreateLifecycleWorktreeInput, "agent"> {
@@ -905,12 +907,14 @@ export class LifecycleService {
     const { profileName, profile } = this.resolveProfile(input.profile);
     const agent = this.resolveAgentDefinition(input.agent);
     const worktreePath = this.resolveWorktreePath(input.branch);
+    const source: WorktreeSource = input.source ?? "ui";
     const createProgressBase = {
       branch: input.branch,
       ...(baseBranch ? { baseBranch } : {}),
       path: worktreePath,
       profile: profileName,
       agent: input.agent,
+      source,
     } satisfies Omit<CreateWorktreeProgress, "phase">;
     const deleteBranchOnRollback = input.mode === "new" || branchAvailability.deleteBranchOnRollback;
     let initialized: InitializeManagedWorktreeResult | null = null;
@@ -941,6 +945,7 @@ export class LifecycleService {
           controlToken: await this.deps.getControlToken(),
           deleteBranchOnRollback,
           ...(input.onMergeAction ? { onMergeAction: input.onMergeAction } : {}),
+          source,
         },
         {
           git: this.deps.git,

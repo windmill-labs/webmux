@@ -132,6 +132,8 @@ export const BranchListResponseSchema = z.object({
   branches: z.array(AvailableBranchSchema),
 });
 
+export const WorktreeSourceSchema = z.enum(["ui", "oneshot"]);
+
 export const CreateWorktreeRequestSchema = z.object({
   mode: WorktreeCreateModeSchema.optional(),
   branch: z.string().optional(),
@@ -145,6 +147,7 @@ export const CreateWorktreeRequestSchema = z.object({
   createLinearTicket: z.literal(true).optional(),
   linearTitle: z.string().optional(),
   fromLinear: FromLinearInputSchema.optional(),
+  source: WorktreeSourceSchema.optional(),
 });
 
 export const SetWorktreeOnMergeActionRequestSchema = z.object({
@@ -315,6 +318,7 @@ export const ProjectWorktreeSnapshotSchema = z.object({
   linearIssue: LinkedLinearIssueSchema.nullable(),
   creation: WorktreeCreationStateSchema.nullable(),
   onMergeAction: OnMergeActionSchema.nullable(),
+  source: WorktreeSourceSchema,
 });
 
 export const ProjectSnapshotSchema = z.object({
@@ -526,6 +530,7 @@ export type AvailableBranch = z.infer<typeof AvailableBranchSchema>;
 export type AvailableBranchesQuery = { includeRemote?: boolean };
 export type BranchListResponse = z.infer<typeof BranchListResponseSchema>;
 export type CreateWorktreeRequest = z.infer<typeof CreateWorktreeRequestSchema>;
+export type WorktreeSource = z.infer<typeof WorktreeSourceSchema>;
 export type CreateWorktreeResponse = z.infer<typeof CreateWorktreeResponseSchema>;
 export type SetWorktreeArchivedRequest = z.infer<typeof SetWorktreeArchivedRequestSchema>;
 export type SetWorktreeArchivedResponse = z.infer<typeof SetWorktreeArchivedResponseSchema>;

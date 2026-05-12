@@ -15,6 +15,7 @@ import {
   type ControlEnvMap,
   type OnMergeAction,
   type WorktreeMeta,
+  type WorktreeSource,
   type WorktreeStoragePaths,
 } from "../domain/model";
 import { ensureSessionLayout, type SessionLayoutPlan } from "./session-service";
@@ -36,6 +37,7 @@ export interface InitializeManagedWorktreeOptions {
   now?: () => Date;
   worktreeId?: string;
   onMergeAction?: OnMergeAction | null;
+  source?: WorktreeSource;
 }
 
 export interface InitializeManagedWorktreeResult {
@@ -64,6 +66,7 @@ export interface CreateManagedWorktreeOptions {
   worktreeId?: string;
   deleteBranchOnRollback?: boolean;
   onMergeAction?: OnMergeAction | null;
+  source?: WorktreeSource;
   sessionLayoutPlan?: SessionLayoutPlan;
   sessionLayoutPlanBuilder?: (initialized: InitializeManagedWorktreeResult) => SessionLayoutPlan;
 }
@@ -161,6 +164,7 @@ export async function initializeManagedWorktree(
     startupEnvValues: { ...(opts.startupEnvValues ?? {}) },
     allocatedPorts: { ...(opts.allocatedPorts ?? {}) },
     ...(opts.onMergeAction ? { onMergeAction: opts.onMergeAction } : {}),
+    ...(opts.source ? { source: opts.source } : {}),
   };
 
   const paths = await ensureWorktreeStorageDirs(opts.gitDir);
@@ -225,6 +229,7 @@ export async function createManagedWorktree(
       now: opts.now,
       worktreeId: opts.worktreeId,
       ...(opts.onMergeAction ? { onMergeAction: opts.onMergeAction } : {}),
+      ...(opts.source ? { source: opts.source } : {}),
     });
 
     if (deps.tmux) {

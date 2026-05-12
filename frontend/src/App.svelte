@@ -582,11 +582,17 @@
     if (shouldAutoSelectCreatedWorktree) {
       pendingCreateBranchHint = expectedCreatedCount > 1 ? null : request.branch ?? null;
     }
+    // When the dialog was opened from a LinearPanel click, route the create
+    // through the `fromLinear` seed so the backend injects the issue header
+    // and any prior webmux attachment as context.
+    const finalRequest: CreateWorktreeRequest = assignIssue
+      ? { ...request, fromLinear: { issueId: assignIssue.identifier } }
+      : request;
     showCreateDialog = false;
     assignIssue = null;
 
     try {
-      const createPromise = api.createWorktree({ body: request });
+      const createPromise = api.createWorktree({ body: finalRequest });
       void refresh();
       const result = await createPromise;
       if (shouldAutoSelectCreatedWorktree) {

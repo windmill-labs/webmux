@@ -1201,7 +1201,6 @@ async function apiPostWorktreeToLinear(name: string, req: Request): Promise<Resp
     target: body.target,
     branch: name,
     baseBranch: state.baseBranch ?? null,
-    lastSha: null,
     agent: resolved.worktree.agentName ?? null,
     prUrl,
     conversation: conversationResult.data.conversation,

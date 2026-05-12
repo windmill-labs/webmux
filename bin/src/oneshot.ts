@@ -1,4 +1,5 @@
-import { apiPaths, AgentsUiConversationEventSchema, createApi, type AgentsUiConversationMessage, type AgentsUiConversationEvent, type AgentsUiWorktreeConversationResponse, type CreateWorktreeRequest, type PostWorktreeToLinearTarget, type ProjectWorktreeSnapshot } from "@webmux/api-contract";
+import { apiPaths, AgentsUiConversationEventSchema, createApi, parseLinearTarget, type AgentsUiConversationMessage, type AgentsUiConversationEvent, type AgentsUiWorktreeConversationResponse, type CreateWorktreeRequest, type PostWorktreeToLinearTarget, type ProjectWorktreeSnapshot } from "@webmux/api-contract";
+import { formatServerError } from "./shared";
 
 export interface ParsedOneshotCommand {
   branch: string | null;
@@ -57,7 +58,6 @@ export function parseOneshotArgs(args: string[]): ParsedOneshotCommand | null {
   const body: CreateWorktreeRequest = {};
   const envOverrides: Record<string, string> = {};
   let branch: string | null = null;
-  let branchExplicit = false;
   let prompt: string | null = null;
   let resume = false;
   let resumeBranch: string | null = null;
@@ -123,17 +123,17 @@ export function parseOneshotArgs(args: string[]): ParsedOneshotCommand | null {
 
     if (arg === "--linear" || arg.startsWith("--linear=")) {
       const { value, nextIndex } = readOptionValue(args, index, "--linear");
-      const trimmed = value.trim();
-      if (/^[A-Z]+-\d+$/.test(trimmed)) {
+      const target = parseLinearTarget(value);
+      if (target.kind === "issue") {
         // Issue id → round-trip: load context AND post back to the same issue.
-        fromLinearIssueId = trimmed;
-        postToLinearTarget = { kind: "issue", issueId: trimmed };
-      } else if (/^[A-Z]+$/.test(trimmed)) {
+        fromLinearIssueId = target.issueId;
+        postToLinearTarget = { kind: "issue", issueId: target.issueId };
+      } else if (target.kind === "team") {
         // Team key → post a new issue in that team when done; no seed.
-        postToLinearTarget = { kind: "team", teamKey: trimmed };
+        postToLinearTarget = { kind: "team", teamKey: target.teamKey };
       } else {
         throw new CommandUsageError(
-          `--linear expects either an issue id (ENG-123) or a team key (ENG); got "${trimmed}"`,
+          `--linear expects either an issue id (ENG-123) or a team key (ENG); got "${target.raw}"`,
         );
       }
       index = nextIndex;
@@ -146,7 +146,6 @@ export function parseOneshotArgs(args: string[]): ParsedOneshotCommand | null {
         throw new CommandUsageError(`Conflicting branch values: "${branch}" and "${value}"`);
       }
       branch = value.trim();
-      branchExplicit = true;
       index = nextIndex;
       continue;
     }
@@ -160,12 +159,11 @@ export function parseOneshotArgs(args: string[]): ParsedOneshotCommand | null {
     }
 
     branch = arg;
-    branchExplicit = true;
   }
 
   if (resume) {
     if (fromLinearIssueId) {
-      throw new CommandUsageError("Cannot use --resume with --from-linear");
+      throw new CommandUsageError("Cannot use --resume with --linear <issue-id>");
     }
     if (!resumeBranch) throw new CommandUsageError("--resume requires a branch name");
     if (branch && branch !== resumeBranch) {
@@ -175,14 +173,12 @@ export function parseOneshotArgs(args: string[]): ParsedOneshotCommand | null {
   }
 
   if (!resume && !fromLinearIssueId && !prompt) {
-    throw new CommandUsageError("oneshot requires --prompt (or use --resume / --from-linear)");
+    throw new CommandUsageError("oneshot requires --prompt (or use --resume / --linear)");
   }
 
   if (branch) body.branch = branch;
   if (prompt) body.prompt = prompt;
   if (Object.keys(envOverrides).length > 0) body.envOverrides = envOverrides;
-
-  void branchExplicit;
 
   return {
     branch,
@@ -399,6 +395,7 @@ interface PollState {
   seenPrUrls: Set<string>;
   seenMergedUrls: Set<string>;
   hadOpenSession: boolean;
+  consecutiveClosedReadings: number;
   idleSinceMs: number | null;
 }
 
@@ -459,11 +456,19 @@ function pollProjectState(
           return;
         }
       } else {
-        if (worktree.mux) state.hadOpenSession = true;
+        if (worktree.mux) {
+          state.hadOpenSession = true;
+          state.consecutiveClosedReadings = 0;
+        }
         recordPrEvents(state, worktree, callbacks.onPrEvent);
+        // A single mux=false reading can be a transient tmux/server hiccup;
+        // require two consecutive readings before declaring the session closed.
         if (state.hadOpenSession && !worktree.mux) {
-          callbacks.onSessionClosed();
-          return;
+          state.consecutiveClosedReadings += 1;
+          if (state.consecutiveClosedReadings >= 2) {
+            callbacks.onSessionClosed();
+            return;
+          }
         }
         const status = worktree.status;
         // The agent's job is over once it goes idle/stopped/error. Exit
@@ -542,7 +547,6 @@ function pollConversationHistory(
   branch: string,
   port: number,
   state: ConversationPrintState,
-  stderr: (line: string) => void,
 ): { stop: () => void } {
   const api = createApi(`http://localhost:${port}`);
   let stopped = false;
@@ -560,7 +564,6 @@ function pollConversationHistory(
   };
 
   void tick();
-  void stderr;
 
   return {
     stop: () => {
@@ -591,30 +594,54 @@ export async function runOneshot(parsed: ParsedOneshotCommand, port: number): Pr
   const api = createApi(`http://localhost:${port}`);
   let branch = parsed.branch;
   const body: CreateWorktreeRequest = { ...parsed.body };
+  let fromLinearIssueId = parsed.fromLinearIssueId;
+  let postToLinearTarget = parsed.postToLinearTarget;
 
   try {
-    // Team-key Linear target: pre-create the issue *before* the agent runs so
-    // the PR Linear's GitHub integration sees has the issue id in its branch
-    // name (auto-linking depends on that). From there we round-trip exactly
-    // like an explicit `--linear ENG-123`.
-    if (parsed.postToLinearTarget?.kind === "team" && !parsed.fromLinearIssueId) {
+    // Resolve Linear in-process (using LINEAR_API_KEY from the CLI shell's env)
+    // to stay consistent with `webmux add --from-linear`. The server still
+    // accepts a `fromLinear.issueId` payload — it just doesn't need to re-fetch
+    // because we pass the resolved branch + conversationContext explicitly.
+    if (postToLinearTarget?.kind === "team" && !fromLinearIssueId) {
       const title = deriveOneshotIssueTitle(parsed.prompt);
       if (!title) {
-        stderr(`[${timestamp()}] [error] --linear ${parsed.postToLinearTarget.teamKey} requires --prompt to derive an issue title`);
+        stderr(`[${timestamp()}] [error] --linear ${postToLinearTarget.teamKey} requires --prompt to derive an issue title`);
         return 1;
       }
-      stdout(`[${timestamp()}] [event] creating Linear issue in team ${parsed.postToLinearTarget.teamKey}...`);
-      const created = await api.createLinearIssue({
-        body: { teamKey: parsed.postToLinearTarget.teamKey, title },
+      stdout(`[${timestamp()}] [event] creating Linear issue in team ${postToLinearTarget.teamKey}...`);
+      const { fetchTeamByKey, createLinearIssue } = await import("../../backend/src/services/linear-service");
+      const team = await fetchTeamByKey(postToLinearTarget.teamKey);
+      if (!team.ok) {
+        stderr(`[${timestamp()}] [error] Linear team lookup failed: ${team.error}`);
+        return 1;
+      }
+      const created = await createLinearIssue({
+        teamId: team.data.id,
+        title,
+        description: "",
       });
-      stdout(`[${timestamp()}] [event] created Linear issue ${created.identifier} → ${created.url}`);
-      parsed.fromLinearIssueId = created.identifier;
-      parsed.postToLinearTarget = { kind: "issue", issueId: created.identifier };
+      if (!created.ok) {
+        stderr(`[${timestamp()}] [error] Linear issue creation failed: ${created.error}`);
+        return 1;
+      }
+      stdout(`[${timestamp()}] [event] created Linear issue ${created.data.identifier} → ${created.data.url}`);
+      fromLinearIssueId = created.data.identifier;
+      postToLinearTarget = { kind: "issue", issueId: created.data.identifier };
     }
 
-    if (parsed.fromLinearIssueId) {
-      stdout(`[${timestamp()}] [event] resolving Linear issue ${parsed.fromLinearIssueId}...`);
-      const seed = await api.fetchLinearSeed({ params: { issueId: parsed.fromLinearIssueId } });
+    if (fromLinearIssueId) {
+      stdout(`[${timestamp()}] [event] resolving Linear issue ${fromLinearIssueId}...`);
+      const { fetchIssueWithAttachments } = await import("../../backend/src/services/linear-service");
+      const { buildSeedFromLinear, downloadWebmuxAttachmentDefault } = await import("../../backend/src/services/conversation-export-service");
+      const seedResult = await buildSeedFromLinear(
+        { issueId: fromLinearIssueId },
+        { fetchIssueWithAttachments, downloadWebmuxAttachment: downloadWebmuxAttachmentDefault },
+      );
+      if (!seedResult.ok) {
+        stderr(`[${timestamp()}] [error] Linear seed lookup failed: ${seedResult.error}`);
+        return 1;
+      }
+      const seed = seedResult.data;
       stdout(`[${timestamp()}] [event] seed source: ${seed.source}${seed.branch ? ` branch=${seed.branch}` : ""}${seed.prUrl ? ` pr=${seed.prUrl}` : ""}`);
 
       const resolvedBranch = branch ?? seed.branch ?? null;
@@ -627,7 +654,7 @@ export async function runOneshot(parsed: ParsedOneshotCommand, port: number): Pr
       // Use "existing" mode when the seed pointed to an existing branch (webmux session or open PR).
       if (seed.source !== "none") body.mode = "existing";
       body.fromLinear = {
-        issueId: parsed.fromLinearIssueId,
+        issueId: fromLinearIssueId,
         ...(seed.conversationMarkdown ? { conversationContext: seed.conversationMarkdown } : {}),
       };
     }
@@ -661,7 +688,7 @@ export async function runOneshot(parsed: ParsedOneshotCommand, port: number): Pr
       stdout(`[${timestamp()}] [event] created ${branch}`);
     }
   } catch (error) {
-    stderr(`[${timestamp()}] [error] ${error instanceof Error ? error.message : String(error)}`);
+    stderr(`[${timestamp()}] [error] ${formatServerError(error, port)}`);
     return 1;
   }
 
@@ -688,28 +715,33 @@ export async function runOneshot(parsed: ParsedOneshotCommand, port: number): Pr
   }
 
   const stream = streamConversation(branch, port, conversationState, stderr);
-  const historyPoller = pollConversationHistory(branch, port, conversationState, stderr);
+  const historyPoller = pollConversationHistory(branch, port, conversationState);
 
-  let exitCode = 0;
+  let resolveExit!: (code: number) => void;
+  const exitPromise = new Promise<number>((resolve) => {
+    resolveExit = resolve;
+  });
   let exiting = false;
+  let poller: { stop: () => void } | null = null;
   const finalize = (code: number): void => {
     if (exiting) return;
     exiting = true;
-    exitCode = code;
     stream.close();
     historyPoller.stop();
-    poller.stop();
+    poller?.stop();
     flushStreamingLine(conversationState);
+    resolveExit(code);
   };
 
   const pollState: PollState = {
     seenPrUrls: new Set(),
     seenMergedUrls: new Set(),
     hadOpenSession: false,
+    consecutiveClosedReadings: 0,
     idleSinceMs: null,
   };
 
-  const poller = pollProjectState(branch, port, pollState, {
+  poller = pollProjectState(branch, port, pollState, {
     onSessionClosed: () => {
       stdout(`[${timestamp()}] [event] session closed — exiting`);
       finalize(0);
@@ -742,27 +774,18 @@ export async function runOneshot(parsed: ParsedOneshotCommand, port: number): Pr
   process.on("SIGINT", onSignal);
   process.on("SIGTERM", onSignal);
 
-  const finalExit = await new Promise<number>((resolve) => {
-    const checkExit = (): void => {
-      if (exiting) {
-        process.off("SIGINT", onSignal);
-        process.off("SIGTERM", onSignal);
-        resolve(exitCode);
-        return;
-      }
-      setTimeout(checkExit, 250);
-    };
-    checkExit();
-  });
+  const finalExit = await exitPromise;
+  process.off("SIGINT", onSignal);
+  process.off("SIGTERM", onSignal);
 
   // Best-effort: post the conversation to Linear after the run completes.
   // Skip on SIGINT (130) so an interrupted run doesn't post partial state.
-  if (parsed.postToLinearTarget && branch && finalExit !== 130) {
+  if (postToLinearTarget && branch && finalExit !== 130) {
     try {
       stdout(`[${timestamp()}] [event] posting conversation to Linear...`);
       const response = await api.postWorktreeToLinear({
         params: { name: branch },
-        body: { target: parsed.postToLinearTarget },
+        body: { target: postToLinearTarget },
       });
       stdout(`[${timestamp()}] [event] linear issue: ${response.issueUrl}`);
       if (response.commentUrl) stdout(`[${timestamp()}] [event] linear comment: ${response.commentUrl}`);

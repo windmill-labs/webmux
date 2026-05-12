@@ -36,3 +36,28 @@ export function detectProjectName(gitRoot: string): string {
   }
   return basename(gitRoot);
 }
+
+/**
+ * Bun throws a `TypeError: fetch failed` when the webmux server isn't
+ * reachable; the bare message is unhelpful to users. This returns a friendly
+ * "Is the server running?" hint for that case and leaves HTTP/other errors
+ * untouched.
+ */
+export function formatServerError(error: unknown, port: number): string {
+  if (error instanceof Error) {
+    if (error.message.startsWith("HTTP")) return error.message;
+    if (error.message.includes("fetch")) {
+      return `Could not connect to webmux server on port ${port}. Is it running?`;
+    }
+    return error.message;
+  }
+  return String(error);
+}
+
+export async function withServerConnection<T>(port: number, fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (error) {
+    throw new Error(formatServerError(error, port));
+  }
+}

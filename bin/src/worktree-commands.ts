@@ -1,6 +1,7 @@
 import * as p from "@clack/prompts";
 import { createApi } from "@webmux/api-contract";
 import { basename, resolve } from "node:path";
+import { withServerConnection } from "./shared";
 import { readWorktreeArchiveState, readWorktreeMeta } from "../../backend/src/adapters/fs";
 import { buildProjectSessionName, buildWorktreeWindowName } from "../../backend/src/adapters/tmux";
 import type { AgentId } from "../../backend/src/domain/config";
@@ -810,23 +811,15 @@ export async function runWorktreeCommand(
       }
 
       const api = createApi(`http://localhost:${context.port}`);
-      try {
-        await api.sendWorktreePrompt({
+      await withServerConnection(context.port, () =>
+        api.sendWorktreePrompt({
           params: { name: parsed.branch },
           body: {
             text: parsed.text,
             ...(parsed.preamble ? { preamble: parsed.preamble } : {}),
           },
-        });
-      } catch (error) {
-        if (error instanceof Error && error.message.startsWith("HTTP")) {
-          throw error;
-        }
-        if (error instanceof Error && !error.message.includes("fetch")) {
-          throw error;
-        }
-        throw new Error(`Could not connect to webmux server on port ${context.port}. Is it running?`);
-      }
+        }),
+      );
 
       stdout(`Sent prompt to ${parsed.branch}`);
       return 0;

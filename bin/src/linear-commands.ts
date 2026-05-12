@@ -1,4 +1,5 @@
-import { createApi, type PostWorktreeToLinearTarget } from "@webmux/api-contract";
+import { createApi, parseLinearTarget, type PostWorktreeToLinearTarget } from "@webmux/api-contract";
+import { formatServerError } from "./shared";
 
 class CommandUsageError extends Error {}
 
@@ -44,17 +45,17 @@ function readOptionValue(args: string[], index: number, flag: string): { value: 
 }
 
 export function parseLinearTargetArg(raw: string): PostWorktreeToLinearTarget {
-  const trimmed = raw.trim();
-  if (/^[A-Z]+$/.test(trimmed)) {
-    return { kind: "team", teamKey: trimmed };
+  const target = parseLinearTarget(raw);
+  if (target.kind === "team") {
+    return { kind: "team", teamKey: target.teamKey };
   }
-  if (/^[A-Z]+-\d+$/.test(trimmed)) {
+  if (target.kind === "issue") {
     throw new CommandUsageError(
-      `Post target must be a team key (e.g. ENG). To post to issue ${trimmed} as part of a session, use --linear ${trimmed} on the oneshot/add command (loads issue context and posts back to it).`,
+      `Post target must be a team key (e.g. ENG). To post to issue ${target.issueId} as part of a session, use --linear ${target.issueId} on the oneshot/add command (loads issue context and posts back to it).`,
     );
   }
   throw new CommandUsageError(
-    `Invalid Linear team key "${trimmed}". Use a team key like ENG.`,
+    `Invalid Linear team key "${target.raw}". Use a team key like ENG.`,
   );
 }
 
@@ -138,7 +139,7 @@ export async function runLinearCommand(args: string[], port: number): Promise<nu
     console.log(`Attachment: ${response.attachmentUrl}`);
     return 0;
   } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
+    console.error(formatServerError(error, port));
     return 1;
   }
 }

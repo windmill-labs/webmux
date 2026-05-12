@@ -9,7 +9,6 @@ import type {
   AgentsUiWorktreeConversationResponse,
   AppNotification,
   FileUploadResult,
-  LinearSeedResponse,
   PostWorktreeToLinearResponse,
   PostWorktreeToLinearTarget,
   ProjectWorktreeSnapshot,
@@ -71,12 +70,6 @@ export function postWorktreeToLinear(
   return api.postWorktreeToLinear({
     params: { name: branch },
     body: { target },
-  });
-}
-
-export function fetchLinearSeed(issueId: string): Promise<LinearSeedResponse> {
-  return api.fetchLinearSeed({
-    params: { issueId },
   });
 }
 

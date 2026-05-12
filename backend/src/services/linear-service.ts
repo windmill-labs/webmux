@@ -723,18 +723,7 @@ export type CreateCommentResult =
   | { ok: true; data: { id: string; url: string } }
   | { ok: false; error: string };
 
-/** Internal: distinguish "issue id" (TEAM-123) vs "team key" (TEAM). */
-export type LinearTarget =
-  | { kind: "issue"; issueId: string }
-  | { kind: "team"; teamKey: string }
-  | { kind: "invalid"; raw: string };
-
-export function parseLinearTarget(raw: string): LinearTarget {
-  const trimmed = raw.trim();
-  if (/^[A-Z]+-\d+$/.test(trimmed)) return { kind: "issue", issueId: trimmed };
-  if (/^[A-Z]+$/.test(trimmed)) return { kind: "team", teamKey: trimmed };
-  return { kind: "invalid", raw: trimmed };
-}
+export { parseLinearTarget, type LinearTarget } from "@webmux/api-contract";
 
 const WEBMUX_ATTACHMENT_TITLE_PREFIX = "webmux-state:";
 

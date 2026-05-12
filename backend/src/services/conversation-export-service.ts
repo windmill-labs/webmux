@@ -10,7 +10,6 @@ import {
   fetchTeamByKey,
   findLinkedGitHubPr,
   findWebmuxAttachment,
-  type LinearAttachment,
   type LinearIssueWithAttachments,
   uploadAttachmentFile,
 } from "./linear-service";
@@ -21,7 +20,6 @@ export interface WebmuxConversationAttachmentPayload {
   webmux: 1;
   branch: string;
   baseBranch: string | null;
-  lastSha: string | null;
   agent: string | null;
   createdAt: string;
   conversation: AgentsUiConversationMessage[];
@@ -44,7 +42,6 @@ export interface ExportConversationInput {
   target: ExportTarget;
   branch: string;
   baseBranch: string | null;
-  lastSha: string | null;
   agent: string | null;
   prUrl: string | null;
   conversation: AgentsUiConversationState;
@@ -136,7 +133,6 @@ export function buildConversationAttachmentPayload(input: ExportConversationInpu
     webmux: 1,
     branch: input.branch,
     baseBranch: input.baseBranch,
-    lastSha: input.lastSha,
     agent: input.agent,
     createdAt: now().toISOString(),
     conversation: input.conversation.messages,
@@ -263,7 +259,7 @@ function buildPriorConversationSection(payload: WebmuxConversationAttachmentPayl
   const lines: string[] = [];
   lines.push(`---`);
   lines.push("");
-  lines.push(`A previous webmux session for this issue was saved here (branch \`${payload.branch}\`${payload.baseBranch ? `, base \`${payload.baseBranch}\`` : ""}${payload.lastSha ? `, last sha \`${payload.lastSha}\`` : ""}).`);
+  lines.push(`A previous webmux session for this issue was saved here (branch \`${payload.branch}\`${payload.baseBranch ? `, base \`${payload.baseBranch}\`` : ""}).`);
   lines.push("");
   lines.push("Previous conversation (chronological):");
   lines.push("");
@@ -350,6 +346,3 @@ export async function downloadWebmuxAttachmentDefault(url: string): Promise<
     return { ok: false, error: msg };
   }
 }
-
-// Silence unused export warnings on the typed alias.
-export type _LinearAttachment = LinearAttachment;

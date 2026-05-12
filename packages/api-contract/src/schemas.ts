@@ -27,6 +27,19 @@ export const WorktreeCreateModeSchema = z.enum(["new", "existing"]);
 export const LinearIssueIdSchema = z.string().regex(/^[A-Z]+-\d+$/, "Expected Linear issue id (e.g. ENG-123)");
 export const LinearTeamKeySchema = z.string().regex(/^[A-Z]+$/, "Expected Linear team key (e.g. ENG)");
 
+/** Distinguishes a Linear issue id (TEAM-123) from a team key (TEAM). */
+export type LinearTarget =
+  | { kind: "issue"; issueId: string }
+  | { kind: "team"; teamKey: string }
+  | { kind: "invalid"; raw: string };
+
+export function parseLinearTarget(raw: string): LinearTarget {
+  const trimmed = raw.trim();
+  if (LinearIssueIdSchema.safeParse(trimmed).success) return { kind: "issue", issueId: trimmed };
+  if (LinearTeamKeySchema.safeParse(trimmed).success) return { kind: "team", teamKey: trimmed };
+  return { kind: "invalid", raw: trimmed };
+}
+
 export const PostWorktreeToLinearTargetSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("issue"), issueId: LinearIssueIdSchema }),
   z.object({ kind: z.literal("team"), teamKey: LinearTeamKeySchema, title: z.string().trim().min(1).optional() }),

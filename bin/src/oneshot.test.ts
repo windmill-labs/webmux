@@ -82,7 +82,7 @@ describe("parseOneshotArgs", () => {
 
   it("rejects --linear combined with --resume", () => {
     expect(() => parseOneshotArgs(["--resume", "feat/foo", "--linear", "ENG-12"]))
-      .toThrow("Cannot use --resume with --from-linear");
+      .toThrow("Cannot use --resume with --linear <issue-id>");
   });
 
   it("accepts --branch as override alongside --linear (issue id)", () => {

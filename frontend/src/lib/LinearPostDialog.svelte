@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { parseLinearTarget } from "@webmux/api-contract";
   import BaseDialog from "./BaseDialog.svelte";
   import Btn from "./Btn.svelte";
   import type { PostWorktreeToLinearTarget } from "./types";
@@ -18,9 +19,10 @@
   let loading = $state(false);
   let error = $state("");
 
-  let teamKeyTrimmed = $derived(teamKey.trim());
-  let teamKeyLooksLikeIssue = $derived(/^[A-Z]+-\d+$/.test(teamKeyTrimmed));
-  let teamKeyValid = $derived(/^[A-Z]+$/.test(teamKeyTrimmed));
+  let teamKeyTrimmed = $derived(teamKey.trim().toUpperCase());
+  let teamKeyParsed = $derived(parseLinearTarget(teamKeyTrimmed));
+  let teamKeyLooksLikeIssue = $derived(teamKeyParsed.kind === "issue");
+  let teamKeyValid = $derived(teamKeyParsed.kind === "team");
 
   async function handleSubmit(): Promise<void> {
     if (!teamKeyValid || loading) return;
@@ -53,7 +55,7 @@
       <input
         id="linear-team"
         type="text"
-        class="w-full px-2.5 py-1.5 rounded-md border border-edge bg-surface text-primary text-[13px] placeholder:text-muted/50 outline-none focus:border-accent font-mono"
+        class="w-full px-2.5 py-1.5 rounded-md border border-edge bg-surface text-primary text-[13px] placeholder:text-muted/50 outline-none focus:border-accent font-mono uppercase"
         placeholder="ENG"
         bind:value={teamKey}
         autocomplete="off"

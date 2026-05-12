@@ -83,6 +83,7 @@
     {@const isCreating = wt.creating}
     {@const isArchived = wt.archived}
     {@const isBusy = isRemoving || isInitializing}
+    {@const hasLabel = !!wt.label}
     <li class="mb-0.5 group relative {isBusy ? 'opacity-40 pointer-events-none' : ''}">
       <button
         type="button"
@@ -101,7 +102,12 @@
             {#if row.depth > 0}
               <span class="shrink-0 text-muted/60">↳</span>
             {/if}
-            <span class="font-medium truncate">{wt.branch}</span>
+            <span class="min-w-0 flex flex-col">
+              <span class="font-medium truncate">{wt.label ?? wt.branch}</span>
+              {#if hasLabel}
+                <span class="text-[10px] leading-tight text-muted truncate">{wt.branch}</span>
+              {/if}
+            </span>
             {#if isArchived}
               <span class="shrink-0 text-[10px] px-1.5 py-0.5 rounded border border-edge text-muted">
                 archived

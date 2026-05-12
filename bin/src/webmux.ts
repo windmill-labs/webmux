@@ -25,6 +25,7 @@ Usage:
   webmux close        Close a worktree session without removing it
   webmux archive      Hide a worktree from the default list
   webmux unarchive    Show an archived worktree again
+  webmux label        Set or clear a workspace label
   webmux remove       Remove a worktree
   webmux merge        Merge a worktree into the main branch and remove it
   webmux send         Send a prompt to a running worktree agent
@@ -43,7 +44,7 @@ Environment:
 `);
 }
 
-type RootCommand = "serve" | "init" | "service" | "update" | "add" | "list" | "open" | "close" | "archive" | "unarchive" | "remove" | "merge" | "send" | "prune" | "completion" | null;
+type RootCommand = "serve" | "init" | "service" | "update" | "add" | "list" | "open" | "close" | "archive" | "unarchive" | "label" | "remove" | "merge" | "send" | "prune" | "completion" | null;
 
 interface ParsedRootArgs {
   port: number;
@@ -64,6 +65,7 @@ function isRootCommand(value: string): value is NonNullable<RootCommand> {
     || value === "close"
     || value === "archive"
     || value === "unarchive"
+    || value === "label"
     || value === "remove"
     || value === "merge"
     || value === "send"
@@ -142,13 +144,14 @@ export function parseRootArgs(args: string[]): ParsedRootArgs {
   };
 }
 
-function isWorktreeCommand(command: RootCommand): command is "add" | "list" | "open" | "close" | "archive" | "unarchive" | "remove" | "merge" | "send" | "prune" {
+function isWorktreeCommand(command: RootCommand): command is "add" | "list" | "open" | "close" | "archive" | "unarchive" | "label" | "remove" | "merge" | "send" | "prune" {
   return command === "add"
     || command === "list"
     || command === "open"
     || command === "close"
     || command === "archive"
     || command === "unarchive"
+    || command === "label"
     || command === "remove"
     || command === "merge"
     || command === "send"

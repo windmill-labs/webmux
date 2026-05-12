@@ -5,6 +5,7 @@ import type { WorktreeInfo } from "./types";
 function createWorktree(branch: string, overrides: Partial<WorktreeInfo> = {}): WorktreeInfo {
   return {
     branch,
+    label: null,
     archived: false,
     agent: "waiting",
     mux: "",
@@ -66,6 +67,18 @@ describe("buildWorktreeListRows", () => {
     });
 
     expect(worktrees.map((worktree) => worktree.branch)).toEqual(["feature/active"]);
+  });
+
+  it("matches label text when searching worktrees", () => {
+    const worktrees = filterWorktrees([
+      createWorktree("feature/random-fallback", { label: "Search ranking" }),
+      createWorktree("feature/other"),
+    ], {
+      query: "ranking",
+      showArchived: false,
+    });
+
+    expect(worktrees.map((worktree) => worktree.branch)).toEqual(["feature/random-fallback"]);
   });
 
   it("counts archived matches separately from visible rows", () => {

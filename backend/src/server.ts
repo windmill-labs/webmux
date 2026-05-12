@@ -13,6 +13,7 @@ import {
   RunIdParamsSchema,
   SendWorktreePromptRequestSchema,
   SetWorktreeArchivedRequestSchema,
+  SetWorktreeLabelRequestSchema,
   ToggleEnabledRequestSchema,
   UpsertCustomAgentRequestSchema,
   WorktreeNameParamsSchema,
@@ -929,6 +930,18 @@ async function apiSetWorktreeArchived(name: string, req: Request): Promise<Respo
   return jsonResponse({ ok: true, archived: body.archived });
 }
 
+async function apiSetWorktreeLabel(name: string, req: Request): Promise<Response> {
+  ensureBranchNotBusy(name);
+  const parsed = await parseJsonBody(req, SetWorktreeLabelRequestSchema);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.data;
+
+  log.info(`[worktree:label] name=${name} label=${body.label ? JSON.stringify(body.label) : "null"}`);
+  const result = await lifecycleService.setWorktreeLabel(name, body.label);
+  log.debug(`[worktree:label] done name=${name} label=${result.label ? JSON.stringify(result.label) : "null"}`);
+  return jsonResponse({ ok: true, label: result.label });
+}
+
 async function apiSendPrompt(name: string, req: Request): Promise<Response> {
   ensureBranchNotBusy(name);
   const parsed = await parseJsonBody(req, SendWorktreePromptRequestSchema);
@@ -1411,6 +1424,15 @@ Bun.serve({
         if (!parsed.ok) return parsed.response;
         const name = parsed.data;
         return catching(`PUT /api/worktrees/${name}/archive`, () => apiSetWorktreeArchived(name, req));
+      },
+    },
+
+    [apiPaths.setWorktreeLabel]: {
+      PUT: (req) => {
+        const parsed = parseWorktreeNameParam(req.params);
+        if (!parsed.ok) return parsed.response;
+        const name = parsed.data;
+        return catching(`PUT /api/worktrees/${name}/label`, () => apiSetWorktreeLabel(name, req));
       },
     },
 

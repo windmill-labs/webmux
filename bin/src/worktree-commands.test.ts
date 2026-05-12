@@ -1,9 +1,13 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { buildProjectSessionName, buildWorktreeWindowName } from "../../backend/src/adapters/tmux";
 import type { CreateLifecycleWorktreeInput, CreateLifecycleWorktreesInput } from "../../backend/src/services/lifecycle-service";
 import {
   parseAddCommandArgs,
   parseBranchCommandArgs,
+  parseLabelCommandArgs,
   parseListCommandArgs,
   parseSendCommandArgs,
   runWorktreeCommand,
@@ -35,6 +39,10 @@ function stubLifecycleService(calls: Array<{ method: string; value: unknown }>) 
     },
     async setWorktreeArchived(branch: string, archived: boolean): Promise<void> {
       calls.push({ method: "setWorktreeArchived", value: { branch, archived } });
+    },
+    async setWorktreeLabel(branch: string, label: string | null): Promise<{ label: string | null }> {
+      calls.push({ method: "setWorktreeLabel", value: { branch, label } });
+      return { label };
     },
     async removeWorktree(branch: string): Promise<void> {
       calls.push({ method: "removeWorktree", value: branch });
@@ -228,6 +236,30 @@ describe("parseSendCommandArgs", () => {
   });
 });
 
+describe("parseLabelCommandArgs", () => {
+  it("parses branch and label text", () => {
+    expect(parseLabelCommandArgs(["feature/search", "Search", "ranking"])).toEqual({
+      branch: "feature/search",
+      label: "Search ranking",
+    });
+  });
+
+  it("parses --clear", () => {
+    expect(parseLabelCommandArgs(["feature/search", "--clear"])).toEqual({
+      branch: "feature/search",
+      label: null,
+    });
+  });
+
+  it("returns null for help", () => {
+    expect(parseLabelCommandArgs(["--help"])).toBeNull();
+  });
+
+  it("rejects --clear with label text", () => {
+    expect(() => parseLabelCommandArgs(["feature/search", "--clear", "Search"])).toThrow("Cannot use --clear with a label");
+  });
+});
+
 describe("runWorktreeCommand", () => {
   it("dispatches add through the lifecycle service and switches to tmux", async () => {
     const { runtime, calls } = makeRuntime();
@@ -405,6 +437,50 @@ describe("runWorktreeCommand", () => {
     expect(stdout).toEqual(["Archived worktree feature/search"]);
   });
 
+  it("dispatches label updates through the lifecycle service", async () => {
+    const { runtime, calls } = makeRuntime();
+    const stdout: string[] = [];
+
+    const exitCode = await runWorktreeCommand(
+      {
+        command: "label",
+        args: ["feature/search", "Search", "ranking"],
+        projectDir: "/repo",
+        port: 5111,
+      },
+      {
+        createRuntime: () => runtime,
+        stdout: (message) => stdout.push(message),
+      },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(calls).toEqual([{ method: "setWorktreeLabel", value: { branch: "feature/search", label: "Search ranking" } }]);
+    expect(stdout).toEqual(['Labeled worktree feature/search as "Search ranking"']);
+  });
+
+  it("dispatches label clears through the lifecycle service", async () => {
+    const { runtime, calls } = makeRuntime();
+    const stdout: string[] = [];
+
+    const exitCode = await runWorktreeCommand(
+      {
+        command: "label",
+        args: ["feature/search", "--clear"],
+        projectDir: "/repo",
+        port: 5111,
+      },
+      {
+        createRuntime: () => runtime,
+        stdout: (message) => stdout.push(message),
+      },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(calls).toEqual([{ method: "setWorktreeLabel", value: { branch: "feature/search", label: null } }]);
+    expect(stdout).toEqual(["Cleared label for feature/search"]);
+  });
+
   it("prints subcommand help without creating a runtime", async () => {
     let createRuntimeCalled = false;
     const stdout: string[] = [];
@@ -546,6 +622,12 @@ describe("runWorktreeCommand", () => {
             async closeWorktree(): Promise<void> {
               throw new Error("not used");
             },
+            async setWorktreeArchived(): Promise<void> {
+              throw new Error("not used");
+            },
+            async setWorktreeLabel(): Promise<{ label: string | null }> {
+              throw new Error("not used");
+            },
             async removeWorktree(): Promise<void> {
               throw new Error("Worktree has uncommitted changes: feature/search");
             },
@@ -622,6 +704,52 @@ describe("runWorktreeCommand", () => {
     expect(stdout[0]).toContain("closed");
     expect(stdout[1]).toContain("my-feature");
     expect(stdout[1]).toContain("open");
+  });
+
+  it("lists and searches workspace labels", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "webmux-cli-labels-"));
+    try {
+      const projectDir = join(tempDir, "repo");
+      const worktreePath = join(projectDir, ".worktrees", "random-name");
+      const metaDir = join(worktreePath, ".git", "webmux");
+      await mkdir(metaDir, { recursive: true });
+      await Bun.write(join(metaDir, "meta.json"), JSON.stringify({
+        schemaVersion: 1,
+        worktreeId: "wt_random",
+        branch: "random-name",
+        label: "Search ranking",
+        createdAt: "2026-05-12T00:00:00.000Z",
+        profile: "default",
+        agent: "codex",
+        runtime: "host",
+        startupEnvValues: {},
+        allocatedPorts: {},
+      }));
+      const stdout: string[] = [];
+
+      const exitCode = await runWorktreeCommand(
+        { command: "list", args: ["--search", "ranking"], projectDir, port: 5111 },
+        {
+          createRuntime: () => ({
+            projectDir,
+            config: { workspace: { mainBranch: "main" } },
+            git: stubGit([
+              { path: projectDir, branch: "main", bare: false },
+              { path: worktreePath, branch: "random-name", bare: false },
+            ]),
+            tmux: stubTmux(),
+            lifecycleService: stubLifecycleService([]),
+          }),
+          stdout: (msg) => stdout.push(msg),
+        },
+      );
+
+      expect(exitCode).toBe(0);
+      expect(stdout).toHaveLength(1);
+      expect(stdout[0]).toContain("Search ranking (random-name)");
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
   });
 
   it("prints empty message when no worktrees exist", async () => {

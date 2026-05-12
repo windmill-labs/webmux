@@ -17,6 +17,7 @@ function isoNow(now?: () => Date): string {
 function makeDefaultState(input: {
   worktreeId: string;
   branch: string;
+  label?: string | null;
   baseBranch?: string | null;
   path: string;
   profile?: string | null;
@@ -26,6 +27,7 @@ function makeDefaultState(input: {
   return {
     worktreeId: input.worktreeId,
     branch: input.branch,
+    label: input.label ?? null,
     baseBranch: input.baseBranch ?? null,
     path: input.path,
     profile: input.profile ?? null,
@@ -70,6 +72,7 @@ export class ProjectRuntime {
   upsertWorktree(input: {
     worktreeId: string;
     branch: string;
+    label?: string | null;
     baseBranch?: string | null;
     path: string;
     profile?: string | null;
@@ -81,6 +84,7 @@ export class ProjectRuntime {
       this.reindexBranch(existing.branch, input.branch, input.worktreeId);
       existing.path = input.path;
       existing.branch = input.branch;
+      if (input.label !== undefined) existing.label = input.label;
       if (input.baseBranch !== undefined) existing.baseBranch = input.baseBranch;
       existing.profile = input.profile ?? existing.profile;
       existing.agentName = input.agentName ?? existing.agentName;

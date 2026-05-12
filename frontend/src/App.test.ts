@@ -21,11 +21,12 @@ vi.mock("./lib/api", () => ({
     sendWorktreePrompt: vi.fn(),
   },
   fetchWorktrees: vi.fn(),
+  setWorktreeLabel: vi.fn(),
   subscribeNotifications: vi.fn(),
 }));
 
 import App from "./App.svelte";
-import { api, fetchWorktrees, subscribeNotifications } from "./lib/api";
+import { api, fetchWorktrees, setWorktreeLabel, subscribeNotifications } from "./lib/api";
 
 interface Deferred<T> {
   promise: Promise<T>;
@@ -107,6 +108,7 @@ function createWorktree(
 ): WorktreeInfo {
   return {
     branch,
+    label: null,
     archived: false,
     agent: "waiting",
     mux: "",
@@ -244,6 +246,7 @@ describe("App create selection", () => {
     vi.mocked(api.dismissNotification).mockResolvedValue({ ok: true });
     vi.mocked(api.fetchCiLogs).mockResolvedValue({ logs: "" });
     vi.mocked(api.sendWorktreePrompt).mockResolvedValue({ ok: true });
+    vi.mocked(setWorktreeLabel).mockResolvedValue(null);
   });
 
   afterEach(() => {
@@ -490,6 +493,25 @@ describe("App create selection", () => {
         body: { archived: true },
       });
     });
+  });
+
+  it("edits the selected worktree label from the header", async () => {
+    vi.mocked(fetchWorktrees).mockResolvedValue([createWorktree("feature/active")]);
+    vi.mocked(setWorktreeLabel).mockResolvedValue("Search ranking");
+
+    render(App);
+
+    await screen.findByTitle("feature/active");
+    await fireEvent.click(screen.getByRole("button", { name: "Edit workspace label" }));
+    await fireEvent.input(screen.getByLabelText("Label"), {
+      target: { value: "Search ranking" },
+    });
+    await fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(setWorktreeLabel).toHaveBeenCalledWith("feature/active", "Search ranking");
+    });
+    expect(screen.getAllByText("Search ranking").length).toBeGreaterThan(0);
   });
 
   it("shows a setup message in the Linear panel when LINEAR_API_KEY is missing", async () => {

@@ -13,6 +13,7 @@ import {
   readWorktreeMeta,
   renderEnvFile,
   writeWorktreePrs,
+  writeWorktreeMeta,
 } from "../adapters/fs";
 import type { WorktreeMeta } from "../domain/model";
 import { createManagedWorktree, initializeManagedWorktree } from "../services/worktree-service";
@@ -396,6 +397,17 @@ describe("initializeManagedWorktree", () => {
         lastSeenAt: "2026-04-14T10:00:00.000Z",
       },
     });
+  });
+
+  it("normalizes blank labels out of worktree metadata", async () => {
+    gitDir = await mkdtemp(join(tmpdir(), "webmux-meta-label-"));
+
+    await writeWorktreeMeta(gitDir, {
+      ...makeMeta(),
+      label: "   ",
+    });
+
+    expect((await readWorktreeMeta(gitDir))?.label).toBeUndefined();
   });
 
   it("round-trips PR storage through the worktree webmux dir", async () => {

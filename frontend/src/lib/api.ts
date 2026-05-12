@@ -37,6 +37,7 @@ function mapAgentStatus(status: string): string {
 function mapWorktree(snapshot: ProjectWorktreeSnapshot): WorktreeInfo {
   return {
     branch: snapshot.branch,
+    label: snapshot.label,
     ...(snapshot.baseBranch ? { baseBranch: snapshot.baseBranch } : {}),
     archived: snapshot.archived,
     agent: mapAgentStatus(snapshot.status),
@@ -62,6 +63,14 @@ function mapWorktree(snapshot: ProjectWorktreeSnapshot): WorktreeInfo {
 export async function fetchWorktrees(): Promise<WorktreeInfo[]> {
   const response = await api.fetchWorktrees();
   return response.worktrees.map((worktree) => mapWorktree(worktree));
+}
+
+export async function setWorktreeLabel(branch: string, label: string | null): Promise<string | null> {
+  const response = await api.setWorktreeLabel({
+    params: { name: branch },
+    body: { label },
+  });
+  return response.label;
 }
 
 export function attachWorktreeConversation(branch: string): Promise<AgentsUiWorktreeConversationResponse> {

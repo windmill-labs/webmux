@@ -5,6 +5,7 @@ describe("buildAgentsUiWorktreeSummary", () => {
   it("maps worktree snapshots into conversation-aware summary data", () => {
     const summary = buildAgentsUiWorktreeSummary({
       branch: "feature/search",
+      label: "Search ranking",
       baseBranch: "main",
       path: "/repo/__worktrees/feature-search",
       dir: "/repo/__worktrees/feature-search",
@@ -87,6 +88,7 @@ describe("buildAgentsUiWorktreeSummary", () => {
   it("defaults missing conversation metadata to null", () => {
     const summary = buildAgentsUiWorktreeSummary({
       branch: "feature/idle",
+      label: null,
       path: "/repo/__worktrees/feature-idle",
       dir: "/repo/__worktrees/feature-idle",
       archived: false,

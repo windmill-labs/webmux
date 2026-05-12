@@ -162,6 +162,7 @@ function makeCodexConversationMeta(threadId: string, cwd: string, lastSeenAt = "
 function makeWorktree(): WorktreeSnapshot {
   return {
     branch: "codex-feature",
+    label: null,
     path: "/tmp/worktrees/codex-feature",
     dir: "codex-feature",
     archived: false,

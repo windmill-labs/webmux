@@ -9,6 +9,7 @@ function createWorktree(
 ): WorktreeInfo {
   return {
     branch,
+    label: null,
     archived: false,
     agent: "claude",
     mux: "✓",
@@ -75,6 +76,33 @@ describe("TopBar", () => {
     const header = screen.getByText(branch);
 
     expect(header).toHaveAttribute("title", branch);
+  });
+
+  it("shows workspace labels above the real branch name", () => {
+    const branch = "feature/random-fallback";
+
+    render(TopBar, {
+      props: {
+        name: branch,
+        worktree: createWorktree(branch, { label: "Search ranking" }),
+        sshHost: "",
+        linkedRepos: [],
+        notificationHistory: [],
+        unreadCount: 0,
+        onclose: vi.fn(),
+        onarchive: vi.fn(),
+        onmerge: vi.fn(),
+        onremove: vi.fn(),
+        oneditlabel: vi.fn(),
+        onsettings: vi.fn(),
+        onCiClick: vi.fn(),
+        onReviewsClick: vi.fn(),
+      },
+    });
+
+    expect(screen.getByText("Search ranking")).toBeInTheDocument();
+    expect(screen.getByText(branch)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit workspace label" })).toBeInTheDocument();
   });
 
   it("renders the Linear badge as a link in the header", () => {

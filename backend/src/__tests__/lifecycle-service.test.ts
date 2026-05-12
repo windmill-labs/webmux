@@ -1063,6 +1063,29 @@ describe("LifecycleService", () => {
     expect(archiveState.entries[0]?.path).toBe(join(repoRoot, "__worktrees", "feature-archive"));
   });
 
+  it("updates and clears a worktree label in metadata and runtime state", async () => {
+    const repoRoot = await initRepo();
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const lifecycle = makeLifecycleService(repoRoot, tmux, runtime);
+
+    await lifecycle.createWorktree({ branch: "feature-label" });
+    const labeled = await lifecycle.setWorktreeLabel("feature-label", "  Search ranking  ");
+
+    const worktreePath = join(repoRoot, "__worktrees", "feature-label");
+    const gitDir = new BunGitGateway().resolveWorktreeGitDir(worktreePath);
+
+    expect(labeled).toEqual({ label: "Search ranking" });
+    expect((await readWorktreeMeta(gitDir))?.label).toBe("Search ranking");
+    expect(runtime.getWorktreeByBranch("feature-label")?.label).toBe("Search ranking");
+
+    const cleared = await lifecycle.setWorktreeLabel("feature-label", "");
+
+    expect(cleared).toEqual({ label: null });
+    expect((await readWorktreeMeta(gitDir))?.label).toBeUndefined();
+    expect(runtime.getWorktreeByBranch("feature-label")?.label).toBeNull();
+  });
+
   it("creates a managed docker worktree through the container runtime path", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();

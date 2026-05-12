@@ -18,7 +18,7 @@ const PHASE_LABELS: Record<WorktreeCreationPhase, string> = {
   reconciling: "Reconciling",
 };
 
-export type WorktreeSubcommand = "add" | "list" | "open" | "close" | "remove" | "merge" | "send" | "prune" | "archive" | "unarchive";
+export type WorktreeSubcommand = "add" | "list" | "open" | "close" | "remove" | "merge" | "send" | "prune" | "archive" | "unarchive" | "label";
 
 type WorktreeListMode = "active" | "all" | "archived";
 
@@ -28,6 +28,7 @@ interface LifecycleServiceLike {
   openWorktree(branch: string): Promise<{ branch: string; worktreeId: string }>;
   closeWorktree(branch: string): Promise<void>;
   setWorktreeArchived(branch: string, archived: boolean): Promise<void>;
+  setWorktreeLabel(branch: string, label: string | null): Promise<{ label: string | null }>;
   removeWorktree(branch: string): Promise<void>;
   mergeWorktree(branch: string): Promise<void>;
   pruneWorktrees(): Promise<PruneWorktreesResult>;
@@ -107,6 +108,17 @@ export function getWorktreeCommandUsage(command: WorktreeSubcommand): string {
       return "Usage:\n  webmux archive <branch>";
     case "unarchive":
       return "Usage:\n  webmux unarchive <branch>";
+    case "label":
+      return [
+        "Usage:",
+        "  webmux label <branch> <label>",
+        "  webmux label <branch> --clear",
+        "",
+        "Options:",
+        "  --clear                  Clear the workspace label",
+        "  --label <text>           Label text",
+        "  --help                   Show this help message",
+      ].join("\n");
     case "remove":
       return "Usage:\n  webmux remove <branch>";
     case "merge":
@@ -288,9 +300,74 @@ export interface ParsedSendCommand {
   preamble?: string;
 }
 
+export interface ParsedLabelCommand {
+  branch: string;
+  label: string | null;
+}
+
 export interface ParsedListCommand {
   mode: WorktreeListMode;
   search: string;
+}
+
+export function parseLabelCommandArgs(args: string[]): ParsedLabelCommand | null {
+  let branch: string | null = null;
+  let clear = false;
+  const labelParts: string[] = [];
+
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index];
+    if (!arg) continue;
+
+    if (arg === "--help" || arg === "-h") {
+      return null;
+    }
+
+    if (arg === "--clear") {
+      clear = true;
+      continue;
+    }
+
+    if (arg === "--label" || arg.startsWith("--label=")) {
+      const { value, nextIndex } = readOptionValue(args, index, "--label");
+      labelParts.push(value);
+      index = nextIndex;
+      continue;
+    }
+
+    if (arg.startsWith("-")) {
+      throw new CommandUsageError(`Unknown option: ${arg}`);
+    }
+
+    if (!branch) {
+      branch = arg;
+      continue;
+    }
+
+    labelParts.push(arg);
+  }
+
+  if (!branch) {
+    throw new CommandUsageError("Missing required argument: <branch>");
+  }
+
+  if (!isValidWorktreeName(branch)) {
+    throw new CommandUsageError("Invalid worktree name");
+  }
+
+  const label = labelParts.join(" ").trim();
+  if (clear && label) {
+    throw new CommandUsageError("Cannot use --clear with a label");
+  }
+
+  if (!clear && !label) {
+    throw new CommandUsageError("Missing required argument: <label>");
+  }
+
+  return {
+    branch,
+    label: clear ? null : label,
+  };
 }
 
 export function parseSendCommandArgs(args: string[]): ParsedSendCommand | null {
@@ -459,6 +536,7 @@ function defaultSwitchToTmuxWindow(projectDir: string, branch: string): void {
 
 interface ListedWorktreeRow {
   branch: string;
+  label: string | null;
   isOpen: boolean;
   archived: boolean;
   info: string;
@@ -506,10 +584,12 @@ async function listWorktrees(
     const info = meta ? `${meta.profile} / ${meta.agent}` : "";
     return {
       branch,
+      label: meta?.label ?? null,
       isOpen,
       archived: archivedPaths.has(resolve(entry.path)),
       info,
       searchText: [
+        meta?.label ?? "",
         branch,
         meta?.baseBranch ?? "",
         meta?.profile ?? "",
@@ -547,10 +627,13 @@ async function listWorktrees(
     return;
   }
 
-  const maxBranch = Math.max(...visibleRows.map((row) => row.branch.length));
+  const maxName = Math.max(...visibleRows.map((row) =>
+    (row.label ? `${row.label} (${row.branch})` : row.branch).length
+  ));
   for (const row of visibleRows) {
     const status = `${row.isOpen ? "open" : "closed"}${row.archived ? " archived" : ""}`;
-    stdout(`${row.branch.padEnd(maxBranch + 2)} ${status.padEnd(15)} ${row.info}`.trimEnd());
+    const name = row.label ? `${row.label} (${row.branch})` : row.branch;
+    stdout(`${name.padEnd(maxName + 2)} ${status.padEnd(15)} ${row.info}`.trimEnd());
   }
 
   if (options.mode === "active") {
@@ -679,7 +762,25 @@ export async function runWorktreeCommand(
       return 0;
     }
 
-    const command: Exclude<WorktreeSubcommand, "add" | "list" | "send" | "prune"> = context.command;
+    if (context.command === "label") {
+      const parsed = parseLabelCommandArgs(context.args);
+      if (!parsed) {
+        stdout(getWorktreeCommandUsage("label"));
+        return 0;
+      }
+
+      const runtime = createRuntime({
+        projectDir: context.projectDir,
+        port: context.port,
+      });
+      const result = await runtime.lifecycleService.setWorktreeLabel(parsed.branch, parsed.label);
+      stdout(result.label
+        ? `Labeled worktree ${parsed.branch} as "${result.label}"`
+        : `Cleared label for ${parsed.branch}`);
+      return 0;
+    }
+
+    const command: Exclude<WorktreeSubcommand, "add" | "list" | "send" | "prune" | "label"> = context.command;
     const branch = parseBranchCommandArgs(context.args);
     if (!branch) {
       stdout(getWorktreeCommandUsage(command));

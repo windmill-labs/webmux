@@ -13,6 +13,7 @@
   import LinearPanel from "./lib/LinearPanel.svelte";
   import LinearDetailDialog from "./lib/LinearDetailDialog.svelte";
   import MobileChatSurface from "./lib/MobileChatSurface.svelte";
+  import WorktreeLabelDialog from "./lib/WorktreeLabelDialog.svelte";
   import SidebarRepoRow from "./lib/SidebarRepoRow.svelte";
   import Toggle from "./lib/Toggle.svelte";
   import type {
@@ -51,7 +52,7 @@
   import { getTheme } from "./lib/themes";
   import type { ThemeKey } from "./lib/themes";
   import { setToastController } from "./lib/toast-context";
-  import { api, fetchWorktrees, subscribeNotifications } from "./lib/api";
+  import { api, fetchWorktrees, setWorktreeLabel, subscribeNotifications } from "./lib/api";
 
   function createDefaultConfig(): AppConfig {
     return {
@@ -84,6 +85,9 @@
   let hasLoadedWorktrees = $state(false);
   let removeBranch = $state<string | null>(null);
   let mergeBranch = $state<string | null>(null);
+  let labelBranch = $state<string | null>(null);
+  let labelLoading = $state(false);
+  let labelError = $state("");
   let removingBranches = $state<Set<string>>(new Set());
   let showCreateDialog = $state(false);
   let showSettingsDialog = $state(false);
@@ -402,6 +406,9 @@
       ? worktrees.find((w) => w.branch === selectedBranch)
       : undefined,
   );
+  let labelWorktree = $derived(
+    labelBranch ? worktrees.find((w) => w.branch === labelBranch) : undefined,
+  );
   let canConnect = $derived(!!selectedBranch && selectedWorktree?.mux === "✓" && !selectedWorktree?.creating);
   let showMobileChat = $derived(isMobile && canConnect && supportsWorktreeChat(selectedWorktree));
   let isSelectedOpening = $derived(selectedBranch ? openingBranches.has(selectedBranch) : false);
@@ -679,6 +686,35 @@
       removingBranches = new Set(
         [...removingBranches].filter((b) => b !== branch),
       );
+    }
+  }
+
+  function openLabelDialog(): void {
+    if (!selectedWorktree) return;
+    labelBranch = selectedWorktree.branch;
+    labelError = "";
+  }
+
+  function applyWorktreeLabel(branch: string, label: string | null): void {
+    worktrees = worktrees.map((worktree) =>
+      worktree.branch === branch ? { ...worktree, label } : worktree
+    );
+  }
+
+  async function handleLabelChange(label: string | null): Promise<void> {
+    const branch = labelBranch;
+    if (!branch) return;
+
+    labelLoading = true;
+    labelError = "";
+    try {
+      const nextLabel = await setWorktreeLabel(branch, label);
+      applyWorktreeLabel(branch, nextLabel);
+      labelBranch = null;
+    } catch (err) {
+      labelError = errorMessage(err);
+    } finally {
+      labelLoading = false;
     }
   }
 
@@ -1106,6 +1142,7 @@
       onremove={() => {
         if (selectedBranch) removeBranch = selectedBranch;
       }}
+      oneditlabel={openLabelDialog}
       onsettings={() => (showSettingsDialog = true)}
       ondirtyclick={openDiffDialog}
       onCiClick={(pr) => (ciDetailsPr = pr)}
@@ -1133,14 +1170,24 @@
       <div class="flex-1 flex items-center justify-center px-6">
         <div class="flex flex-col items-center gap-3 text-center">
           <span class="spinner" style="width: 24px; height: 24px; border-width: 2px;"></span>
-          <p class="text-sm text-primary font-medium">{selectedWorktree.branch}</p>
+          <div>
+            <p class="text-sm text-primary font-medium">{selectedWorktree.label ?? selectedWorktree.branch}</p>
+            {#if selectedWorktree.label}
+              <p class="text-[10px] text-muted">{selectedWorktree.branch}</p>
+            {/if}
+          </div>
           <p class="text-xs text-muted">{worktreeCreationPhaseLabel(selectedWorktree.creationPhase)}</p>
         </div>
       </div>
     {:else if selectedWorktree}
       <div class="flex-1 flex items-center justify-center px-6">
         <div class="flex flex-col items-center gap-4 text-center">
-          <p class="text-sm text-primary font-medium">{selectedWorktree.branch}</p>
+          <div>
+            <p class="text-sm text-primary font-medium">{selectedWorktree.label ?? selectedWorktree.branch}</p>
+            {#if selectedWorktree.label}
+              <p class="text-[10px] text-muted">{selectedWorktree.branch}</p>
+            {/if}
+          </div>
           <div class="flex flex-col items-center gap-1">
             {#if selectedWorktree.profile}
               <span class="text-xs text-muted">Profile: {selectedWorktree.profile}</span>
@@ -1199,6 +1246,21 @@
     openedFromLinearIssue={assignIssue !== null}
     oncreate={handleCreate}
     oncancel={() => { showCreateDialog = false; assignIssue = null; }}
+  />
+{/if}
+
+{#if labelBranch && labelWorktree}
+  <WorktreeLabelDialog
+    branch={labelWorktree.branch}
+    initialLabel={labelWorktree.label}
+    loading={labelLoading}
+    error={labelError}
+    onconfirm={(label) => { void handleLabelChange(label); }}
+    onclear={() => { void handleLabelChange(null); }}
+    oncancel={() => {
+      labelBranch = null;
+      labelError = "";
+    }}
   />
 {/if}
 

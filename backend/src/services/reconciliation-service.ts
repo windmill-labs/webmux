@@ -94,6 +94,7 @@ export interface ReconcileOptions {
 interface ReconciledWorktreeState {
   worktreeId: string;
   branch: string;
+  label: string | null;
   baseBranch: string | null;
   path: string;
   profile: string | null;
@@ -175,6 +176,7 @@ export class ReconciliationService {
       return {
         worktreeId,
         branch,
+        label: meta?.label ?? null,
         baseBranch: meta?.baseBranch ?? null,
         path: entry.path,
         profile: meta?.profile ?? null,
@@ -211,6 +213,7 @@ export class ReconciliationService {
       this.deps.runtime.upsertWorktree({
         worktreeId: state.worktreeId,
         branch: state.branch,
+        label: state.label,
         baseBranch: state.baseBranch,
         path: state.path,
         profile: state.profile,

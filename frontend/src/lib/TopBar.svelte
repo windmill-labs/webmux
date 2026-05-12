@@ -24,6 +24,7 @@
     onarchive,
     onmerge,
     onremove,
+    oneditlabel,
     onsettings,
     onCiClick,
     onReviewsClick,
@@ -44,6 +45,7 @@
     onarchive: () => void;
     onmerge: () => void;
     onremove: () => void;
+    oneditlabel?: () => void;
     onsettings: () => void;
     onCiClick: (pr: PrEntry) => void;
     onReviewsClick: (pr: PrEntry) => void;
@@ -80,7 +82,9 @@
   }
 
   let cursorUrl = $derived(makeCursorUrl(worktree?.dir, sshHost));
-  let displayName = $derived(truncateWorktreeName(name, 30));
+  let headerName = $derived(worktree?.label ?? name);
+  let displayName = $derived(truncateWorktreeName(headerName, 30));
+  let displayBranch = $derived(worktree?.label ? truncateWorktreeName(name, 44) : null);
 
   // Split PRs into main repo vs linked repo groups
   let mainPrs = $derived(
@@ -135,9 +139,40 @@
             </svg>
           </button>
         {/if}
-        <span class="min-w-0 text-sm font-semibold truncate" title={name ?? undefined}
-          >{displayName ?? "Select a worktree"}</span
-        >
+        <span class="min-w-0 flex flex-col leading-tight">
+          <span class="flex items-center gap-1.5 min-w-0">
+            <span class="min-w-0 text-sm font-semibold truncate" title={headerName ?? undefined}
+              >{displayName ?? "Select a worktree"}</span
+            >
+            {#if worktree && oneditlabel}
+              <button
+                type="button"
+                class="shrink-0 p-0.5 rounded text-muted hover:text-primary hover:bg-hover"
+                title="Edit workspace label"
+                aria-label="Edit workspace label"
+                onclick={oneditlabel}
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M12 20h9" />
+                  <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                </svg>
+              </button>
+            {/if}
+          </span>
+          {#if displayBranch}
+            <span class="text-[10px] text-muted truncate" title={name ?? undefined}>{displayBranch}</span>
+          {/if}
+        </span>
         {#if worktree?.archived}
           <span class="shrink-0 text-[10px] px-1.5 py-0.5 rounded border border-edge text-muted">Archived</span>
         {/if}

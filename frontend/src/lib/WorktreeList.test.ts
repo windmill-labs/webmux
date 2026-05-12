@@ -6,6 +6,7 @@ import type { WorktreeInfo, WorktreeListRow } from "./types";
 function createWorktree(branch: string): WorktreeInfo {
   return {
     branch,
+    label: null,
     archived: false,
     agent: "claude",
     mux: "✓",
@@ -116,6 +117,27 @@ describe("WorktreeList", () => {
 
     await fireEvent.click(screen.getByRole("button", { name: "Archive" }));
     expect(onarchive).toHaveBeenCalledWith("feature/menu-actions");
+  });
+
+  it("renders labels as the primary row name with the branch below", () => {
+    render(WorktreeList, {
+      props: {
+        rows: [createRow({ ...createWorktree("feature/random-fallback"), label: "Search ranking" })],
+        selected: null,
+        removing: new Set<string>(),
+        initializing: new Set<string>(),
+        archiving: new Set<string>(),
+        notifiedBranches: new Set<string>(),
+        onselect: vi.fn(),
+        onclose: vi.fn(),
+        onarchive: vi.fn(),
+        onmerge: vi.fn(),
+        onremove: vi.fn(),
+      },
+    });
+
+    expect(screen.getByText("Search ranking")).toBeInTheDocument();
+    expect(screen.getByText("feature/random-fallback")).toBeInTheDocument();
   });
 
   it("disables the archive action while the row is archiving", async () => {

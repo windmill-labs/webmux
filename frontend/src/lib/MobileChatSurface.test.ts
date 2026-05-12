@@ -25,6 +25,7 @@ import {
 function createWorktree(overrides: Partial<WorktreeInfo> = {}): WorktreeInfo {
   return {
     branch: "feature/mobile-chat",
+    label: null,
     archived: false,
     agent: "waiting",
     mux: "✓",

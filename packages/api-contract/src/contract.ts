@@ -25,6 +25,8 @@ import {
   SendWorktreePromptRequestSchema,
   SetWorktreeArchivedRequestSchema,
   SetWorktreeArchivedResponseSchema,
+  SetWorktreeLabelRequestSchema,
+  SetWorktreeLabelResponseSchema,
   ToggleEnabledRequestSchema,
   WorktreeDiffResponseSchema,
   WorktreeListResponseSchema,
@@ -56,6 +58,7 @@ export const apiPaths = {
   openWorktree: "/api/worktrees/:name/open",
   closeWorktree: "/api/worktrees/:name/close",
   setWorktreeArchived: "/api/worktrees/:name/archive",
+  setWorktreeLabel: "/api/worktrees/:name/label",
   sendWorktreePrompt: "/api/worktrees/:name/send",
   mergeWorktree: "/api/worktrees/:name/merge",
   fetchWorktreeDiff: "/api/worktrees/:name/diff",
@@ -258,6 +261,16 @@ export const apiContract = c.router({
     body: SetWorktreeArchivedRequestSchema,
     responses: {
       200: SetWorktreeArchivedResponseSchema,
+      ...commonErrorResponses,
+    },
+  },
+  setWorktreeLabel: {
+    method: "PUT",
+    path: apiPaths.setWorktreeLabel,
+    pathParams: WorktreeNameParamsSchema,
+    body: SetWorktreeLabelRequestSchema,
+    responses: {
+      200: SetWorktreeLabelResponseSchema,
       ...commonErrorResponses,
     },
   },

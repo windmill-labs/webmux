@@ -83,7 +83,7 @@ describe("agent-service command builders", () => {
     expect(claude).not.toContain("--continue");
   });
 
-  it("uses claude continue on resume without replaying the initial prompt", () => {
+  it("uses claude continue on resume and skips system prompt; no prompt = no replay", () => {
     const command = buildAgentPaneCommand({
       agent: builtInAgent("claude"),
       runtimeEnvPath: "/tmp/gitdir/webmux/runtime.env",
@@ -93,14 +93,29 @@ describe("agent-service command builders", () => {
       profileName: "default",
       yolo: true,
       systemPrompt: "stay focused",
-      prompt: "fix the tests",
       launchMode: "resume",
     });
 
     expect(command).toContain("claude --dangerously-skip-permissions --continue");
     expect(command).not.toContain("--append-system-prompt");
-    expect(command).not.toContain("fix the tests");
     expect(command).not.toContain("stay focused");
+    expect(command).not.toContain(" -- ");
+  });
+
+  it("appends the follow-up prompt to claude --continue when one is provided", () => {
+    const command = buildAgentPaneCommand({
+      agent: builtInAgent("claude"),
+      runtimeEnvPath: "/tmp/gitdir/webmux/runtime.env",
+      repoRoot: "/repo",
+      worktreePath: "/repo/__worktrees/feature",
+      branch: "feature",
+      profileName: "default",
+      yolo: true,
+      prompt: "fix the tests",
+      launchMode: "resume",
+    });
+
+    expect(command).toContain("claude --dangerously-skip-permissions --continue -- 'fix the tests'");
   });
 
   it("builds docker commands that exec inside the container", () => {
@@ -154,7 +169,7 @@ describe("agent-service command builders", () => {
     expect(shell).toContain("elif [ -x /bin/sh ]; then exec /bin/sh -i;");
   });
 
-  it("uses codex resume --last on resume without replaying the initial prompt", () => {
+  it("uses codex resume --last and skips developer_instructions; no prompt = no replay", () => {
     const command = buildAgentPaneCommand({
       agent: builtInAgent("codex"),
       runtimeEnvPath: "/tmp/gitdir/webmux/runtime.env",
@@ -164,14 +179,29 @@ describe("agent-service command builders", () => {
       profileName: "default",
       yolo: true,
       systemPrompt: "stay focused",
-      prompt: "ship the fix",
       launchMode: "resume",
     });
 
     expect(command).toContain("codex --enable codex_hooks --yolo resume --last");
     expect(command).not.toContain("developer_instructions=");
-    expect(command).not.toContain("ship the fix");
     expect(command).not.toContain("stay focused");
+    expect(command).not.toContain(" -- ");
+  });
+
+  it("appends the follow-up prompt to codex resume --last when one is provided", () => {
+    const command = buildAgentPaneCommand({
+      agent: builtInAgent("codex"),
+      runtimeEnvPath: "/tmp/gitdir/webmux/runtime.env",
+      repoRoot: "/repo",
+      worktreePath: "/repo/__worktrees/feature",
+      branch: "feature",
+      profileName: "default",
+      yolo: true,
+      prompt: "ship the fix",
+      launchMode: "resume",
+    });
+
+    expect(command).toContain("codex --enable codex_hooks --yolo resume --last -- 'ship the fix'");
   });
 
   it("uses -- before the prompt so dash-prefixed prompts are not parsed as flags", () => {

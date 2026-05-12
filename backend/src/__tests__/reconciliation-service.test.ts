@@ -197,6 +197,7 @@ const TEST_CONFIG: ProjectConfig = {
   },
   lifecycleHooks: {},
   autoName: null,
+  oneshot: { systemPrompt: "" },
 };
 
 describe("ReconciliationService", () => {

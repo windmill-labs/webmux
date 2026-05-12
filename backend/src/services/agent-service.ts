@@ -32,13 +32,16 @@ function buildBuiltInAgentInvocation(input: {
   prompt?: string;
   launchMode?: AgentLaunchMode;
 }): string {
+  const promptSuffix = input.prompt ? ` -- ${quoteShell(input.prompt)}` : "";
+
   if (input.agent === "codex") {
     const hooksFlag = " --enable codex_hooks";
     const yoloFlag = input.yolo ? " --yolo" : "";
     if (input.launchMode === "resume") {
-      return `codex${hooksFlag}${yoloFlag} resume --last`;
+      // `codex resume --last` takes the prompt after `--`, so a follow-up is
+      // processed before the TUI starts — no paste/Enter race.
+      return `codex${hooksFlag}${yoloFlag} resume --last${promptSuffix}`;
     }
-    const promptSuffix = input.prompt ? ` -- ${quoteShell(input.prompt)}` : "";
     if (input.systemPrompt) {
       return `codex${hooksFlag}${yoloFlag} -c ${quoteShell(`developer_instructions=${input.systemPrompt}`)}${promptSuffix}`;
     }
@@ -47,9 +50,11 @@ function buildBuiltInAgentInvocation(input: {
 
   const yoloFlag = input.yolo ? " --dangerously-skip-permissions" : "";
   if (input.launchMode === "resume") {
-    return `claude${yoloFlag} --continue`;
+    // `claude --continue <prompt>` resumes the session AND submits the prompt
+    // as the first new turn, avoiding the tmux paste/Enter race that hits
+    // Claude's TUI before its input loop is ready.
+    return `claude${yoloFlag} --continue${promptSuffix}`;
   }
-  const promptSuffix = input.prompt ? ` -- ${quoteShell(input.prompt)}` : "";
   if (input.systemPrompt) {
     return `claude${yoloFlag} --append-system-prompt ${quoteShell(input.systemPrompt)}${promptSuffix}`;
   }

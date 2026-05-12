@@ -1,6 +1,52 @@
+import { request as httpsRequest } from "node:https";
 import { log } from "../lib/log";
 
 export type { LinkedLinearIssue } from "../domain/model";
+
+function getHeader(headers: Record<string, string>, name: string): string | undefined {
+  const lower = name.toLowerCase();
+  for (const [key, value] of Object.entries(headers)) {
+    if (key.toLowerCase() === lower) return value;
+  }
+  return undefined;
+}
+
+function hasHeader(headers: Record<string, string>, name: string): boolean {
+  return getHeader(headers, name) !== undefined;
+}
+
+function putViaNodeHttps(
+  url: string,
+  headers: Record<string, string>,
+  body: ArrayBuffer,
+): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url);
+    const req = httpsRequest({
+      method: "PUT",
+      hostname: parsed.hostname,
+      port: parsed.port || 443,
+      path: parsed.pathname + parsed.search,
+      headers: {
+        ...headers,
+        "Content-Length": String(body.byteLength),
+      },
+    }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on("data", (chunk: Buffer) => chunks.push(chunk));
+      res.on("end", () => {
+        resolve({
+          status: res.statusCode ?? 0,
+          body: Buffer.concat(chunks).toString("utf8"),
+        });
+      });
+      res.on("error", reject);
+    });
+    req.on("error", reject);
+    req.write(Buffer.from(body));
+    req.end();
+  });
+}
 
 interface GqlError {
   message: string;
@@ -864,15 +910,26 @@ export async function uploadAttachmentFile(input: {
   const headers: Record<string, string> = {};
   for (const h of upload.uploadFile.headers) headers[h.key] = h.value;
 
+  // Linear's pre-signed GCS URL declares the signed headers in the URL's
+  // `X-Goog-SignedHeaders` param, but `headers` doesn't always include them
+  // all — we have to reconstruct the missing ones with the exact values
+  // Linear signed, or GCS rejects the upload (MalformedSecurityHeader /
+  // SignatureDoesNotMatch).
+  if (!hasHeader(headers, "content-type")) {
+    headers["Content-Type"] = input.contentType;
+  }
+  if (!hasHeader(headers, "x-goog-content-length-range")) {
+    const size = input.body.byteLength;
+    headers["x-goog-content-length-range"] = `${size},${size}`;
+  }
+
+  // Bun's `fetch` normalizes header values (e.g. adds `;charset=utf-8` to
+  // application/json Content-Type) which the GCS pre-signed URL didn't sign,
+  // causing SignatureDoesNotMatch. Use node:https for byte-exact control.
   try {
-    const putRes = await fetch(upload.uploadFile.uploadUrl, {
-      method: "PUT",
-      headers,
-      body: input.body,
-    });
-    if (!putRes.ok) {
-      const text = await putRes.text();
-      return { ok: false, error: `Asset upload failed ${putRes.status}: ${text.slice(0, 200)}` };
+    const { status, body } = await putViaNodeHttps(upload.uploadFile.uploadUrl, headers, input.body);
+    if (status < 200 || status >= 300) {
+      return { ok: false, error: `Asset upload failed ${status}: ${body.slice(0, 1000)}` };
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

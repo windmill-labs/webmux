@@ -91,6 +91,10 @@ export interface AutoNameConfig {
   systemPrompt?: string;
 }
 
+export interface OneshotConfig {
+  systemPrompt: string;
+}
+
 export interface ProjectConfig {
   name: string;
   workspace: WorkspaceConfig;
@@ -101,4 +105,5 @@ export interface ProjectConfig {
   integrations: IntegrationConfig;
   lifecycleHooks: LifecycleHooksConfig;
   autoName: AutoNameConfig | null;
+  oneshot: OneshotConfig;
 }

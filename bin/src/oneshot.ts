@@ -234,13 +234,6 @@ export function parseOneshotArgs(args: string[]): ParsedOneshotCommand | null {
   };
 }
 
-interface OneshotRunContext {
-  parsed: ParsedOneshotCommand;
-  port: number;
-  stdout: (line: string) => void;
-  stderr: (line: string) => void;
-}
-
 interface ConversationPrintState {
   printedMessageIds: Set<string>;
   streamingItemId: string | null;
@@ -257,6 +250,18 @@ function timestamp(): string {
 
 function formatLogLine(role: string, text: string): string {
   return `[${timestamp()}] [${role}] ${text}`;
+}
+
+function formatConversationLine(message: AgentsUiConversationMessage): string {
+  const kind = message.kind ?? "text";
+  if (kind === "toolUse") {
+    const tool = message.toolName ?? "tool";
+    return formatLogLine(`tool: ${tool}`, message.text);
+  }
+  if (kind === "toolResult") {
+    return formatLogLine("tool result", message.text);
+  }
+  return formatLogLine(message.role, message.text);
 }
 
 function flushStreamingLine(state: ConversationPrintState): void {
@@ -284,7 +289,7 @@ function printNewMessages(
       state.printedMessageIds.add(message.id);
       continue;
     }
-    process.stdout.write(`${formatLogLine(message.role, message.text)}\n`);
+    process.stdout.write(`${formatConversationLine(message)}\n`);
     state.printedMessageIds.add(message.id);
   }
 }
@@ -369,21 +374,55 @@ interface PollState {
   seenPrUrls: Set<string>;
   seenMergedUrls: Set<string>;
   hadOpenSession: boolean;
+  idleSinceMs: number | null;
+}
+
+// `idle` can be transient (agent is between tool calls), so wait a beat before
+// declaring the run done. `stopped`/`error` are terminal and don't get a grace.
+const IDLE_GRACE_MS = 15_000;
+
+function recordPrEvents(
+  state: PollState,
+  worktree: ProjectWorktreeSnapshot,
+  onPrEvent: (line: string) => void,
+): void {
+  for (const pr of worktree.prs) {
+    if (!state.seenPrUrls.has(pr.url)) {
+      state.seenPrUrls.add(pr.url);
+      onPrEvent(`PR #${pr.number} opened: ${pr.url}`);
+    }
+    if (pr.state === "merged" && !state.seenMergedUrls.has(pr.url)) {
+      state.seenMergedUrls.add(pr.url);
+      onPrEvent(`PR #${pr.number} merged: ${pr.url}`);
+    }
+  }
 }
 
 function pollProjectState(
   branch: string,
   port: number,
   state: PollState,
+  options: { exitWhenIdle: boolean },
   callbacks: {
     onSessionClosed: () => void;
     onWorktreeRemoved: () => void;
     onPrEvent: (line: string) => void;
+    onAgentStuck: (reason: string) => void;
+    onAgentDone: (reason: string) => void;
   },
 ): { stop: () => void } {
   const api = createApi(`http://localhost:${port}`);
   let stopped = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
+
+  const forcePrSync = async (): Promise<void> => {
+    try {
+      const refreshed = await api.syncWorktreePrs({ params: { name: branch } });
+      recordPrEvents(state, refreshed, callbacks.onPrEvent);
+    } catch {
+      // Sync may transiently fail (network/server) — fall back to whatever we already saw.
+    }
+  };
 
   const tick = async (): Promise<void> => {
     if (stopped) return;
@@ -397,19 +436,33 @@ function pollProjectState(
         }
       } else {
         if (worktree.mux) state.hadOpenSession = true;
-        for (const pr of worktree.prs) {
-          if (!state.seenPrUrls.has(pr.url)) {
-            state.seenPrUrls.add(pr.url);
-            callbacks.onPrEvent(`PR #${pr.number} opened: ${pr.url}`);
-          }
-          if (pr.state === "merged" && !state.seenMergedUrls.has(pr.url)) {
-            state.seenMergedUrls.add(pr.url);
-            callbacks.onPrEvent(`PR #${pr.number} merged: ${pr.url}`);
-          }
-        }
+        recordPrEvents(state, worktree, callbacks.onPrEvent);
         if (state.hadOpenSession && !worktree.mux) {
           callbacks.onSessionClosed();
           return;
+        }
+        if (options.exitWhenIdle) {
+          const status = worktree.status;
+          // The agent's job is over once it goes idle/stopped/error. Exit
+          // success if a PR was opened, failure otherwise.
+          const isTerminal = status === "stopped" || status === "error";
+          const isIdle = status === "idle";
+          if (isTerminal || isIdle) {
+            if (state.idleSinceMs === null) state.idleSinceMs = Date.now();
+            const isStable = isTerminal || (Date.now() - state.idleSinceMs >= IDLE_GRACE_MS);
+            if (isStable) {
+              // Force one PR sync to catch a PR the agent may have just opened.
+              await forcePrSync();
+              if (state.seenPrUrls.size > 0) {
+                callbacks.onAgentDone(`agent ${status} after opening PR`);
+              } else {
+                callbacks.onAgentStuck(`agent ${status} without opening a PR`);
+              }
+              return;
+            }
+          } else {
+            state.idleSinceMs = null;
+          }
         }
       }
     } catch {
@@ -528,20 +581,28 @@ export async function runOneshot(parsed: ParsedOneshotCommand, port: number): Pr
       };
     }
 
-    if (parsed.resume) {
-      if (!branch) throw new Error("--resume requires a branch name");
-      stdout(`[${timestamp()}] [event] resuming ${branch}`);
-      await api.openWorktree({ params: { name: branch } });
-      if (parsed.prompt) {
-        // Wait for the agent to be ready before pushing a follow-up prompt.
-        const ready = await ensureWorktreeReady(branch, port, stderr);
-        if (!ready) return 1;
-        await api.sendWorktreePrompt({
-          params: { name: branch },
-          body: { text: parsed.prompt },
-        });
-        stdout(`[${timestamp()}] [event] sent prompt`);
-      }
+    // If a worktree already exists for this branch (e.g. resuming the same
+    // Linear issue), open it and send the prompt as a follow-up. Claude's
+    // --continue keeps the existing JSONL session, so we deliberately skip
+    // the Linear conversation seed — the agent already has that history in
+    // its own session and re-injecting it would just duplicate content.
+    const existingWorktree = branch
+      ? (await api.fetchWorktrees()).worktrees.find((w) => w.branch === branch)
+      : undefined;
+
+    if (parsed.resume || existingWorktree) {
+      if (!branch) throw new Error("resume requires a branch name");
+      const reason = parsed.resume ? "resuming" : `worktree exists, resuming ${branch}`;
+      stdout(`[${timestamp()}] [event] ${reason}`);
+      // Pass the prompt directly to the agent's CLI (`claude --continue
+      // <prompt>` / `codex resume --last -- <prompt>`) so it's processed
+      // before the TUI starts. Avoids the paste/Enter race against Claude's
+      // input loop.
+      await api.openWorktree({
+        params: { name: branch },
+        body: parsed.prompt ? { prompt: parsed.prompt } : {},
+      });
+      if (parsed.prompt) stdout(`[${timestamp()}] [event] sent prompt`);
     } else {
       stdout(`[${timestamp()}] [event] creating worktree${branch ? ` ${branch}` : ""}...`);
       const result = await api.createWorktree({ body: { ...body, source: "oneshot" } });
@@ -594,9 +655,13 @@ export async function runOneshot(parsed: ParsedOneshotCommand, port: number): Pr
     seenPrUrls: new Set(),
     seenMergedUrls: new Set(),
     hadOpenSession: false,
+    idleSinceMs: null,
   };
 
   const poller = pollProjectState(branch, port, pollState, {
+    // --keep-open keeps the session running past idle, so don't auto-exit on it.
+    exitWhenIdle: !parsed.keepOpen,
+  }, {
     onSessionClosed: () => {
       stdout(`[${timestamp()}] [event] session closed — exiting`);
       finalize(0);
@@ -608,6 +673,16 @@ export async function runOneshot(parsed: ParsedOneshotCommand, port: number): Pr
     onPrEvent: (line) => {
       flushStreamingLine(conversationState);
       stdout(`[${timestamp()}] [event] ${line}`);
+    },
+    onAgentDone: (reason) => {
+      flushStreamingLine(conversationState);
+      stdout(`[${timestamp()}] [event] ${reason} — exiting`);
+      finalize(0);
+    },
+    onAgentStuck: (reason) => {
+      flushStreamingLine(conversationState);
+      stderr(`[${timestamp()}] [error] ${reason}`);
+      finalize(1);
     },
   });
 

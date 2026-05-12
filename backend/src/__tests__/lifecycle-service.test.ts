@@ -214,6 +214,7 @@ const TEST_CONFIG: ProjectConfig = {
     preRemove: "scripts/pre-remove.sh",
   },
   autoName: null,
+  oneshot: { systemPrompt: "be autonomous" },
 };
 
 const NO_DEFAULT_PROFILE_CONFIG: ProjectConfig = {
@@ -493,6 +494,77 @@ describe("LifecycleService", () => {
 
     expect(runtimeEnvText).toContain(databaseUrl);
     expect(agentCommand).toContain(`Database: ${databaseUrl}`);
+  });
+
+  it("appends the oneshot system prompt to fresh launches when source is oneshot", async () => {
+    const repoRoot = await initRepo();
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const lifecycle = makeLifecycleService(
+      repoRoot,
+      tmux,
+      runtime,
+      new FakeDockerGateway(),
+      new FakeHookRunner(),
+      {
+        ...TEST_CONFIG,
+        profiles: {
+          ...TEST_CONFIG.profiles,
+          default: {
+            ...TEST_CONFIG.profiles.default,
+            systemPrompt: "base profile prompt",
+          },
+        },
+        oneshot: { systemPrompt: "complete the task autonomously" },
+      },
+    );
+
+    await lifecycle.createWorktree({
+      branch: "feature/oneshot-prompt",
+      source: "oneshot",
+    });
+
+    const agentCommand = tmux.commands.find(({ target }) =>
+      target === `${buildProjectSessionName(repoRoot)}:${buildWorktreeWindowName("feature/oneshot-prompt")}.0`
+    )?.command;
+
+    expect(agentCommand).toContain("base profile prompt");
+    expect(agentCommand).toContain("complete the task autonomously");
+  });
+
+  it("does not append the oneshot system prompt for ui-sourced worktrees", async () => {
+    const repoRoot = await initRepo();
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const lifecycle = makeLifecycleService(
+      repoRoot,
+      tmux,
+      runtime,
+      new FakeDockerGateway(),
+      new FakeHookRunner(),
+      {
+        ...TEST_CONFIG,
+        profiles: {
+          ...TEST_CONFIG.profiles,
+          default: {
+            ...TEST_CONFIG.profiles.default,
+            systemPrompt: "base profile prompt",
+          },
+        },
+        oneshot: { systemPrompt: "complete the task autonomously" },
+      },
+    );
+
+    await lifecycle.createWorktree({
+      branch: "feature/ui-prompt",
+    });
+
+    const agentCommand = tmux.commands.find(({ target }) =>
+      target === `${buildProjectSessionName(repoRoot)}:${buildWorktreeWindowName("feature/ui-prompt")}.0`
+    )?.command;
+
+    expect(agentCommand).toContain("base profile prompt");
+    expect(agentCommand).not.toContain("complete the task autonomously");
   });
 
   it("launches custom agents through interpolated command templates", async () => {
@@ -1028,6 +1100,31 @@ describe("LifecycleService", () => {
     expect(agentCommand).not.toContain("developer_instructions=");
     expect(agentCommand).not.toContain("Database:");
     expect(agentCommand).not.toContain("ship the fix");
+  });
+
+  it("forwards an explicit follow-up prompt through openWorktree to claude --continue", async () => {
+    const repoRoot = await initRepo();
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const lifecycle = makeLifecycleService(repoRoot, tmux, runtime);
+
+    await lifecycle.createWorktree({
+      branch: "feature-follow-up",
+      prompt: "initial task",
+    });
+
+    tmux.commands.length = 0;
+    await lifecycle.closeWorktree("feature-follow-up");
+    await lifecycle.openWorktree("feature-follow-up", { prompt: "now do the follow-up" });
+
+    const agentCommand = tmux.commands.at(-1)?.command;
+
+    expect(agentCommand).toContain("claude");
+    expect(agentCommand).toContain("--continue");
+    expect(agentCommand).toContain("now do the follow-up");
+    // The original creation prompt must NOT replay even though a different
+    // follow-up is supplied (defense-in-depth from PR #116).
+    expect(agentCommand).not.toContain("initial task");
   });
 
   it("closes the tmux window without removing the worktree or branch", async () => {

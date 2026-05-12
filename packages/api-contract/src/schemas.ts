@@ -150,6 +150,10 @@ export const CreateWorktreeRequestSchema = z.object({
   source: WorktreeSourceSchema.optional(),
 });
 
+export const OpenWorktreeRequestSchema = z.object({
+  prompt: z.string().optional(),
+});
+
 export const SetWorktreeOnMergeActionRequestSchema = z.object({
   action: OnMergeActionSchema.nullable(),
 });
@@ -374,6 +378,7 @@ export const AgentsUiWorktreeSummarySchema = z.object({
 
 export const AgentsUiConversationMessageRoleSchema = z.enum(["user", "assistant"]);
 export const AgentsUiConversationMessageStatusSchema = z.enum(["completed", "inProgress"]);
+export const AgentsUiConversationMessageKindSchema = z.enum(["text", "toolUse", "toolResult"]);
 
 export const AgentsUiConversationMessageSchema = z.object({
   id: z.string(),
@@ -382,6 +387,8 @@ export const AgentsUiConversationMessageSchema = z.object({
   text: z.string(),
   status: AgentsUiConversationMessageStatusSchema,
   createdAt: z.string().nullable(),
+  kind: AgentsUiConversationMessageKindSchema.optional(),
+  toolName: z.string().optional(),
 });
 
 export const AgentsUiConversationStateSchema = z.object({
@@ -530,6 +537,7 @@ export type AvailableBranch = z.infer<typeof AvailableBranchSchema>;
 export type AvailableBranchesQuery = { includeRemote?: boolean };
 export type BranchListResponse = z.infer<typeof BranchListResponseSchema>;
 export type CreateWorktreeRequest = z.infer<typeof CreateWorktreeRequestSchema>;
+export type OpenWorktreeRequest = z.infer<typeof OpenWorktreeRequestSchema>;
 export type WorktreeSource = z.infer<typeof WorktreeSourceSchema>;
 export type CreateWorktreeResponse = z.infer<typeof CreateWorktreeResponseSchema>;
 export type SetWorktreeArchivedRequest = z.infer<typeof SetWorktreeArchivedRequestSchema>;
@@ -560,6 +568,7 @@ export type WorktreeConversationRef = z.infer<typeof WorktreeConversationRefSche
 export type AgentsUiWorktreeSummary = z.infer<typeof AgentsUiWorktreeSummarySchema>;
 export type AgentsUiConversationMessageRole = z.infer<typeof AgentsUiConversationMessageRoleSchema>;
 export type AgentsUiConversationMessageStatus = z.infer<typeof AgentsUiConversationMessageStatusSchema>;
+export type AgentsUiConversationMessageKind = z.infer<typeof AgentsUiConversationMessageKindSchema>;
 export type AgentsUiConversationMessage = z.infer<typeof AgentsUiConversationMessageSchema>;
 export type AgentsUiConversationState = z.infer<typeof AgentsUiConversationStateSchema>;
 export type AgentsUiWorktreeConversationResponse = z.infer<typeof AgentsUiWorktreeConversationResponseSchema>;

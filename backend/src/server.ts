@@ -10,6 +10,7 @@ import {
   CreateWorktreeRequestSchema,
   LinearIssueIdParamsSchema,
   NotificationIdParamsSchema,
+  OpenWorktreeRequestSchema,
   PostWorktreeToLinearRequestSchema,
   PullMainRequestSchema,
   RunIdParamsSchema,
@@ -76,7 +77,7 @@ import {
 } from "./services/conversation-export-service";
 import { buildCreateWorktreeTargets, LifecycleError } from "./services/lifecycle-service";
 import { buildNativeTerminalLaunch, buildNativeTerminalTmuxCommand } from "./services/native-terminal-service";
-import { startPrMonitor } from "./services/pr-service";
+import { startPrMonitor, syncPrStatus } from "./services/pr-service";
 import { startLinearAutoCreateMonitor, resetProcessedIssues } from "./services/linear-auto-create-service";
 import { runAutoRemove, type AutoRemoveDependencies } from "./services/auto-remove-service";
 import { runAutoClose, type AutoCloseDependencies } from "./services/auto-close-service";
@@ -967,10 +968,13 @@ async function apiDeleteWorktree(name: string): Promise<Response> {
   });
 }
 
-async function apiOpenWorktree(name: string): Promise<Response> {
+async function apiOpenWorktree(name: string, req: Request): Promise<Response> {
   ensureBranchNotBusy(name);
-  log.info(`[worktree:open] name=${name}`);
-  const result = await lifecycleService.openWorktree(name);
+  const parsed = await parseJsonBody(req, OpenWorktreeRequestSchema);
+  if (!parsed.ok) return parsed.response;
+  const prompt = parsed.data.prompt?.trim() ? parsed.data.prompt.trim() : undefined;
+  log.info(`[worktree:open] name=${name}${prompt ? ` prompt="${prompt.slice(0, 80)}"` : ""}`);
+  const result = await lifecycleService.openWorktree(name, { prompt });
   log.debug(`[worktree:open] done name=${name} worktreeId=${result.worktreeId}`);
   return jsonResponse({ ok: true });
 }
@@ -1233,6 +1237,14 @@ async function apiPostWorktreeToLinear(name: string, req: Request): Promise<Resp
     commentUrl: result.data.commentUrl,
     attachmentUrl: result.data.attachmentUrl,
   });
+}
+
+async function apiSyncWorktreePrs(name: string): Promise<Response> {
+  await syncPrStatus(getWorktreeGitDirs, config.integrations.github.linkedRepos, PROJECT_DIR);
+  const snapshot = await readProjectSnapshot();
+  const worktree = snapshot.worktrees.find((w) => w.branch === name);
+  if (!worktree) return errorResponse(`Worktree not found: ${name}`, 404);
+  return jsonResponse(worktree);
 }
 
 async function apiFetchLinearSeed(issueId: string): Promise<Response> {
@@ -1535,7 +1547,7 @@ Bun.serve({
         const parsed = parseWorktreeNameParam(req.params);
         if (!parsed.ok) return parsed.response;
         const name = parsed.data;
-        return catching(`POST /api/worktrees/${name}/open`, () => apiOpenWorktree(name));
+        return catching(`POST /api/worktrees/${name}/open`, () => apiOpenWorktree(name, req));
       },
     },
 
@@ -1581,6 +1593,15 @@ Bun.serve({
         if (!parsed.ok) return parsed.response;
         const name = parsed.data;
         return catching(`POST /api/worktrees/${name}/linear/post`, () => apiPostWorktreeToLinear(name, req));
+      },
+    },
+
+    [apiPaths.syncWorktreePrs]: {
+      POST: (req) => {
+        const parsed = parseWorktreeNameParam(req.params);
+        if (!parsed.ok) return parsed.response;
+        const name = parsed.data;
+        return catching(`POST /api/worktrees/${name}/sync-prs`, () => apiSyncWorktreePrs(name));
       },
     },
 

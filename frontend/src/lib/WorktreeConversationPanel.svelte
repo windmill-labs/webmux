@@ -137,20 +137,32 @@
           </div>
         {:else}
           {#each conversation.messages as message (message.id)}
-            <div
-              class={`max-w-[88%] min-w-0 rounded-2xl px-4 py-3 text-sm ${
-                message.role === "user"
-                  ? "self-end bg-accent text-white"
-                  : "self-start border border-edge bg-topbar text-primary"
-              }`}
-            >
-              <div class="whitespace-pre-wrap break-words">{message.text}</div>
-              {#if message.status === "inProgress"}
-                <div class="mt-2 text-[10px] uppercase tracking-[0.12em] text-muted">
-                  typing
-                </div>
-              {/if}
-            </div>
+            {@const kind = message.kind ?? "text"}
+            {#if kind === "toolUse"}
+              <div class="self-start max-w-full min-w-0 text-xs text-muted font-mono px-3 py-1.5 rounded-md bg-topbar/50">
+                <span class="text-accent">→ {message.toolName ?? "tool"}</span>
+                <span class="whitespace-pre-wrap break-words"> {message.text}</span>
+              </div>
+            {:else if kind === "toolResult"}
+              <div class="self-start max-w-full min-w-0 text-xs text-muted font-mono px-3 py-1.5 rounded-md bg-topbar/30 whitespace-pre-wrap break-words">
+                {message.text}
+              </div>
+            {:else}
+              <div
+                class={`max-w-[88%] min-w-0 rounded-2xl px-4 py-3 text-sm ${
+                  message.role === "user"
+                    ? "self-end bg-accent text-white"
+                    : "self-start border border-edge bg-topbar text-primary"
+                }`}
+              >
+                <div class="whitespace-pre-wrap break-words">{message.text}</div>
+                {#if message.status === "inProgress"}
+                  <div class="mt-2 text-[10px] uppercase tracking-[0.12em] text-muted">
+                    typing
+                  </div>
+                {/if}
+              </div>
+            {/if}
           {/each}
         {/if}
       </div>

@@ -163,13 +163,24 @@ export class ClaudeConversationService {
     const savedSessionId = isClaudeConversationMeta(meta.conversation)
       ? meta.conversation.sessionId
       : null;
+
+    // Always check the freshest session on disk. The Claude project dir
+    // (~/.claude/projects/<encoded-cwd>/) is keyed by cwd and persists across
+    // worktree removal/recreation, so a stale saved sessionId can otherwise
+    // pin us to an old run's JSONL forever.
+    const discovered = (await this.deps.claude.listSessions(cwd))[0] ?? null;
+
+    if (discovered && discovered.sessionId !== savedSessionId) {
+      const session = await this.deps.claude.readSession(discovered.sessionId, cwd);
+      if (session) return session;
+    }
+
     if (savedSessionId) {
       const savedSession = await this.deps.claude.readSession(savedSessionId, cwd);
       if (savedSession) return savedSession;
       log.warn(`[agents] saved Claude session missing, rediscovering cwd=${cwd} sessionId=${savedSessionId}`);
     }
 
-    const discovered = (await this.deps.claude.listSessions(cwd))[0] ?? null;
     if (!discovered) return null;
     return await this.deps.claude.readSession(discovered.sessionId, cwd);
   }

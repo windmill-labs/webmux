@@ -12,6 +12,7 @@ import type {
   LinearIntegrationConfig,
   LinkedRepoConfig,
   MountSpec,
+  OneshotConfig,
   PaneTemplate,
   ProfileConfig,
   ProjectConfig,
@@ -41,6 +42,16 @@ const DEFAULT_PANES: PaneTemplate[] = [
   { id: "shell", kind: "shell", split: "right", sizePct: 25 },
 ];
 
+function DEFAULT_ONESHOT_SYSTEM_PROMPT(): string {
+  return [
+    "You are running in webmux ONESHOT mode. There is NO interactive user — nobody is watching the chat or will respond to questions, approvals, or status checks. Any message asking the user to review, approve, confirm, take a look, or 'let you know' is wasted output: it will not be answered.",
+    "Your job is to take the task to its real conclusion without pausing:",
+    "1) Make the change. 2) Validate it (run the relevant tests, typecheck, build, or quick manual check). 3) Commit. 4) Push. 5) Open a pull request. Only then are you done.",
+    "When something is ambiguous, pick the most reasonable default and proceed. When you would normally ask 'should I X or Y?', just pick one and continue — note the choice in the PR description if it matters.",
+    "Never end your turn with a question, a suggestion to 'take a look', or a request for approval. Stop only when the PR is open, or when you hit a technical error you cannot recover from yourself (in which case clearly state the blocker).",
+  ].join(" ");
+}
+
 const DEFAULT_CONFIG: ProjectConfig = {
   name: "Webmux",
   workspace: {
@@ -65,6 +76,7 @@ const DEFAULT_CONFIG: ProjectConfig = {
   },
   lifecycleHooks: {},
   autoName: null,
+  oneshot: { systemPrompt: DEFAULT_ONESHOT_SYSTEM_PROMPT() },
 };
 
 function clonePanes(panes: PaneTemplate[]): PaneTemplate[] {
@@ -277,6 +289,14 @@ function parseLifecycleHooks(raw: unknown): LifecycleHooksConfig {
   return hooks;
 }
 
+function parseOneshot(raw: unknown): OneshotConfig {
+  if (!isRecord(raw)) return { systemPrompt: DEFAULT_ONESHOT_SYSTEM_PROMPT() };
+  const systemPrompt = typeof raw.systemPrompt === "string" && raw.systemPrompt.trim()
+    ? raw.systemPrompt.trim()
+    : DEFAULT_ONESHOT_SYSTEM_PROMPT();
+  return { systemPrompt };
+}
+
 function parseAutoName(raw: unknown): AutoNameConfig | null {
   if (!isRecord(raw)) return null;
   const provider = raw.provider;
@@ -395,6 +415,7 @@ function parseProjectConfig(parsed: Record<string, unknown>): ProjectConfig {
     },
     lifecycleHooks: parseLifecycleHooks(parsed.lifecycleHooks),
     autoName: parseAutoName(parsed.auto_name),
+    oneshot: parseOneshot(parsed.oneshot),
   };
 }
 

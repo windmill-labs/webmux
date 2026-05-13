@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it } from "bun:test";
 import type { CreateLifecycleWorktreeInput } from "../services/lifecycle-service";
-import type { LinearIssue } from "../services/linear-service";
+import type { FetchIssuesResult, LinearIssue } from "../services/linear-service";
 import {
   filterAutoCreateIssues,
   LINEAR_AUTO_CREATE_POLL_INTERVAL_MS,
   resetProcessedIssues,
+  runLinearAutoCreateOnce,
   startLinearAutoCreateMonitor,
   type LinearAutoCreateDependencies,
 } from "../services/linear-auto-create-service";
@@ -45,15 +46,31 @@ function createIssue(overrides: Partial<LinearIssue> = {}): LinearIssue {
   };
 }
 
-async function flushPromises(): Promise<void> {
-  for (let i = 0; i < 5; i += 1) {
-    await Promise.resolve();
-  }
+interface Deferred<T> {
+  promise: Promise<T>;
+  resolve(value: T): void;
+}
+
+function createDeferred<T>(): Deferred<T> {
+  let resolveDeferred: ((value: T) => void) | null = null;
+  const promise = new Promise<T>((resolve) => {
+    resolveDeferred = resolve;
+  });
+
+  return {
+    promise,
+    resolve(value) {
+      if (!resolveDeferred) throw new Error("deferred resolver not initialized");
+      resolveDeferred(value);
+    },
+  };
 }
 
 function createDeps(input: {
   issues?: LinearIssue[];
   existingBranches?: string[];
+  fetchResult?: FetchIssuesResult;
+  onFetch?: (options: { skipCache?: boolean } | undefined) => void;
 } = {}): {
   deps: LinearAutoCreateDependencies;
   created: CreateLifecycleWorktreeInput[];
@@ -90,7 +107,8 @@ function createDeps(input: {
       projectRoot: "/repo",
       fetchIssues: async (options) => {
         fetchOptions.push(options);
-        return {
+        input.onFetch?.(options);
+        return input.fetchResult ?? {
           ok: true,
           data: issues,
         };
@@ -132,14 +150,70 @@ describe("filterAutoCreateIssues", () => {
   });
 });
 
+describe("runLinearAutoCreateOnce", () => {
+  beforeEach(() => {
+    resetProcessedIssues();
+  });
+
+  it("creates worktrees without requiring dashboard activity", async () => {
+    const issue = createIssue();
+    const { deps, created, fetchOptions } = createDeps({ issues: [issue] });
+
+    await runLinearAutoCreateOnce(deps);
+
+    expect(fetchOptions).toEqual([{ skipCache: true }]);
+    expect(created).toEqual([
+      {
+        mode: "new",
+        branch: issue.branchName,
+        prompt: `${issue.title}\n\n${issue.description}`,
+      },
+    ]);
+  });
+
+  it("does not create duplicate worktrees for processed issues", async () => {
+    const issue = createIssue();
+    const { deps, created, fetchOptions } = createDeps({ issues: [issue] });
+
+    await runLinearAutoCreateOnce(deps);
+    await runLinearAutoCreateOnce(deps);
+
+    expect(fetchOptions).toEqual([{ skipCache: true }, { skipCache: true }]);
+    expect(created).toEqual([
+      {
+        mode: "new",
+        branch: issue.branchName,
+        prompt: `${issue.title}\n\n${issue.description}`,
+      },
+    ]);
+  });
+
+  it("does not create worktrees when the Linear fetch fails", async () => {
+    const { deps, created, fetchOptions } = createDeps({
+      fetchResult: {
+        ok: false,
+        error: "Linear API 401: Unauthorized",
+      },
+    });
+
+    await runLinearAutoCreateOnce(deps);
+
+    expect(fetchOptions).toEqual([{ skipCache: true }]);
+    expect(created).toEqual([]);
+  });
+});
+
 describe("startLinearAutoCreateMonitor", () => {
   beforeEach(() => {
     resetProcessedIssues();
   });
 
-  it("uses a 30 second poll interval", async () => {
-    let scheduledInterval: number | null = null;
-    const { deps } = createDeps();
+  it("uses a 60 second poll interval", async () => {
+    let scheduledInterval = -1;
+    const fetchStarted = createDeferred<void>();
+    const { deps } = createDeps({
+      onFetch: () => fetchStarted.resolve(undefined),
+    });
 
     const stop = startLinearAutoCreateMonitor(deps, {
       intervalDeps: {
@@ -151,34 +225,10 @@ describe("startLinearAutoCreateMonitor", () => {
       },
     });
 
-    await flushPromises();
+    await fetchStarted.promise;
     stop();
 
     expect(scheduledInterval).toBe(LINEAR_AUTO_CREATE_POLL_INTERVAL_MS);
-    expect(scheduledInterval).toBe(30_000);
-  });
-
-  it("creates worktrees without requiring dashboard activity", async () => {
-    const issue = createIssue();
-    const { deps, created, fetchOptions } = createDeps({ issues: [issue] });
-
-    const stop = startLinearAutoCreateMonitor(deps, {
-      intervalDeps: {
-        scheduleEvery: () => 1,
-        cancelSchedule: () => {},
-      },
-    });
-
-    await flushPromises();
-    stop();
-
-    expect(fetchOptions).toEqual([{ skipCache: true }]);
-    expect(created).toEqual([
-      {
-        mode: "new",
-        branch: issue.branchName,
-        prompt: `${issue.title}\n\n${issue.description}`,
-      },
-    ]);
+    expect(scheduledInterval).toBe(60_000);
   });
 });

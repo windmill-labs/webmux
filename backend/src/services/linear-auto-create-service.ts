@@ -4,7 +4,7 @@ import { branchMatchesIssue, fetchAssignedIssues, type LinearIssue } from "./lin
 import type { CreateLifecycleWorktreeInput } from "./lifecycle-service";
 import type { GitGateway } from "../adapters/git";
 
-export const LINEAR_AUTO_CREATE_POLL_INTERVAL_MS = 30_000;
+export const LINEAR_AUTO_CREATE_POLL_INTERVAL_MS = 60_000;
 
 export interface LinearAutoCreateLifecycleService {
   createWorktree(input: CreateLifecycleWorktreeInput): Promise<{
@@ -20,9 +20,8 @@ export interface LinearAutoCreateDependencies {
   fetchIssues?: typeof fetchAssignedIssues;
 }
 
-export interface LinearAutoCreateMonitorOptions<THandle = ReturnType<typeof setInterval>> {
-  intervalMs?: number;
-  intervalDeps?: SerializedIntervalDependencies<THandle>;
+export interface LinearAutoCreateMonitorOptions {
+  intervalDeps?: SerializedIntervalDependencies<unknown>;
 }
 
 /** Issue IDs for which worktrees have been successfully created.
@@ -44,7 +43,7 @@ export function filterAutoCreateIssues(
   });
 }
 
-async function runAutoCreate(deps: LinearAutoCreateDependencies): Promise<void> {
+export async function runLinearAutoCreateOnce(deps: LinearAutoCreateDependencies): Promise<void> {
   const fetchIssues = deps.fetchIssues ?? fetchAssignedIssues;
   const result = await fetchIssues({ skipCache: true });
   if (!result.ok) {
@@ -85,15 +84,14 @@ async function runAutoCreate(deps: LinearAutoCreateDependencies): Promise<void> 
 
 /** Start periodic polling for new Linear Todo issues and auto-create worktrees.
  *  Returns a cleanup function that stops the monitor. */
-export function startLinearAutoCreateMonitor<THandle = ReturnType<typeof setInterval>>(
+export function startLinearAutoCreateMonitor(
   deps: LinearAutoCreateDependencies,
-  options: LinearAutoCreateMonitorOptions<THandle> = {},
+  options: LinearAutoCreateMonitorOptions = {},
 ): () => void {
-  const intervalMs = options.intervalMs ?? LINEAR_AUTO_CREATE_POLL_INTERVAL_MS;
-  log.info(`[linear-auto-create] monitor started (interval: ${intervalMs}ms)`);
-  return startSerializedInterval(
-    () => runAutoCreate(deps),
-    intervalMs,
+  log.info(`[linear-auto-create] monitor started (interval: ${LINEAR_AUTO_CREATE_POLL_INTERVAL_MS}ms)`);
+  return startSerializedInterval<unknown>(
+    () => runLinearAutoCreateOnce(deps),
+    LINEAR_AUTO_CREATE_POLL_INTERVAL_MS,
     options.intervalDeps,
   );
 }

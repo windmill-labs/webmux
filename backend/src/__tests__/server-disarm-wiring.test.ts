@@ -13,7 +13,6 @@ describe("server.ts disarm-on-interaction wiring", () => {
     "agents-interrupt",
     "send-prompt",
     "upload-files",
-    "open-worktree",
     "close-worktree",
     "archive-worktree",
     "merge-worktree",

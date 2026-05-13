@@ -1027,9 +1027,9 @@ async function apiOpenWorktree(name: string, req: Request): Promise<Response> {
   const prompt = parsed.data.prompt?.trim() ? parsed.data.prompt.trim() : undefined;
   const oneshot = normalizeOneshotConfig(parsed.data.oneshot);
   log.info(`[worktree:open] name=${name}${prompt ? ` prompt="${prompt.slice(0, 80)}"` : ""}${oneshot ? " oneshot=armed" : ""}`);
-  // Reopening clears any stale armed meta — unless the caller is re-arming with
-  // a fresh oneshot config (CLI relaunching a session for the same branch).
-  if (!oneshot) await disarmOneshotIfArmed(name, "open-worktree");
+  // Intentionally NOT disarming here: opening a closed session is "let me peek
+  // at the agent's progress", not "I'm taking over". The actual interaction
+  // (terminal input, chat send, upload, etc.) is what fires disarm.
   const result = await lifecycleService.openWorktree(name, { prompt, ...(oneshot ? { oneshot } : {}) });
   log.debug(`[worktree:open] done name=${name} worktreeId=${result.worktreeId}`);
   return jsonResponse({ ok: true });

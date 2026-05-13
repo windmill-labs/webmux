@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.31.1](https://github.com/windmill-labs/webmux/compare/v0.31.0...v0.31.1) (2026-05-13)
+
+
+### Bug Fixes
+
+* decouple linear auto-create from dashboard ([#235](https://github.com/windmill-labs/webmux/issues/235)) ([14fe259](https://github.com/windmill-labs/webmux/commit/14fe2598759febce1e35c09be18efedae4fc29bf))
+* move worktree badges below names ([#233](https://github.com/windmill-labs/webmux/issues/233)) ([63130ac](https://github.com/windmill-labs/webmux/commit/63130ac1955dad21172d046dd8b91e97929cb206))
+
 ## [0.31.0](https://github.com/windmill-labs/webmux/compare/v0.30.0...v0.31.0) (2026-05-12)
 
 

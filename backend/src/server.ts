@@ -168,7 +168,6 @@ function startLinearAutoCreate(): void {
     lifecycleService,
     git,
     projectRoot: PROJECT_DIR,
-    isActive: hasRecentDashboardActivity,
     runOneshotForIssue,
   });
 }

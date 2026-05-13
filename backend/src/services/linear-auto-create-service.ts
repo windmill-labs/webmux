@@ -1,18 +1,29 @@
-import { startSerializedInterval } from "../lib/async";
+import { startSerializedInterval, type SerializedIntervalDependencies } from "../lib/async";
 import { log } from "../lib/log";
 import { branchMatchesIssue, fetchAssignedIssues, type LinearIssue } from "./linear-service";
-import type { LifecycleService } from "./lifecycle-service";
+import type { CreateLifecycleWorktreeInput } from "./lifecycle-service";
 import type { GitGateway } from "../adapters/git";
 
-const POLL_INTERVAL_MS = 15_000;
+export const LINEAR_AUTO_CREATE_POLL_INTERVAL_MS = 60_000;
+
+export interface LinearAutoCreateLifecycleService {
+  createWorktree(input: CreateLifecycleWorktreeInput): Promise<{
+    branch: string;
+    worktreeId: string;
+  }>;
+}
 
 export interface LinearAutoCreateDependencies {
-  lifecycleService: LifecycleService;
-  git: GitGateway;
+  lifecycleService: LinearAutoCreateLifecycleService;
+  git: Pick<GitGateway, "listWorktrees">;
   projectRoot: string;
-  isActive: () => boolean;
+  fetchIssues?: typeof fetchAssignedIssues;
   /** Optional handler for the `_oneshot` label variant. When omitted, oneshot triggering is skipped. */
   runOneshotForIssue?: (issueId: string) => Promise<void>;
+}
+
+export interface LinearAutoCreateMonitorOptions {
+  intervalDeps?: SerializedIntervalDependencies<unknown>;
 }
 
 /** Issue IDs the poller has already acted on. Prevents duplicate triggers
@@ -56,13 +67,9 @@ export function filterAutoOneshotIssues(
   });
 }
 
-async function runAutoCreate(deps: LinearAutoCreateDependencies): Promise<void> {
-  if (!deps.isActive()) {
-    log.debug("[linear-auto-create] skipping: no active clients");
-    return;
-  }
-
-  const result = await fetchAssignedIssues({ skipCache: true });
+export async function runLinearAutoCreateOnce(deps: LinearAutoCreateDependencies): Promise<void> {
+  const fetchIssues = deps.fetchIssues ?? fetchAssignedIssues;
+  const result = await fetchIssues({ skipCache: true });
   if (!result.ok) {
     log.error(`[linear-auto-create] failed to fetch issues: ${result.error}`);
     return;
@@ -123,11 +130,13 @@ async function runAutoCreate(deps: LinearAutoCreateDependencies): Promise<void> 
  *  Returns a cleanup function that stops the monitor. */
 export function startLinearAutoCreateMonitor(
   deps: LinearAutoCreateDependencies,
+  options: LinearAutoCreateMonitorOptions = {},
 ): () => void {
-  log.info("[linear-auto-create] monitor started");
-  return startSerializedInterval(
-    () => runAutoCreate(deps),
-    POLL_INTERVAL_MS,
+  log.info(`[linear-auto-create] monitor started (interval: ${LINEAR_AUTO_CREATE_POLL_INTERVAL_MS}ms)`);
+  return startSerializedInterval<unknown>(
+    () => runLinearAutoCreateOnce(deps),
+    LINEAR_AUTO_CREATE_POLL_INTERVAL_MS,
+    options.intervalDeps,
   );
 }
 

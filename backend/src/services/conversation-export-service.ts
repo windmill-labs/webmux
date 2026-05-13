@@ -1,15 +1,6 @@
-import { AgentsUiConversationMessageSchema, type AgentsUiConversationMessage, type AgentsUiConversationState } from "@webmux/api-contract";
+import { AgentsUiConversationMessageSchema, type AgentsUiConversationState } from "@webmux/api-contract";
 import { z } from "zod";
 import { log } from "../lib/log";
-
-const WebmuxConversationAttachmentPayloadSchema = z.object({
-  webmux: z.literal(1),
-  branch: z.string(),
-  baseBranch: z.string().nullable(),
-  agent: z.string().nullable(),
-  createdAt: z.string(),
-  conversation: z.array(AgentsUiConversationMessageSchema),
-});
 import {
   attachToIssue,
   buildLinearSummaryMarkdown,
@@ -26,14 +17,16 @@ import {
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
-export interface WebmuxConversationAttachmentPayload {
-  webmux: 1;
-  branch: string;
-  baseBranch: string | null;
-  agent: string | null;
-  createdAt: string;
-  conversation: AgentsUiConversationMessage[];
-}
+const WebmuxConversationAttachmentPayloadSchema = z.object({
+  webmux: z.literal(1),
+  branch: z.string(),
+  baseBranch: z.string().nullable(),
+  agent: z.string().nullable(),
+  createdAt: z.string(),
+  conversation: z.array(AgentsUiConversationMessageSchema),
+});
+
+export type WebmuxConversationAttachmentPayload = z.infer<typeof WebmuxConversationAttachmentPayloadSchema>;
 
 export interface ExportTargetIssue {
   kind: "issue";

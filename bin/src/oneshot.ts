@@ -58,6 +58,7 @@ export function parseOneshotArgs(args: string[]): ParsedOneshotCommand | null {
   const body: CreateWorktreeRequest = {};
   const envOverrides: Record<string, string> = {};
   let branch: string | null = null;
+  let branchFlagUsed = false;
   let prompt: string | null = null;
   let resume = false;
   let resumeBranch: string | null = null;
@@ -146,6 +147,7 @@ export function parseOneshotArgs(args: string[]): ParsedOneshotCommand | null {
         throw new CommandUsageError(`Conflicting branch values: "${branch}" and "${value}"`);
       }
       branch = value.trim();
+      branchFlagUsed = true;
       index = nextIndex;
       continue;
     }
@@ -159,6 +161,10 @@ export function parseOneshotArgs(args: string[]): ParsedOneshotCommand | null {
     }
 
     branch = arg;
+  }
+
+  if (branchFlagUsed && !fromLinearIssueId) {
+    throw new CommandUsageError("--branch only applies with --linear; pass the branch as a positional argument otherwise");
   }
 
   if (resume) {
@@ -349,8 +355,9 @@ function handleConversationEvent(
 // failed attempts (no `open` in between) count toward the limit. 30 × 2s
 // gives ~1min to ride out normal restarts (deploy, bun --hot, sleep/wake).
 const MAX_CONSECUTIVE_RECONNECTS = 30;
-// Surface a stderr warning early so a long-running disconnect isn't silent.
-const RECONNECT_WARN_AT = 3;
+// Surface a stderr warning early so a long-running disconnect isn't silent,
+// then again midway so the user has signal during the silent window before fatal.
+const RECONNECT_WARN_AT: readonly number[] = [3, 15];
 
 function streamConversation(
   branch: string,
@@ -385,7 +392,7 @@ function streamConversation(
       socket = null;
       if (closed) return;
       consecutiveFailures += 1;
-      if (consecutiveFailures === RECONNECT_WARN_AT) {
+      if (RECONNECT_WARN_AT.includes(consecutiveFailures)) {
         stderr(`[${timestamp()}] [warn] webmux server unreachable, retrying (${consecutiveFailures}/${MAX_CONSECUTIVE_RECONNECTS})`);
       }
       if (consecutiveFailures >= MAX_CONSECUTIVE_RECONNECTS) {

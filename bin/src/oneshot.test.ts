@@ -95,4 +95,9 @@ describe("parseOneshotArgs", () => {
     expect(() => parseOneshotArgs(["feat/positional", "--prompt", "Fix", "--branch", "feat/override"]))
       .toThrow("Conflicting branch values");
   });
+
+  it("rejects --branch without --linear", () => {
+    expect(() => parseOneshotArgs(["--prompt", "Fix", "--branch", "feat/override"]))
+      .toThrow("--branch only applies with --linear");
+  });
 });

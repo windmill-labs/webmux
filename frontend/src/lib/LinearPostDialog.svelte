@@ -62,7 +62,7 @@
       />
       {#if teamKeyTrimmed && teamKeyLooksLikeIssue}
         <p class="mt-1 text-[11px] text-danger">
-          Looks like an issue id. Start the worktree from the Linear panel (bottom-left) to seed it with that issue, then run `webmux linear post` again from the worktree to post the conversation back to it.
+          Looks like an issue id. Start the worktree from the Linear panel (bottom-left) to seed it with that issue — the worktree menu will then offer a direct &quot;Post conversation to {teamKeyTrimmed}&quot; action.
         </p>
       {:else if teamKeyTrimmed && !teamKeyValid}
         <p class="mt-1 text-[11px] text-danger">Expected a team key like ENG (uppercase letters only).</p>

@@ -163,19 +163,22 @@ export function parseOneshotArgs(args: string[]): ParsedOneshotCommand | null {
     branch = arg;
   }
 
-  if (branchFlagUsed && !fromLinearIssueId) {
-    throw new CommandUsageError("--branch only applies with --linear; pass the branch as a positional argument otherwise");
-  }
-
   if (resume) {
     if (fromLinearIssueId) {
       throw new CommandUsageError("Cannot use --resume with --linear <issue-id>");
+    }
+    if (branchFlagUsed) {
+      throw new CommandUsageError("Cannot use --branch with --resume; --resume already names the branch");
     }
     if (!resumeBranch) throw new CommandUsageError("--resume requires a branch name");
     if (branch && branch !== resumeBranch) {
       throw new CommandUsageError("Cannot pass both a positional branch and --resume");
     }
     branch = resumeBranch;
+  }
+
+  if (branchFlagUsed && !fromLinearIssueId) {
+    throw new CommandUsageError("--branch only applies with --linear; pass the branch as a positional argument otherwise");
   }
 
   if (!resume && !fromLinearIssueId && !prompt) {
@@ -357,7 +360,7 @@ function handleConversationEvent(
 const MAX_CONSECUTIVE_RECONNECTS = 30;
 // Surface a stderr warning early so a long-running disconnect isn't silent,
 // then again midway so the user has signal during the silent window before fatal.
-const RECONNECT_WARN_AT: readonly number[] = [3, 15];
+const RECONNECT_WARN_AT: readonly [number, number] = [3, 15];
 
 function streamConversation(
   branch: string,

@@ -100,4 +100,9 @@ describe("parseOneshotArgs", () => {
     expect(() => parseOneshotArgs(["--prompt", "Fix", "--branch", "feat/override"]))
       .toThrow("--branch only applies with --linear");
   });
+
+  it("rejects --branch with --resume with a precise message", () => {
+    expect(() => parseOneshotArgs(["--resume", "feat/foo", "--branch", "feat/bar"]))
+      .toThrow("Cannot use --branch with --resume");
+  });
 });

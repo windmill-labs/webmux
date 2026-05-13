@@ -13,6 +13,7 @@
     removing,
     initializing,
     archiving,
+    postingLinear,
     notifiedBranches,
     emptyMessage = "No worktrees found.",
     onselect,
@@ -27,6 +28,7 @@
     removing: Set<string>;
     initializing: Set<string>;
     archiving: Set<string>;
+    postingLinear: Set<string>;
     notifiedBranches: Set<string>;
     emptyMessage?: string;
     onselect: (branch: string) => void;
@@ -241,17 +243,25 @@
             Remove
           </button>
           {#if onposttolinear}
+            {@const isPostingLinear = postingLinear.has(wt.branch)}
             <div class="my-1 border-t border-edge"></div>
             <button
               type="button"
-              class="w-full px-2 py-1.5 rounded text-left text-xs text-primary hover:bg-hover"
+              disabled={isPostingLinear}
+              class="w-full px-2 py-1.5 rounded text-left text-xs text-primary hover:bg-hover disabled:opacity-50 disabled:cursor-not-allowed"
               onclick={(event) => {
                 event.stopPropagation();
                 openMenuBranch = null;
                 onposttolinear(wt.branch);
               }}
             >
-              {wt.linearIssue ? `Post conversation to ${wt.linearIssue.identifier}` : "Post conversation to Linear…"}
+              {#if isPostingLinear}
+                Posting to Linear…
+              {:else if wt.linearIssue}
+                Post conversation to {wt.linearIssue.identifier}
+              {:else}
+                Post conversation to Linear…
+              {/if}
             </button>
           {/if}
         </div>

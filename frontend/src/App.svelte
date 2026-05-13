@@ -87,7 +87,8 @@
   let removeBranch = $state<string | null>(null);
   let mergeBranch = $state<string | null>(null);
   let postToLinearBranch = $state<string | null>(null);
-  let postToLinkedIssueBranch = $state<string | null>(null);
+  let postToLinkedConfirm = $state<{ branch: string; issueId: string } | null>(null);
+  let postingLinearBranches = $state<Set<string>>(new Set());
   let labelBranch = $state<string | null>(null);
   let labelLoading = $state(false);
   let labelError = $state("");
@@ -827,7 +828,8 @@
     }
   }
 
-  async function handlePostToLinear(branch: string): Promise<void> {
+  function handlePostToLinear(branch: string): void {
+    if (postingLinearBranches.has(branch)) return;
     const worktree = worktrees.find((w) => w.branch === branch);
     if (!worktree?.linearIssue) {
       // No linked issue → fall back to the create-new-issue dialog.
@@ -835,25 +837,27 @@
       return;
     }
     // Linked worktree → confirm before posting; the endpoint is non-idempotent
-    // and each call creates a fresh attachment + comment on the issue.
-    postToLinkedIssueBranch = branch;
+    // and each call creates a fresh attachment + comment on the issue. Snapshot
+    // the issue id now so a worktree refresh between click and confirm can't
+    // render the dialog against missing state.
+    postToLinkedConfirm = { branch, issueId: worktree.linearIssue.identifier };
   }
 
   async function confirmPostToLinkedIssue(): Promise<void> {
-    const branch = postToLinkedIssueBranch;
-    if (!branch) return;
-    const worktree = worktrees.find((w) => w.branch === branch);
-    const linkedIssue = worktree?.linearIssue;
-    postToLinkedIssueBranch = null;
-    if (!linkedIssue) return;
+    const snapshot = postToLinkedConfirm;
+    if (!snapshot) return;
+    const { branch, issueId } = snapshot;
+    postToLinkedConfirm = null;
+    postingLinearBranches = new Set([...postingLinearBranches, branch]);
     try {
-      const response = await postWorktreeToLinear(branch, {
-        kind: "issue",
-        issueId: linkedIssue.identifier,
-      });
+      const response = await postWorktreeToLinear(branch, { kind: "issue", issueId });
       showToast({ tone: "success", message: `Posted to Linear: ${response.issueUrl}` });
     } catch (err) {
       showToast({ tone: "error", message: `Failed to post to Linear: ${errorMessage(err)}` });
+    } finally {
+      postingLinearBranches = new Set(
+        [...postingLinearBranches].filter((b) => b !== branch),
+      );
     }
   }
 
@@ -888,7 +892,7 @@
 
   function handleKeydown(e: KeyboardEvent) {
     // Ignore shortcuts when a dialog is open (let dialog handle its own keys)
-    if (showCreateDialog || removeBranch || mergeBranch || pullMainConfirm || pullLinkedRepoAlias || postToLinkedIssueBranch) return;
+    if (showCreateDialog || removeBranch || mergeBranch || pullMainConfirm || pullLinkedRepoAlias || postToLinkedConfirm) return;
 
     const mod = e.metaKey || e.ctrlKey;
     if (!mod) return;
@@ -1094,6 +1098,7 @@
         removing={removingBranches}
         initializing={openingBranches}
         archiving={archivingBranches}
+        postingLinear={postingLinearBranches}
         {notifiedBranches}
         emptyMessage={worktreeListEmptyMessage}
         onselect={handleSelectWorktree}
@@ -1421,15 +1426,13 @@
   />
 {/if}
 
-{#if postToLinkedIssueBranch}
-  {@const linkedWorktree = worktrees.find((w) => w.branch === postToLinkedIssueBranch)}
-  {@const issueId = linkedWorktree?.linearIssue?.identifier ?? ""}
+{#if postToLinkedConfirm}
   <ConfirmDialog
-    message={`Post conversation to ${issueId}? This creates a new attachment and comment on the issue.`}
+    message={`Post conversation to ${postToLinkedConfirm.issueId}? This creates a new attachment and comment on the issue.`}
     confirmLabel="Post"
     variant="accent"
     onconfirm={() => { void confirmPostToLinkedIssue(); }}
-    oncancel={() => (postToLinkedIssueBranch = null)}
+    oncancel={() => (postToLinkedConfirm = null)}
   />
 {/if}
 

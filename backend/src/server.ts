@@ -272,9 +272,6 @@ interface TerminalWsData {
   worktreeId: string | null;
   attachId: string | null;
   attached: boolean;
-  /** Has this connection already run a disarm pass? Set on first user input
-   *  so we don't read meta from disk on every keystroke. */
-  disarmAttempted: boolean;
 }
 
 interface AgentsWsData {
@@ -927,6 +924,9 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
     let seedBranch: string | null = null;
     if (!conversationContext || !resolvedBranch) {
       // Fall back to fetching the seed server-side when the client didn't pre-resolve it.
+      // The CLI's `webmux oneshot --linear` path resolves the seed in-process before
+      // calling this endpoint and passes `conversationContext` + `branch` directly,
+      // so this fetch only fires for dashboard/REST callers (no double round-trip).
       const seedResult = await buildSeedFromLinear(
         { issueId: body.fromLinear.issueId },
         defaultSeedFromLinearDeps,
@@ -1496,7 +1496,7 @@ Bun.serve({
     "/ws/:worktree": (req, server) => {
       const branch = decodeURIComponent(req.params.worktree);
       return server.upgrade(req, {
-        data: { kind: "terminal", branch, worktreeId: null, attachId: null, attached: false, disarmAttempted: false },
+        data: { kind: "terminal", branch, worktreeId: null, attachId: null, attached: false },
       })
         ? undefined
         : new Response("WebSocket upgrade failed", { status: 400 });
@@ -1801,8 +1801,9 @@ Bun.serve({
         case "input": {
           const attachId = getAttachedSessionId(data, ws);
           if (!attachId) return;
-          if (!data.disarmAttempted) {
-            data.disarmAttempted = true;
+          // Cheap path: in-memory check first — disk read + write only when
+          // actually armed. Survives a re-arm on the same WS (no stale cache).
+          if (projectRuntime.getWorktreeByBranch(branch)?.oneshot) {
             void disarmOneshotIfArmed(branch, "terminal-ws-input");
           }
           write(attachId, msg.data);
@@ -1811,8 +1812,7 @@ Bun.serve({
         case "sendKeys": {
           const attachId = getAttachedSessionId(data, ws);
           if (!attachId) return;
-          if (!data.disarmAttempted) {
-            data.disarmAttempted = true;
+          if (projectRuntime.getWorktreeByBranch(branch)?.oneshot) {
             void disarmOneshotIfArmed(branch, "terminal-ws-send-keys");
           }
           await sendKeys(attachId, msg.hexBytes);

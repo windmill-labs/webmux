@@ -126,7 +126,7 @@
                 {#if wt.source === "oneshot"}
                   <span
                     class="shrink-0 text-[10px] px-1.5 py-0.5 rounded border border-edge text-muted"
-                    title="Created by the oneshot CLI"
+                    title="Autonomous run — auto-closes when done"
                   >
                     oneshot
                   </span>

@@ -12,6 +12,8 @@ import type {
 import type { LifecycleService } from "../services/lifecycle-service";
 import type { ProjectRuntime } from "../services/project-runtime";
 
+type OneshotLifecycleMock = Pick<LifecycleService, "closeWorktree" | "disarmOneshot">;
+
 function makeWorktree(overrides: {
   branch: string;
   path?: string;
@@ -64,13 +66,13 @@ function makeRuntime(worktrees: ManagedWorktreeRuntimeState[]): ProjectRuntime {
 }
 
 function makeLifecycle(): {
-  service: LifecycleService;
+  service: OneshotLifecycleMock;
   closeCalls: string[];
   disarmCalls: string[];
 } {
   const closeCalls: string[] = [];
   const disarmCalls: string[] = [];
-  const service = {
+  const service: OneshotLifecycleMock = {
     closeWorktree: mock(async (branch: string) => {
       closeCalls.push(branch);
     }),
@@ -78,7 +80,7 @@ function makeLifecycle(): {
       disarmCalls.push(branch);
       return true;
     }),
-  } as unknown as LifecycleService;
+  };
   return { service, closeCalls, disarmCalls };
 }
 

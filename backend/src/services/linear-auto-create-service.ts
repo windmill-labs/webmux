@@ -87,6 +87,23 @@ export async function runLinearAutoCreateOnce(deps: LinearAutoCreateDependencies
     return;
   }
 
+  // Evict dedup entries for issues that are no longer eligible (label removed,
+  // state moved out of Todo, or issue disappeared). Without this the dedup set
+  // would grow forever and removing+re-adding a label couldn't retrigger,
+  // which the README promises.
+  const eligibleIssueIds = new Set(
+    result.data
+      .filter(
+        (issue) =>
+          issue.state.name === "Todo" &&
+          (hasLabel(issue, AUTO_CREATE_LABEL) || hasLabel(issue, AUTO_ONESHOT_LABEL)),
+      )
+      .map((issue) => issue.id),
+  );
+  for (const id of processedIssueIds) {
+    if (!eligibleIssueIds.has(id)) processedIssueIds.delete(id);
+  }
+
   const projectRoot = deps.projectRoot;
   const existingBranches = deps.git
     .listWorktrees(projectRoot)

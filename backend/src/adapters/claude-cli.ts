@@ -219,7 +219,10 @@ function parseClaudeSessionRecords(text: string): ClaudeStoredRecord[] {
       try {
         return [JSON.parse(line) as ClaudeStoredRecord];
       } catch {
-        log.debug(`[agents] failed to parse Claude session line: ${line.slice(0, 120)}`);
+        // The prefix filter already drops obvious non-JSON noise, so anything
+        // reaching this catch is a corrupt JSON record — warn so a regression
+        // (e.g. partial write, truncated session file) is visible.
+        log.warn(`[agents] failed to parse Claude session line: ${line.slice(0, 120)}`);
         return [];
       }
     });

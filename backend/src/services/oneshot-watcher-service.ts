@@ -12,7 +12,9 @@ const IDLE_GRACE_MS = 15_000;
 
 export interface OneshotWatcherDependencies {
   projectRuntime: ProjectRuntime;
-  lifecycleService: LifecycleService;
+  /** Only the methods the watcher actually uses — narrowed so tests can mock
+   *  precisely instead of casting through `unknown as LifecycleService`. */
+  lifecycleService: Pick<LifecycleService, "closeWorktree" | "disarmOneshot">;
   postToLinear: (branch: string, target: OneshotPostTarget) => Promise<void>;
   /** Override for tests. Defaults to the real filesystem adapter. */
   readWorktreeMeta?: (path: string) => Promise<WorktreeMeta | null>;

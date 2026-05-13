@@ -7,7 +7,7 @@ import { BunGitGateway, type GitGateway } from "../adapters/git";
 import type { LifecycleHookRunner, RunLifecycleHookInput } from "../adapters/hooks";
 import type { PortProbe } from "../adapters/port-probe";
 import { buildProjectSessionName, buildWorktreeWindowName, type TmuxGateway, type TmuxWindowSummary } from "../adapters/tmux";
-import { getWorktreeStoragePaths, readWorktreeArchiveState, readWorktreeMeta } from "../adapters/fs";
+import { getWorktreeStoragePaths, readWorktreeArchiveState, readWorktreeMeta, writeWorktreeMeta } from "../adapters/fs";
 import type { DockerGateway, LaunchContainerOpts } from "../adapters/docker";
 import type { AutoNameConfig } from "../domain/config";
 import { ProjectRuntime } from "../services/project-runtime";
@@ -1639,5 +1639,42 @@ describe("LifecycleService", () => {
     expect(new BunGitGateway().listWorktrees(repoRoot).some((entry) => entry.path === worktreePath)).toBe(false);
     expect(run(["git", "branch", "--list", "feature-merge-ahead"], repoRoot)).toBe("");
     expect(await Bun.file(join(repoRoot, "README.md")).text()).toContain("merged ahead change");
+  });
+
+  it("disarmOneshot clears the oneshot block from meta and preserves other fields", async () => {
+    const repoRoot = await initRepo();
+    const lifecycle = makeLifecycleService(
+      repoRoot,
+      new FakeTmuxGateway(),
+      new ProjectRuntime(),
+      new FakeDockerGateway(),
+    );
+    await lifecycle.createWorktree({ branch: "feature/disarm" });
+    const worktreePath = join(repoRoot, "__worktrees", "feature", "disarm");
+    const gitDir = new BunGitGateway().resolveWorktreeGitDir(worktreePath);
+
+    const baseMeta = await readWorktreeMeta(gitDir);
+    if (!baseMeta) throw new Error("expected meta after createWorktree");
+    await writeWorktreeMeta(gitDir, {
+      ...baseMeta,
+      oneshot: {
+        autoCloseOnDone: true,
+        postToLinearOnDone: { kind: "issue", issueId: "ENG-9" },
+      },
+    });
+    expect((await readWorktreeMeta(gitDir))?.oneshot).toBeDefined();
+
+    const disarmed = await lifecycle.disarmOneshot("feature/disarm");
+
+    expect(disarmed).toBe(true);
+    const after = await readWorktreeMeta(gitDir);
+    expect(after?.oneshot).toBeUndefined();
+    expect(after?.branch).toBe(baseMeta.branch);
+    expect(after?.profile).toBe(baseMeta.profile);
+    expect(after?.allocatedPorts).toEqual(baseMeta.allocatedPorts);
+    expect(after?.startupEnvValues).toEqual(baseMeta.startupEnvValues);
+
+    // Idempotent: a second call returns false because there is nothing to clear.
+    expect(await lifecycle.disarmOneshot("feature/disarm")).toBe(false);
   });
 });

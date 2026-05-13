@@ -68,7 +68,7 @@ function createDeferred<T>(): Deferred<T> {
 }
 
 function createDeps(input: {
-  issues?: LinearIssue[];
+  issues?: LinearIssue[] | (() => LinearIssue[]);
   existingBranches?: string[];
   fetchResult?: FetchIssuesResult;
   onFetch?: (options: { skipCache?: boolean } | undefined) => void;
@@ -80,7 +80,7 @@ function createDeps(input: {
 } {
   const created: CreateLifecycleWorktreeInput[] = [];
   const fetchOptions: Array<{ skipCache?: boolean } | undefined> = [];
-  const issues = input.issues ?? [];
+  const issues: LinearIssue[] | (() => LinearIssue[]) = input.issues ?? [];
   const existingBranches = input.existingBranches ?? [];
 
   return {
@@ -112,7 +112,7 @@ function createDeps(input: {
         input.onFetch?.(options);
         return input.fetchResult ?? {
           ok: true,
-          data: issues,
+          data: typeof issues === "function" ? issues() : issues,
         };
       },
       ...(input.runOneshotForIssue ? { runOneshotForIssue: input.runOneshotForIssue } : {}),
@@ -226,6 +226,32 @@ describe("runLinearAutoCreateOnce", () => {
         prompt: `${issue.title}\n\n${issue.description}`,
       },
     ]);
+  });
+
+  it("re-creates after the label is removed and re-added", async () => {
+    const labeled = createIssue();
+    const unlabeled = createIssue({ labels: [] });
+    let current: LinearIssue[] = [labeled];
+    // No existing worktrees — so once removed, the branch-existence filter
+    // won't be the thing blocking the second pass. processedIssueIds is.
+    const { deps, created } = createDeps({ issues: () => current });
+
+    await runLinearAutoCreateOnce(deps);
+    expect(created.length).toBe(1);
+
+    // Same issue still labeled → dedup blocks creation.
+    await runLinearAutoCreateOnce(deps);
+    expect(created.length).toBe(1);
+
+    // Label removed → dedup entry evicts on next poll.
+    current = [unlabeled];
+    await runLinearAutoCreateOnce(deps);
+    expect(created.length).toBe(1);
+
+    // Label re-added → dedup is no longer blocking, so we trigger again.
+    current = [labeled];
+    await runLinearAutoCreateOnce(deps);
+    expect(created.length).toBe(2);
   });
 
   it("does not create worktrees when the Linear fetch fails", async () => {

@@ -304,9 +304,9 @@ export class LifecycleService {
       return false;
     }
     if (!resolved.meta?.oneshot) return false;
-    const { oneshot, ...rest } = resolved.meta;
-    void oneshot;
-    await writeWorktreeMeta(resolved.gitDir, rest);
+    const nextMeta: WorktreeMeta = { ...resolved.meta };
+    delete nextMeta.oneshot;
+    await writeWorktreeMeta(resolved.gitDir, nextMeta);
     return true;
   }
 

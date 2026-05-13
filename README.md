@@ -48,7 +48,7 @@ See your assigned Linear issues alongside your worktrees. Webmux matches branche
 - **`webmux`** — auto-creates a worktree for the issue, seeded with the issue title + description as the agent prompt.
 - **`_oneshot`** — launches the issue via `webmux oneshot` (autonomous run; auto-closes the session and posts the conversation back to the Linear issue when the agent terminates or opens a PR). When both labels are present, `_oneshot` wins.
 
-Each issue is processed once per server lifetime; remove the label and re-add it to retrigger.
+Each issue is processed once while it stays in Todo + labeled. Remove the label and re-add it to retrigger.
 
 ## Quick Start
 

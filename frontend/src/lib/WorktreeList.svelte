@@ -88,6 +88,7 @@
     {@const isArchived = wt.archived}
     {@const isBusy = isRemoving || isInitializing}
     {@const hasLabel = !!wt.label}
+    {@const hasBadgeRow = isArchived || isCreating || isInitializing || isClosed || wt.prs.length > 0 || !!wt.linearIssue || wt.source === "oneshot"}
     <li class="mb-0.5 group relative {isBusy ? 'opacity-40 pointer-events-none' : ''}">
       <button
         type="button"
@@ -101,52 +102,59 @@
           onselect(wt.branch);
         }}
       >
-        <span class="flex items-center gap-1.5 pr-5 flex-wrap">
-          <div class="flex items-center gap-2 max-w-[90%] min-w-0">
-            {#if row.depth > 0}
-              <span class="shrink-0 text-muted/60">↳</span>
-            {/if}
-            <span class="min-w-0 flex flex-col">
-              <span class="font-medium truncate">{wt.label ?? wt.branch}</span>
-              {#if hasLabel}
-                <span class="text-[10px] leading-tight text-muted truncate">{wt.branch}</span>
+        <span class="flex min-w-0 items-start gap-2 pr-5">
+          {#if row.depth > 0}
+            <span class="shrink-0 text-muted/60">↳</span>
+          {/if}
+          <span class="min-w-0 flex flex-1 flex-col gap-1">
+            <span class="flex min-w-0 items-center gap-1.5" data-worktree-name-row>
+              <span class="min-w-0 flex flex-1 flex-col">
+                <span class="font-medium truncate">{wt.label ?? wt.branch}</span>
+                {#if hasLabel}
+                  <span class="text-[10px] leading-tight text-muted truncate">{wt.branch}</span>
+                {/if}
+              </span>
+              {#if !isCreating && !isInitializing && !isClosed}
+                <span class="shrink-0"><AgentStatusIcon status={wt.agent} size={14} /></span>
+              {/if}
+              {#if notifiedBranches.has(wt.branch)}
+                <span class="shrink-0 w-2 h-2 rounded-full bg-accent"></span>
               {/if}
             </span>
-            {#if wt.source === "oneshot"}
-              <span
-                class="shrink-0 text-[10px] px-1.5 py-0.5 rounded border border-edge text-muted"
-                title="Created by the oneshot CLI"
-              >
-                oneshot
+            {#if hasBadgeRow}
+              <span class="flex min-w-0 flex-wrap items-center gap-1.5" data-worktree-badge-row>
+                {#if wt.source === "oneshot"}
+                  <span
+                    class="shrink-0 text-[10px] px-1.5 py-0.5 rounded border border-edge text-muted"
+                    title="Created by the oneshot CLI"
+                  >
+                    oneshot
+                  </span>
+                {/if}
+                {#if isArchived}
+                  <span class="shrink-0 text-[10px] px-1.5 py-0.5 rounded border border-edge text-muted">
+                    archived
+                  </span>
+                {/if}
+                {#if isCreating}
+                  <span class="shrink-0 inline-flex items-center gap-1 text-[10px] text-muted">
+                    <span class="spinner"></span>
+                    {worktreeCreationPhaseLabel(wt.creationPhase)}...
+                  </span>
+                {:else if isInitializing}
+                  <span class="shrink-0 text-[10px] text-muted">opening...</span>
+                {:else if isClosed}
+                  <span class="shrink-0 text-[10px] text-muted">closed</span>
+                {/if}
+                {#each wt.prs as pr (pr.repo)}
+                  <PrBadge {pr} />
+                {/each}
+                {#if wt.linearIssue}
+                  <LinearBadge issue={wt.linearIssue} clickable={false} />
+                {/if}
               </span>
             {/if}
-            {#if isArchived}
-              <span class="shrink-0 text-[10px] px-1.5 py-0.5 rounded border border-edge text-muted">
-                archived
-              </span>
-            {/if}
-            {#if isCreating}
-              <span class="shrink-0 inline-flex items-center gap-1 text-[10px] text-muted">
-                <span class="spinner"></span>
-                {worktreeCreationPhaseLabel(wt.creationPhase)}...
-              </span>
-            {:else if isInitializing}
-              <span class="shrink-0 text-[10px] text-muted">opening...</span>
-            {:else if isClosed}
-              <span class="shrink-0 text-[10px] text-muted">closed</span>
-            {:else}
-              <span class="shrink-0"><AgentStatusIcon status={wt.agent} size={14} /></span>
-            {/if}
-            {#if notifiedBranches.has(wt.branch)}
-              <span class="shrink-0 w-2 h-2 rounded-full bg-accent"></span>
-            {/if}
-          </div>
-          {#each wt.prs as pr (pr.repo)}
-            <PrBadge {pr} />
-          {/each}
-          {#if wt.linearIssue}
-            <LinearBadge issue={wt.linearIssue} clickable={false} />
-          {/if}
+          </span>
         </span>
         <span class="flex gap-2 text-[11px] text-muted items-center flex-wrap">
           {#if wt.agentLabel ?? wt.agentName}

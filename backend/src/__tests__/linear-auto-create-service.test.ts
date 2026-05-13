@@ -228,6 +228,53 @@ describe("runLinearAutoCreateOnce", () => {
     ]);
   });
 
+  it("dedupes permanent createWorktree failures so they don't retry every poll", async () => {
+    const issue = createIssue();
+    let createCalls = 0;
+    const deps: LinearAutoCreateDependencies = {
+      lifecycleService: {
+        async createWorktree(): Promise<{ branch: string; worktreeId: string }> {
+          createCalls += 1;
+          throw new Error("Branch already exists");
+        },
+      },
+      git: { listWorktrees: () => [] },
+      projectRoot: "/repo",
+      fetchIssues: async () => ({ ok: true, data: [issue] }),
+    };
+
+    await runLinearAutoCreateOnce(deps);
+    await runLinearAutoCreateOnce(deps);
+    await runLinearAutoCreateOnce(deps);
+
+    expect(createCalls).toBe(1);
+  });
+
+  it("dedupes permanent oneshot failures so they don't retry every poll", async () => {
+    const issue = createIssue({ labels: [{ name: "webmux_oneshot", color: "#fff" }] });
+    let oneshotCalls = 0;
+    const deps: LinearAutoCreateDependencies = {
+      lifecycleService: {
+        async createWorktree(): Promise<{ branch: string; worktreeId: string }> {
+          throw new Error("should not be called");
+        },
+      },
+      git: { listWorktrees: () => [] },
+      projectRoot: "/repo",
+      fetchIssues: async () => ({ ok: true, data: [issue] }),
+      runOneshotForIssue: async () => {
+        oneshotCalls += 1;
+        throw new Error("server unreachable");
+      },
+    };
+
+    await runLinearAutoCreateOnce(deps);
+    await runLinearAutoCreateOnce(deps);
+    await runLinearAutoCreateOnce(deps);
+
+    expect(oneshotCalls).toBe(1);
+  });
+
   it("re-creates after the label is removed and re-added", async () => {
     const labeled = createIssue();
     const unlabeled = createIssue({ labels: [] });

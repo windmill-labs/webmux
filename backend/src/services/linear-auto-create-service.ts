@@ -131,6 +131,11 @@ export async function runLinearAutoCreateOnce(deps: LinearAutoCreateDependencies
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         log.error(`[linear-auto-create] failed to launch oneshot for ${issue.identifier}: ${msg}`);
+        // Mark as processed so a permanent failure (e.g. "Branch already exists"
+        // for an out-of-band local branch) doesn't retry every 60s forever.
+        // The label-eviction pass still lets the user retrigger by removing
+        // and re-adding the label after fixing the underlying issue.
+        processedIssueIds.add(issue.id);
       }
     }
   }
@@ -150,6 +155,8 @@ export async function runLinearAutoCreateOnce(deps: LinearAutoCreateDependencies
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         log.error(`[linear-auto-create] failed to create worktree for ${issue.identifier}: ${msg}`);
+        // See the oneshot branch above — dedup on permanent failures.
+        processedIssueIds.add(issue.id);
       }
     }
   }

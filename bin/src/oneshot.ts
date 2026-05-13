@@ -18,7 +18,7 @@ export function getOneshotUsage(): string {
     "Usage:",
     "  webmux oneshot [branch] --prompt <text> [--agent <id>] [--base <branch>] [--profile <name>]",
     "                          [--env KEY=VALUE]... [--keep-open] [--linear <issue-id|team-key>]",
-    "  webmux oneshot --resume <branch> [--prompt <text>] [--linear <issue-id|team-key>]",
+    "  webmux oneshot --resume <branch> --prompt <text>",
     "",
     "Runs an agent worktree start-to-finish, streaming the conversation to stdout.",
     "Does not change the focused tmux session. The server-side oneshot watcher",
@@ -32,7 +32,7 @@ export function getOneshotUsage(): string {
     "",
     "Options:",
     "  --resume <branch>        Resume an existing local worktree instead of creating one",
-    "  --prompt <text>          Initial agent prompt (or follow-up when --resume)",
+    "  --prompt <text>          Initial agent prompt (required; follow-up nudge when --resume)",
     "  --agent <id>             Agent id to launch",
     "  --base <branch>          Base branch for a new worktree (defaults to config)",
     "  --profile <name>         Worktree profile from .webmux.yaml",
@@ -179,6 +179,14 @@ export function parseOneshotArgs(args: string[]): ParsedOneshotCommand | null {
     if (branch && branch !== resumeBranch) {
       throw new CommandUsageError("Cannot pass both a positional branch and --resume");
     }
+    // Resuming without a follow-up prompt is broken for Claude: `claude --continue`
+    // never fires UserPromptSubmit, so lifecycle stays "closed" and the CLI just
+    // times out at 60s. Codex works because `codex resume --last` fires SessionStart
+    // unconditionally, but cross-agent parity wins here. Use the dashboard to
+    // re-attach an existing session without nudging the agent.
+    if (!prompt) {
+      throw new CommandUsageError("--resume requires --prompt; use the dashboard to re-attach without re-prompting");
+    }
     branch = resumeBranch;
   }
 
@@ -187,7 +195,7 @@ export function parseOneshotArgs(args: string[]): ParsedOneshotCommand | null {
   }
 
   if (!resume && !fromLinearIssueId && !prompt) {
-    throw new CommandUsageError("oneshot requires --prompt (or use --resume / --linear)");
+    throw new CommandUsageError("oneshot requires --prompt (or use --linear)");
   }
 
   if (branch) body.branch = branch;

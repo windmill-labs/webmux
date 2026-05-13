@@ -18,11 +18,9 @@ describe("parseOneshotArgs", () => {
     expect(parsed?.keepOpen).toBe(true);
   });
 
-  it("parses --resume without prompt", () => {
-    const parsed = parseOneshotArgs(["--resume", "feature/search"]);
-    expect(parsed?.resume).toBe(true);
-    expect(parsed?.branch).toBe("feature/search");
-    expect(parsed?.prompt).toBeNull();
+  it("rejects --resume without --prompt", () => {
+    expect(() => parseOneshotArgs(["--resume", "feature/search"]))
+      .toThrow("--resume requires --prompt");
   });
 
   it("parses --resume with follow-up prompt", () => {

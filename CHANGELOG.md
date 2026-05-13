@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.31.2](https://github.com/windmill-labs/webmux/compare/v0.31.1...v0.31.2) (2026-05-13)
+
+
+### Bug Fixes
+
+* survive stale git worktree registrations ([#236](https://github.com/windmill-labs/webmux/issues/236)) ([cf72b1b](https://github.com/windmill-labs/webmux/commit/cf72b1b5aca95941b8f08f74ce4beddd9cbe637b))
+
 ## [0.31.1](https://github.com/windmill-labs/webmux/compare/v0.31.0...v0.31.1) (2026-05-13)
 
 

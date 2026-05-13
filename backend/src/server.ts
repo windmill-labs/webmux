@@ -272,6 +272,9 @@ interface TerminalWsData {
   worktreeId: string | null;
   attachId: string | null;
   attached: boolean;
+  /** Has this connection already run a disarm pass? Set on first user input
+   *  so we don't read meta from disk on every keystroke. */
+  disarmAttempted: boolean;
 }
 
 interface AgentsWsData {
@@ -1023,6 +1026,9 @@ async function apiOpenWorktree(name: string, req: Request): Promise<Response> {
   const prompt = parsed.data.prompt?.trim() ? parsed.data.prompt.trim() : undefined;
   const oneshot = normalizeOneshotConfig(parsed.data.oneshot);
   log.info(`[worktree:open] name=${name}${prompt ? ` prompt="${prompt.slice(0, 80)}"` : ""}${oneshot ? " oneshot=armed" : ""}`);
+  // Reopening clears any stale armed meta — unless the caller is re-arming with
+  // a fresh oneshot config (CLI relaunching a session for the same branch).
+  if (!oneshot) await disarmOneshotIfArmed(name, "open-worktree");
   const result = await lifecycleService.openWorktree(name, { prompt, ...(oneshot ? { oneshot } : {}) });
   log.debug(`[worktree:open] done name=${name} worktreeId=${result.worktreeId}`);
   return jsonResponse({ ok: true });
@@ -1031,6 +1037,7 @@ async function apiOpenWorktree(name: string, req: Request): Promise<Response> {
 async function apiCloseWorktree(name: string): Promise<Response> {
   ensureBranchNotBusy(name);
   log.info(`[worktree:close] name=${name}`);
+  await disarmOneshotIfArmed(name, "close-worktree");
   await lifecycleService.closeWorktree(name);
   log.debug(`[worktree:close] done name=${name}`);
   return jsonResponse({ ok: true });
@@ -1043,6 +1050,7 @@ async function apiSetWorktreeArchived(name: string, req: Request): Promise<Respo
   const body = parsed.data;
 
   log.info(`[worktree:archive] name=${name} archived=${body.archived}`);
+  await disarmOneshotIfArmed(name, "archive-worktree");
   await lifecycleService.setWorktreeArchived(name, body.archived);
   log.debug(`[worktree:archive] done name=${name} archived=${body.archived}`);
   return jsonResponse({ ok: true, archived: body.archived });
@@ -1086,6 +1094,7 @@ async function apiSendPrompt(name: string, req: Request): Promise<Response> {
 async function apiMergeWorktree(name: string): Promise<Response> {
   ensureBranchNotBusy(name);
   log.info(`[worktree:merge] name=${name}`);
+  await disarmOneshotIfArmed(name, "merge-worktree");
   await lifecycleService.mergeWorktree(name);
   log.debug(`[worktree:merge] done name=${name}`);
   return jsonResponse({ ok: true });
@@ -1487,7 +1496,7 @@ Bun.serve({
     "/ws/:worktree": (req, server) => {
       const branch = decodeURIComponent(req.params.worktree);
       return server.upgrade(req, {
-        data: { kind: "terminal", branch, worktreeId: null, attachId: null, attached: false },
+        data: { kind: "terminal", branch, worktreeId: null, attachId: null, attached: false, disarmAttempted: false },
       })
         ? undefined
         : new Response("WebSocket upgrade failed", { status: 400 });
@@ -1792,12 +1801,20 @@ Bun.serve({
         case "input": {
           const attachId = getAttachedSessionId(data, ws);
           if (!attachId) return;
+          if (!data.disarmAttempted) {
+            data.disarmAttempted = true;
+            void disarmOneshotIfArmed(branch, "terminal-ws-input");
+          }
           write(attachId, msg.data);
           break;
         }
         case "sendKeys": {
           const attachId = getAttachedSessionId(data, ws);
           if (!attachId) return;
+          if (!data.disarmAttempted) {
+            data.disarmAttempted = true;
+            void disarmOneshotIfArmed(branch, "terminal-ws-send-keys");
+          }
           await sendKeys(attachId, msg.hexBytes);
           break;
         }

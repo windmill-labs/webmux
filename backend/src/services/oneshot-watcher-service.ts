@@ -61,7 +61,13 @@ async function processWorktree(
   const state = getState(branch);
   if (state.inFlight) return;
 
-  const isTerminal = agentLifecycle === "stopped" || agentLifecycle === "error";
+  // `closed` is terminal-without-completion: the agent process is gone (e.g. server
+  // restart mid-run, manual exit). Without this, armed meta would persist forever
+  // and re-fire as soon as the agent comes back to life.
+  const isTerminal =
+    agentLifecycle === "stopped" ||
+    agentLifecycle === "error" ||
+    agentLifecycle === "closed";
   const isIdle = agentLifecycle === "idle";
   if (!isTerminal && !isIdle) {
     state.idleSinceMs = null;
@@ -91,6 +97,13 @@ async function processWorktree(
     }
 
     if (meta.oneshot.autoCloseOnDone) {
+      // Re-read meta immediately before closing: postToLinear above can take seconds,
+      // and a user interaction during that window must abort the close.
+      const fresh = await readMeta(path);
+      if (!fresh?.oneshot) {
+        log.info(`[oneshot-watcher] ${branch}: disarmed during post-to-Linear — skipping close`);
+        return;
+      }
       try {
         await deps.lifecycleService.closeWorktree(branch);
         log.info(`[oneshot-watcher] ${branch}: closed session`);

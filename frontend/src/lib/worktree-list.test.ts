@@ -25,6 +25,7 @@ function createWorktree(branch: string, overrides: Partial<WorktreeInfo> = {}): 
     creating: false,
     creationPhase: null,
     source: "ui",
+    oneshot: null,
     ...overrides,
   };
 }

@@ -503,12 +503,13 @@ function pollProjectState(
           state.consecutiveClosedReadings = 0;
         }
         recordPrEvents(state, worktree, callbacks.onPrEvent);
-        // Track the watcher's arm/disarm transition. Disarm means the server-side
-        // watcher saw a browser-originated interaction — the human took over —
-        // so the CLI should bow out cleanly rather than classifying the run.
+        // Track the watcher's arm/disarm transition. Disarm + still-running mux
+        // means the human took over via the browser; disarm + closed mux means
+        // the watcher itself fired close/post — let the onSessionClosed path
+        // handle it so we don't print a misleading "user took over" message.
         if (worktree.oneshot) {
           state.watcherWasArmed = true;
-        } else if (state.watcherWasArmed) {
+        } else if (state.watcherWasArmed && worktree.mux) {
           callbacks.onUserTookOver();
           return;
         }

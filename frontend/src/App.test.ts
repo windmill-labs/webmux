@@ -129,6 +129,7 @@ function createWorktree(
     creating: false,
     creationPhase: null,
     source: "ui",
+    oneshot: null,
     ...overrides,
   };
 }

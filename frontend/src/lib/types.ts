@@ -2,6 +2,7 @@ import type {
   AgentId,
   BuiltInAgentId,
   LinkedLinearIssue,
+  OneshotConfig,
   PrEntry,
   ServiceStatus,
   WorktreeCreationPhase,
@@ -40,6 +41,7 @@ export type {
   LinearIssuesResponse,
   LinkedLinearIssue,
   LinkedRepoInfo,
+  OneshotConfig,
   PostWorktreeToLinearRequest,
   PostWorktreeToLinearResponse,
   PostWorktreeToLinearTarget,
@@ -100,6 +102,7 @@ export interface WorktreeInfo {
   creating: boolean;
   creationPhase: WorktreeCreationPhase | null;
   source: WorktreeSource;
+  oneshot: OneshotConfig | null;
 }
 
 export interface WorktreeListRow {

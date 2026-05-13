@@ -1,4 +1,4 @@
-import { AgentsUiConversationMessageSchema, type AgentsUiConversationState } from "@webmux/api-contract";
+import { AgentIdSchema, AgentsUiConversationMessageSchema, type AgentsUiConversationState } from "@webmux/api-contract";
 import { z } from "zod";
 import { log } from "../lib/log";
 import {
@@ -21,7 +21,7 @@ const WebmuxConversationAttachmentPayloadSchema = z.object({
   webmux: z.literal(1),
   branch: z.string(),
   baseBranch: z.string().nullable(),
-  agent: z.string().nullable(),
+  agent: AgentIdSchema.nullable(),
   createdAt: z.string(),
   conversation: z.array(AgentsUiConversationMessageSchema),
 });

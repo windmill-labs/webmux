@@ -202,4 +202,75 @@ describe("oneshot-watcher-service", () => {
     expect(lc.disarmCalls).toEqual(["feat/a"]);
   });
 
+  it("still closes + disarms when postToLinear fails", async () => {
+    const lc = makeLifecycle();
+    const postToLinear = mock(async () => { throw new Error("linear API 502"); });
+    await runOneshotWatch({
+      projectRuntime: makeRuntime([makeWorktree({ branch: "feat/a", lifecycle: "stopped" })]),
+      lifecycleService: lc.service,
+      postToLinear,
+      readWorktreeMeta: async () =>
+        makeMeta({ autoCloseOnDone: true, postToLinearOnDone: { kind: "issue", issueId: "ENG-42" } }),
+      idleGraceMs: 0,
+      now: () => 0,
+    });
+    expect(postToLinear).toHaveBeenCalledTimes(1);
+    expect(lc.closeCalls).toEqual(["feat/a"]);
+    expect(lc.disarmCalls).toEqual(["feat/a"]);
+  });
+
+  it("bails on close + disarm when meta is disarmed during postToLinear", async () => {
+    const lc = makeLifecycle();
+    const reads: number[] = [];
+    let pass = 0;
+    // First read inside processWorktree: still armed. Second read (after post,
+    // before close): disarmed by a concurrent user interaction.
+    const readMeta = mock(async () => {
+      reads.push(pass++);
+      return pass === 1
+        ? makeMeta({ autoCloseOnDone: true, postToLinearOnDone: { kind: "issue", issueId: "ENG-42" } })
+        : makeMeta(undefined);
+    });
+    await runOneshotWatch({
+      projectRuntime: makeRuntime([makeWorktree({ branch: "feat/a", lifecycle: "stopped" })]),
+      lifecycleService: lc.service,
+      postToLinear: async () => {},
+      readWorktreeMeta: readMeta,
+      idleGraceMs: 0,
+      now: () => 0,
+    });
+    expect(reads.length).toBe(2);
+    expect(lc.closeCalls).toEqual([]);
+    // disarm via lifecycleService is also skipped — the user's disarm already cleared meta.
+    expect(lc.disarmCalls).toEqual([]);
+  });
+
+  it("still disarms when closeWorktree throws", async () => {
+    const lc = makeLifecycle();
+    lc.service.closeWorktree = mock(async () => { throw new Error("tmux gone"); });
+    await runOneshotWatch({
+      projectRuntime: makeRuntime([makeWorktree({ branch: "feat/a", lifecycle: "stopped" })]),
+      lifecycleService: lc.service,
+      postToLinear: async () => {},
+      readWorktreeMeta: async () => makeMeta({ autoCloseOnDone: true }),
+      idleGraceMs: 0,
+      now: () => 0,
+    });
+    expect(lc.disarmCalls).toEqual(["feat/a"]);
+  });
+
+  it("treats closed agent lifecycle as terminal so meta does not stay armed", async () => {
+    const lc = makeLifecycle();
+    await runOneshotWatch({
+      projectRuntime: makeRuntime([makeWorktree({ branch: "feat/a", lifecycle: "closed" })]),
+      lifecycleService: lc.service,
+      postToLinear: async () => {},
+      readWorktreeMeta: async () => makeMeta({ autoCloseOnDone: true }),
+      idleGraceMs: 60_000,
+      now: () => 0,
+    });
+    expect(lc.closeCalls).toEqual(["feat/a"]);
+    expect(lc.disarmCalls).toEqual(["feat/a"]);
+  });
+
 });

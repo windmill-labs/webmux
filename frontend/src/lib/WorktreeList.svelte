@@ -251,7 +251,7 @@
                 onposttolinear(wt.branch);
               }}
             >
-              Post conversation to Linear…
+              {wt.linearIssue ? `Post conversation to ${wt.linearIssue.identifier}` : "Post conversation to Linear…"}
             </button>
           {/if}
         </div>

@@ -826,6 +826,25 @@
     }
   }
 
+  async function handlePostToLinear(branch: string): Promise<void> {
+    const worktree = worktrees.find((w) => w.branch === branch);
+    if (!worktree?.linearIssue) {
+      // No linked issue → fall back to the create-new-issue dialog.
+      postToLinearBranch = branch;
+      return;
+    }
+    // Linked worktree → post directly to the linked issue, no dialog.
+    try {
+      const response = await postWorktreeToLinear(branch, {
+        kind: "issue",
+        issueId: worktree.linearIssue.identifier,
+      });
+      showToast({ tone: "success", message: `Posted to Linear: ${response.issueUrl}` });
+    } catch (err) {
+      showToast({ tone: "error", message: `Failed to post to Linear: ${errorMessage(err)}` });
+    }
+  }
+
   async function handleArchiveToggle() {
     const branch = selectedBranch;
     if (!branch) return;
@@ -1072,7 +1091,7 @@
           mergeBranch = branch;
         }}
         onremove={(b) => (removeBranch = b)}
-        onposttolinear={(b) => (postToLinearBranch = b)}
+        onposttolinear={handlePostToLinear}
       />
       {#if config.projectDir}
         <SidebarRepoRow

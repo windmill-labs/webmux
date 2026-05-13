@@ -65,6 +65,7 @@ function mapWorktreeSnapshot(
     linearIssue: findLinearIssue ? findLinearIssue(state.branch) : null,
     creation: mapCreationSnapshot(creating),
     source: state.source,
+    oneshot: state.oneshot,
   };
 }
 
@@ -95,6 +96,7 @@ function mapCreatingWorktreeSnapshot(
     linearIssue: findLinearIssue ? findLinearIssue(creating.branch) : null,
     creation: mapCreationSnapshot(creating),
     source: creating.source,
+    oneshot: null,
   };
 }
 

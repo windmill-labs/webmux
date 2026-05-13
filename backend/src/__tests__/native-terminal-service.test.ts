@@ -12,6 +12,7 @@ function makeState(overrides: Partial<ManagedWorktreeRuntimeState> = {}): Manage
     profile: "default",
     agentName: "codex",
     source: "ui",
+    oneshot: null,
     git: {
       exists: true,
       branch: "feature/search",

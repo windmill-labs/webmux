@@ -9,6 +9,7 @@ import {
   AvailableBranchesQuerySchema,
   CreateWorktreeRequestSchema,
   NotificationIdParamsSchema,
+  type OneshotConfig,
   OpenWorktreeRequestSchema,
   PostWorktreeToLinearRequestSchema,
   type PostWorktreeToLinearTarget,
@@ -93,7 +94,7 @@ import { ClaudeConversationService } from "./services/claude-conversation-servic
 import { WorktreeConversationService } from "./services/worktree-conversation-service";
 import { parseRuntimeEvent } from "./domain/events";
 import type { AgentsUiConversationEvent, AgentsUiWorktreeConversationResponse } from "./domain/agents-ui";
-import type { ProjectSnapshot, WorktreeSnapshot } from "./domain/model";
+import type { OneshotMeta, ProjectSnapshot, WorktreeSnapshot } from "./domain/model";
 import { isValidBranchName, isValidWorktreeName } from "./domain/policies";
 import { createWebmuxRuntime } from "./runtime";
 
@@ -172,16 +173,33 @@ function startLinearAutoCreate(): void {
   });
 }
 
+/** Map the wire-side `OneshotConfig` (all-optional fields) to the persisted
+ *  `OneshotMeta` shape (autoCloseOnDone has a definite boolean). Default is
+ *  `true` — callers must opt out explicitly. */
+function normalizeOneshotConfig(input: OneshotConfig | undefined): OneshotMeta | undefined {
+  if (!input) return undefined;
+  return {
+    autoCloseOnDone: input.autoCloseOnDone ?? true,
+    ...(input.postToLinearOnDone ? { postToLinearOnDone: input.postToLinearOnDone } : {}),
+  };
+}
+
 /** Clear the worktree's oneshot watch state, if armed. Called from every
  *  user-interaction endpoint so any browser action ("the human took over")
- *  short-circuits the server-side auto-close + Linear post-back. */
+ *  short-circuits the server-side auto-close + Linear post-back. Also updates
+ *  the in-memory runtime state so the next snapshot reflects the disarm without
+ *  waiting for a reconciliation pass — the CLI relies on that for its
+ *  user-took-over exit path. */
 async function disarmOneshotIfArmed(branch: string, reason: string): Promise<void> {
   try {
     const disarmed = await lifecycleService.disarmOneshot(branch);
-    if (disarmed) log.info(`[oneshot-watcher] ${branch}: disarmed by ${reason}`);
+    if (!disarmed) return;
+    log.info(`[oneshot-watcher] ${branch}: disarmed by ${reason}`);
+    const state = projectRuntime.getWorktreeByBranch(branch);
+    if (state) projectRuntime.setOneshot(state.worktreeId, null);
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
-    log.debug(`[oneshot-watcher] disarm failed for ${branch} (${reason}): ${msg}`);
+    log.warn(`[oneshot-watcher] disarm failed for ${branch} (${reason}): ${msg}`);
   }
 }
 
@@ -970,8 +988,9 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
     }
   }
 
+  const oneshot = normalizeOneshotConfig(body.oneshot);
   log.info(
-    `[worktree:add] mode=${mode ?? "new"}${resolvedBranch ? ` branch=${resolvedBranch}` : ""}${baseBranch ? ` base=${baseBranch}` : ""}${profile ? ` profile=${profile}` : ""} agents=${selectedAgents.join(",")}${createLinearTicket ? " linearTicket=true" : ""}${prompt ? ` prompt="${prompt.slice(0, 80)}"` : ""}`,
+    `[worktree:add] mode=${mode ?? "new"}${resolvedBranch ? ` branch=${resolvedBranch}` : ""}${baseBranch ? ` base=${baseBranch}` : ""}${profile ? ` profile=${profile}` : ""} agents=${selectedAgents.join(",")}${createLinearTicket ? " linearTicket=true" : ""}${prompt ? ` prompt="${prompt.slice(0, 80)}"` : ""}${oneshot ? " oneshot=armed" : ""}`,
   );
   const result = await lifecycleService.createWorktrees({
     mode: resolvedMode,
@@ -982,9 +1001,7 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
     ...(agents && agents.length > 0 ? { agents } : { agent }),
     envOverrides,
     ...(body.source ? { source: body.source } : {}),
-    ...(body.oneshot
-      ? { oneshot: { autoCloseOnDone: body.oneshot.autoCloseOnDone ?? true, ...(body.oneshot.postToLinearOnDone ? { postToLinearOnDone: body.oneshot.postToLinearOnDone } : {}) } }
-      : {}),
+    ...(oneshot ? { oneshot } : {}),
   });
   log.debug(`[worktree:add] done branches=${result.branches.join(",")}`);
   return jsonResponse({
@@ -1007,12 +1024,7 @@ async function apiOpenWorktree(name: string, req: Request): Promise<Response> {
   const parsed = await parseJsonBody(req, OpenWorktreeRequestSchema);
   if (!parsed.ok) return parsed.response;
   const prompt = parsed.data.prompt?.trim() ? parsed.data.prompt.trim() : undefined;
-  const oneshot = parsed.data.oneshot
-    ? {
-        autoCloseOnDone: parsed.data.oneshot.autoCloseOnDone ?? true,
-        ...(parsed.data.oneshot.postToLinearOnDone ? { postToLinearOnDone: parsed.data.oneshot.postToLinearOnDone } : {}),
-      }
-    : undefined;
+  const oneshot = normalizeOneshotConfig(parsed.data.oneshot);
   log.info(`[worktree:open] name=${name}${prompt ? ` prompt="${prompt.slice(0, 80)}"` : ""}${oneshot ? " oneshot=armed" : ""}`);
   const result = await lifecycleService.openWorktree(name, { prompt, ...(oneshot ? { oneshot } : {}) });
   log.debug(`[worktree:open] done name=${name} worktreeId=${result.worktreeId}`);
@@ -1887,7 +1899,6 @@ if (linearAutoCreateEnabled) {
 startOneshotWatcher({
   projectRuntime,
   lifecycleService,
-  isActive: hasRecentDashboardActivity,
   postToLinear: async (branch, target) => {
     const outcome = await postWorktreeConversationToLinear(branch, target);
     if (!outcome.ok) throw new Error(outcome.error);

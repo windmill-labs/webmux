@@ -5,6 +5,7 @@ import type {
 } from "../domain/config";
 import type {
   ManagedWorktreeRuntimeState,
+  OneshotMeta,
   PrEntry,
   ServiceRuntimeState,
   WorktreeSource,
@@ -25,6 +26,7 @@ function makeDefaultState(input: {
   agentName?: AgentId | null;
   runtime?: RuntimeKind;
   source?: WorktreeSource;
+  oneshot?: OneshotMeta | null;
 }): ManagedWorktreeRuntimeState {
   return {
     worktreeId: input.worktreeId,
@@ -35,6 +37,7 @@ function makeDefaultState(input: {
     profile: input.profile ?? null,
     agentName: input.agentName ?? null,
     source: input.source ?? "ui",
+    oneshot: input.oneshot ?? null,
     git: {
       exists: true,
       branch: input.branch,
@@ -82,6 +85,7 @@ export class ProjectRuntime {
     agentName?: AgentId | null;
     runtime?: RuntimeKind;
     source?: WorktreeSource;
+    oneshot?: OneshotMeta | null;
   }): ManagedWorktreeRuntimeState {
     const existing = this.worktrees.get(input.worktreeId);
     if (existing) {
@@ -94,6 +98,7 @@ export class ProjectRuntime {
       existing.agentName = input.agentName ?? existing.agentName;
       if (input.runtime) existing.agent.runtime = input.runtime;
       if (input.source !== undefined) existing.source = input.source;
+      if (input.oneshot !== undefined) existing.oneshot = input.oneshot;
       existing.git.exists = true;
       existing.git.branch = input.branch;
       existing.session.windowName = buildWorktreeWindowName(input.branch);
@@ -104,6 +109,15 @@ export class ProjectRuntime {
     this.worktrees.set(input.worktreeId, created);
     this.worktreeIdsByBranch.set(input.branch, input.worktreeId);
     return created;
+  }
+
+  /** Update the per-worktree oneshot meta in the runtime state. Called from the
+   *  watcher (after disarm) and from lifecycle paths that arm a new oneshot run,
+   *  so the next snapshot picks up the change without waiting for reconciliation. */
+  setOneshot(worktreeId: string, oneshot: OneshotMeta | null): ManagedWorktreeRuntimeState {
+    const state = this.requireWorktree(worktreeId);
+    state.oneshot = oneshot;
+    return state;
   }
 
   removeWorktree(worktreeId: string): boolean {

@@ -29,6 +29,7 @@ function makeWorktree(overrides: {
     profile: "default",
     agentName: "claude",
     source: overrides.source ?? "oneshot",
+    oneshot: null,
     git: { exists: true, branch: overrides.branch, dirty: false, aheadCount: 0, currentCommit: null },
     session: { exists: true, sessionName: null, windowName: overrides.branch, paneCount: 1 },
     agent: {
@@ -93,7 +94,6 @@ describe("oneshot-watcher-service", () => {
       projectRuntime: makeRuntime([makeWorktree({ branch: "feat/a", source: "ui", lifecycle: "idle" })]),
       lifecycleService: lc.service,
       postToLinear: async () => {},
-      isActive: () => true,
       readWorktreeMeta: readMeta,
       idleGraceMs: 0,
       now: () => 0,
@@ -108,7 +108,6 @@ describe("oneshot-watcher-service", () => {
       projectRuntime: makeRuntime([makeWorktree({ branch: "feat/a", lifecycle: "idle" })]),
       lifecycleService: lc.service,
       postToLinear: async () => {},
-      isActive: () => true,
       readWorktreeMeta: async () => makeMeta(undefined),
       idleGraceMs: 0,
       now: () => 0,
@@ -123,7 +122,6 @@ describe("oneshot-watcher-service", () => {
       projectRuntime: makeRuntime([makeWorktree({ branch: "feat/a", lifecycle: "running" })]),
       lifecycleService: lc.service,
       postToLinear: async () => {},
-      isActive: () => true,
       readWorktreeMeta: async () => makeMeta({ autoCloseOnDone: true }),
       idleGraceMs: 0,
       now: () => 0,
@@ -138,7 +136,6 @@ describe("oneshot-watcher-service", () => {
       projectRuntime: makeRuntime([makeWorktree({ branch: "feat/a", lifecycle: "idle" as AgentLifecycle })]),
       lifecycleService: lc.service,
       postToLinear: async () => {},
-      isActive: () => true,
       readWorktreeMeta: async () => makeMeta({ autoCloseOnDone: true }),
       idleGraceMs: 5_000,
       now: () => nowMs,
@@ -160,7 +157,6 @@ describe("oneshot-watcher-service", () => {
       projectRuntime: makeRuntime([makeWorktree({ branch: "feat/a", lifecycle: "stopped" })]),
       lifecycleService: lc.service,
       postToLinear: async () => {},
-      isActive: () => true,
       readWorktreeMeta: async () => makeMeta({ autoCloseOnDone: true }),
       idleGraceMs: 60_000,
       now: () => 0,
@@ -181,7 +177,6 @@ describe("oneshot-watcher-service", () => {
       projectRuntime: makeRuntime([makeWorktree({ branch: "feat/a", lifecycle: "stopped" })]),
       lifecycleService: lc.service,
       postToLinear,
-      isActive: () => true,
       readWorktreeMeta: async () =>
         makeMeta({ autoCloseOnDone: true, postToLinearOnDone: { kind: "issue", issueId: "ENG-42" } }),
       idleGraceMs: 0,
@@ -197,7 +192,6 @@ describe("oneshot-watcher-service", () => {
       projectRuntime: makeRuntime([makeWorktree({ branch: "feat/a", lifecycle: "stopped" })]),
       lifecycleService: lc.service,
       postToLinear,
-      isActive: () => true,
       readWorktreeMeta: async () =>
         makeMeta({ autoCloseOnDone: false, postToLinearOnDone: { kind: "issue", issueId: "ENG-42" } }),
       idleGraceMs: 0,
@@ -208,19 +202,4 @@ describe("oneshot-watcher-service", () => {
     expect(lc.disarmCalls).toEqual(["feat/a"]);
   });
 
-  it("does not run when isActive returns false", async () => {
-    const lc = makeLifecycle();
-    const readMeta = mock(async () => makeMeta({ autoCloseOnDone: true }));
-    await runOneshotWatch({
-      projectRuntime: makeRuntime([makeWorktree({ branch: "feat/a", lifecycle: "stopped" })]),
-      lifecycleService: lc.service,
-      postToLinear: async () => {},
-      isActive: () => false,
-      readWorktreeMeta: readMeta,
-      idleGraceMs: 0,
-      now: () => 0,
-    });
-    expect(readMeta).not.toHaveBeenCalled();
-    expect(lc.closeCalls).toEqual([]);
-  });
 });

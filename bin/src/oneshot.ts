@@ -21,9 +21,14 @@ export function getOneshotUsage(): string {
     "  webmux oneshot --resume <branch> [--prompt <text>] [--linear <issue-id|team-key>]",
     "",
     "Runs an agent worktree start-to-finish, streaming the conversation to stdout.",
-    "Does not change the focused tmux session. Exits when the agent goes idle",
-    "(success if a PR was opened) or on Ctrl-C. The worktree session is closed",
-    "on exit unless --keep-open is set.",
+    "Does not change the focused tmux session. The server-side oneshot watcher",
+    "closes the worktree session (and posts the conversation back to Linear, if",
+    "--linear is set) once the agent finishes — even if this CLI is killed mid-run.",
+    "Opening the worktree in the browser and interacting with it disarms the watcher.",
+    "",
+    "Exit codes: 0 if the agent opened a PR / the user took over via the browser;",
+    "1 if the agent went idle without opening a PR; 130 on Ctrl-C (worktree keeps",
+    "running, resume with `webmux oneshot --resume <branch>`).",
     "",
     "Options:",
     "  --resume <branch>        Resume an existing local worktree instead of creating one",
@@ -32,7 +37,7 @@ export function getOneshotUsage(): string {
     "  --base <branch>          Base branch for a new worktree (defaults to config)",
     "  --profile <name>         Worktree profile from .webmux.yaml",
     "  --env KEY=VALUE          Runtime env override (repeatable)",
-    "  --keep-open              Leave the worktree session running after oneshot exits",
+    "  --keep-open              Don't auto-close the worktree session when the agent finishes",
     "  --linear ID|TEAM         Tie this oneshot to Linear:",
     "                             ENG-123  — load the issue body as context, post results back",
     "                             ENG      — create a new issue in that team when done",
@@ -429,6 +434,10 @@ interface PollState {
   hadOpenSession: boolean;
   consecutiveClosedReadings: number;
   idleSinceMs: number | null;
+  /** True once we observed `oneshot` armed on the snapshot. Used to detect the
+   *  disarm transition (snapshot.oneshot goes from set → null) that signals the
+   *  human took over from the browser. */
+  watcherWasArmed: boolean;
 }
 
 // `idle` can be transient (agent is between tool calls), so wait a beat before
@@ -462,6 +471,7 @@ function pollProjectState(
     onPrEvent: (line: string) => void;
     onAgentStuck: (reason: string) => void;
     onAgentDone: (reason: string) => void;
+    onUserTookOver: () => void;
   },
 ): { stop: () => void } {
   const api = createApi(`http://localhost:${port}`);
@@ -493,6 +503,15 @@ function pollProjectState(
           state.consecutiveClosedReadings = 0;
         }
         recordPrEvents(state, worktree, callbacks.onPrEvent);
+        // Track the watcher's arm/disarm transition. Disarm means the server-side
+        // watcher saw a browser-originated interaction — the human took over —
+        // so the CLI should bow out cleanly rather than classifying the run.
+        if (worktree.oneshot) {
+          state.watcherWasArmed = true;
+        } else if (state.watcherWasArmed) {
+          callbacks.onUserTookOver();
+          return;
+        }
         // A single mux=false reading can be a transient tmux/server hiccup;
         // require two consecutive readings before declaring the session closed.
         if (state.hadOpenSession && !worktree.mux) {
@@ -544,21 +563,23 @@ async function ensureWorktreeReady(
   branch: string,
   port: number,
   stderr: (line: string) => void,
-): Promise<boolean> {
+): Promise<{ ready: true; worktree: ProjectWorktreeSnapshot } | { ready: false }> {
   const api = createApi(`http://localhost:${port}`);
   const deadline = Date.now() + 60_000;
   while (Date.now() < deadline) {
     try {
       const response = await api.fetchWorktrees();
       const worktree = response.worktrees.find((w: ProjectWorktreeSnapshot) => w.branch === branch);
-      if (worktree && worktree.mux && worktree.status !== "creating") return true;
+      if (worktree && worktree.mux && worktree.status !== "creating") {
+        return { ready: true, worktree };
+      }
     } catch {
       // ignore
     }
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
   stderr(`[${timestamp()}] [error] timed out waiting for ${branch} session to start`);
-  return false;
+  return { ready: false };
 }
 
 function printConversationHistory(
@@ -765,7 +786,7 @@ export async function runOneshot(parsed: ParsedOneshotCommand, port: number): Pr
   }
 
   const ready = await ensureWorktreeReady(branch, port, stderr);
-  if (!ready) return 1;
+  if (!ready.ready) return 1;
 
   const conversationState: ConversationPrintState = {
     printedMessageIds: new Set(),
@@ -803,7 +824,11 @@ export async function runOneshot(parsed: ParsedOneshotCommand, port: number): Pr
     stderr(`[${timestamp()}] [fatal] ${reason}`);
     finalize(1);
   });
-  historyPoller = pollConversationHistory(branch, port, conversationState);
+  // History polling is only needed for Claude — Codex publishes live deltas via WS,
+  // so polling there just spams the server every 2s for no benefit.
+  if (ready.worktree.agentName === "claude") {
+    historyPoller = pollConversationHistory(branch, port, conversationState);
+  }
 
   const pollState: PollState = {
     seenPrUrls: new Set(),
@@ -811,6 +836,7 @@ export async function runOneshot(parsed: ParsedOneshotCommand, port: number): Pr
     hadOpenSession: false,
     consecutiveClosedReadings: 0,
     idleSinceMs: null,
+    watcherWasArmed: false,
   };
 
   poller = pollProjectState(branch, port, pollState, {
@@ -835,6 +861,11 @@ export async function runOneshot(parsed: ParsedOneshotCommand, port: number): Pr
       flushStreamingLine(conversationState);
       stderr(`[${timestamp()}] [error] ${reason}`);
       finalize(1);
+    },
+    onUserTookOver: () => {
+      flushStreamingLine(conversationState);
+      stdout(`[${timestamp()}] [event] user took over from the browser — exiting`);
+      finalize(0);
     },
   });
 

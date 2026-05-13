@@ -180,6 +180,7 @@ function makeWorktree(): WorktreeSnapshot {
     linearIssue: null,
     creation: null,
     source: "ui",
+    oneshot: null,
   };
 }
 

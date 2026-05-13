@@ -28,11 +28,9 @@ export type WorktreeConversationMeta =
 
 export type WorktreeSource = "ui" | "oneshot";
 
-/** Linear post-back target embedded in oneshot meta. Kept structurally identical to
- *  `PostWorktreeToLinearTarget` so the watcher can pass it straight through. */
-export type OneshotPostTarget =
-  | { kind: "issue"; issueId: string }
-  | { kind: "team"; teamKey: string; title?: string };
+/** Linear post-back target embedded in oneshot meta. Re-exported from the
+ *  contract so meta + wire shapes stay in lockstep. */
+export type OneshotPostTarget = import("@webmux/api-contract").PostWorktreeToLinearTarget;
 
 /** Per-worktree oneshot watch state. Persisted on disk; the server-side watcher
  *  reads it to decide when to auto-close / post back to Linear. Presence of this
@@ -188,6 +186,7 @@ export interface ManagedWorktreeRuntimeState {
   profile: string | null;
   agentName: AgentId | null;
   source: WorktreeSource;
+  oneshot: OneshotMeta | null;
   git: GitWorktreeRuntimeState;
   session: SessionRuntimeState;
   agent: AgentRuntimeState;
@@ -225,6 +224,7 @@ export interface WorktreeSnapshot {
   linearIssue: LinkedLinearIssue | null;
   creation: WorktreeCreationSnapshot | null;
   source: WorktreeSource;
+  oneshot: OneshotMeta | null;
 }
 
 export interface ProjectSnapshot {

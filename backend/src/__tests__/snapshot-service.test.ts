@@ -158,6 +158,7 @@ describe("buildProjectSnapshot", () => {
           phase: "starting_session",
         },
         source: "ui",
+        oneshot: null,
       },
     ]);
     expect(snapshot.notifications).toHaveLength(1);
@@ -253,6 +254,7 @@ describe("buildProjectSnapshot", () => {
           phase: "creating_worktree",
         },
         source: "ui",
+        oneshot: null,
       },
     ]);
   });

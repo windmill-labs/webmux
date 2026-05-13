@@ -329,6 +329,10 @@ export const ProjectWorktreeSnapshotSchema = z.object({
   linearIssue: LinkedLinearIssueSchema.nullable(),
   creation: WorktreeCreationStateSchema.nullable(),
   source: WorktreeSourceSchema,
+  /** Present when the server-side oneshot watcher is armed for this worktree.
+   *  Cleared by `disarmOneshot` on the first browser-originated interaction.
+   *  CLI clients read this to detect "user took over" mid-run. */
+  oneshot: OneshotConfigSchema.nullable(),
 });
 
 export const ProjectSnapshotSchema = z.object({

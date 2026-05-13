@@ -14,7 +14,6 @@ export interface OneshotWatcherDependencies {
   projectRuntime: ProjectRuntime;
   lifecycleService: LifecycleService;
   postToLinear: (branch: string, target: OneshotPostTarget) => Promise<void>;
-  isActive: () => boolean;
   /** Override for tests. Defaults to the real filesystem adapter. */
   readWorktreeMeta?: (path: string) => Promise<WorktreeMeta | null>;
   /** Override for tests. Defaults to {@link POLL_INTERVAL_MS}. */
@@ -111,7 +110,8 @@ async function processWorktree(
 }
 
 export async function runOneshotWatch(deps: OneshotWatcherDependencies): Promise<void> {
-  if (!deps.isActive()) return;
+  // Intentionally NOT gated on dashboard activity: a CLI-only or label-triggered
+  // oneshot run produces no browser hits, but is exactly the case we need to act on.
   const worktrees = deps.projectRuntime.listWorktrees();
   for (const wt of worktrees) {
     if (wt.source !== "oneshot") continue;

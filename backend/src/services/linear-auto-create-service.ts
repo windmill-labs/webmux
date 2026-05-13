@@ -37,19 +37,32 @@ function hasLabel(issue: LinearIssue, name: string): boolean {
   return issue.labels.some((l) => l.name.toLowerCase() === name);
 }
 
+/** Shared filter: Todo state, the label rule supplied by the caller, not yet
+ *  processed, and no existing worktree on the branch. */
+function filterTriggerableIssues(
+  issues: LinearIssue[],
+  existingBranches: string[],
+  matchesLabelRule: (issue: LinearIssue) => boolean,
+): LinearIssue[] {
+  return issues.filter((issue) => {
+    if (issue.state.name !== "Todo") return false;
+    if (!matchesLabelRule(issue)) return false;
+    if (processedIssueIds.has(issue.id)) return false;
+    return !existingBranches.some((branch) => branchMatchesIssue(branch, issue.branchName));
+  });
+}
+
 /** Filter issues to only those in Todo state with the "webmux" label that don't already
  *  have a worktree, excluding any tagged with the oneshot variant. */
 export function filterAutoCreateIssues(
   issues: LinearIssue[],
   existingBranches: string[],
 ): LinearIssue[] {
-  return issues.filter((issue) => {
-    if (issue.state.name !== "Todo") return false;
-    if (!hasLabel(issue, AUTO_CREATE_LABEL)) return false;
-    if (hasLabel(issue, AUTO_ONESHOT_LABEL)) return false;
-    if (processedIssueIds.has(issue.id)) return false;
-    return !existingBranches.some((branch) => branchMatchesIssue(branch, issue.branchName));
-  });
+  return filterTriggerableIssues(
+    issues,
+    existingBranches,
+    (issue) => hasLabel(issue, AUTO_CREATE_LABEL) && !hasLabel(issue, AUTO_ONESHOT_LABEL),
+  );
 }
 
 /** Filter issues to only those in Todo state with the "_oneshot" label that don't already
@@ -59,12 +72,11 @@ export function filterAutoOneshotIssues(
   issues: LinearIssue[],
   existingBranches: string[],
 ): LinearIssue[] {
-  return issues.filter((issue) => {
-    if (issue.state.name !== "Todo") return false;
-    if (!hasLabel(issue, AUTO_ONESHOT_LABEL)) return false;
-    if (processedIssueIds.has(issue.id)) return false;
-    return !existingBranches.some((branch) => branchMatchesIssue(branch, issue.branchName));
-  });
+  return filterTriggerableIssues(
+    issues,
+    existingBranches,
+    (issue) => hasLabel(issue, AUTO_ONESHOT_LABEL),
+  );
 }
 
 export async function runLinearAutoCreateOnce(deps: LinearAutoCreateDependencies): Promise<void> {

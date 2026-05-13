@@ -71,7 +71,7 @@ import {
 } from "./services/linear-service";
 import {
   buildSeedFromLinear,
-  downloadWebmuxAttachmentDefault,
+  defaultSeedFromLinearDeps,
   exportConversationToLinear,
   type ExportConversationDependencies,
   type ExportConversationInput,
@@ -135,10 +135,7 @@ let autoRemoveOnMergeEnabled = config.integrations.github.autoRemoveOnMerge;
 /** Create a worktree in oneshot mode for the given Linear issue and arm the
  *  server-side watcher to post results back + close the session when done. */
 async function runOneshotForIssue(issueId: string): Promise<void> {
-  const seed = await buildSeedFromLinear(
-    { issueId },
-    { fetchIssueWithAttachments, downloadWebmuxAttachment: downloadWebmuxAttachmentDefault },
-  );
+  const seed = await buildSeedFromLinear({ issueId }, defaultSeedFromLinearDeps);
   if (!seed.ok) {
     throw new Error(`Linear seed failed for ${issueId}: ${seed.error}`);
   }
@@ -929,7 +926,7 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
       // Fall back to fetching the seed server-side when the client didn't pre-resolve it.
       const seedResult = await buildSeedFromLinear(
         { issueId: body.fromLinear.issueId },
-        { fetchIssueWithAttachments, downloadWebmuxAttachment: downloadWebmuxAttachmentDefault },
+        defaultSeedFromLinearDeps,
       );
       if (!seedResult.ok) {
         return errorResponse(`Linear seed lookup failed: ${seedResult.error}`, seedResult.status);

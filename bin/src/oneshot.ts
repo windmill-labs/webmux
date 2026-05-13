@@ -1,6 +1,6 @@
 import { apiPaths, AgentsUiConversationEventSchema, createApi, parseLinearTarget, type AgentsUiConversationMessage, type AgentsUiConversationEvent, type AgentsUiWorktreeConversationResponse, type CreateWorktreeRequest, type PostWorktreeToLinearTarget, type ProjectWorktreeSnapshot } from "@webmux/api-contract";
-import { createLinearIssue, fetchIssueWithAttachments, fetchTeamByKey } from "../../backend/src/services/linear-service";
-import { buildSeedFromLinear, downloadWebmuxAttachmentDefault } from "../../backend/src/services/conversation-export-service";
+import { createLinearIssue, fetchTeamByKey } from "../../backend/src/services/linear-service";
+import { buildSeedFromLinear, defaultSeedFromLinearDeps } from "../../backend/src/services/conversation-export-service";
 import { CommandUsageError, formatServerError } from "./shared";
 
 export interface ParsedOneshotCommand {
@@ -705,10 +705,7 @@ export async function runOneshot(parsed: ParsedOneshotCommand, port: number): Pr
 
     if (fromLinearIssueId) {
       stdout(`[${timestamp()}] [event] resolving Linear issue ${fromLinearIssueId}...`);
-      const seedResult = await buildSeedFromLinear(
-        { issueId: fromLinearIssueId },
-        { fetchIssueWithAttachments, downloadWebmuxAttachment: downloadWebmuxAttachmentDefault },
-      );
+      const seedResult = await buildSeedFromLinear({ issueId: fromLinearIssueId }, defaultSeedFromLinearDeps);
       if (!seedResult.ok) {
         stderr(`[${timestamp()}] [error] Linear seed lookup failed: ${seedResult.error}`);
         return 1;

@@ -82,6 +82,14 @@ export interface SeedFromLinearDependencies {
   downloadWebmuxAttachment: (url: string) => Promise<{ ok: true; data: WebmuxConversationAttachmentPayload } | { ok: false; error: string }>;
 }
 
+/** Production-default deps for `buildSeedFromLinear`. Use this in every
+ *  call site that doesn't need to stub the Linear/HTTP side; tests should
+ *  pass their own deps object instead. */
+export const defaultSeedFromLinearDeps: SeedFromLinearDependencies = {
+  fetchIssueWithAttachments,
+  downloadWebmuxAttachment: downloadWebmuxAttachmentDefault,
+};
+
 export interface LinearSeedResult {
   source: "webmux-attachment" | "github-integration" | "none";
   branch: string | null;

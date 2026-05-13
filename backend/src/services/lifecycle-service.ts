@@ -17,7 +17,7 @@ import { expandTemplate, getDefaultProfileName, isDockerProfile, type DockerProf
 import { type DockerGateway } from "../adapters/docker";
 import { buildProjectSessionName, buildWorktreeWindowName, type TmuxGateway } from "../adapters/tmux";
 import type { AgentId, ProfileConfig, ProjectConfig, RuntimeKind } from "../domain/config";
-import type { WorktreeCreationPhase, WorktreeMeta, WorktreeSource } from "../domain/model";
+import type { OneshotMeta, WorktreeCreationPhase, WorktreeMeta, WorktreeSource } from "../domain/model";
 import { allocateServicePorts, isValidBranchName, isValidEnvKey } from "../domain/policies";
 import type { AutoNameGenerator } from "./auto-name-service";
 import {
@@ -152,6 +152,7 @@ export interface CreateLifecycleWorktreeInput {
   agent?: AgentId;
   envOverrides?: Record<string, string>;
   source?: WorktreeSource;
+  oneshot?: OneshotMeta;
 }
 
 export interface CreateLifecycleWorktreesInput extends Omit<CreateLifecycleWorktreeInput, "agent"> {
@@ -245,15 +246,23 @@ export class LifecycleService {
     });
   }
 
-  async openWorktree(branch: string, options: { prompt?: string } = {}): Promise<{
+  async openWorktree(
+    branch: string,
+    options: { prompt?: string; oneshot?: OneshotMeta } = {},
+  ): Promise<{
     branch: string;
     worktreeId: string;
   }> {
     try {
       const resolved = await this.resolveExistingWorktree(branch);
-      const initialized = resolved.meta
+      let initialized = resolved.meta
         ? await this.refreshManagedArtifacts(resolved)
         : await this.initializeUnmanagedWorktree(resolved);
+      if (options.oneshot) {
+        const nextMeta: WorktreeMeta = { ...initialized.meta, oneshot: options.oneshot };
+        await writeWorktreeMeta(initialized.paths.gitDir, nextMeta);
+        initialized = { ...initialized, meta: nextMeta };
+      }
       const { profileName, profile } = this.resolveProfile(initialized.meta.profile);
       const agent = this.resolveAgentDefinition(initialized.meta.agent);
       const launchMode: AgentLaunchMode = resolved.meta && agent.capabilities.resume ? "resume" : "fresh";
@@ -282,6 +291,23 @@ export class LifecycleService {
     } catch (error) {
       throw this.wrapOperationError(error);
     }
+  }
+
+  /** Clears the oneshot watch state from a worktree's persisted meta, if present.
+   *  Idempotent: returns true when armed state was cleared, false otherwise.
+   *  The server-side oneshot watcher calls this on any browser-originated interaction. */
+  async disarmOneshot(branch: string): Promise<boolean> {
+    let resolved: ResolvedLifecycleWorktree;
+    try {
+      resolved = await this.resolveExistingWorktree(branch);
+    } catch {
+      return false;
+    }
+    if (!resolved.meta?.oneshot) return false;
+    const { oneshot, ...rest } = resolved.meta;
+    void oneshot;
+    await writeWorktreeMeta(resolved.gitDir, rest);
+    return true;
   }
 
   async closeWorktree(branch: string): Promise<void> {
@@ -984,6 +1010,7 @@ export class LifecycleService {
           controlToken: await this.deps.getControlToken(),
           deleteBranchOnRollback,
           source,
+          ...(input.oneshot ? { oneshot: input.oneshot } : {}),
         },
         {
           git: this.deps.git,

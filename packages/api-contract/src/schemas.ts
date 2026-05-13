@@ -62,6 +62,14 @@ export const FromLinearInputSchema = z.object({
   conversationContext: z.string().optional(),
 });
 
+/** Oneshot watch config carried on create/open requests. When present, the server-side
+ *  oneshot watcher will auto-close the session (and optionally post to Linear) once the
+ *  agent finishes. Any browser-originated interaction with the session disarms the watcher. */
+export const OneshotConfigSchema = z.object({
+  autoCloseOnDone: z.boolean().optional(),
+  postToLinearOnDone: PostWorktreeToLinearTargetSchema.optional(),
+});
+
 export const AgentCapabilitiesSchema = z.object({
   terminal: z.literal(true),
   inAppChat: z.boolean(),
@@ -144,10 +152,12 @@ export const CreateWorktreeRequestSchema = z.object({
   linearTitle: z.string().optional(),
   fromLinear: FromLinearInputSchema.optional(),
   source: WorktreeSourceSchema.optional(),
+  oneshot: OneshotConfigSchema.optional(),
 });
 
 export const OpenWorktreeRequestSchema = z.object({
   prompt: z.string().optional(),
+  oneshot: OneshotConfigSchema.optional(),
 });
 
 export const CreateWorktreeResponseSchema = z.object({
@@ -522,6 +532,7 @@ export type PostWorktreeToLinearTarget = z.infer<typeof PostWorktreeToLinearTarg
 export type PostWorktreeToLinearRequest = z.infer<typeof PostWorktreeToLinearRequestSchema>;
 export type PostWorktreeToLinearResponse = z.infer<typeof PostWorktreeToLinearResponseSchema>;
 export type FromLinearInput = z.infer<typeof FromLinearInputSchema>;
+export type OneshotConfig = z.infer<typeof OneshotConfigSchema>;
 export type WorktreeCreationPhase = z.infer<typeof WorktreeCreationPhaseSchema>;
 export type AvailableBranch = z.infer<typeof AvailableBranchSchema>;
 // Keep this manual so frontend callers pass booleans instead of raw `"true"`/`"false"` query literals.

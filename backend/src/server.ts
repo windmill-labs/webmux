@@ -11,6 +11,7 @@ import {
   NotificationIdParamsSchema,
   OpenWorktreeRequestSchema,
   PostWorktreeToLinearRequestSchema,
+  type PostWorktreeToLinearTarget,
   PullMainRequestSchema,
   RunIdParamsSchema,
   SendWorktreePromptRequestSchema,
@@ -78,6 +79,7 @@ import { buildCreateWorktreeTargets, LifecycleError } from "./services/lifecycle
 import { buildNativeTerminalLaunch, buildNativeTerminalTmuxCommand } from "./services/native-terminal-service";
 import { startPrMonitor, syncPrStatus } from "./services/pr-service";
 import { startLinearAutoCreateMonitor, resetProcessedIssues } from "./services/linear-auto-create-service";
+import { startOneshotWatcher } from "./services/oneshot-watcher-service";
 import { runAutoRemove, type AutoRemoveDependencies } from "./services/auto-remove-service";
 import { pullMainBranch, forcePullMainBranch, startAutoPullMonitor } from "./services/auto-pull-service";
 import {
@@ -129,27 +131,35 @@ let linearAutoCreateEnabled = config.integrations.linear.autoCreateWorktrees;
 let stopLinearAutoCreate: (() => void) | null = null;
 let autoRemoveOnMergeEnabled = config.integrations.github.autoRemoveOnMerge;
 
-const WEBMUX_CLI_ENTRY = Bun.env.WEBMUX_CLI_ENTRY ?? null;
+/** Create a worktree in oneshot mode for the given Linear issue and arm the
+ *  server-side watcher to post results back + close the session when done. */
+async function runOneshotForIssue(issueId: string): Promise<void> {
+  const seed = await buildSeedFromLinear(
+    { issueId },
+    { fetchIssueWithAttachments, downloadWebmuxAttachment: downloadWebmuxAttachmentDefault },
+  );
+  if (!seed.ok) {
+    throw new Error(`Linear seed failed for ${issueId}: ${seed.error}`);
+  }
 
-/** Spawn `webmux oneshot --linear ENG-X` as a detached child process for the `_oneshot`
- *  label variant. Output is dropped — oneshot posts results back to Linear on exit, so
- *  the user sees them there. Returns when the process is spawned (not when it finishes).
- *  Disabled (returns undefined) when the backend wasn't launched via the webmux CLI. */
-const runOneshotForIssue = WEBMUX_CLI_ENTRY
-  ? async (issueId: string): Promise<void> => {
-      const proc = Bun.spawn(
-        ["bun", WEBMUX_CLI_ENTRY, "--port", String(PORT), "oneshot", "--linear", issueId],
-        {
-          cwd: PROJECT_DIR,
-          env: { ...process.env, PORT: String(PORT) },
-          stdout: "ignore",
-          stderr: "ignore",
-          stdin: "ignore",
-        },
-      );
-      proc.unref();
-    }
-  : undefined;
+  const branch = seed.data.branch;
+  if (!branch) {
+    throw new Error(`Linear seed for ${issueId} did not resolve to a branch`);
+  }
+  const mode = seed.data.source !== "none" ? "existing" : "new";
+  const prompt = seed.data.conversationMarkdown?.trim() ?? "";
+
+  await lifecycleService.createWorktree({
+    mode,
+    branch,
+    ...(prompt ? { prompt } : {}),
+    source: "oneshot",
+    oneshot: {
+      autoCloseOnDone: true,
+      postToLinearOnDone: { kind: "issue", issueId },
+    },
+  });
+}
 
 /** Safe to call multiple times — the guard prevents duplicate monitors. */
 function startLinearAutoCreate(): void {
@@ -159,8 +169,21 @@ function startLinearAutoCreate(): void {
     git,
     projectRoot: PROJECT_DIR,
     isActive: hasRecentDashboardActivity,
-    ...(runOneshotForIssue ? { runOneshotForIssue } : {}),
+    runOneshotForIssue,
   });
+}
+
+/** Clear the worktree's oneshot watch state, if armed. Called from every
+ *  user-interaction endpoint so any browser action ("the human took over")
+ *  short-circuits the server-side auto-close + Linear post-back. */
+async function disarmOneshotIfArmed(branch: string, reason: string): Promise<void> {
+  try {
+    const disarmed = await lifecycleService.disarmOneshot(branch);
+    if (disarmed) log.info(`[oneshot-watcher] ${branch}: disarmed by ${reason}`);
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    log.debug(`[oneshot-watcher] disarm failed for ${branch} (${reason}): ${msg}`);
+  }
 }
 
 function stopLinearAutoCreateMonitor(): void {
@@ -595,6 +618,7 @@ async function apiGetAgentsWorktreeHistory(branch: string): Promise<Response> {
 
 async function apiSendAgentsWorktreeMessage(branch: string, req: Request): Promise<Response> {
   touchDashboardActivity();
+  await disarmOneshotIfArmed(branch, "agents-send-message");
   const parsed = await parseJsonBody(req, AgentsSendMessageRequestSchema);
   if (!parsed.ok) return parsed.response;
 
@@ -640,6 +664,7 @@ async function apiSendAgentsWorktreeMessage(branch: string, req: Request): Promi
 
 async function apiInterruptAgentsWorktree(branch: string): Promise<Response> {
   touchDashboardActivity();
+  await disarmOneshotIfArmed(branch, "agents-interrupt");
   const resolved = await resolveAgentsWorktree(branch);
   if (!resolved.ok) return resolved.response;
   if (!resolved.worktree.mux) {
@@ -958,6 +983,9 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
     ...(agents && agents.length > 0 ? { agents } : { agent }),
     envOverrides,
     ...(body.source ? { source: body.source } : {}),
+    ...(body.oneshot
+      ? { oneshot: { autoCloseOnDone: body.oneshot.autoCloseOnDone ?? true, ...(body.oneshot.postToLinearOnDone ? { postToLinearOnDone: body.oneshot.postToLinearOnDone } : {}) } }
+      : {}),
   });
   log.debug(`[worktree:add] done branches=${result.branches.join(",")}`);
   return jsonResponse({
@@ -980,8 +1008,14 @@ async function apiOpenWorktree(name: string, req: Request): Promise<Response> {
   const parsed = await parseJsonBody(req, OpenWorktreeRequestSchema);
   if (!parsed.ok) return parsed.response;
   const prompt = parsed.data.prompt?.trim() ? parsed.data.prompt.trim() : undefined;
-  log.info(`[worktree:open] name=${name}${prompt ? ` prompt="${prompt.slice(0, 80)}"` : ""}`);
-  const result = await lifecycleService.openWorktree(name, { prompt });
+  const oneshot = parsed.data.oneshot
+    ? {
+        autoCloseOnDone: parsed.data.oneshot.autoCloseOnDone ?? true,
+        ...(parsed.data.oneshot.postToLinearOnDone ? { postToLinearOnDone: parsed.data.oneshot.postToLinearOnDone } : {}),
+      }
+    : undefined;
+  log.info(`[worktree:open] name=${name}${prompt ? ` prompt="${prompt.slice(0, 80)}"` : ""}${oneshot ? " oneshot=armed" : ""}`);
+  const result = await lifecycleService.openWorktree(name, { prompt, ...(oneshot ? { oneshot } : {}) });
   log.debug(`[worktree:open] done name=${name} worktreeId=${result.worktreeId}`);
   return jsonResponse({ ok: true });
 }
@@ -1026,6 +1060,7 @@ async function apiSendPrompt(name: string, req: Request): Promise<Response> {
   const text = body.text;
   const preamble = body.preamble;
   log.info(`[worktree:send] name=${name} text="${text.slice(0, 80)}"`);
+  await disarmOneshotIfArmed(name, "send-prompt");
   const terminalWorktree = await resolveTerminalWorktree(name);
   const submitDelayMs = resolveWorktreeTerminalSubmitDelayMs(terminalWorktree.agentName);
   const result = await sendTerminalPrompt(
@@ -1188,39 +1223,46 @@ async function apiPullMain(req: Request): Promise<Response> {
   return jsonResponse(result);
 }
 
-async function apiPostWorktreeToLinear(name: string, req: Request): Promise<Response> {
+type WorktreePostToLinearOutcome =
+  | { ok: true; data: { issueId: string; issueUrl: string; commentUrl: string | null; attachmentUrl: string } }
+  | { ok: false; error: string; status: number };
+
+/** Shared between the HTTP handler and the server-side oneshot watcher. Resolves
+ *  the worktree's conversation and exports it via `exportConversationToLinear`. */
+async function postWorktreeConversationToLinear(
+  branch: string,
+  target: PostWorktreeToLinearTarget,
+): Promise<WorktreePostToLinearOutcome> {
   if (!config.integrations.linear.enabled) {
-    return errorResponse("Linear integration is disabled", 400);
+    return { ok: false, error: "Linear integration is disabled", status: 400 };
   }
   const apiKey = Bun.env.LINEAR_API_KEY;
   if (!apiKey?.trim()) {
-    return errorResponse("LINEAR_API_KEY not set", 503);
+    return { ok: false, error: "LINEAR_API_KEY not set", status: 503 };
   }
 
-  const parsed = await parseJsonBody(req, PostWorktreeToLinearRequestSchema);
-  if (!parsed.ok) return parsed.response;
-  const body = parsed.data;
-
   await reconciliationService.reconcile(PROJECT_DIR);
-  const state = projectRuntime.getWorktreeByBranch(name);
-  if (!state) return errorResponse(`Worktree not found: ${name}`, 404);
+  const state = projectRuntime.getWorktreeByBranch(branch);
+  if (!state) return { ok: false, error: `Worktree not found: ${branch}`, status: 404 };
 
-  const resolved = await resolveAgentsWorktree(name);
-  if (!resolved.ok) return resolved.response;
+  const resolved = await resolveAgentsWorktree(branch);
+  if (!resolved.ok) {
+    return { ok: false, error: `Worktree not found: ${branch}`, status: 404 };
+  }
 
   const chatSupport = resolveWorktreeAgentChatSupport(resolved.worktree, "chat");
-  if (!chatSupport.ok) return errorResponse(chatSupport.error, chatSupport.status);
+  if (!chatSupport.ok) return { ok: false, error: chatSupport.error, status: chatSupport.status };
 
   const conversationResult = chatSupport.data.provider === "claude"
     ? await claudeConversationService.readWorktreeConversation(resolved.worktree)
     : await worktreeConversationService.readWorktreeConversation(resolved.worktree);
-  if (!conversationResult.ok) return errorResponse(conversationResult.error, conversationResult.status);
+  if (!conversationResult.ok) return { ok: false, error: conversationResult.error, status: conversationResult.status };
 
   const prUrl = (state.prs ?? []).find((pr) => pr.state === "open" || pr.state === "merged")?.url ?? null;
 
   const exportInput: ExportConversationInput = {
-    target: body.target,
-    branch: name,
+    target,
+    branch,
     baseBranch: state.baseBranch ?? null,
     agent: resolved.worktree.agentName ?? null,
     prUrl,
@@ -1235,13 +1277,21 @@ async function apiPostWorktreeToLinear(name: string, req: Request): Promise<Resp
     createIssueComment,
   };
   const result = await exportConversationToLinear(exportInput, deps);
-  if (!result.ok) return errorResponse(result.error, result.status);
+  if (!result.ok) return { ok: false, error: result.error, status: result.status };
+  return { ok: true, data: result.data };
+}
+
+async function apiPostWorktreeToLinear(name: string, req: Request): Promise<Response> {
+  const parsed = await parseJsonBody(req, PostWorktreeToLinearRequestSchema);
+  if (!parsed.ok) return parsed.response;
+  const outcome = await postWorktreeConversationToLinear(name, parsed.data.target);
+  if (!outcome.ok) return errorResponse(outcome.error, outcome.status);
   return jsonResponse({
     ok: true,
-    issueId: result.data.issueId,
-    issueUrl: result.data.issueUrl,
-    commentUrl: result.data.commentUrl,
-    attachmentUrl: result.data.attachmentUrl,
+    issueId: outcome.data.issueId,
+    issueUrl: outcome.data.issueUrl,
+    commentUrl: outcome.data.commentUrl,
+    attachmentUrl: outcome.data.attachmentUrl,
   });
 }
 
@@ -1318,6 +1368,7 @@ function sanitizeFilename(name: string): string {
 async function apiUploadFiles(name: string, req: Request): Promise<Response> {
   const state = projectRuntime.getWorktreeByBranch(name);
   if (!state) return errorResponse(`Worktree not found: ${name}`, 404);
+  await disarmOneshotIfArmed(name, "upload-files");
 
   let formData: FormData;
   try {
@@ -1834,6 +1885,15 @@ startPrMonitor(getWorktreeGitDirs, config.integrations.github.linkedRepos, PROJE
 if (linearAutoCreateEnabled) {
   startLinearAutoCreate();
 }
+startOneshotWatcher({
+  projectRuntime,
+  lifecycleService,
+  isActive: hasRecentDashboardActivity,
+  postToLinear: async (branch, target) => {
+    const outcome = await postWorktreeConversationToLinear(branch, target);
+    if (!outcome.ok) throw new Error(outcome.error);
+  },
+});
 if (config.workspace.autoPull.enabled) {
   startAutoPullMonitor(
     { git, projectRoot: PROJECT_DIR, mainBranch: config.workspace.mainBranch },

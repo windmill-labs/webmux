@@ -719,6 +719,14 @@ export async function runOneshot(parsed: ParsedOneshotCommand, port: number): Pr
       ? (await api.fetchWorktrees()).worktrees.find((w) => w.branch === branch)
       : undefined;
 
+    // Hand the server the close+post responsibilities so the run can finish
+    // safely even if this CLI is killed. The watcher disarms itself the moment
+    // a user interacts with the session in the browser.
+    const oneshotConfig = {
+      autoCloseOnDone: !parsed.keepOpen,
+      ...(postToLinearTarget ? { postToLinearOnDone: postToLinearTarget } : {}),
+    };
+
     if (parsed.resume || existingWorktree) {
       if (!branch) throw new Error("resume requires a branch name");
       const reason = parsed.resume ? "resuming" : `worktree exists, resuming ${branch}`;
@@ -732,12 +740,17 @@ export async function runOneshot(parsed: ParsedOneshotCommand, port: number): Pr
       // input loop.
       await api.openWorktree({
         params: { name: branch },
-        body: parsed.prompt ? { prompt: parsed.prompt } : {},
+        body: {
+          ...(parsed.prompt ? { prompt: parsed.prompt } : {}),
+          oneshot: oneshotConfig,
+        },
       });
       if (parsed.prompt) stdout(`[${timestamp()}] [event] sent prompt`);
     } else {
       stdout(`[${timestamp()}] [event] creating worktree${branch ? ` ${branch}` : ""}...`);
-      const result = await api.createWorktree({ body: { ...body, source: "oneshot" } });
+      const result = await api.createWorktree({
+        body: { ...body, source: "oneshot", oneshot: oneshotConfig },
+      });
       branch = result.primaryBranch;
       stdout(`[${timestamp()}] [event] created ${branch}`);
     }
@@ -837,34 +850,10 @@ export async function runOneshot(parsed: ParsedOneshotCommand, port: number): Pr
   process.off("SIGINT", onSignal);
   process.off("SIGTERM", onSignal);
 
-  // Best-effort: post the conversation to Linear after the run completes.
-  // Skip on SIGINT (130) so an interrupted run doesn't post partial state.
-  if (postToLinearTarget && branch && finalExit !== 130) {
-    try {
-      stdout(`[${timestamp()}] [event] posting conversation to Linear...`);
-      const response = await api.postWorktreeToLinear({
-        params: { name: branch },
-        body: { target: postToLinearTarget },
-      });
-      stdout(`[${timestamp()}] [event] linear issue: ${response.issueUrl}`);
-      if (response.commentUrl) stdout(`[${timestamp()}] [event] linear comment: ${response.commentUrl}`);
-      stdout(`[${timestamp()}] [event] linear attachment: ${response.attachmentUrl}`);
-    } catch (error) {
-      stderr(`[${timestamp()}] [error] post-to-linear failed: ${formatServerError(error, port)}`);
-    }
-  }
-
-  // Close the worktree session unless the user asked to keep it open or
-  // interrupted with Ctrl-C. The worktree on disk is untouched — only the
-  // tmux session is shut down (auto-merge actions still apply later).
-  if (branch && finalExit !== 130 && !parsed.keepOpen) {
-    try {
-      await api.closeWorktree({ params: { name: branch } });
-      stdout(`[${timestamp()}] [event] closed worktree session ${branch}`);
-    } catch (error) {
-      stderr(`[${timestamp()}] [warn] close worktree failed: ${formatServerError(error, port)}`);
-    }
-  }
+  // Auto-close + Linear post-back are now driven by the server-side oneshot
+  // watcher (see backend/src/services/oneshot-watcher-service.ts). The CLI
+  // armed the watcher on create/open via `oneshot: { ... }` in the request
+  // body, so the run can finish safely even if this CLI is killed.
 
   return finalExit;
 }

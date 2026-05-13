@@ -28,6 +28,20 @@ export type WorktreeConversationMeta =
 
 export type WorktreeSource = "ui" | "oneshot";
 
+/** Linear post-back target embedded in oneshot meta. Kept structurally identical to
+ *  `PostWorktreeToLinearTarget` so the watcher can pass it straight through. */
+export type OneshotPostTarget =
+  | { kind: "issue"; issueId: string }
+  | { kind: "team"; teamKey: string; title?: string };
+
+/** Per-worktree oneshot watch state. Persisted on disk; the server-side watcher
+ *  reads it to decide when to auto-close / post back to Linear. Presence of this
+ *  field is the "armed" signal — any browser-originated interaction clears it. */
+export interface OneshotMeta {
+  autoCloseOnDone: boolean;
+  postToLinearOnDone?: OneshotPostTarget;
+}
+
 export interface WorktreeMeta {
   schemaVersion: number;
   worktreeId: string;
@@ -41,6 +55,7 @@ export interface WorktreeMeta {
   startupEnvValues: Record<string, string>;
   allocatedPorts: Record<string, number>;
   source?: WorktreeSource;
+  oneshot?: OneshotMeta;
   conversation?: WorktreeConversationMeta | null;
 }
 

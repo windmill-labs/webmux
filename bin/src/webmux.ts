@@ -339,7 +339,6 @@ async function main(args: string[] = process.argv.slice(2)): Promise<void> {
     ...process.env,
     PORT: String(parsed.port),
     WEBMUX_PROJECT_DIR: process.cwd(),
-    WEBMUX_CLI_ENTRY: fileURLToPath(import.meta.url),
     ...(parsed.debug ? { WEBMUX_DEBUG: "1" } : {}),
   };
 

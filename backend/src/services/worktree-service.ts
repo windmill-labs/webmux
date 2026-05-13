@@ -13,6 +13,7 @@ import type { AgentId, RuntimeKind } from "../domain/config";
 import {
   WORKTREE_META_SCHEMA_VERSION,
   type ControlEnvMap,
+  type OneshotMeta,
   type WorktreeMeta,
   type WorktreeSource,
   type WorktreeStoragePaths,
@@ -36,6 +37,7 @@ export interface InitializeManagedWorktreeOptions {
   now?: () => Date;
   worktreeId?: string;
   source?: WorktreeSource;
+  oneshot?: OneshotMeta;
 }
 
 export interface InitializeManagedWorktreeResult {
@@ -64,6 +66,7 @@ export interface CreateManagedWorktreeOptions {
   worktreeId?: string;
   deleteBranchOnRollback?: boolean;
   source?: WorktreeSource;
+  oneshot?: OneshotMeta;
   sessionLayoutPlan?: SessionLayoutPlan;
   sessionLayoutPlanBuilder?: (initialized: InitializeManagedWorktreeResult) => SessionLayoutPlan;
 }
@@ -161,6 +164,7 @@ export async function initializeManagedWorktree(
     startupEnvValues: { ...(opts.startupEnvValues ?? {}) },
     allocatedPorts: { ...(opts.allocatedPorts ?? {}) },
     ...(opts.source ? { source: opts.source } : {}),
+    ...(opts.oneshot ? { oneshot: opts.oneshot } : {}),
   };
 
   const paths = await ensureWorktreeStorageDirs(opts.gitDir);
@@ -225,6 +229,7 @@ export async function createManagedWorktree(
       now: opts.now,
       worktreeId: opts.worktreeId,
       ...(opts.source ? { source: opts.source } : {}),
+      ...(opts.oneshot ? { oneshot: opts.oneshot } : {}),
     });
 
     if (deps.tmux) {

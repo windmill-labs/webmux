@@ -26,6 +26,13 @@ export function getGitRoot(): string | null {
   return result.stdout.toString().trim();
 }
 
+/**
+ * Thrown by argparse functions to signal usage errors (e.g. missing flag value,
+ * unknown option). Caught at the command entry point so the CLI can print the
+ * help banner alongside the message.
+ */
+export class CommandUsageError extends Error {}
+
 export function detectProjectName(gitRoot: string): string {
   const pkgPath = join(gitRoot, "package.json");
   if (existsSync(pkgPath)) {

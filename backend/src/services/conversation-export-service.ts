@@ -1,5 +1,15 @@
-import type { AgentsUiConversationMessage, AgentsUiConversationState } from "@webmux/api-contract";
+import { AgentsUiConversationMessageSchema, type AgentsUiConversationMessage, type AgentsUiConversationState } from "@webmux/api-contract";
+import { z } from "zod";
 import { log } from "../lib/log";
+
+const WebmuxConversationAttachmentPayloadSchema = z.object({
+  webmux: z.literal(1),
+  branch: z.string(),
+  baseBranch: z.string().nullable(),
+  agent: z.string().nullable(),
+  createdAt: z.string(),
+  conversation: z.array(AgentsUiConversationMessageSchema),
+});
 import {
   attachToIssue,
   buildLinearSummaryMarkdown,
@@ -336,11 +346,11 @@ export async function downloadWebmuxAttachmentDefault(url: string): Promise<
       return { ok: false, error: `Asset download failed ${res.status}` };
     }
     const text = await res.text();
-    const parsed = JSON.parse(text) as WebmuxConversationAttachmentPayload;
-    if (parsed.webmux !== 1 || !Array.isArray(parsed.conversation)) {
+    const parsed = WebmuxConversationAttachmentPayloadSchema.safeParse(JSON.parse(text));
+    if (!parsed.success) {
       return { ok: false, error: "Asset is not a webmux conversation payload" };
     }
-    return { ok: true, data: parsed };
+    return { ok: true, data: parsed.data };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return { ok: false, error: msg };

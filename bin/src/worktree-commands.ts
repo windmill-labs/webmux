@@ -3,7 +3,7 @@ import { createApi } from "@webmux/api-contract";
 import { basename, resolve } from "node:path";
 import { fetchIssueWithAttachments } from "../../backend/src/services/linear-service";
 import { buildSeedFromLinear, downloadWebmuxAttachmentDefault } from "../../backend/src/services/conversation-export-service";
-import { withServerConnection } from "./shared";
+import { CommandUsageError, withServerConnection } from "./shared";
 import { readWorktreeArchiveState, readWorktreeMeta } from "../../backend/src/adapters/fs";
 import { buildProjectSessionName, buildWorktreeWindowName } from "../../backend/src/adapters/tmux";
 import type { AgentId } from "../../backend/src/domain/config";
@@ -72,8 +72,6 @@ interface WorktreeCommandDependencies {
   switchToTmuxWindow?: (projectDir: string, branch: string) => void;
   confirmPrune?: (worktreeCount: number) => Promise<boolean>;
 }
-
-class CommandUsageError extends Error {}
 
 export function getWorktreeCommandUsage(command: WorktreeSubcommand): string {
   switch (command) {

@@ -1,7 +1,7 @@
 import { apiPaths, AgentsUiConversationEventSchema, createApi, parseLinearTarget, type AgentsUiConversationMessage, type AgentsUiConversationEvent, type AgentsUiWorktreeConversationResponse, type CreateWorktreeRequest, type PostWorktreeToLinearTarget, type ProjectWorktreeSnapshot } from "@webmux/api-contract";
 import { createLinearIssue, fetchIssueWithAttachments, fetchTeamByKey } from "../../backend/src/services/linear-service";
 import { buildSeedFromLinear, downloadWebmuxAttachmentDefault } from "../../backend/src/services/conversation-export-service";
-import { formatServerError } from "./shared";
+import { CommandUsageError, formatServerError } from "./shared";
 
 export interface ParsedOneshotCommand {
   branch: string | null;
@@ -12,8 +12,6 @@ export interface ParsedOneshotCommand {
   fromLinearIssueId: string | null;
   postToLinearTarget: PostWorktreeToLinearTarget | null;
 }
-
-class CommandUsageError extends Error {}
 
 export function getOneshotUsage(): string {
   return [
@@ -38,7 +36,7 @@ export function getOneshotUsage(): string {
     "  --linear ID|TEAM         Tie this oneshot to Linear:",
     "                             ENG-123  — load the issue body as context, post results back",
     "                             ENG      — create a new issue in that team when done",
-    "                           Pass --branch to override the branch resolved from an issue.",
+    "  --branch <name>          Override the branch when --linear resolves to one",
     "  --help                   Show this help message",
   ].join("\n");
 }
@@ -348,8 +346,11 @@ function handleConversationEvent(
 
 // Cap reconnects so a permanently-down server can't leave the CLI hanging
 // silently. We reset the counter on every successful `open` — only consecutive
-// failed attempts (no `open` in between) count toward the limit.
-const MAX_CONSECUTIVE_RECONNECTS = 10;
+// failed attempts (no `open` in between) count toward the limit. 30 × 2s
+// gives ~1min to ride out normal restarts (deploy, bun --hot, sleep/wake).
+const MAX_CONSECUTIVE_RECONNECTS = 30;
+// Surface a stderr warning early so a long-running disconnect isn't silent.
+const RECONNECT_WARN_AT = 3;
 
 function streamConversation(
   branch: string,
@@ -384,6 +385,9 @@ function streamConversation(
       socket = null;
       if (closed) return;
       consecutiveFailures += 1;
+      if (consecutiveFailures === RECONNECT_WARN_AT) {
+        stderr(`[${timestamp()}] [warn] webmux server unreachable, retrying (${consecutiveFailures}/${MAX_CONSECUTIVE_RECONNECTS})`);
+      }
       if (consecutiveFailures >= MAX_CONSECUTIVE_RECONNECTS) {
         closed = true;
         onFatal(`webmux server unreachable after ${consecutiveFailures} reconnect attempts`);
@@ -640,6 +644,13 @@ export async function runOneshot(parsed: ParsedOneshotCommand, port: number): Pr
       if (!title) {
         stderr(`[${timestamp()}] [error] --linear ${postToLinearTarget.teamKey} requires --prompt to derive an issue title`);
         return 1;
+      }
+      if (parsed.resume) {
+        // The resumed worktree has no Linear issue of its own (we'd have routed
+        // through the issue-id path otherwise), so we're tracking this run as a
+        // fresh issue. Make that explicit — the title comes from --prompt, not
+        // from whatever the resumed session was originally about.
+        stdout(`[${timestamp()}] [event] no Linear issue for this resume; creating a fresh ${postToLinearTarget.teamKey}-N for the post-back`);
       }
       stdout(`[${timestamp()}] [event] creating Linear issue in team ${postToLinearTarget.teamKey}...`);
       const team = await fetchTeamByKey(postToLinearTarget.teamKey);

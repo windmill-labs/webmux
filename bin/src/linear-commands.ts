@@ -1,7 +1,5 @@
 import { createApi, parseLinearTarget, type PostWorktreeToLinearTarget } from "@webmux/api-contract";
-import { formatServerError } from "./shared";
-
-class CommandUsageError extends Error {}
+import { CommandUsageError, formatServerError } from "./shared";
 
 export interface ParsedLinearPostCommand {
   branch: string;

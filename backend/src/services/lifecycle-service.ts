@@ -517,6 +517,9 @@ export class LifecycleService {
   }
 
   private listCheckedOutBranches(): Set<string> {
+    // Raw listWorktrees on purpose: a stale registration still holds its branch
+    // in git's view, so it must continue to block branch reuse. Switching this
+    // to listLiveWorktrees would falsely report the branch as free.
     return new Set(
       this.deps.git.listWorktrees(resolve(this.deps.projectRoot))
         .filter((entry): entry is GitWorktreeEntry & { branch: string } => !entry.bare && entry.branch !== null)

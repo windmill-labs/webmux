@@ -96,7 +96,7 @@ function spawnGit(args: string[], cwd: string): { ok: true; result: Bun.SyncSubp
     };
   } catch (error) {
     // Bun.spawnSync throws synchronously when cwd doesn't exist (posix_spawn ENOENT).
-    return { ok: false, stderr: `spawn failed (cwd=${cwd}): ${errorMessage(error)}` };
+    return { ok: false, stderr: `spawn error (cwd=${cwd}): ${errorMessage(error)}` };
   }
 }
 

@@ -45,6 +45,9 @@ async function runAutoCreate(deps: LinearAutoCreateDependencies): Promise<void> 
   }
 
   const projectRoot = deps.projectRoot;
+  // Raw listWorktrees on purpose: a stale registration still holds its branch
+  // in git's view, so we must treat it as taken to avoid re-creating a worktree
+  // for an already-registered branch. listLiveWorktrees would skip it.
   const existingBranches = deps.git
     .listWorktrees(projectRoot)
     .filter((entry) => !entry.bare && entry.branch !== null)

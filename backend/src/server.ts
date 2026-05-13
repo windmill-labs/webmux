@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { join, resolve } from "node:path";
 import { mkdirSync } from "node:fs";
 import { networkInterfaces } from "node:os";
+import pkg from "../../package.json";
 import {
   AgentIdParamsSchema,
   AgentsSendMessageRequestSchema,
@@ -1284,6 +1285,7 @@ async function postWorktreeConversationToLinear(
     agent: resolved.worktree.agentName ?? null,
     prUrl,
     conversation: conversationResult.data.conversation,
+    webmuxVersion: pkg.version,
   };
   const deps: ExportConversationDependencies = {
     fetchIssueWithAttachments,

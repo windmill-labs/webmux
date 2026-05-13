@@ -63,15 +63,16 @@ async function processWorktree(
   const state = getState(branch);
   if (state.inFlight) return;
 
-  // `closed` is terminal-without-completion: the agent process is gone (e.g. server
-  // restart mid-run, manual exit). Without this, armed meta would persist forever
-  // and re-fire as soon as the agent comes back to life.
-  const isTerminal =
-    agentLifecycle === "stopped" ||
-    agentLifecycle === "error" ||
-    agentLifecycle === "closed";
-  const isIdle = agentLifecycle === "idle";
-  if (!isTerminal && !isIdle) {
+  // `stopped` / `error` are explicit terminal signals from the agent runtime —
+  // fire immediately. `closed` is ambiguous: it's also the default lifecycle for
+  // a freshly upserted worktree before the agent's first event arrives, so a 3s
+  // watcher cadence would otherwise close + post-back on an empty cold-start
+  // session. Treat it like `idle` (needs the grace window) — a real terminal
+  // close stays `closed` past the grace; a cold-start resolves to running/idle
+  // before the grace expires.
+  const isTerminal = agentLifecycle === "stopped" || agentLifecycle === "error";
+  const needsGrace = agentLifecycle === "idle" || agentLifecycle === "closed";
+  if (!isTerminal && !needsGrace) {
     state.idleSinceMs = null;
     return;
   }
@@ -83,9 +84,11 @@ async function processWorktree(
   try {
     const reason = isTerminal
       ? `agent ${agentLifecycle}`
-      : hasPr
-        ? "agent idle after opening PR"
-        : "agent idle without opening a PR";
+      : agentLifecycle === "closed"
+        ? "agent closed without resuming"
+        : hasPr
+          ? "agent idle after opening PR"
+          : "agent idle without opening a PR";
     log.info(`[oneshot-watcher] ${branch}: ${reason} — firing end-of-run actions`);
 
     if (meta.oneshot.postToLinearOnDone) {
@@ -119,6 +122,12 @@ async function processWorktree(
     // didn't fully succeed (e.g. user reopens manually — that interaction would
     // disarm anyway, but the explicit clear here removes the race).
     await deps.lifecycleService.disarmOneshot(branch);
+    // Mirror to in-memory runtime so snapshots reflect the disarm immediately,
+    // without waiting for a reconcile pass. The CLI's "user took over" detector
+    // reads from the snapshot, and when autoCloseOnDone=false no close-driven
+    // reconcile fires — without this mirror, snapshot.oneshot would stay armed.
+    const runtimeState = deps.projectRuntime.getWorktreeByBranch(branch);
+    if (runtimeState) deps.projectRuntime.setOneshot(runtimeState.worktreeId, null);
   } finally {
     states.delete(branch);
   }

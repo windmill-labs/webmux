@@ -62,7 +62,18 @@ function makeMeta(oneshot: WorktreeMeta["oneshot"] | undefined): WorktreeMeta {
 }
 
 function makeRuntime(worktrees: ManagedWorktreeRuntimeState[]): ProjectRuntime {
-  return { listWorktrees: () => worktrees } as unknown as ProjectRuntime;
+  // Stub only the methods the watcher exercises. setOneshot mutates the array in
+  // place so a follow-up listWorktrees() reflects the disarm.
+  return {
+    listWorktrees: () => worktrees,
+    getWorktreeByBranch: (branch: string) =>
+      worktrees.find((wt) => wt.branch === branch) ?? null,
+    setOneshot: (worktreeId: string, oneshot: ManagedWorktreeRuntimeState["oneshot"]) => {
+      const target = worktrees.find((wt) => wt.worktreeId === worktreeId);
+      if (target) target.oneshot = oneshot;
+      return target ?? null;
+    },
+  } as unknown as ProjectRuntime;
 }
 
 function makeLifecycle(): {
@@ -261,16 +272,38 @@ describe("oneshot-watcher-service", () => {
     expect(lc.disarmCalls).toEqual(["feat/a"]);
   });
 
-  it("treats closed agent lifecycle as terminal so meta does not stay armed", async () => {
+  it("does not immediately fire on a freshly upserted closed worktree (cold-start guard)", async () => {
+    // `closed` is the default lifecycle before the agent's first event arrives.
+    // If the watcher fired right away it would close + post on an empty session.
     const lc = makeLifecycle();
-    await runOneshotWatch({
-      projectRuntime: makeRuntime([makeWorktree({ branch: "feat/a", lifecycle: "closed" })]),
+    const deps = {
+      projectRuntime: makeRuntime([makeWorktree({ branch: "feat/a", lifecycle: "closed" as AgentLifecycle })]),
       lifecycleService: lc.service,
       postToLinear: async () => {},
       readWorktreeMeta: async () => makeMeta({ autoCloseOnDone: true }),
       idleGraceMs: 60_000,
       now: () => 0,
-    });
+    };
+    await runOneshotWatch(deps);
+    expect(lc.closeCalls).toEqual([]);
+    expect(lc.disarmCalls).toEqual([]);
+  });
+
+  it("fires on `closed` once the idle grace has elapsed (genuine close)", async () => {
+    const lc = makeLifecycle();
+    let nowMs = 1_000;
+    const deps = {
+      projectRuntime: makeRuntime([makeWorktree({ branch: "feat/a", lifecycle: "closed" as AgentLifecycle })]),
+      lifecycleService: lc.service,
+      postToLinear: async () => {},
+      readWorktreeMeta: async () => makeMeta({ autoCloseOnDone: true }),
+      idleGraceMs: 5_000,
+      now: () => nowMs,
+    };
+    await runOneshotWatch(deps);
+    expect(lc.closeCalls).toEqual([]);
+    nowMs += 6_000;
+    await runOneshotWatch(deps);
     expect(lc.closeCalls).toEqual(["feat/a"]);
     expect(lc.disarmCalls).toEqual(["feat/a"]);
   });

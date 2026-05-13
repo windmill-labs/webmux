@@ -473,6 +473,7 @@ function pollProjectState(
     onAgentDone: (reason: string) => void;
     onUserTookOver: () => void;
   },
+  stderr: (line: string) => void,
 ): { stop: () => void } {
   const api = createApi(`http://localhost:${port}`);
   let stopped = false;
@@ -482,8 +483,12 @@ function pollProjectState(
     try {
       const refreshed = await api.syncWorktreePrs({ params: { name: branch } });
       recordPrEvents(state, refreshed, callbacks.onPrEvent);
-    } catch {
-      // Sync may transiently fail (network/server) — fall back to whatever we already saw.
+    } catch (err: unknown) {
+      // Surface the cause: a silent swallow would let us mis-classify the run
+      // as "agent stuck without opening a PR" when the real issue was that
+      // syncWorktreePrs couldn't reach the server.
+      const msg = err instanceof Error ? err.message : String(err);
+      stderr(`[${timestamp()}] [warn] failed to sync PRs from server: ${msg}`);
     }
   };
 
@@ -515,6 +520,9 @@ function pollProjectState(
         }
         // A single mux=false reading can be a transient tmux/server hiccup;
         // require two consecutive readings before declaring the session closed.
+        // With the 3s poll cadence this adds ~3-6s lag between the watcher
+        // closing the session and the CLI exiting — small price for not
+        // emitting spurious "session closed" events on reconcile gaps.
         if (state.hadOpenSession && !worktree.mux) {
           state.consecutiveClosedReadings += 1;
           if (state.consecutiveClosedReadings >= 2) {
@@ -571,7 +579,16 @@ async function ensureWorktreeReady(
     try {
       const response = await api.fetchWorktrees();
       const worktree = response.worktrees.find((w: ProjectWorktreeSnapshot) => w.branch === branch);
-      if (worktree && worktree.mux && worktree.status !== "creating") {
+      // `closed` is the default lifecycle for a freshly upserted worktree before
+      // the agent's first event arrives — don't return ready in that window or
+      // the watcher (also driven by `closed`) and our own poller could race on
+      // a cold-start session.
+      if (
+        worktree &&
+        worktree.mux &&
+        worktree.status !== "creating" &&
+        worktree.status !== "closed"
+      ) {
         return { ready: true, worktree };
       }
     } catch {
@@ -865,7 +882,7 @@ export async function runOneshot(parsed: ParsedOneshotCommand, port: number): Pr
       stdout(`[${timestamp()}] [event] user took over from the browser — exiting`);
       finalize(0);
     },
-  });
+  }, stderr);
 
   const onSignal = (): void => {
     stdout(`\n[${timestamp()}] [event] interrupted — worktree ${branch} keeps running`);

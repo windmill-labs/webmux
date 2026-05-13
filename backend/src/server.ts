@@ -409,7 +409,7 @@ async function hasValidControlToken(req: Request): Promise<boolean> {
 async function getWorktreeGitDirs(): Promise<Map<string, string>> {
   const gitDirs = new Map<string, string>();
   const projectRoot = resolve(PROJECT_DIR);
-  for (const entry of git.listWorktrees(projectRoot)) {
+  for (const entry of git.listLiveWorktrees(projectRoot)) {
     if (entry.bare || resolve(entry.path) === projectRoot || !entry.branch) continue;
     gitDirs.set(entry.branch, git.resolveWorktreeGitDir(entry.path));
   }

@@ -21,6 +21,7 @@ class FakeGitGateway implements GitGateway {
     private readonly worktrees: GitWorktreeEntry[],
     private readonly gitDirs: Map<string, string>,
     private readonly statuses: Map<string, GitWorktreeStatus>,
+    private readonly liveWorktrees?: GitWorktreeEntry[],
   ) {}
 
   resolveRepoRoot(dir: string): string | null {
@@ -39,6 +40,10 @@ class FakeGitGateway implements GitGateway {
 
   listWorktrees(): GitWorktreeEntry[] {
     return this.worktrees;
+  }
+
+  listLiveWorktrees(): GitWorktreeEntry[] {
+    return this.liveWorktrees ?? this.worktrees;
   }
 
   listLocalBranches(): string[] {
@@ -302,6 +307,58 @@ describe("ReconciliationService", () => {
       },
     ]);
     expect(runtime.getWorktree("wt_stale")).toBeNull();
+  });
+
+  it("ignores stale worktree registrations whose directory no longer exists", async () => {
+    // Reproduces the ENOENT add-flow crash: a git registration points at a directory
+    // that's gone. The service must complete the reconcile, never call git against the
+    // stale path, and not surface it in runtime state.
+    const repoRoot = "/repo/project";
+    const stalePath = "/repo/project/__worktrees/feature-stale-on-disk";
+    const livePath = "/repo/project/__worktrees/feature-live";
+    const liveGitDir = await mkdtemp(join(tmpdir(), "webmux-reconcile-live-"));
+    tempDirs.push(liveGitDir);
+
+    await writeWorktreeMeta(liveGitDir, {
+      schemaVersion: 1,
+      worktreeId: "wt_live",
+      branch: "feature/live",
+      createdAt: "2026-05-13T00:00:00.000Z",
+      profile: "default",
+      agent: "claude",
+      runtime: "host",
+      startupEnvValues: {},
+      allocatedPorts: { FRONTEND_PORT: 3010 },
+    });
+
+    const runtime = new ProjectRuntime();
+    const mainEntry = { path: repoRoot, branch: "main", head: "aaa111", detached: false, bare: false };
+    const liveEntry = { path: livePath, branch: "feature/live", head: "bbb222", detached: false, bare: false };
+    const staleEntry = { path: stalePath, branch: "feature/stale-on-disk", head: "ccc333", detached: false, bare: false };
+
+    const git = new FakeGitGateway(
+      [mainEntry, liveEntry, staleEntry],
+      new Map([
+        [livePath, liveGitDir],
+        // No mapping for stalePath — if the service ever calls resolveWorktreeGitDir
+        // on it, the fake throws and the test fails.
+      ]),
+      new Map([[livePath, { dirty: false, aheadCount: 0, currentCommit: "bbb222" }]]),
+      [mainEntry, liveEntry], // listLiveWorktrees excludes the stale entry
+    );
+
+    const service = new ReconciliationService({
+      config: TEST_CONFIG,
+      git,
+      tmux: new FakeTmuxGateway([]),
+      portProbe: new FakePortProbe(new Set([3010])),
+      runtime,
+    });
+
+    await service.reconcile(repoRoot);
+
+    expect(runtime.getWorktree("wt_live")).not.toBeNull();
+    expect(runtime.getWorktreeByBranch("feature/stale-on-disk")).toBeNull();
   });
 
   it("creates synthetic ids for unmanaged worktrees", async () => {

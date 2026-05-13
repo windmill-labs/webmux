@@ -526,7 +526,7 @@ export class LifecycleService {
 
   private listProjectWorktrees(): GitWorktreeEntry[] {
     const projectRoot = resolve(this.deps.projectRoot);
-    return this.deps.git.listWorktrees(projectRoot).filter((entry) =>
+    return this.deps.git.listLiveWorktrees(projectRoot).filter((entry) =>
       !entry.bare && resolve(entry.path) !== projectRoot
     );
   }

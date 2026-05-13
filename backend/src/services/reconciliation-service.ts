@@ -150,7 +150,7 @@ export class ReconciliationService {
   }
 
   private async runReconcile(normalizedRepoRoot: string): Promise<void> {
-    const worktrees = this.deps.git.listWorktrees(normalizedRepoRoot);
+    const worktrees = this.deps.git.listLiveWorktrees(normalizedRepoRoot);
     const sessionName = buildProjectSessionName(normalizedRepoRoot);
 
     let windows: TmuxWindowSummary[] = [];

@@ -129,6 +129,28 @@ let linearAutoCreateEnabled = config.integrations.linear.autoCreateWorktrees;
 let stopLinearAutoCreate: (() => void) | null = null;
 let autoRemoveOnMergeEnabled = config.integrations.github.autoRemoveOnMerge;
 
+const WEBMUX_CLI_ENTRY = Bun.env.WEBMUX_CLI_ENTRY ?? null;
+
+/** Spawn `webmux oneshot --linear ENG-X` as a detached child process for the `_oneshot`
+ *  label variant. Output is dropped — oneshot posts results back to Linear on exit, so
+ *  the user sees them there. Returns when the process is spawned (not when it finishes).
+ *  Disabled (returns undefined) when the backend wasn't launched via the webmux CLI. */
+const runOneshotForIssue = WEBMUX_CLI_ENTRY
+  ? async (issueId: string): Promise<void> => {
+      const proc = Bun.spawn(
+        ["bun", WEBMUX_CLI_ENTRY, "--port", String(PORT), "oneshot", "--linear", issueId],
+        {
+          cwd: PROJECT_DIR,
+          env: { ...process.env, PORT: String(PORT) },
+          stdout: "ignore",
+          stderr: "ignore",
+          stdin: "ignore",
+        },
+      );
+      proc.unref();
+    }
+  : undefined;
+
 /** Safe to call multiple times — the guard prevents duplicate monitors. */
 function startLinearAutoCreate(): void {
   if (stopLinearAutoCreate) return;
@@ -137,6 +159,7 @@ function startLinearAutoCreate(): void {
     git,
     projectRoot: PROJECT_DIR,
     isActive: hasRecentDashboardActivity,
+    ...(runOneshotForIssue ? { runOneshotForIssue } : {}),
   });
 }
 

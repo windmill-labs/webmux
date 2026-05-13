@@ -789,7 +789,7 @@
     if (!branch) return;
     openingBranches = new Set([...openingBranches, branch]);
     try {
-      await api.openWorktree({ params: { name: branch } });
+      await api.openWorktree({ params: { name: branch }, body: {} });
       await refresh();
     } catch (err) {
       showToast({ tone: "error", message: `Failed to open worktree: ${errorMessage(err)}` });

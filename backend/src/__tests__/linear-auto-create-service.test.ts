@@ -158,10 +158,10 @@ describe("filterAutoOneshotIssues", () => {
     resetProcessedIssues();
   });
 
-  it("matches the _oneshot label case-insensitively", () => {
+  it("matches the webmux_oneshot label case-insensitively", () => {
     const issues = [
-      createIssue({ id: "a", identifier: "ENG-1", branchName: "eng-1", labels: [{ name: "_oneshot", color: "#fff" }] }),
-      createIssue({ id: "b", identifier: "ENG-2", branchName: "eng-2", labels: [{ name: "_ONESHOT", color: "#fff" }] }),
+      createIssue({ id: "a", identifier: "ENG-1", branchName: "eng-1", labels: [{ name: "webmux_oneshot", color: "#fff" }] }),
+      createIssue({ id: "b", identifier: "ENG-2", branchName: "eng-2", labels: [{ name: "WEBMUX_ONESHOT", color: "#fff" }] }),
       createIssue({ id: "c", identifier: "ENG-3", branchName: "eng-3", labels: [{ name: "webmux", color: "#fff" }] }),
     ];
     const matches = filterAutoOneshotIssues(issues, []);
@@ -172,17 +172,17 @@ describe("filterAutoOneshotIssues", () => {
     const issues = [
       createIssue({
         id: "a", identifier: "ENG-1", branchName: "eng-1",
-        labels: [{ name: "_oneshot", color: "#fff" }],
+        labels: [{ name: "webmux_oneshot", color: "#fff" }],
       }),
     ];
     expect(filterAutoOneshotIssues(issues, ["eng-1"])).toEqual([]);
   });
 
-  it("routes issues tagged with both webmux and _oneshot to the oneshot filter only", () => {
+  it("routes issues tagged with both webmux and webmux_oneshot to the oneshot filter only", () => {
     const issues = [
       createIssue({
         id: "a", identifier: "ENG-1", branchName: "eng-1",
-        labels: [{ name: "webmux", color: "#fff" }, { name: "_oneshot", color: "#fff" }],
+        labels: [{ name: "webmux", color: "#fff" }, { name: "webmux_oneshot", color: "#fff" }],
       }),
     ];
     expect(filterAutoOneshotIssues(issues, []).map((i) => i.identifier)).toEqual(["ENG-1"]);
@@ -268,10 +268,10 @@ describe("runLinearAutoCreateOnce", () => {
     expect(created).toEqual([]);
   });
 
-  it("calls runOneshotForIssue for _oneshot-labeled issues and skips webmux create for them", async () => {
+  it("calls runOneshotForIssue for webmux_oneshot-labeled issues and skips webmux create for them", async () => {
     const oneshotIssue = createIssue({
       id: "issue-oneshot", identifier: "ENG-200", branchName: "eng-200-oneshot",
-      labels: [{ name: "_oneshot", color: "#fff" }],
+      labels: [{ name: "webmux_oneshot", color: "#fff" }],
     });
     const createIssue1 = createIssue({
       id: "issue-create", identifier: "ENG-201", branchName: "eng-201-create",
@@ -291,10 +291,10 @@ describe("runLinearAutoCreateOnce", () => {
     expect(created.map((c) => c.branch)).toEqual(["eng-201-create"]);
   });
 
-  it("skips _oneshot issues when no runOneshotForIssue dep is provided", async () => {
+  it("skips webmux_oneshot issues when no runOneshotForIssue dep is provided", async () => {
     const oneshotIssue = createIssue({
       id: "issue-oneshot", identifier: "ENG-200", branchName: "eng-200-oneshot",
-      labels: [{ name: "_oneshot", color: "#fff" }],
+      labels: [{ name: "webmux_oneshot", color: "#fff" }],
     });
     const { deps, created } = createDeps({ issues: [oneshotIssue] });
 

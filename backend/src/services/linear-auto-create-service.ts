@@ -18,7 +18,7 @@ export interface LinearAutoCreateDependencies {
   git: Pick<GitGateway, "listWorktrees">;
   projectRoot: string;
   fetchIssues?: typeof fetchAssignedIssues;
-  /** Optional handler for the `_oneshot` label variant. When omitted, oneshot triggering is skipped. */
+  /** Optional handler for the `webmux_oneshot` label variant. When omitted, oneshot triggering is skipped. */
   runOneshotForIssue?: (issueId: string) => Promise<void>;
 }
 
@@ -31,7 +31,7 @@ export interface LinearAutoCreateMonitorOptions {
 const processedIssueIds = new Set<string>();
 
 const AUTO_CREATE_LABEL = "webmux";
-const AUTO_ONESHOT_LABEL = "_oneshot";
+const AUTO_ONESHOT_LABEL = "webmux_oneshot";
 
 function hasLabel(issue: LinearIssue, name: string): boolean {
   return issue.labels.some((l) => l.name.toLowerCase() === name);
@@ -65,8 +65,8 @@ export function filterAutoCreateIssues(
   );
 }
 
-/** Filter issues to only those in Todo state with the "_oneshot" label that don't already
- *  have a worktree. The "_oneshot" label wins over "webmux" — issues tagged with both
+/** Filter issues to only those in Todo state with the "webmux_oneshot" label that don't already
+ *  have a worktree. The "webmux_oneshot" label wins over "webmux" — issues tagged with both
  *  run via oneshot mode. */
 export function filterAutoOneshotIssues(
   issues: LinearIssue[],

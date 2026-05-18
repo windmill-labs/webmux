@@ -1932,15 +1932,28 @@ function actualPort(server: ReturnType<typeof Bun.serve>, requested: number): nu
   return server.port ?? requested;
 }
 
+const MAX_INCREMENTAL_BIND_ATTEMPTS = 100;
+
+/** Bind the HTTP server, walking PORT, PORT+1, … up to a sane cap on
+ *  `EADDRINUSE`. Predictable nearby ports (5111 → 5112 → 5113) match the
+ *  install-time port picker and keep instances easy to spot in `lsof`. If
+ *  the whole window is taken (extremely unlikely), fall back to an OS-picked
+ *  ephemeral port so the process never crashes on startup. */
 function bindServer(): number {
-  try {
-    return actualPort(startServer(PORT), PORT);
-  } catch (err: unknown) {
-    const code = (err as { code?: string } | null)?.code;
-    if (code !== "EADDRINUSE") throw err;
-    log.info(`[serve] port ${PORT} in use; binding to a free port`);
-    return actualPort(startServer(0), 0);
+  let candidate = PORT;
+  for (let attempt = 0; attempt < MAX_INCREMENTAL_BIND_ATTEMPTS; attempt++) {
+    try {
+      const server = startServer(candidate);
+      if (attempt > 0) log.info(`[serve] port ${PORT} in use; bound to ${actualPort(server, candidate)}`);
+      return actualPort(server, candidate);
+    } catch (err: unknown) {
+      const code = (err as { code?: string } | null)?.code;
+      if (code !== "EADDRINUSE") throw err;
+      candidate += 1;
+    }
   }
+  log.info(`[serve] ports ${PORT}..${PORT + MAX_INCREMENTAL_BIND_ATTEMPTS - 1} all in use; falling back to an OS-picked port`);
+  return actualPort(startServer(0), 0);
 }
 
 const BOUND_PORT = bindServer();

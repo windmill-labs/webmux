@@ -9,6 +9,7 @@ import type {
   AgentsUiWorktreeConversationResponse,
   AppNotification,
   FileUploadResult,
+  InstanceSummary,
   PostWorktreeToLinearResponse,
   PostWorktreeToLinearTarget,
   ProjectWorktreeSnapshot,
@@ -177,6 +178,11 @@ export function deleteAgent(id: string): Promise<void> {
 
 export function validateAgent(body: UpsertCustomAgentRequest): Promise<ValidateCustomAgentResponse> {
   return api.validateAgent({ body });
+}
+
+export async function fetchInstances(): Promise<InstanceSummary[]> {
+  const response = await api.fetchInstances();
+  return response.instances;
 }
 
 export function subscribeNotifications(

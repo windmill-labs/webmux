@@ -519,6 +519,20 @@ export const RunIdParamsSchema = z.object({
   runId: NumberLikePathParamSchema,
 });
 
+export const InstanceSummarySchema = z.object({
+  prefix: z.string(),
+  port: z.number(),
+  projectDir: z.string(),
+  startedAt: z.number(),
+});
+
+export const InstancesResponseSchema = z.object({
+  instances: z.array(InstanceSummarySchema),
+});
+
+export type InstanceSummary = z.infer<typeof InstanceSummarySchema>;
+export type InstancesResponse = z.infer<typeof InstancesResponseSchema>;
+
 export type BuiltInAgentId = z.infer<typeof BuiltInAgentIdSchema>;
 export type AgentId = z.infer<typeof AgentIdSchema>;
 export type AgentKind = z.infer<typeof AgentKindSchema>;

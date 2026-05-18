@@ -46,6 +46,7 @@ export type {
   PostWorktreeToLinearResponse,
   PostWorktreeToLinearTarget,
   FromLinearInput,
+  InstanceSummary,
   PrComment,
   PrEntry,
   ProfileConfig,

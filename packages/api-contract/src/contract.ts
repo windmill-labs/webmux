@@ -37,6 +37,7 @@ import {
   WorktreeNameParamsSchema,
   NotificationIdParamsSchema,
   LinearIssuesResponseSchema,
+  InstancesResponseSchema,
 } from "./schemas";
 
 const c = initContract();
@@ -74,6 +75,7 @@ export const apiPaths = {
   pullMain: "/api/pull-main",
   fetchCiLogs: "/api/ci-logs/:runId",
   dismissNotification: "/api/notifications/:id/dismiss",
+  fetchInstances: "/api/instances",
 } as const;
 
 const commonErrorResponses = {
@@ -383,6 +385,14 @@ export const apiContract = c.router({
       200: OkResponseSchema,
       400: ErrorResponseSchema,
       404: ErrorResponseSchema,
+    },
+  },
+  fetchInstances: {
+    method: "GET",
+    path: apiPaths.fetchInstances,
+    responses: {
+      200: InstancesResponseSchema,
+      500: ErrorResponseSchema,
     },
   },
 }, {

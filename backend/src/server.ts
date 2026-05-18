@@ -96,8 +96,10 @@ import { WorktreeConversationService } from "./services/worktree-conversation-se
 import { parseRuntimeEvent } from "./domain/events";
 import type { AgentsUiConversationEvent, AgentsUiWorktreeConversationResponse } from "./domain/agents-ui";
 import type { OneshotMeta, ProjectSnapshot, WorktreeSnapshot } from "./domain/model";
-import { isValidBranchName, isValidWorktreeName } from "./domain/policies";
+import { deriveInstancePrefix, isValidBranchName, isValidInstancePrefix, isValidWorktreeName } from "./domain/policies";
 import { createWebmuxRuntime } from "./runtime";
+import { createInstanceRegistry, type InstanceEntry } from "./adapters/instance-registry";
+import { decidePeerRouting } from "./domain/peer-routing";
 
 const PORT = parseInt(Bun.env.PORT || "5111", 10);
 const STATIC_DIR = Bun.env.WEBMUX_STATIC_DIR || "";
@@ -1483,8 +1485,9 @@ function parseAgentIdParam(params: Record<string, string>):
 
 // --- Server ---
 
-Bun.serve({
-  port: PORT,
+function startServer(port: number): ReturnType<typeof Bun.serve> {
+  return Bun.serve({
+  port,
   idleTimeout: 255, // seconds; worktree removal can take >10s
 
   routes: {
@@ -1738,10 +1741,27 @@ Bun.serve({
         return jsonResponse({ ok: true });
       },
     },
+
+    [apiPaths.fetchInstances]: {
+      GET: () => jsonResponse({
+        instances: instanceRegistry.listLive()
+          .filter((entry) => entry.port !== BOUND_PORT)
+          .map((entry) => ({
+            prefix: entry.prefix,
+            port: entry.port,
+            projectDir: entry.projectDir,
+            startedAt: entry.startedAt,
+          })),
+      }),
+    },
   },
 
   async fetch(req) {
     const url = new URL(req.url);
+
+    const peerRedirect = resolvePeerRedirect(url, req.headers.get("host"));
+    if (peerRedirect) return peerRedirect;
+
     // Static frontend files in production mode (fallback for unmatched routes)
     if (STATIC_DIR) {
       const rawPath = url.pathname === "/" ? "index.html" : url.pathname;
@@ -1893,7 +1913,77 @@ Bun.serve({
       }
     },
   },
-});
+  });
+}
+
+function actualPort(server: ReturnType<typeof Bun.serve>, requested: number): number {
+  return server.port ?? requested;
+}
+
+function bindServer(): number {
+  try {
+    return actualPort(startServer(PORT), PORT);
+  } catch (err: unknown) {
+    const code = (err as { code?: string } | null)?.code;
+    if (code !== "EADDRINUSE") throw err;
+    log.info(`[serve] port ${PORT} in use; binding to a free port`);
+    return actualPort(startServer(0), 0);
+  }
+}
+
+const BOUND_PORT = bindServer();
+
+const instanceRegistry = createInstanceRegistry();
+const explicitPrefix = Bun.env.WEBMUX_PREFIX?.trim();
+const livePeers = instanceRegistry.listLive();
+const takenPrefixes = livePeers.map((peer) => peer.prefix);
+const INSTANCE_PREFIX = explicitPrefix && isValidInstancePrefix(explicitPrefix)
+  ? explicitPrefix
+  : deriveInstancePrefix(PROJECT_DIR, takenPrefixes);
+
+const selfEntry: InstanceEntry = {
+  prefix: INSTANCE_PREFIX,
+  port: BOUND_PORT,
+  projectDir: PROJECT_DIR,
+  pid: process.pid,
+  startedAt: Date.now(),
+};
+instanceRegistry.register(selfEntry);
+log.info(`[serve] registered instance prefix=${INSTANCE_PREFIX} port=${BOUND_PORT}`);
+
+function deregisterSelf(): void {
+  try {
+    instanceRegistry.deregister(BOUND_PORT);
+  } catch {
+    // best effort
+  }
+}
+process.on("SIGINT", () => { deregisterSelf(); process.exit(0); });
+process.on("SIGTERM", () => { deregisterSelf(); process.exit(0); });
+process.on("exit", deregisterSelf);
+
+function safeHostname(rawHost: string | null): string {
+  if (!rawHost) return "127.0.0.1";
+  // Strip any CR/LF and trailing port, keep only the hostname or bracketed IPv6.
+  const sanitized = rawHost.replace(/[\r\n\0]/g, "").trim();
+  if (!sanitized) return "127.0.0.1";
+  const ipv6 = sanitized.match(/^(\[[^\]]+\])(?::\d+)?$/);
+  if (ipv6) return ipv6[1] ?? "127.0.0.1";
+  const hostAndPort = sanitized.match(/^([^:]+)(?::\d+)?$/);
+  return hostAndPort?.[1] ?? "127.0.0.1";
+}
+
+function resolvePeerRedirect(url: URL, hostHeader: string | null): Response | null {
+  const decision = decidePeerRouting(url.pathname, instanceRegistry.listLive(), BOUND_PORT);
+  if (decision.kind === "passthrough") return null;
+  if (decision.kind === "rewrite") {
+    url.pathname = decision.path;
+    return null;
+  }
+  const hostname = safeHostname(hostHeader);
+  const location = `${url.protocol}//${hostname}:${decision.port}${decision.path}${url.search}`;
+  return new Response(null, { status: 302, headers: { Location: location } });
+}
 
 
 // Ensure tmux server is running (needs at least one session to persist)
@@ -1927,12 +2017,12 @@ if (config.workspace.autoPull.enabled) {
   );
 }
 
-log.info(`Dev Dashboard API running at http://localhost:${PORT}`);
+log.info(`Dev Dashboard API running at http://localhost:${BOUND_PORT}`);
 const nets = networkInterfaces();
 for (const addrs of Object.values(nets)) {
   for (const a of addrs ?? []) {
     if (a.family === "IPv4" && !a.internal) {
-      log.info(`  Network: http://${a.address}:${PORT}`);
+      log.info(`  Network: http://${a.address}:${BOUND_PORT}`);
     }
   }
 }

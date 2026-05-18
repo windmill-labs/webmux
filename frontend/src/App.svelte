@@ -16,6 +16,7 @@
   import MobileChatSurface from "./lib/MobileChatSurface.svelte";
   import WorktreeLabelDialog from "./lib/WorktreeLabelDialog.svelte";
   import SidebarRepoRow from "./lib/SidebarRepoRow.svelte";
+  import InstanceSwitcher from "./lib/InstanceSwitcher.svelte";
   import Toggle from "./lib/Toggle.svelte";
   import type {
     AvailableBranch,
@@ -1032,7 +1033,10 @@
     >
       <div class="p-4 border-b border-edge">
         <div class="flex items-center justify-between">
-          <h1 class="text-base font-semibold">{config.name ?? "Dashboard"}</h1>
+          <div class="flex items-center gap-2 min-w-0">
+            <h1 class="text-base font-semibold truncate">{config.name ?? "Dashboard"}</h1>
+            <InstanceSwitcher />
+          </div>
           <div class="flex items-center gap-2">
             <button
               class="h-8 px-2 gap-1.5 rounded-md border border-edge bg-surface text-accent text-xs flex items-center justify-center cursor-pointer hover:bg-hover disabled:opacity-50 disabled:cursor-not-allowed"

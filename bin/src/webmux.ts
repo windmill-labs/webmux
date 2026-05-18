@@ -319,6 +319,21 @@ async function main(args: string[] = process.argv.slice(2)): Promise<void> {
       stderr: "inherit",
     });
     const code = await proc.exited;
+    if (code === 0) {
+      const { listInstalledServices, restartInstalledService } = await import("./service-restart.ts");
+      const services = listInstalledServices();
+      if (services.length > 0) {
+        console.log(`\nRestarting ${services.length} installed webmux service(s) to pick up the new version...`);
+        for (const svc of services) {
+          const outcome = restartInstalledService(svc);
+          if (outcome.ok) {
+            console.log(`  ${svc.name}: restarted`);
+          } else {
+            console.log(`  ${svc.name}: restart failed — ${outcome.error}`);
+          }
+        }
+      }
+    }
     process.exit(code);
   }
 

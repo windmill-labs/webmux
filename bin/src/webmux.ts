@@ -320,17 +320,22 @@ async function main(args: string[] = process.argv.slice(2)): Promise<void> {
     });
     const code = await proc.exited;
     if (code === 0) {
-      const { listInstalledServices, restartInstalledService } = await import("./service-restart.ts");
+      const { listInstalledServices, updateInstalledService } = await import("./service-restart.ts");
       const services = listInstalledServices();
       if (services.length > 0) {
-        console.log(`\nRestarting ${services.length} installed webmux service(s) to pick up the new version...`);
+        const whichResult = Bun.spawnSync(["which", "webmux"], { stdout: "pipe", stderr: "pipe" });
+        const webmuxPath = whichResult.success ? whichResult.stdout.toString().trim() : "";
+        console.log(`\nRefreshing ${services.length} installed webmux service(s) to pick up the new version...`);
         for (const svc of services) {
-          const outcome = restartInstalledService(svc);
-          if (outcome.ok) {
-            console.log(`  ${svc.name}: restarted`);
-          } else {
-            console.log(`  ${svc.name}: restart failed — ${outcome.error}`);
-          }
+          const outcome = updateInstalledService(svc, webmuxPath);
+          const parts: string[] = [];
+          if (outcome.regenerated) parts.push("regenerated unit");
+          if (outcome.restarted) parts.push("restarted");
+          if (!outcome.regenerated && !outcome.restarted && !outcome.error) parts.push("no change");
+          const status = outcome.error
+            ? `failed — ${outcome.error}`
+            : parts.join(", ");
+          console.log(`  ${svc.name}: ${status}`);
         }
       }
     }

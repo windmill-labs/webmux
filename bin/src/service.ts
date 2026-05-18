@@ -1,6 +1,6 @@
 import * as p from "@clack/prompts";
-import { existsSync, mkdirSync, unlinkSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, unlinkSync } from "node:fs";
+import { basename, join } from "node:path";
 import { homedir } from "node:os";
 import { run, getGitRoot, detectProjectName } from "./shared.ts";
 import type { RunResult } from "./shared.ts";
@@ -8,10 +8,10 @@ import { discoverTakenPorts, pickFreePort, readPortFromUnit } from "./install-po
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
-type Platform = "linux" | "darwin";
+export type Platform = "linux" | "darwin";
 type Command = [bin: string, args: string[]];
 
-interface ServiceConfig {
+export interface ServiceConfig {
   platform: Platform;
   projectName: string;
   serviceName: string;
@@ -130,9 +130,58 @@ function generateLaunchdPlist(config: ServiceConfig): string {
 `;
 }
 
-function generateServiceFile(config: ServiceConfig): string {
+export function generateServiceFile(config: ServiceConfig): string {
   if (config.platform === "linux") return generateSystemdUnit(config);
   return generateLaunchdPlist(config);
+}
+
+const SYSTEMD_WORKDIR_RE = /^WorkingDirectory=(.+)$/m;
+const LAUNCHD_WORKDIR_RE = /<key>WorkingDirectory<\/key>\s*<string>([^<]+)<\/string>/;
+
+function readWorkingDirFromUnit(filePath: string, platform: Platform): string | null {
+  let text: string;
+  try {
+    text = readFileSync(filePath, "utf8");
+  } catch {
+    return null;
+  }
+  const regex = platform === "linux" ? SYSTEMD_WORKDIR_RE : LAUNCHD_WORKDIR_RE;
+  const match = regex.exec(text);
+  return match ? match[1].trim() : null;
+}
+
+/** Reconstruct a ServiceConfig from an installed unit file. The serviceName
+ *  is taken from the file basename (not re-derived) so a renamed project dir
+ *  doesn't change the launchd Label / systemd unit name that the OS is
+ *  already tracking — only the regenerated *content* (description, paths,
+ *  environment) reflects the current state. Returns null when the file is
+ *  missing required fields. */
+export function parseInstalledServiceConfig(
+  filePath: string,
+  platform: Platform,
+  webmuxPath: string,
+): ServiceConfig | null {
+  const port = readPortFromUnit(filePath);
+  if (port === null) return null;
+
+  const projectDir = readWorkingDirFromUnit(filePath, platform);
+  if (projectDir === null) return null;
+
+  const fileBase = basename(filePath);
+  const serviceName = platform === "linux"
+    ? fileBase.replace(/\.service$/, "")
+    : fileBase.replace(/^com\.webmux\./, "").replace(/\.plist$/, "");
+
+  const projectName = detectProjectName(projectDir);
+
+  return {
+    platform,
+    projectName,
+    serviceName,
+    webmuxPath,
+    projectDir,
+    port,
+  };
 }
 
 // ── Install/uninstall commands ──────────────────────────────────────────────

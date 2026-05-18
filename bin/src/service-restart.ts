@@ -1,9 +1,10 @@
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { run, type RunResult } from "./shared.ts";
+import { generateServiceFile, parseInstalledServiceConfig, type Platform } from "./service.ts";
 
-export type ServicePlatform = "linux" | "darwin";
+export type ServicePlatform = Platform;
 
 export interface InstalledService {
   /** Full unit name. systemd: "webmux-foo" (no .service suffix). launchd: the
@@ -89,4 +90,86 @@ export function restartInstalledService(service: InstalledService): RestartOutco
     };
   }
   return { service, ok: true };
+}
+
+export interface UpdateOutcome {
+  service: InstalledService;
+  regenerated: boolean;
+  restarted: boolean;
+  error?: string;
+}
+
+function reloadAfterRegenerate(service: InstalledService): RunResult | null {
+  if (service.platform === "linux") {
+    return run("systemctl", ["--user", "daemon-reload"]);
+  }
+  // launchd: kickstart -k doesn't re-read the plist. Force unload + load so
+  // the new content takes effect. unload may fail when the service isn't
+  // currently loaded — that's expected during the first refresh, treat as
+  // non-fatal and let `load` decide success.
+  run("launchctl", ["unload", service.filePath]);
+  return run("launchctl", ["load", "-w", service.filePath]);
+}
+
+/** Bring an installed unit file in sync with the current `generateServiceFile`
+ *  template (preserving the user's port and project), reload the service
+ *  manager so the change takes effect, and restart so the running process
+ *  picks up both the new binary and any unit-file changes. Falls back to a
+ *  plain restart when the unit can't be parsed — that still gets the new
+ *  binary loaded even if regeneration is skipped. */
+export function updateInstalledService(
+  service: InstalledService,
+  webmuxPath: string,
+): UpdateOutcome {
+  const config = parseInstalledServiceConfig(service.filePath, service.platform, webmuxPath);
+  let regenerated = false;
+
+  if (config !== null) {
+    let currentContent = "";
+    try {
+      currentContent = readFileSync(service.filePath, "utf8");
+    } catch {
+      // unreadable — fall through to plain restart
+    }
+    const expected = generateServiceFile(config);
+    if (currentContent !== expected) {
+      try {
+        writeFileSync(service.filePath, expected);
+        regenerated = true;
+      } catch (err: unknown) {
+        return {
+          service,
+          regenerated: false,
+          restarted: false,
+          error: `could not rewrite ${service.filePath}: ${String(err)}`,
+        };
+      }
+    }
+  }
+
+  if (regenerated) {
+    const reload = reloadAfterRegenerate(service);
+    if (reload && !reload.success) {
+      return {
+        service,
+        regenerated,
+        restarted: false,
+        error: reload.stderr.toString().trim() || "reload failed",
+      };
+    }
+    // On launchd the load step already (re)started the service. systemd
+    // still needs an explicit restart so an already-running process picks
+    // up the new ExecStart.
+    if (service.platform === "darwin") {
+      return { service, regenerated, restarted: true };
+    }
+  }
+
+  const outcome = restartInstalledService(service);
+  return {
+    service,
+    regenerated,
+    restarted: outcome.ok,
+    error: outcome.error,
+  };
 }

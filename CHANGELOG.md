@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.32.0](https://github.com/windmill-labs/webmux/compare/v0.31.2...v0.32.0) (2026-05-18)
+
+
+### Features
+
+* webmux oneshot + Linear round-trip, server-driven watcher ([#238](https://github.com/windmill-labs/webmux/issues/238)) ([d43ad25](https://github.com/windmill-labs/webmux/commit/d43ad25ef95524553ce532c2dd2506a38134ebe4))
+
 ## [0.31.2](https://github.com/windmill-labs/webmux/compare/v0.31.1...v0.31.2) (2026-05-13)
 
 

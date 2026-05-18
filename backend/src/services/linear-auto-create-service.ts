@@ -20,6 +20,9 @@ export interface LinearAutoCreateDependencies {
   fetchIssues?: typeof fetchAssignedIssues;
   /** Optional handler for the `webmux_oneshot` label variant. When omitted, oneshot triggering is skipped. */
   runOneshotForIssue?: (issueId: string) => Promise<void>;
+  /** Restrict triggering to issues whose team.key is in this list (uppercase).
+   *  Undefined or empty → no team filter (all teams). */
+  watchTeamKeys?: string[];
 }
 
 export interface LinearAutoCreateMonitorOptions {
@@ -37,16 +40,25 @@ function hasLabel(issue: LinearIssue, name: string): boolean {
   return issue.labels.some((l) => l.name.toLowerCase() === name);
 }
 
+function matchesTeamFilter(issue: LinearIssue, watchTeamKeys: string[] | undefined): boolean {
+  if (!watchTeamKeys || watchTeamKeys.length === 0) return true;
+  const issueKey = issue.team.key.toUpperCase();
+  return watchTeamKeys.some((key) => key.toUpperCase() === issueKey);
+}
+
 /** Shared filter: Todo state, the label rule supplied by the caller, not yet
- *  processed, and no existing worktree on the branch. */
+ *  processed, no existing worktree on the branch, and (when configured) the
+ *  issue's team is in the watch list. */
 function filterTriggerableIssues(
   issues: LinearIssue[],
   existingBranches: string[],
   matchesLabelRule: (issue: LinearIssue) => boolean,
+  watchTeamKeys?: string[],
 ): LinearIssue[] {
   return issues.filter((issue) => {
     if (issue.state.name !== "Todo") return false;
     if (!matchesLabelRule(issue)) return false;
+    if (!matchesTeamFilter(issue, watchTeamKeys)) return false;
     if (processedIssueIds.has(issue.id)) return false;
     return !existingBranches.some((branch) => branchMatchesIssue(branch, issue.branchName));
   });
@@ -57,11 +69,13 @@ function filterTriggerableIssues(
 export function filterAutoCreateIssues(
   issues: LinearIssue[],
   existingBranches: string[],
+  watchTeamKeys?: string[],
 ): LinearIssue[] {
   return filterTriggerableIssues(
     issues,
     existingBranches,
     (issue) => hasLabel(issue, AUTO_CREATE_LABEL) && !hasLabel(issue, AUTO_ONESHOT_LABEL),
+    watchTeamKeys,
   );
 }
 
@@ -71,11 +85,13 @@ export function filterAutoCreateIssues(
 export function filterAutoOneshotIssues(
   issues: LinearIssue[],
   existingBranches: string[],
+  watchTeamKeys?: string[],
 ): LinearIssue[] {
   return filterTriggerableIssues(
     issues,
     existingBranches,
     (issue) => hasLabel(issue, AUTO_ONESHOT_LABEL),
+    watchTeamKeys,
   );
 }
 
@@ -114,9 +130,9 @@ export async function runLinearAutoCreateOnce(deps: LinearAutoCreateDependencies
     .map((entry) => entry.branch as string);
 
   const oneshotIssues = deps.runOneshotForIssue
-    ? filterAutoOneshotIssues(result.data, existingBranches)
+    ? filterAutoOneshotIssues(result.data, existingBranches, deps.watchTeamKeys)
     : [];
-  const createIssues = filterAutoCreateIssues(result.data, existingBranches);
+  const createIssues = filterAutoCreateIssues(result.data, existingBranches, deps.watchTeamKeys);
 
   if (oneshotIssues.length === 0 && createIssues.length === 0) {
     log.debug(`[linear-auto-create] no new labeled issues (${result.data.length} assigned, ${existingBranches.length} worktrees)`);

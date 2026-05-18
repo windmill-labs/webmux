@@ -393,25 +393,7 @@ function parseProjectConfig(parsed: Record<string, unknown>): ProjectConfig {
           ? parsed.integrations.github.autoRemoveOnMerge
           : DEFAULT_CONFIG.integrations.github.autoRemoveOnMerge,
       },
-      linear: {
-        enabled: isRecord(parsed.integrations) && isRecord(parsed.integrations.linear) && typeof parsed.integrations.linear.enabled === "boolean"
-          ? parsed.integrations.linear.enabled
-          : DEFAULT_CONFIG.integrations.linear.enabled,
-        autoCreateWorktrees: isRecord(parsed.integrations) && isRecord(parsed.integrations.linear) && typeof parsed.integrations.linear.autoCreateWorktrees === "boolean"
-          ? parsed.integrations.linear.autoCreateWorktrees
-          : DEFAULT_CONFIG.integrations.linear.autoCreateWorktrees,
-        createTicketOption: isRecord(parsed.integrations) &&
-            isRecord(parsed.integrations.linear) &&
-            typeof parsed.integrations.linear.createTicketOption === "boolean"
-          ? parsed.integrations.linear.createTicketOption
-          : DEFAULT_CONFIG.integrations.linear.createTicketOption,
-        ...(isRecord(parsed.integrations) &&
-            isRecord(parsed.integrations.linear) &&
-            typeof parsed.integrations.linear.teamId === "string" &&
-            parsed.integrations.linear.teamId.trim()
-          ? { teamId: parsed.integrations.linear.teamId.trim() }
-          : {}),
-      },
+      linear: parseLinearIntegration(parsed),
     },
     lifecycleHooks: parseLifecycleHooks(parsed.lifecycleHooks),
     autoName: parseAutoName(parsed.auto_name),
@@ -423,6 +405,37 @@ function defaultConfig(): ProjectConfig {
   return parseProjectConfig({});
 }
 
+function parseTeamKeyList(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const keys = raw
+    .filter((entry): entry is string => typeof entry === "string")
+    .map((entry) => entry.trim().toUpperCase())
+    .filter((entry) => entry.length > 0);
+  return keys.length > 0 ? Array.from(new Set(keys)) : undefined;
+}
+
+function parseLinearIntegration(parsed: Record<string, unknown>): LinearIntegrationConfig {
+  const defaults = DEFAULT_CONFIG.integrations.linear;
+  const linear = isRecord(parsed.integrations) && isRecord(parsed.integrations.linear)
+    ? parsed.integrations.linear
+    : null;
+
+  if (!linear) return { ...defaults };
+
+  const watchTeams = parseTeamKeyList(linear.watchTeams);
+
+  return {
+    enabled: typeof linear.enabled === "boolean" ? linear.enabled : defaults.enabled,
+    autoCreateWorktrees: typeof linear.autoCreateWorktrees === "boolean"
+      ? linear.autoCreateWorktrees
+      : defaults.autoCreateWorktrees,
+    createTicketOption: typeof linear.createTicketOption === "boolean"
+      ? linear.createTicketOption
+      : defaults.createTicketOption,
+    ...(watchTeams ? { watchTeams } : {}),
+  };
+}
+
 function parseLocalLinearOverlay(parsed: Record<string, unknown>): Partial<LinearIntegrationConfig> | null {
   if (!isRecord(parsed.integrations)) return null;
   const linear = parsed.integrations.linear;
@@ -432,7 +445,8 @@ function parseLocalLinearOverlay(parsed: Record<string, unknown>): Partial<Linea
   if (typeof linear.enabled === "boolean") overlay.enabled = linear.enabled;
   if (typeof linear.autoCreateWorktrees === "boolean") overlay.autoCreateWorktrees = linear.autoCreateWorktrees;
   if (typeof linear.createTicketOption === "boolean") overlay.createTicketOption = linear.createTicketOption;
-  if (typeof linear.teamId === "string" && linear.teamId.trim()) overlay.teamId = linear.teamId.trim();
+  const watchTeams = parseTeamKeyList(linear.watchTeams);
+  if (watchTeams) overlay.watchTeams = watchTeams;
   return Object.keys(overlay).length > 0 ? overlay : null;
 }
 

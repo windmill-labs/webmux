@@ -153,6 +153,37 @@ describe("filterAutoCreateIssues", () => {
   });
 });
 
+describe("watchTeamKeys filter", () => {
+  beforeEach(() => {
+    resetProcessedIssues();
+  });
+
+  it("keeps every team when watchTeamKeys is undefined or empty", () => {
+    const eng = createIssue({ id: "eng", identifier: "ENG-1", branchName: "eng-1", team: { name: "Engineering", key: "ENG" } });
+    const ops = createIssue({ id: "ops", identifier: "OPS-1", branchName: "ops-1", team: { name: "Ops", key: "OPS" } });
+    expect(filterAutoCreateIssues([eng, ops], []).map((i) => i.identifier)).toEqual(["ENG-1", "OPS-1"]);
+    expect(filterAutoCreateIssues([eng, ops], [], []).map((i) => i.identifier)).toEqual(["ENG-1", "OPS-1"]);
+  });
+
+  it("drops issues whose team key is not in the allowlist (case-insensitive)", () => {
+    const eng = createIssue({ id: "eng", identifier: "ENG-1", branchName: "eng-1", team: { name: "Engineering", key: "ENG" } });
+    const ops = createIssue({ id: "ops", identifier: "OPS-1", branchName: "ops-1", team: { name: "Ops", key: "OPS" } });
+    const design = createIssue({ id: "des", identifier: "DES-1", branchName: "des-1", team: { name: "Design", key: "DES" } });
+    expect(filterAutoCreateIssues([eng, ops, design], [], ["eng", "OPS"]).map((i) => i.identifier))
+      .toEqual(["ENG-1", "OPS-1"]);
+  });
+
+  it("applies the same filter to the oneshot variant", () => {
+    const ops = createIssue({
+      id: "ops", identifier: "OPS-1", branchName: "ops-1",
+      labels: [{ name: "webmux_oneshot", color: "#fff" }],
+      team: { name: "Ops", key: "OPS" },
+    });
+    expect(filterAutoOneshotIssues([ops], [], ["ENG"])).toEqual([]);
+    expect(filterAutoOneshotIssues([ops], [], ["OPS"]).map((i) => i.identifier)).toEqual(["OPS-1"]);
+  });
+});
+
 describe("filterAutoOneshotIssues", () => {
   beforeEach(() => {
     resetProcessedIssues();

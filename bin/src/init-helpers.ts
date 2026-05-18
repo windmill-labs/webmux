@@ -677,12 +677,15 @@ integrations:
   linear:
     # Enable Linear issue lookup and linking in the UI.
     enabled: true
-    # Auto-create worktrees for assigned issues.
+    # Auto-create worktrees for assigned issues labeled "webmux" or "webmux_oneshot".
     # autoCreateWorktrees: true
-    # Show a create-ticket action in the dashboard.
+    # Show a create-ticket action in the dashboard. The team to file into is
+    # picked in the dialog at creation time.
     # createTicketOption: true
-    # Restrict issue sync to a specific Linear team id.
-    # teamId: team-123
+    # Restrict the auto-create watcher to issues from these teams. Useful when
+    # the authenticated Linear user is in multiple teams or when running webmux
+    # in several projects on the same machine that share a Linear account.
+    # watchTeams: [ENG, OPS]
 
 # startupEnvs become runtime env vars for panes, agents, and hooks.
 startupEnvs:

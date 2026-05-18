@@ -598,6 +598,9 @@ describe("App create selection", () => {
     await fireEvent.input(screen.getByLabelText(/Prompt/i), {
       target: { value: "Implement the new flow" },
     });
+    await fireEvent.input(screen.getByLabelText(/Team key/i), {
+      target: { value: "ENG" },
+    });
     await fireEvent.input(screen.getByLabelText(/Linear ticket title/i), {
       target: { value: "Ship Linear-backed worktree creation" },
     });
@@ -614,6 +617,7 @@ describe("App create selection", () => {
           agents: ["claude"],
           prompt: "Implement the new flow",
           createLinearTicket: true,
+          linearTeamKey: "ENG",
           linearTitle: "Ship Linear-backed worktree creation",
         },
       });

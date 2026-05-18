@@ -72,7 +72,9 @@ export interface LinearIntegrationConfig {
   enabled: boolean;
   autoCreateWorktrees: boolean;
   createTicketOption: boolean;
-  teamId?: string;
+  /** Restrict the auto-create watcher to issues from these team keys (e.g. ["ENG", "OPS"]).
+   *  When unset, all teams the authenticated user is assigned in are watched. */
+  watchTeams?: string[];
 }
 
 export interface IntegrationConfig {

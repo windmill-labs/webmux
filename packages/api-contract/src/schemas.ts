@@ -150,6 +150,7 @@ export const CreateWorktreeRequestSchema = z.object({
   envOverrides: z.record(z.string()).optional(),
   createLinearTicket: z.literal(true).optional(),
   linearTitle: z.string().optional(),
+  linearTeamKey: z.string().optional(),
   fromLinear: FromLinearInputSchema.optional(),
   source: WorktreeSourceSchema.optional(),
   oneshot: OneshotConfigSchema.optional(),

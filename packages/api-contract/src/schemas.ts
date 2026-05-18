@@ -150,7 +150,14 @@ export const CreateWorktreeRequestSchema = z.object({
   envOverrides: z.record(z.string()).optional(),
   createLinearTicket: z.literal(true).optional(),
   linearTitle: z.string().optional(),
-  linearTeamKey: z.string().optional(),
+  // Accept any case at the boundary, then normalize and validate against the
+  // team-key shape. Invalid inputs (e.g. "ENG-1") get a clear 400 instead of
+  // being forwarded to Linear for a vague 404.
+  linearTeamKey: z.string()
+    .trim()
+    .transform((value) => value.toUpperCase())
+    .pipe(LinearTeamKeySchema)
+    .optional(),
   fromLinear: FromLinearInputSchema.optional(),
   source: WorktreeSourceSchema.optional(),
   oneshot: OneshotConfigSchema.optional(),

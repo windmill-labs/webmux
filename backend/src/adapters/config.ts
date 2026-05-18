@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+import { log } from "../lib/log";
 import type {
   AgentId,
   AgentKind,
@@ -414,6 +415,10 @@ function parseTeamKeyList(raw: unknown): string[] | undefined {
   return keys.length > 0 ? Array.from(new Set(keys)) : undefined;
 }
 
+/** Track whether the deprecation warning for `integrations.linear.teamId` has
+ *  already been logged this process so config reloads don't spam the log. */
+let warnedLegacyLinearTeamId = false;
+
 function parseLinearIntegration(parsed: Record<string, unknown>): LinearIntegrationConfig {
   const defaults = DEFAULT_CONFIG.integrations.linear;
   const linear = isRecord(parsed.integrations) && isRecord(parsed.integrations.linear)
@@ -421,6 +426,11 @@ function parseLinearIntegration(parsed: Record<string, unknown>): LinearIntegrat
     : null;
 
   if (!linear) return { ...defaults };
+
+  if (typeof linear.teamId === "string" && !warnedLegacyLinearTeamId) {
+    warnedLegacyLinearTeamId = true;
+    log.warn("[config] integrations.linear.teamId is no longer used — the ticket team is now picked at creation time in the dashboard");
+  }
 
   const watchTeams = parseTeamKeyList(linear.watchTeams);
 

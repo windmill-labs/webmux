@@ -481,7 +481,8 @@
               type="text"
               class="w-full px-2.5 py-1.5 rounded-md border border-edge bg-surface text-primary text-[13px] placeholder:text-muted/50 outline-none focus:border-accent font-mono uppercase"
               placeholder="ENG"
-              bind:value={linearTeamKey}
+              value={linearTeamKey}
+              oninput={(e) => { linearTeamKey = e.currentTarget.value.toUpperCase(); }}
               autocomplete="off"
             />
             {#if linearTeamKeyTrimmed && linearTeamKeyLooksLikeIssue}

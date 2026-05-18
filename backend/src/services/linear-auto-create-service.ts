@@ -42,8 +42,9 @@ function hasLabel(issue: LinearIssue, name: string): boolean {
 
 function matchesTeamFilter(issue: LinearIssue, watchTeamKeys: string[] | undefined): boolean {
   if (!watchTeamKeys || watchTeamKeys.length === 0) return true;
-  const issueKey = issue.team.key.toUpperCase();
-  return watchTeamKeys.some((key) => key.toUpperCase() === issueKey);
+  // watchTeamKeys is expected already-uppercase: parseTeamKeyList normalizes
+  // and dedupes before this code is reached.
+  return watchTeamKeys.includes(issue.team.key.toUpperCase());
 }
 
 /** Shared filter: Todo state, the label rule supplied by the caller, not yet

@@ -165,11 +165,11 @@ describe("watchTeamKeys filter", () => {
     expect(filterAutoCreateIssues([eng, ops], [], []).map((i) => i.identifier)).toEqual(["ENG-1", "OPS-1"]);
   });
 
-  it("drops issues whose team key is not in the allowlist (case-insensitive)", () => {
+  it("drops issues whose team key is not in the (uppercase, normalized) allowlist", () => {
     const eng = createIssue({ id: "eng", identifier: "ENG-1", branchName: "eng-1", team: { name: "Engineering", key: "ENG" } });
     const ops = createIssue({ id: "ops", identifier: "OPS-1", branchName: "ops-1", team: { name: "Ops", key: "OPS" } });
     const design = createIssue({ id: "des", identifier: "DES-1", branchName: "des-1", team: { name: "Design", key: "DES" } });
-    expect(filterAutoCreateIssues([eng, ops, design], [], ["eng", "OPS"]).map((i) => i.identifier))
+    expect(filterAutoCreateIssues([eng, ops, design], [], ["ENG", "OPS"]).map((i) => i.identifier))
       .toEqual(["ENG-1", "OPS-1"]);
   });
 

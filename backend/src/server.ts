@@ -884,7 +884,9 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
   const agents = body.agents;
   const createLinearTicket = body.createLinearTicket === true;
   const linearTitle = body.linearTitle?.trim() ? body.linearTitle.trim() : undefined;
-  const linearTeamKey = body.linearTeamKey?.trim() ? body.linearTeamKey.trim().toUpperCase() : undefined;
+  // CreateWorktreeRequestSchema already trims, uppercases, and validates the
+  // team key shape — body.linearTeamKey is either a valid key or undefined.
+  const linearTeamKey = body.linearTeamKey;
   const mode = body.mode;
   const selectedAgents = agents
     ? agents

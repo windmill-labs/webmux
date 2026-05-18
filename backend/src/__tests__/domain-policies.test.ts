@@ -74,6 +74,12 @@ describe("isValidInstancePrefix", () => {
     expect(isValidInstancePrefix("has space")).toBe(false);
     expect(isValidInstancePrefix("")).toBe(false);
   });
+
+  it("rejects reserved path segments owned by the route map", () => {
+    expect(isValidInstancePrefix("api")).toBe(false);
+    expect(isValidInstancePrefix("ws")).toBe(false);
+    expect(isValidInstancePrefix("assets")).toBe(false);
+  });
 });
 
 describe("deriveInstancePrefix", () => {
@@ -93,5 +99,11 @@ describe("deriveInstancePrefix", () => {
 
   it("sanitizes weird basenames", () => {
     expect(deriveInstancePrefix("/projects/My Cool App!", [])).toBe("my-cool-app");
+  });
+
+  it("never returns a reserved prefix even when the basename matches one", () => {
+    expect(deriveInstancePrefix("/srv/api", [])).toBe("api-2");
+    expect(deriveInstancePrefix("/srv/ws", [])).toBe("ws-2");
+    expect(deriveInstancePrefix("/srv/assets", [])).toBe("assets-2");
   });
 });

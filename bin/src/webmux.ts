@@ -243,7 +243,7 @@ function openAppMode(url: string): void {
 function pipeWithPrefix(
   stream: ReadableStream<Uint8Array>,
   prefix: string,
-  onTrigger?: { text: string; callback: () => void },
+  onTrigger?: { text: string; callback: (line: string) => void },
 ): void {
   const reader = stream.getReader();
   const decoder = new TextDecoder();
@@ -261,7 +261,7 @@ function pipeWithPrefix(
         console.log(`${prefix} ${line}`);
         if (onTrigger && !fired && line.includes(onTrigger.text)) {
           fired = true;
-          onTrigger.callback();
+          onTrigger.callback(line);
         }
       }
     }
@@ -391,7 +391,7 @@ async function main(args: string[] = process.argv.slice(2)): Promise<void> {
     process.exit(1);
   }
 
-  console.log(`Starting webmux on port ${parsed.port}...`);
+  console.log(`Starting webmux on port ${parsed.port} (falls back to a free port if taken)...`);
 
   const be = Bun.spawn(["bun", backendEntry], {
     env: { ...baseEnv, WEBMUX_STATIC_DIR: staticDir },
@@ -403,7 +403,12 @@ async function main(args: string[] = process.argv.slice(2)): Promise<void> {
   if (parsed.app) {
     pipeWithPrefix(be.stdout, "[BE]", {
       text: "Dev Dashboard API running at",
-      callback: () => openAppMode(`http://localhost:${parsed.port}`),
+      callback: (line) => {
+        // Backend logs the actual bound port (which may differ from parsed.port
+        // when the requested port was taken and we fell back to a free one).
+        const match = line.match(/https?:\/\/[^\s]+/);
+        openAppMode(match?.[0] ?? `http://localhost:${parsed.port}`);
+      },
     });
   } else {
     pipeWithPrefix(be.stdout, "[BE]");

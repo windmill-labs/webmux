@@ -99,7 +99,7 @@ import type { OneshotMeta, ProjectSnapshot, WorktreeSnapshot } from "./domain/mo
 import { deriveInstancePrefix, isValidBranchName, isValidInstancePrefix, isValidWorktreeName } from "./domain/policies";
 import { createWebmuxRuntime } from "./runtime";
 import { createInstanceRegistry, type InstanceEntry } from "./adapters/instance-registry";
-import { decidePeerRouting } from "./domain/peer-routing";
+import { resolvePeerRedirect } from "./domain/peer-routing";
 
 const PORT = parseInt(Bun.env.PORT || "5111", 10);
 const STATIC_DIR = Bun.env.WEBMUX_STATIC_DIR || "";
@@ -1759,7 +1759,7 @@ function startServer(port: number): ReturnType<typeof Bun.serve> {
   async fetch(req) {
     const url = new URL(req.url);
 
-    const peerRedirect = resolvePeerRedirect(url, req.headers.get("host"));
+    const peerRedirect = resolvePeerRedirect(url, instanceRegistry.listLive(), BOUND_PORT);
     if (peerRedirect) return peerRedirect;
 
     // Static frontend files in production mode (fallback for unmatched routes)
@@ -1953,7 +1953,7 @@ log.info(`[serve] registered instance prefix=${INSTANCE_PREFIX} port=${BOUND_POR
 
 function deregisterSelf(): void {
   try {
-    instanceRegistry.deregister(BOUND_PORT);
+    instanceRegistry.deregister(BOUND_PORT, process.pid);
   } catch {
     // best effort
   }
@@ -1961,29 +1961,6 @@ function deregisterSelf(): void {
 process.on("SIGINT", () => { deregisterSelf(); process.exit(0); });
 process.on("SIGTERM", () => { deregisterSelf(); process.exit(0); });
 process.on("exit", deregisterSelf);
-
-function safeHostname(rawHost: string | null): string {
-  if (!rawHost) return "127.0.0.1";
-  // Strip any CR/LF and trailing port, keep only the hostname or bracketed IPv6.
-  const sanitized = rawHost.replace(/[\r\n\0]/g, "").trim();
-  if (!sanitized) return "127.0.0.1";
-  const ipv6 = sanitized.match(/^(\[[^\]]+\])(?::\d+)?$/);
-  if (ipv6) return ipv6[1] ?? "127.0.0.1";
-  const hostAndPort = sanitized.match(/^([^:]+)(?::\d+)?$/);
-  return hostAndPort?.[1] ?? "127.0.0.1";
-}
-
-function resolvePeerRedirect(url: URL, hostHeader: string | null): Response | null {
-  const decision = decidePeerRouting(url.pathname, instanceRegistry.listLive(), BOUND_PORT);
-  if (decision.kind === "passthrough") return null;
-  if (decision.kind === "rewrite") {
-    url.pathname = decision.path;
-    return null;
-  }
-  const hostname = safeHostname(hostHeader);
-  const location = `${url.protocol}//${hostname}:${decision.port}${decision.path}${url.search}`;
-  return new Response(null, { status: 302, headers: { Location: location } });
-}
 
 
 // Ensure tmux server is running (needs at least one session to persist)

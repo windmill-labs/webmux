@@ -31,6 +31,11 @@ export function isValidEnvKey(key: string): boolean {
   return UNSAFE_ENV_KEY_RE.test(key);
 }
 
+/** Path segments that the server's route map already owns. A derived instance
+ *  prefix must never collide with these or `/<prefix>` would be shadowed and
+ *  cross-instance redirects to that project would silently fail. */
+export const RESERVED_INSTANCE_PREFIXES: ReadonlySet<string> = new Set(["api", "ws", "assets"]);
+
 /** Sanitize a string into a URL-path-friendly prefix: lowercase, hyphenated,
  *  alphanumeric only. Returns empty if nothing usable remains. */
 export function sanitizeInstancePrefix(raw: string): string {
@@ -42,16 +47,17 @@ export function sanitizeInstancePrefix(raw: string): string {
 }
 
 export function isValidInstancePrefix(value: string): boolean {
-  return VALID_INSTANCE_PREFIX_RE.test(value);
+  return VALID_INSTANCE_PREFIX_RE.test(value) && !RESERVED_INSTANCE_PREFIXES.has(value);
 }
 
 /** Derive a webmux instance prefix from a project directory basename.
- *  Adds `-2`, `-3`, … suffixes to avoid collisions with already-taken prefixes. */
+ *  Adds `-2`, `-3`, … suffixes to avoid collisions with already-taken prefixes
+ *  and with reserved path segments owned by the server's route map. */
 export function deriveInstancePrefix(projectDir: string, takenPrefixes: Iterable<string>): string {
   const basename = projectDir.replace(/\/+$/, "").split("/").pop() ?? "webmux";
   const base = sanitizeInstancePrefix(basename) || "webmux";
 
-  const taken = new Set(takenPrefixes);
+  const taken = new Set<string>([...takenPrefixes, ...RESERVED_INSTANCE_PREFIXES]);
   if (!taken.has(base)) return base;
 
   for (let n = 2; n < 1000; n++) {

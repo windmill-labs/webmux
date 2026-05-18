@@ -1,6 +1,10 @@
+// Sync Node fs APIs on purpose: register/deregister run from synchronous startup
+// and `process.on("exit")` paths where async (Bun.write) would not flush in time.
 import { mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { log } from "../lib/log";
+import { isValidInstancePrefix } from "../domain/policies";
 
 export interface InstanceEntry {
   prefix: string;
@@ -12,21 +16,27 @@ export interface InstanceEntry {
 
 export interface InstanceRegistry {
   register(entry: InstanceEntry): void;
-  deregister(port: number): void;
+  /** Delete the entry at `port`. When `expectedPid` is provided, the entry is
+   *  only deleted if its `pid` matches — guards against a late shutdown handler
+   *  clobbering a successor process that has reused the same port. */
+  deregister(port: number, expectedPid?: number): void;
   listLive(): InstanceEntry[];
 }
 
 function defaultRegistryDir(): string {
-  const home = Bun.env.HOME ?? "/root";
-  return join(home, ".webmux", "instances");
+  return join(homedir(), ".webmux", "instances");
 }
 
+/** A live PID is one we can signal. `ESRCH` means "no such process" — that's
+ *  the only signal we treat as "dead". Other errors (notably `EPERM` for a PID
+ *  we don't own, e.g. a `sudo`-started peer) mean the process exists but we
+ *  can't touch it — still alive from the registry's perspective. */
 function isAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
-  } catch {
-    return false;
+  } catch (err: unknown) {
+    return (err as { code?: string } | null)?.code !== "ESRCH";
   }
 }
 
@@ -34,6 +44,7 @@ function isInstanceEntry(value: unknown): value is InstanceEntry {
   if (typeof value !== "object" || value === null) return false;
   const v = value as Record<string, unknown>;
   return typeof v.prefix === "string"
+    && isValidInstancePrefix(v.prefix)
     && typeof v.port === "number"
     && typeof v.projectDir === "string"
     && typeof v.pid === "number"
@@ -69,7 +80,16 @@ export function createInstanceRegistry(dir: string = defaultRegistryDir()): Inst
       renameSync(tmpPath, finalPath);
     },
 
-    deregister(port: number): void {
+    deregister(port: number, expectedPid?: number): void {
+      if (expectedPid !== undefined) {
+        const filename = `${port}.json`;
+        const entry = readEntry(filename);
+        if (entry && entry.pid !== expectedPid) {
+          // The entry belongs to a successor process that reused our port.
+          // Leave it alone.
+          return;
+        }
+      }
       try {
         unlinkSync(entryPath(port));
       } catch (err: unknown) {

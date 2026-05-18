@@ -72,6 +72,37 @@ describe("instance-registry", () => {
     expect(registry.listLive().map((e) => e.port)).toEqual([5111]);
   });
 
+  it("rejects entries whose prefix is not a valid instance prefix", async () => {
+    const { dir, registry } = await freshRegistry();
+    registry.register(makeEntry({ port: 5111, prefix: "good" }));
+    // Forge an entry with a bad prefix (uppercase, reserved, etc.)
+    writeFileSync(join(dir, "5112.json"), JSON.stringify({
+      prefix: "BadPrefix",
+      port: 5112,
+      projectDir: "/x",
+      pid: process.pid,
+      startedAt: 1,
+    }));
+    writeFileSync(join(dir, "5113.json"), JSON.stringify({
+      prefix: "api",
+      port: 5113,
+      projectDir: "/x",
+      pid: process.pid,
+      startedAt: 1,
+    }));
+
+    expect(registry.listLive().map((e) => e.port)).toEqual([5111]);
+  });
+
+  it("deregister with a mismatched expectedPid leaves the entry alone", async () => {
+    const { registry } = await freshRegistry();
+    registry.register(makeEntry({ port: 5111, pid: 1234 }));
+    registry.deregister(5111, 9999);
+    expect(registry.listLive()).toHaveLength(1);
+    registry.deregister(5111, 1234);
+    expect(registry.listLive()).toEqual([]);
+  });
+
   it("deregister is a no-op when the file is missing", async () => {
     const { registry } = await freshRegistry();
     expect(() => registry.deregister(9999)).not.toThrow();

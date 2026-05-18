@@ -1033,9 +1033,9 @@
     >
       <div class="p-4 border-b border-edge">
         <div class="flex items-center justify-between">
-          <div class="flex items-center gap-2 min-w-0">
+          <div class="flex items-center gap-1 min-w-0">
             <h1 class="text-base font-semibold truncate">{config.name ?? "Dashboard"}</h1>
-            <InstanceSwitcher />
+            <InstanceSwitcher selfName={config.name ?? "Dashboard"} />
           </div>
           <div class="flex items-center gap-2">
             <button

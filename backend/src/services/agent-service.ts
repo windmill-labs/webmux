@@ -33,7 +33,7 @@ function buildBuiltInAgentInvocation(input: {
   launchMode?: AgentLaunchMode;
 }): string {
   if (input.agent === "codex") {
-    const hooksFlag = " --enable codex_hooks";
+    const hooksFlag = " --enable hooks";
     const yoloFlag = input.yolo ? " --yolo" : "";
     if (input.launchMode === "resume") {
       return `codex${hooksFlag}${yoloFlag} resume --last`;

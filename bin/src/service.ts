@@ -193,6 +193,7 @@ async function install(config: ServiceConfig, portExplicit: boolean): Promise<vo
   const requestedPort = config.port;
   let chosenPort = requestedPort;
   let portNote: string | null = null;
+  let portWarning: string | null = null;
 
   if (!portExplicit) {
     const existingPort = alreadyInstalled ? readPortFromUnit(filePath) : null;
@@ -207,6 +208,14 @@ async function install(config: ServiceConfig, portExplicit: boolean): Promise<vo
       if (chosenPort !== requestedPort) {
         portNote = `Port ${requestedPort} is already used by another webmux instance — picked ${chosenPort} instead (pass --port to override).`;
       }
+    }
+  } else {
+    // Explicit `--port` always wins, but the service will fail to bind on
+    // start if something else is already there — surface it now rather than
+    // making the user dig through `journalctl` / `launchctl` logs later.
+    const taken = discoverTakenPorts({ excludeUnitPath: filePath });
+    if (taken.has(requestedPort)) {
+      portWarning = `Port ${requestedPort} is already claimed by another webmux instance. The service will fail to bind on start; omit --port to auto-pick a free port.`;
     }
   }
 
@@ -227,6 +236,7 @@ async function install(config: ServiceConfig, portExplicit: boolean): Promise<vo
   );
 
   if (portNote) p.log.info(portNote);
+  if (portWarning) p.log.warn(portWarning);
 
   const ok = await p.confirm({ message: "Proceed?" });
   if (p.isCancel(ok) || !ok) {

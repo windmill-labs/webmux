@@ -6,7 +6,8 @@ import { createInstanceRegistry } from "../../backend/src/adapters/instance-regi
 export const DEFAULT_SYSTEMD_DIR = join(homedir(), ".config", "systemd", "user");
 export const DEFAULT_LAUNCHD_DIR = join(homedir(), "Library", "LaunchAgents");
 
-const UNIT_PORT_RE = /--port[\s\S]{0,40}?(\d{2,5})/;
+const SYSTEMD_PORT_RE = /--port\s+(\d+)/;
+const LAUNCHD_PORT_RE = /<string>--port<\/string>\s*<string>(\d+)<\/string>/;
 
 /** Lowest port `>= start` not in `taken`. */
 export function pickFreePort(start: number, taken: Iterable<number>): number {
@@ -51,10 +52,12 @@ export function readInstalledServicePorts(opts: {
   return ports;
 }
 
-/** Parse a `--port N` value out of a service unit file. Tolerates the gap
- *  between the flag and value being whitespace (systemd) or whitespace +
- *  XML wrapping (launchd plist). Returns null when no port is declared or
- *  the file is unreadable. */
+/** Parse a `--port N` value out of a service unit file. Dispatches on file
+ *  extension so each format gets a tight regex (`--port 5111` for systemd vs
+ *  `<string>--port</string>\s*<string>5111</string>` for launchd plists) —
+ *  no shared char-window assumption that breaks if either generator's
+ *  indentation changes. Returns null when no port is declared or the file
+ *  is unreadable. */
 export function readPortFromUnit(filePath: string): number | null {
   let text: string;
   try {
@@ -62,10 +65,9 @@ export function readPortFromUnit(filePath: string): number | null {
   } catch {
     return null;
   }
-  const match = UNIT_PORT_RE.exec(text);
-  if (!match) return null;
-  const port = parseInt(match[1], 10);
-  return Number.isNaN(port) ? null : port;
+  const regex = filePath.endsWith(".plist") ? LAUNCHD_PORT_RE : SYSTEMD_PORT_RE;
+  const match = regex.exec(text);
+  return match ? parseInt(match[1], 10) : null;
 }
 
 /** Combine live-registry ports and installed-unit ports into a single set

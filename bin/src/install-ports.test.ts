@@ -87,6 +87,63 @@ describe("readPortFromUnit", () => {
   it("returns null for a missing file", () => {
     expect(readPortFromUnit("/no/such/path.service")).toBeNull();
   });
+
+  // Round-trips against the exact strings `service.ts` emits, so a future
+  // re-indent or wrapping change in `generateLaunchdPlist` / `generateSystemdUnit`
+  // surfaces as a failing test rather than a silent regression to "auto-pick".
+  it("round-trips against the systemd unit format service.ts writes", async () => {
+    const dir = await makeTempDir();
+    const filePath = join(dir, "webmux-roundtrip.service");
+    const content = [
+      "[Unit]",
+      "Description=webmux dashboard — roundtrip",
+      "",
+      "[Service]",
+      "Type=simple",
+      "ExecStart=/usr/local/bin/webmux serve --port 5117",
+      "WorkingDirectory=/home/x/proj",
+      "Restart=on-failure",
+      "RestartSec=5",
+      "Environment=PORT=5117",
+      "Environment=WEBMUX_PROJECT_DIR=/home/x/proj",
+      "Environment=PATH=/usr/local/bin",
+      "",
+      "[Install]",
+      "WantedBy=default.target",
+      "",
+    ].join("\n");
+    await writeFile(filePath, content);
+
+    expect(readPortFromUnit(filePath)).toBe(5117);
+  });
+
+  it("round-trips against the launchd plist format service.ts writes", async () => {
+    const dir = await makeTempDir();
+    const filePath = join(dir, "com.webmux.roundtrip.plist");
+    const content = [
+      "<?xml version=\"1.0\" encoding=\"UTF-8\"?>",
+      "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">",
+      "<plist version=\"1.0\">",
+      "<dict>",
+      "  <key>Label</key>",
+      "  <string>com.webmux.roundtrip</string>",
+      "  <key>ProgramArguments</key>",
+      "  <array>",
+      "    <string>/usr/local/bin/webmux</string>",
+      "    <string>serve</string>",
+      "    <string>--port</string>",
+      "    <string>5222</string>",
+      "  </array>",
+      "  <key>WorkingDirectory</key>",
+      "  <string>/Users/x/proj</string>",
+      "</dict>",
+      "</plist>",
+      "",
+    ].join("\n");
+    await writeFile(filePath, content);
+
+    expect(readPortFromUnit(filePath)).toBe(5222);
+  });
 });
 
 describe("readInstalledServicePorts", () => {

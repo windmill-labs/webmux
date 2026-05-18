@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { run, getGitRoot, detectProjectName } from "./shared.ts";
 import type { RunResult } from "./shared.ts";
+import { discoverTakenPorts, pickFreePort, readPortFromUnit } from "./install-ports.ts";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -168,10 +169,11 @@ function isInstalled(config: ServiceConfig): boolean {
 
 // ── Subcommands ─────────────────────────────────────────────────────────────
 
-async function install(config: ServiceConfig): Promise<void> {
+async function install(config: ServiceConfig, portExplicit: boolean): Promise<void> {
   const filePath = serviceFilePath(config);
+  const alreadyInstalled = isInstalled(config);
 
-  if (isInstalled(config)) {
+  if (alreadyInstalled) {
     const reinstall = await p.confirm({ message: "Service is already installed. Reinstall?" });
     if (p.isCancel(reinstall) || !reinstall) {
       p.log.info("Aborted.");
@@ -182,6 +184,33 @@ async function install(config: ServiceConfig): Promise<void> {
     }
   }
 
+  // Pick the port that will go into the unit file. With an explicit `--port`,
+  // the user wins. On reinstall, reuse the existing unit's port so a re-run
+  // without flags is idempotent. Otherwise scan the live registry + already
+  // installed unit files and find the lowest free port at or above the
+  // requested start, so installing in a second project doesn't silently
+  // collide on 5111.
+  const requestedPort = config.port;
+  let chosenPort = requestedPort;
+  let portNote: string | null = null;
+
+  if (!portExplicit) {
+    const existingPort = alreadyInstalled ? readPortFromUnit(filePath) : null;
+    if (existingPort !== null) {
+      chosenPort = existingPort;
+      if (existingPort !== requestedPort) {
+        portNote = `Reusing port ${existingPort} from the existing service unit (pass --port to override).`;
+      }
+    } else {
+      const taken = discoverTakenPorts({ excludeUnitPath: filePath });
+      chosenPort = pickFreePort(requestedPort, taken);
+      if (chosenPort !== requestedPort) {
+        portNote = `Port ${requestedPort} is already used by another webmux instance — picked ${chosenPort} instead (pass --port to override).`;
+      }
+    }
+  }
+
+  config = { ...config, port: chosenPort };
   const content = generateServiceFile(config);
   const commands = installCommands(config);
 
@@ -196,6 +225,8 @@ async function install(config: ServiceConfig): Promise<void> {
     ].join("\n"),
     "Install service",
   );
+
+  if (portNote) p.log.info(portNote);
 
   const ok = await p.confirm({ message: "Proceed?" });
   if (p.isCancel(ok) || !ok) {
@@ -322,6 +353,12 @@ Usage:
   webmux service uninstall   Stop, disable, and remove the service
   webmux service status      Show service status
   webmux service logs        Tail service logs
+
+Options:
+  --port N                   Pin the service to a specific port. When omitted,
+                             a free port is picked automatically by scanning
+                             other webmux instances and installed services
+                             — second-project installs no longer collide on 5111.
 `);
 }
 
@@ -365,6 +402,7 @@ export default async function service(args: string[]): Promise<void> {
   }
 
   let port = parseInt(process.env.PORT || "5111");
+  let portExplicit = false;
   for (let i = 1; i < args.length; i++) {
     if (args[i] === "--port" && args[i + 1]) {
       const parsed = parseInt(args[++i]);
@@ -373,6 +411,7 @@ export default async function service(args: string[]): Promise<void> {
         return;
       }
       port = parsed;
+      portExplicit = true;
     }
   }
 
@@ -390,7 +429,7 @@ export default async function service(args: string[]): Promise<void> {
 
   switch (action) {
     case "install":
-      await install(config);
+      await install(config, portExplicit);
       break;
     case "uninstall":
       await uninstall(config);

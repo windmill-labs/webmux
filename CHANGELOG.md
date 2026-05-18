@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.33.0](https://github.com/windmill-labs/webmux/compare/v0.32.0...v0.33.0) (2026-05-18)
+
+
+### Features
+
+* redirect /&lt;prefix&gt; across symmetric webmux instances ([#241](https://github.com/windmill-labs/webmux/issues/241)) ([ad0b1dc](https://github.com/windmill-labs/webmux/commit/ad0b1dcc0cde11fb12910fdbe6c0497f769f8c22))
+* scope linear watcher per team and pick ticket team in UI ([#240](https://github.com/windmill-labs/webmux/issues/240)) ([729e51b](https://github.com/windmill-labs/webmux/commit/729e51b1cca507ab662e34f4e3956ec2b2166846))
+
 ## [0.32.0](https://github.com/windmill-labs/webmux/compare/v0.31.2...v0.32.0) (2026-05-18)
 
 

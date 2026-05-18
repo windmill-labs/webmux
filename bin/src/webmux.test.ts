@@ -66,6 +66,7 @@ describe("webmux entrypoint", () => {
 
     expect(parseRootArgs(["serve", "--port", "8080", "--debug"])).toEqual({
       port: 8080,
+      portExplicit: true,
       debug: true,
       app: false,
       prefix: null,
@@ -80,6 +81,7 @@ describe("webmux entrypoint", () => {
 
     expect(parseRootArgs(["serve", "--app"])).toEqual({
       port: 5111,
+      portExplicit: false,
       debug: false,
       app: true,
       prefix: null,
@@ -94,6 +96,7 @@ describe("webmux entrypoint", () => {
 
     expect(parseRootArgs(["serve", "--prefix", "myproj"])).toEqual({
       port: 5111,
+      portExplicit: false,
       debug: false,
       app: false,
       prefix: "myproj",
@@ -108,6 +111,7 @@ describe("webmux entrypoint", () => {
     try {
       expect(parseRootArgs(["serve"])).toEqual({
         port: 5111,
+        portExplicit: false,
         debug: false,
         app: false,
         prefix: "envproj",
@@ -119,12 +123,28 @@ describe("webmux entrypoint", () => {
     }
   });
 
+  it("treats PORT from env as an explicit port", () => {
+    process.env.PORT = "5500";
+    delete process.env.WEBMUX_PREFIX;
+
+    expect(parseRootArgs(["serve"])).toEqual({
+      port: 5500,
+      portExplicit: true,
+      debug: false,
+      app: false,
+      prefix: null,
+      command: "serve",
+      commandArgs: [],
+    });
+  });
+
   it("leaves service subcommand flags untouched", () => {
     delete process.env.PORT;
     delete process.env.WEBMUX_PREFIX;
 
     expect(parseRootArgs(["service", "install", "--port", "8080"])).toEqual({
       port: 5111,
+      portExplicit: false,
       debug: false,
       app: false,
       prefix: null,
@@ -139,6 +159,7 @@ describe("webmux entrypoint", () => {
 
     expect(parseRootArgs(["prune"])).toEqual({
       port: 5111,
+      portExplicit: false,
       debug: false,
       app: false,
       prefix: null,
@@ -153,6 +174,7 @@ describe("webmux entrypoint", () => {
 
     expect(parseRootArgs(["archive", "feature/search"])).toEqual({
       port: 5111,
+      portExplicit: false,
       debug: false,
       app: false,
       prefix: null,
@@ -167,6 +189,7 @@ describe("webmux entrypoint", () => {
 
     expect(parseRootArgs(["label", "feature/search", "Search", "ranking"])).toEqual({
       port: 5111,
+      portExplicit: false,
       debug: false,
       app: false,
       prefix: null,

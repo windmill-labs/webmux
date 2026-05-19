@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.34.0](https://github.com/windmill-labs/webmux/compare/v0.33.0...v0.34.0) (2026-05-19)
+
+
+### Features
+
+* auto-pick a free port in webmux service install ([#243](https://github.com/windmill-labs/webmux/issues/243)) ([052f5f9](https://github.com/windmill-labs/webmux/commit/052f5f90ad7fcb61a4d8ae426e5bc565cc5b5624))
+
+
+### Bug Fixes
+
+* use canonical codex hooks flag ([#244](https://github.com/windmill-labs/webmux/issues/244)) ([d2ef583](https://github.com/windmill-labs/webmux/commit/d2ef583c3cdf4bfe55da3e728f6e406ca77d55cb))
+
 ## [0.33.0](https://github.com/windmill-labs/webmux/compare/v0.32.0...v0.33.0) (2026-05-18)
 
 

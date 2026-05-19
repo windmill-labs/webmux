@@ -2,8 +2,41 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { listInstalledServices, restartCommand, type InstalledService } from "./service-restart.ts";
+import {
+  listInstalledServices,
+  restartCommand,
+  updateInstalledService,
+  type InstalledService,
+  type ServiceRunner,
+} from "./service-restart.ts";
 import { generateServiceFile, parseInstalledServiceConfig, type ServiceConfig } from "./service.ts";
+import type { RunResult } from "./shared.ts";
+
+interface RecordedCall {
+  bin: string;
+  args: string[];
+}
+
+function makeRecorder(behaviour: (call: RecordedCall) => RunResult): {
+  runner: ServiceRunner;
+  calls: RecordedCall[];
+} {
+  const calls: RecordedCall[] = [];
+  const runner: ServiceRunner = {
+    run(bin, args) {
+      const call = { bin, args };
+      calls.push(call);
+      return behaviour(call);
+    },
+  };
+  return { runner, calls };
+}
+
+const okResult: RunResult = {
+  success: true,
+  stdout: Buffer.from(""),
+  stderr: Buffer.from(""),
+};
 
 const cleanups: Array<() => Promise<void>> = [];
 
@@ -138,6 +171,136 @@ describe("generateServiceFile → parseInstalledServiceConfig → generateServic
 
     // Round-trip should produce identical content when webmuxPath is unchanged.
     expect(generateServiceFile(parsed)).toBe(originalContent);
+  });
+});
+
+describe("updateInstalledService", () => {
+  async function setupSystemdService(): Promise<{ service: InstalledService; dir: string; originalContent: string }> {
+    const dir = await makeTempDir();
+    await writeFile(join(dir, "package.json"), JSON.stringify({ name: "orch" }));
+    const filePath = join(dir, "webmux-orch.service");
+    const original: ServiceConfig = {
+      platform: "linux",
+      projectName: "orch",
+      serviceName: "webmux-orch",
+      webmuxPath: "/old/path/webmux",
+      projectDir: dir,
+      port: 5500,
+    };
+    const originalContent = generateServiceFile(original);
+    await writeFile(filePath, originalContent);
+    return {
+      service: { name: "webmux-orch", filePath, platform: "linux" },
+      dir,
+      originalContent,
+    };
+  }
+
+  it("skips regeneration entirely when webmuxPath is empty", async () => {
+    const { service, originalContent } = await setupSystemdService();
+    const { runner, calls } = makeRecorder(() => okResult);
+
+    const outcome = await updateInstalledService(service, "", runner);
+
+    expect(outcome.regenerated).toBe(false);
+    expect(outcome.restarted).toBe(true);
+    // The unit file must be untouched — a stale `which webmux` failure must
+    // never corrupt ExecStart.
+    expect(await Bun.file(service.filePath).text()).toBe(originalContent);
+    // Only the restart should fire — no daemon-reload.
+    expect(calls).toEqual([
+      { bin: "systemctl", args: ["--user", "restart", "webmux-orch"] },
+    ]);
+  });
+
+  it("skips reload when regenerated content matches existing", async () => {
+    const { service } = await setupSystemdService();
+    const { runner, calls } = makeRecorder(() => okResult);
+
+    // Same path → generated content identical → no rewrite, no daemon-reload.
+    const outcome = await updateInstalledService(service, "/old/path/webmux", runner);
+
+    expect(outcome.regenerated).toBe(false);
+    expect(outcome.restarted).toBe(true);
+    expect(calls).toEqual([
+      { bin: "systemctl", args: ["--user", "restart", "webmux-orch"] },
+    ]);
+  });
+
+  it("regenerates + reloads + restarts when webmuxPath changes", async () => {
+    const { service } = await setupSystemdService();
+    const { runner, calls } = makeRecorder(() => okResult);
+
+    const outcome = await updateInstalledService(service, "/new/path/webmux", runner);
+
+    expect(outcome.regenerated).toBe(true);
+    expect(outcome.restarted).toBe(true);
+    expect(calls).toEqual([
+      { bin: "systemctl", args: ["--user", "daemon-reload"] },
+      { bin: "systemctl", args: ["--user", "restart", "webmux-orch"] },
+    ]);
+    expect(await Bun.file(service.filePath).text()).toContain("/new/path/webmux");
+  });
+
+  it("does not attempt a restart when daemon-reload fails", async () => {
+    const { service } = await setupSystemdService();
+    const { runner, calls } = makeRecorder((call) => {
+      if (call.args.includes("daemon-reload")) {
+        return {
+          success: false,
+          stdout: Buffer.from(""),
+          stderr: Buffer.from("reload broke"),
+        };
+      }
+      return okResult;
+    });
+
+    const outcome = await updateInstalledService(service, "/new/path/webmux", runner);
+
+    expect(outcome.regenerated).toBe(true);
+    expect(outcome.restarted).toBe(false);
+    expect(outcome.error).toContain("reload broke");
+    expect(calls).toEqual([
+      { bin: "systemctl", args: ["--user", "daemon-reload"] },
+    ]);
+  });
+
+  it("surfaces a launchctl load recovery hint when reload fails", async () => {
+    const dir = await makeTempDir();
+    await writeFile(join(dir, "package.json"), JSON.stringify({ name: "darwin-orch" }));
+    const filePath = join(dir, "com.webmux.webmux-darwin-orch.plist");
+    const original: ServiceConfig = {
+      platform: "darwin",
+      projectName: "darwin-orch",
+      serviceName: "webmux-darwin-orch",
+      webmuxPath: "/old/path/webmux",
+      projectDir: dir,
+      port: 5600,
+    };
+    await writeFile(filePath, generateServiceFile(original));
+    const service: InstalledService = {
+      name: "com.webmux.webmux-darwin-orch",
+      filePath,
+      platform: "darwin",
+    };
+
+    const { runner } = makeRecorder((call) => {
+      if (call.args[0] === "load") {
+        return {
+          success: false,
+          stdout: Buffer.from(""),
+          stderr: Buffer.from("plist load failed"),
+        };
+      }
+      return okResult;
+    });
+
+    const outcome = await updateInstalledService(service, "/new/path/webmux", runner);
+
+    expect(outcome.regenerated).toBe(true);
+    expect(outcome.restarted).toBe(false);
+    expect(outcome.error).toContain("plist load failed");
+    expect(outcome.error).toContain("launchctl load -w");
   });
 });
 

@@ -327,7 +327,7 @@ async function main(args: string[] = process.argv.slice(2)): Promise<void> {
         const webmuxPath = whichResult.success ? whichResult.stdout.toString().trim() : "";
         console.log(`\nRefreshing ${services.length} installed webmux service(s) to pick up the new version...`);
         for (const svc of services) {
-          const outcome = updateInstalledService(svc, webmuxPath);
+          const outcome = await updateInstalledService(svc, webmuxPath);
           const parts: string[] = [];
           if (outcome.regenerated) parts.push("regenerated unit");
           if (outcome.restarted) parts.push("restarted");

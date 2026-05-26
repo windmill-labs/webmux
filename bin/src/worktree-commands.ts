@@ -1,6 +1,8 @@
 import * as p from "@clack/prompts";
 import { createApi } from "@webmux/api-contract";
 import { basename, resolve } from "node:path";
+import { buildSeedFromLinear, defaultSeedFromLinearDeps } from "../../backend/src/services/conversation-export-service";
+import { CommandUsageError, withServerConnection } from "./shared";
 import { readWorktreeArchiveState, readWorktreeMeta } from "../../backend/src/adapters/fs";
 import { buildProjectSessionName, buildWorktreeWindowName } from "../../backend/src/adapters/tmux";
 import type { AgentId } from "../../backend/src/domain/config";
@@ -70,14 +72,12 @@ interface WorktreeCommandDependencies {
   confirmPrune?: (worktreeCount: number) => Promise<boolean>;
 }
 
-class CommandUsageError extends Error {}
-
 export function getWorktreeCommandUsage(command: WorktreeSubcommand): string {
   switch (command) {
     case "add":
       return [
         "Usage:",
-        "  webmux add [branch] [--existing] [--base <branch>] [--profile <name>] [--agent <id>] [--prompt <text>] [--env KEY=VALUE] [--detach]",
+        "  webmux add [branch] [--existing] [--base <branch>] [--profile <name>] [--agent <id>] [--prompt <text>] [--env KEY=VALUE] [--detach] [--from-linear <issue-id>]",
         "",
         "Options:",
         "  --existing               Use an existing local or remote branch instead of creating a new one",
@@ -87,6 +87,8 @@ export function getWorktreeCommandUsage(command: WorktreeSubcommand): string {
         "  --prompt <text>          Initial agent prompt",
         "  --env KEY=VALUE          Runtime env override (repeatable)",
         "  -d, --detach             Create worktree without switching to it",
+        "  --from-linear ID         Bootstrap from a Linear issue — loads the issue body as",
+        "                           context, plus any saved webmux session or linked PR",
         "  --help                   Show this help message",
       ].join("\n");
     case "list":
@@ -177,6 +179,8 @@ function parseAgent(value: string): AgentId {
 export interface ParsedAddCommand {
   input: CreateLifecycleWorktreesInput;
   detach: boolean;
+  fromLinearIssueId: string | null;
+  branchExplicit: boolean;
 }
 
 export function parseAddCommandArgs(args: string[]): ParsedAddCommand | null {
@@ -184,6 +188,8 @@ export function parseAddCommandArgs(args: string[]): ParsedAddCommand | null {
   const envOverrides: Record<string, string> = {};
   const selectedAgents: AgentId[] = [];
   let detach = false;
+  let fromLinearIssueId: string | null = null;
+  let branchExplicit = false;
 
   for (let index = 0; index < args.length; index++) {
     const arg = args[index];
@@ -242,6 +248,28 @@ export function parseAddCommandArgs(args: string[]): ParsedAddCommand | null {
       continue;
     }
 
+    if (arg === "--from-linear" || arg.startsWith("--from-linear=")) {
+      const { value, nextIndex } = readOptionValue(args, index, "--from-linear");
+      const trimmed = value.trim();
+      if (!/^[A-Z]+-\d+$/.test(trimmed)) {
+        throw new CommandUsageError(`--from-linear expects an issue id like ENG-123 (got "${trimmed}")`);
+      }
+      fromLinearIssueId = trimmed;
+      index = nextIndex;
+      continue;
+    }
+
+    if (arg === "--branch" || arg.startsWith("--branch=")) {
+      const { value, nextIndex } = readOptionValue(args, index, "--branch");
+      if (input.branch && input.branch !== value) {
+        throw new CommandUsageError(`Conflicting branch values: "${input.branch}" and "${value}"`);
+      }
+      input.branch = value.trim();
+      branchExplicit = true;
+      index = nextIndex;
+      continue;
+    }
+
     if (arg.startsWith("-")) {
       throw new CommandUsageError(`Unknown option: ${arg}`);
     }
@@ -251,6 +279,7 @@ export function parseAddCommandArgs(args: string[]): ParsedAddCommand | null {
     }
 
     input.branch = arg;
+    branchExplicit = true;
   }
 
   if (selectedAgents.length > 0) {
@@ -261,7 +290,7 @@ export function parseAddCommandArgs(args: string[]): ParsedAddCommand | null {
     input.envOverrides = envOverrides;
   }
 
-  return { input, detach };
+  return { input, detach, fromLinearIssueId, branchExplicit };
 }
 
 export function parseBranchCommandArgs(args: string[]): string | null {
@@ -682,6 +711,34 @@ export async function runWorktreeCommand(
           stdout(PHASE_LABELS[progress.phase] ?? progress.phase);
         },
       });
+
+      if (parsed.fromLinearIssueId) {
+        stdout(`Resolving Linear issue ${parsed.fromLinearIssueId}...`);
+        const seed = await buildSeedFromLinear(
+          { issueId: parsed.fromLinearIssueId },
+          defaultSeedFromLinearDeps,
+        );
+        if (!seed.ok) {
+          stderr(`Linear seed lookup failed: ${seed.error}`);
+          return 1;
+        }
+        stdout(`Linear seed source: ${seed.data.source}${seed.data.branch ? ` branch=${seed.data.branch}` : ""}${seed.data.prUrl ? ` pr=${seed.data.prUrl}` : ""}`);
+
+        if (!parsed.branchExplicit && seed.data.branch) {
+          parsed.input.branch = seed.data.branch;
+        }
+        if (!parsed.input.branch) {
+          stderr("Linear issue did not resolve to a branch; pass --branch to override.");
+          return 1;
+        }
+        if (seed.data.source !== "none") parsed.input.mode = "existing";
+        if (seed.data.conversationMarkdown) {
+          parsed.input.prompt = parsed.input.prompt
+            ? `${seed.data.conversationMarkdown}\n\n---\n\n${parsed.input.prompt}`
+            : seed.data.conversationMarkdown;
+        }
+      }
+
       if (!parsed.input.branch && parsed.input.prompt && runtime.config.autoName) {
         stdout("Generating branch name...");
       }
@@ -751,23 +808,15 @@ export async function runWorktreeCommand(
       }
 
       const api = createApi(`http://localhost:${context.port}`);
-      try {
-        await api.sendWorktreePrompt({
+      await withServerConnection(context.port, () =>
+        api.sendWorktreePrompt({
           params: { name: parsed.branch },
           body: {
             text: parsed.text,
             ...(parsed.preamble ? { preamble: parsed.preamble } : {}),
           },
-        });
-      } catch (error) {
-        if (error instanceof Error && error.message.startsWith("HTTP")) {
-          throw error;
-        }
-        if (error instanceof Error && !error.message.includes("fetch")) {
-          throw error;
-        }
-        throw new Error(`Could not connect to webmux server on port ${context.port}. Is it running?`);
-      }
+        }),
+      );
 
       stdout(`Sent prompt to ${parsed.branch}`);
       return 0;

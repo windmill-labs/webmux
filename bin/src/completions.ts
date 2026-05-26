@@ -122,6 +122,7 @@ _webmux() {
     'service:Manage webmux as a system service'
     'update:Update webmux to the latest version'
     'add:Create a worktree'
+    'oneshot:Run a worktree start-to-finish, streaming logs to stdout'
     'list:List worktrees and their status'
     'open:Open an existing worktree session'
     'close:Close a worktree session'
@@ -132,6 +133,7 @@ _webmux() {
     'merge:Merge a worktree into main'
     'send:Send a prompt to a running worktree agent'
     'prune:Remove all worktrees in the current project'
+    'linear:Post a worktree conversation to a Linear issue/team'
     'completion:Generate shell completion script'
   )
 
@@ -145,6 +147,19 @@ _webmux() {
       if (( CURRENT == 3 )); then
         local -a branches
         branches=(\${(f)"$(webmux --completions "\${words[2]}" 2>/dev/null)"})
+        if (( \${#branches} )); then
+          _describe 'worktree' branches
+        fi
+      fi
+      ;;
+    linear)
+      if (( CURRENT == 3 )); then
+        local -a subs
+        subs=('post:Post a worktree conversation to a Linear issue or team')
+        _describe 'linear subcommand' subs
+      elif (( CURRENT == 4 )) && [[ "\${words[3]}" == "post" ]]; then
+        local -a branches
+        branches=(\${(f)"$(webmux --completions send 2>/dev/null)"})
         if (( \${#branches} )); then
           _describe 'worktree' branches
         fi
@@ -181,7 +196,7 @@ const BASH_SCRIPT = `_webmux() {
   prev="\${COMP_WORDS[COMP_CWORD-1]}"
 
   if [[ \${COMP_CWORD} -eq 1 ]]; then
-    COMPREPLY=($(compgen -W "serve init service update add list open close archive unarchive label remove merge send prune completion" -- "\${cur}"))
+    COMPREPLY=($(compgen -W "serve init service update add oneshot list open close archive unarchive label remove merge send prune linear completion" -- "\${cur}"))
     return
   fi
 
@@ -190,6 +205,15 @@ const BASH_SCRIPT = `_webmux() {
       if [[ \${COMP_CWORD} -eq 2 ]]; then
         local branches
         branches=$(webmux --completions "\${COMP_WORDS[1]}" 2>/dev/null)
+        COMPREPLY=($(compgen -W "\${branches}" -- "\${cur}"))
+      fi
+      ;;
+    linear)
+      if [[ \${COMP_CWORD} -eq 2 ]]; then
+        COMPREPLY=($(compgen -W "post" -- "\${cur}"))
+      elif [[ \${COMP_CWORD} -eq 3 ]] && [[ "\${COMP_WORDS[2]}" == "post" ]]; then
+        local branches
+        branches=$(webmux --completions send 2>/dev/null)
         COMPREPLY=($(compgen -W "\${branches}" -- "\${cur}"))
       fi
       ;;

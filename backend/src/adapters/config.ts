@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+import { log } from "../lib/log";
 import type {
   AgentId,
   AgentKind,
@@ -12,6 +13,7 @@ import type {
   LinearIntegrationConfig,
   LinkedRepoConfig,
   MountSpec,
+  OneshotConfig,
   PaneTemplate,
   ProfileConfig,
   ProjectConfig,
@@ -41,6 +43,16 @@ const DEFAULT_PANES: PaneTemplate[] = [
   { id: "shell", kind: "shell", split: "right", sizePct: 25 },
 ];
 
+function DEFAULT_ONESHOT_SYSTEM_PROMPT(): string {
+  return [
+    "You are running in webmux ONESHOT mode. There is NO interactive user — nobody is watching the chat or will respond to questions, approvals, or status checks. Any message asking the user to review, approve, confirm, take a look, or 'let you know' is wasted output: it will not be answered.",
+    "Your job is to take the task to its real conclusion without pausing:",
+    "1) Make the change. 2) Validate it (run the relevant tests, typecheck, build, or quick manual check). 3) Commit. 4) Push. 5) Open a pull request. Only then are you done.",
+    "When something is ambiguous, pick the most reasonable default and proceed. When you would normally ask 'should I X or Y?', just pick one and continue — note the choice in the PR description if it matters.",
+    "Never end your turn with a question, a suggestion to 'take a look', or a request for approval. Stop only when the PR is open, or when you hit a technical error you cannot recover from yourself (in which case clearly state the blocker).",
+  ].join(" ");
+}
+
 const DEFAULT_CONFIG: ProjectConfig = {
   name: "Webmux",
   workspace: {
@@ -65,6 +77,7 @@ const DEFAULT_CONFIG: ProjectConfig = {
   },
   lifecycleHooks: {},
   autoName: null,
+  oneshot: { systemPrompt: DEFAULT_ONESHOT_SYSTEM_PROMPT() },
 };
 
 function clonePanes(panes: PaneTemplate[]): PaneTemplate[] {
@@ -277,6 +290,14 @@ function parseLifecycleHooks(raw: unknown): LifecycleHooksConfig {
   return hooks;
 }
 
+function parseOneshot(raw: unknown): OneshotConfig {
+  if (!isRecord(raw)) return { systemPrompt: DEFAULT_ONESHOT_SYSTEM_PROMPT() };
+  const systemPrompt = typeof raw.systemPrompt === "string" && raw.systemPrompt.trim()
+    ? raw.systemPrompt.trim()
+    : DEFAULT_ONESHOT_SYSTEM_PROMPT();
+  return { systemPrompt };
+}
+
 function parseAutoName(raw: unknown): AutoNameConfig | null {
   if (!isRecord(raw)) return null;
   const provider = raw.provider;
@@ -373,33 +394,56 @@ function parseProjectConfig(parsed: Record<string, unknown>): ProjectConfig {
           ? parsed.integrations.github.autoRemoveOnMerge
           : DEFAULT_CONFIG.integrations.github.autoRemoveOnMerge,
       },
-      linear: {
-        enabled: isRecord(parsed.integrations) && isRecord(parsed.integrations.linear) && typeof parsed.integrations.linear.enabled === "boolean"
-          ? parsed.integrations.linear.enabled
-          : DEFAULT_CONFIG.integrations.linear.enabled,
-        autoCreateWorktrees: isRecord(parsed.integrations) && isRecord(parsed.integrations.linear) && typeof parsed.integrations.linear.autoCreateWorktrees === "boolean"
-          ? parsed.integrations.linear.autoCreateWorktrees
-          : DEFAULT_CONFIG.integrations.linear.autoCreateWorktrees,
-        createTicketOption: isRecord(parsed.integrations) &&
-            isRecord(parsed.integrations.linear) &&
-            typeof parsed.integrations.linear.createTicketOption === "boolean"
-          ? parsed.integrations.linear.createTicketOption
-          : DEFAULT_CONFIG.integrations.linear.createTicketOption,
-        ...(isRecord(parsed.integrations) &&
-            isRecord(parsed.integrations.linear) &&
-            typeof parsed.integrations.linear.teamId === "string" &&
-            parsed.integrations.linear.teamId.trim()
-          ? { teamId: parsed.integrations.linear.teamId.trim() }
-          : {}),
-      },
+      linear: parseLinearIntegration(parsed),
     },
     lifecycleHooks: parseLifecycleHooks(parsed.lifecycleHooks),
     autoName: parseAutoName(parsed.auto_name),
+    oneshot: parseOneshot(parsed.oneshot),
   };
 }
 
 function defaultConfig(): ProjectConfig {
   return parseProjectConfig({});
+}
+
+function parseTeamKeyList(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const keys = raw
+    .filter((entry): entry is string => typeof entry === "string")
+    .map((entry) => entry.trim().toUpperCase())
+    .filter((entry) => entry.length > 0);
+  return keys.length > 0 ? Array.from(new Set(keys)) : undefined;
+}
+
+/** Track whether the deprecation warning for `integrations.linear.teamId` has
+ *  already been logged this process so config reloads don't spam the log. */
+let warnedLegacyLinearTeamId = false;
+
+function parseLinearIntegration(parsed: Record<string, unknown>): LinearIntegrationConfig {
+  const defaults = DEFAULT_CONFIG.integrations.linear;
+  const linear = isRecord(parsed.integrations) && isRecord(parsed.integrations.linear)
+    ? parsed.integrations.linear
+    : null;
+
+  if (!linear) return { ...defaults };
+
+  if (typeof linear.teamId === "string" && !warnedLegacyLinearTeamId) {
+    warnedLegacyLinearTeamId = true;
+    log.warn("[config] integrations.linear.teamId is no longer used — the ticket team is now picked at creation time in the dashboard");
+  }
+
+  const watchTeams = parseTeamKeyList(linear.watchTeams);
+
+  return {
+    enabled: typeof linear.enabled === "boolean" ? linear.enabled : defaults.enabled,
+    autoCreateWorktrees: typeof linear.autoCreateWorktrees === "boolean"
+      ? linear.autoCreateWorktrees
+      : defaults.autoCreateWorktrees,
+    createTicketOption: typeof linear.createTicketOption === "boolean"
+      ? linear.createTicketOption
+      : defaults.createTicketOption,
+    ...(watchTeams ? { watchTeams } : {}),
+  };
 }
 
 function parseLocalLinearOverlay(parsed: Record<string, unknown>): Partial<LinearIntegrationConfig> | null {
@@ -411,7 +455,8 @@ function parseLocalLinearOverlay(parsed: Record<string, unknown>): Partial<Linea
   if (typeof linear.enabled === "boolean") overlay.enabled = linear.enabled;
   if (typeof linear.autoCreateWorktrees === "boolean") overlay.autoCreateWorktrees = linear.autoCreateWorktrees;
   if (typeof linear.createTicketOption === "boolean") overlay.createTicketOption = linear.createTicketOption;
-  if (typeof linear.teamId === "string" && linear.teamId.trim()) overlay.teamId = linear.teamId.trim();
+  const watchTeams = parseTeamKeyList(linear.watchTeams);
+  if (watchTeams) overlay.watchTeams = watchTeams;
   return Object.keys(overlay).length > 0 ? overlay : null;
 }
 

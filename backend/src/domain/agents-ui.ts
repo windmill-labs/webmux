@@ -28,6 +28,7 @@ export interface AgentsUiWorktreeSummary {
 
 export type AgentsUiConversationMessageRole = "user" | "assistant";
 export type AgentsUiConversationMessageStatus = "completed" | "inProgress";
+export type AgentsUiConversationMessageKind = "text" | "toolUse" | "toolResult";
 
 export interface AgentsUiConversationMessage {
   id: string;
@@ -36,6 +37,8 @@ export interface AgentsUiConversationMessage {
   text: string;
   status: AgentsUiConversationMessageStatus;
   createdAt: string | null;
+  kind?: AgentsUiConversationMessageKind;
+  toolName?: string;
 }
 
 export interface AgentsUiConversationState {

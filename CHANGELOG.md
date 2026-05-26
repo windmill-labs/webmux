@@ -1,5 +1,47 @@
 # Changelog
 
+## [0.34.0](https://github.com/windmill-labs/webmux/compare/v0.33.0...v0.34.0) (2026-05-19)
+
+
+### Features
+
+* auto-pick a free port in webmux service install ([#243](https://github.com/windmill-labs/webmux/issues/243)) ([052f5f9](https://github.com/windmill-labs/webmux/commit/052f5f90ad7fcb61a4d8ae426e5bc565cc5b5624))
+
+
+### Bug Fixes
+
+* use canonical codex hooks flag ([#244](https://github.com/windmill-labs/webmux/issues/244)) ([d2ef583](https://github.com/windmill-labs/webmux/commit/d2ef583c3cdf4bfe55da3e728f6e406ca77d55cb))
+
+## [0.33.0](https://github.com/windmill-labs/webmux/compare/v0.32.0...v0.33.0) (2026-05-18)
+
+
+### Features
+
+* redirect /&lt;prefix&gt; across symmetric webmux instances ([#241](https://github.com/windmill-labs/webmux/issues/241)) ([ad0b1dc](https://github.com/windmill-labs/webmux/commit/ad0b1dcc0cde11fb12910fdbe6c0497f769f8c22))
+* scope linear watcher per team and pick ticket team in UI ([#240](https://github.com/windmill-labs/webmux/issues/240)) ([729e51b](https://github.com/windmill-labs/webmux/commit/729e51b1cca507ab662e34f4e3956ec2b2166846))
+
+## [0.32.0](https://github.com/windmill-labs/webmux/compare/v0.31.2...v0.32.0) (2026-05-18)
+
+
+### Features
+
+* webmux oneshot + Linear round-trip, server-driven watcher ([#238](https://github.com/windmill-labs/webmux/issues/238)) ([d43ad25](https://github.com/windmill-labs/webmux/commit/d43ad25ef95524553ce532c2dd2506a38134ebe4))
+
+## [0.31.2](https://github.com/windmill-labs/webmux/compare/v0.31.1...v0.31.2) (2026-05-13)
+
+
+### Bug Fixes
+
+* survive stale git worktree registrations ([#236](https://github.com/windmill-labs/webmux/issues/236)) ([cf72b1b](https://github.com/windmill-labs/webmux/commit/cf72b1b5aca95941b8f08f74ce4beddd9cbe637b))
+
+## [0.31.1](https://github.com/windmill-labs/webmux/compare/v0.31.0...v0.31.1) (2026-05-13)
+
+
+### Bug Fixes
+
+* decouple linear auto-create from dashboard ([#235](https://github.com/windmill-labs/webmux/issues/235)) ([14fe259](https://github.com/windmill-labs/webmux/commit/14fe2598759febce1e35c09be18efedae4fc29bf))
+* move worktree badges below names ([#233](https://github.com/windmill-labs/webmux/issues/233)) ([63130ac](https://github.com/windmill-labs/webmux/commit/63130ac1955dad21172d046dd8b91e97929cb206))
+
 ## [0.31.0](https://github.com/windmill-labs/webmux/compare/v0.30.0...v0.31.0) (2026-05-12)
 
 

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "bun:test";
-import { allocateServicePorts } from "../domain/policies";
+import {
+  allocateServicePorts,
+  deriveInstancePrefix,
+  isValidInstancePrefix,
+  sanitizeInstancePrefix,
+} from "../domain/policies";
 
 describe("allocateServicePorts", () => {
   it("allocates the first free slot across existing worktree metadata", () => {
@@ -38,5 +43,67 @@ describe("allocateServicePorts", () => {
       FRONTEND_PORT: 3020,
       PORT: 5121,
     });
+  });
+});
+
+describe("sanitizeInstancePrefix", () => {
+  it("lowercases and replaces non-alphanumerics with hyphens", () => {
+    expect(sanitizeInstancePrefix("My Project")).toBe("my-project");
+    expect(sanitizeInstancePrefix("Some_Repo.v2")).toBe("some-repo-v2");
+  });
+
+  it("collapses runs of hyphens and trims edges", () => {
+    expect(sanitizeInstancePrefix("--__foo bar__--")).toBe("foo-bar");
+  });
+
+  it("returns an empty string when nothing usable remains", () => {
+    expect(sanitizeInstancePrefix("***")).toBe("");
+  });
+});
+
+describe("isValidInstancePrefix", () => {
+  it("accepts lowercase alphanumeric and hyphens", () => {
+    expect(isValidInstancePrefix("webmux")).toBe(true);
+    expect(isValidInstancePrefix("webmux-2")).toBe(true);
+    expect(isValidInstancePrefix("ab12-cd")).toBe(true);
+  });
+
+  it("rejects uppercase, leading hyphen, or invalid chars", () => {
+    expect(isValidInstancePrefix("Webmux")).toBe(false);
+    expect(isValidInstancePrefix("-bad")).toBe(false);
+    expect(isValidInstancePrefix("has space")).toBe(false);
+    expect(isValidInstancePrefix("")).toBe(false);
+  });
+
+  it("rejects reserved path segments owned by the route map", () => {
+    expect(isValidInstancePrefix("api")).toBe(false);
+    expect(isValidInstancePrefix("ws")).toBe(false);
+    expect(isValidInstancePrefix("assets")).toBe(false);
+  });
+});
+
+describe("deriveInstancePrefix", () => {
+  it("returns the basename when no collision", () => {
+    expect(deriveInstancePrefix("/home/me/projects/webmux", [])).toBe("webmux");
+    expect(deriveInstancePrefix("/srv/widgets/", [])).toBe("widgets");
+  });
+
+  it("falls back to a default when the basename has no alphanumerics", () => {
+    expect(deriveInstancePrefix("/repo/...", [])).toBe("webmux");
+  });
+
+  it("appends -2, -3, ... to avoid collisions", () => {
+    expect(deriveInstancePrefix("/a/webmux", ["webmux"])).toBe("webmux-2");
+    expect(deriveInstancePrefix("/a/webmux", ["webmux", "webmux-2"])).toBe("webmux-3");
+  });
+
+  it("sanitizes weird basenames", () => {
+    expect(deriveInstancePrefix("/projects/My Cool App!", [])).toBe("my-cool-app");
+  });
+
+  it("never returns a reserved prefix even when the basename matches one", () => {
+    expect(deriveInstancePrefix("/srv/api", [])).toBe("api-2");
+    expect(deriveInstancePrefix("/srv/ws", [])).toBe("ws-2");
+    expect(deriveInstancePrefix("/srv/assets", [])).toBe("assets-2");
   });
 });

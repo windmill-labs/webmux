@@ -1,5 +1,5 @@
 import { mkdir } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { ensureAgentRuntimeArtifacts } from "../adapters/agent-runtime";
 import type { CreateWorktreeMode, GitGateway, GitWorktreeEntry } from "../adapters/git";
 import type { LifecycleHookRunner, RunLifecycleHookInput } from "../adapters/hooks";
@@ -9,15 +9,15 @@ import {
   getWorktreeStoragePaths,
   loadDotenvLocal,
   readWorktreeMeta,
-  writeWorktreeMeta,
   writeControlEnv,
   writeRuntimeEnv,
+  writeWorktreeMeta,
 } from "../adapters/fs";
 import { expandTemplate, getDefaultProfileName, isDockerProfile, type DockerProfileConfig } from "../adapters/config";
 import { type DockerGateway } from "../adapters/docker";
 import { buildProjectSessionName, buildWorktreeWindowName, type TmuxGateway } from "../adapters/tmux";
 import type { AgentId, ProfileConfig, ProjectConfig, RuntimeKind } from "../domain/config";
-import type { WorktreeCreationPhase, WorktreeMeta } from "../domain/model";
+import type { OneshotMeta, WorktreeCreationPhase, WorktreeMeta, WorktreeSource } from "../domain/model";
 import { allocateServicePorts, isValidBranchName, isValidEnvKey } from "../domain/policies";
 import type { AutoNameGenerator } from "./auto-name-service";
 import {
@@ -124,6 +124,7 @@ export interface CreateWorktreeProgress {
   profile: string;
   agent: AgentId;
   phase: WorktreeCreationPhase;
+  source: WorktreeSource;
 }
 
 export interface LifecycleServiceDependencies {
@@ -150,6 +151,8 @@ export interface CreateLifecycleWorktreeInput {
   profile?: string;
   agent?: AgentId;
   envOverrides?: Record<string, string>;
+  source?: WorktreeSource;
+  oneshot?: OneshotMeta;
 }
 
 export interface CreateLifecycleWorktreesInput extends Omit<CreateLifecycleWorktreeInput, "agent"> {
@@ -243,15 +246,23 @@ export class LifecycleService {
     });
   }
 
-  async openWorktree(branch: string): Promise<{
+  async openWorktree(
+    branch: string,
+    options: { prompt?: string; oneshot?: OneshotMeta } = {},
+  ): Promise<{
     branch: string;
     worktreeId: string;
   }> {
     try {
       const resolved = await this.resolveExistingWorktree(branch);
-      const initialized = resolved.meta
+      let initialized = resolved.meta
         ? await this.refreshManagedArtifacts(resolved)
         : await this.initializeUnmanagedWorktree(resolved);
+      if (options.oneshot) {
+        const nextMeta: WorktreeMeta = { ...initialized.meta, oneshot: options.oneshot };
+        await writeWorktreeMeta(initialized.paths.gitDir, nextMeta);
+        initialized = { ...initialized, meta: nextMeta };
+      }
       const { profileName, profile } = this.resolveProfile(initialized.meta.profile);
       const agent = this.resolveAgentDefinition(initialized.meta.agent);
       const launchMode: AgentLaunchMode = resolved.meta && agent.capabilities.resume ? "resume" : "fresh";
@@ -268,6 +279,7 @@ export class LifecycleService {
         initialized,
         worktreePath: resolved.entry.path,
         launchMode,
+        followUpPrompt: options.prompt,
       });
 
       await this.deps.reconciliation.reconcile(this.deps.projectRoot, { force: true });
@@ -279,6 +291,23 @@ export class LifecycleService {
     } catch (error) {
       throw this.wrapOperationError(error);
     }
+  }
+
+  /** Clears the oneshot watch state from a worktree's persisted meta, if present.
+   *  Idempotent: returns true when armed state was cleared, false otherwise.
+   *  The server-side oneshot watcher calls this on any browser-originated interaction. */
+  async disarmOneshot(branch: string): Promise<boolean> {
+    let resolved: ResolvedLifecycleWorktree;
+    try {
+      resolved = await this.resolveExistingWorktree(branch);
+    } catch {
+      return false;
+    }
+    if (!resolved.meta?.oneshot) return false;
+    const nextMeta: WorktreeMeta = { ...resolved.meta };
+    delete nextMeta.oneshot;
+    await writeWorktreeMeta(resolved.gitDir, nextMeta);
+    return true;
   }
 
   async closeWorktree(branch: string): Promise<void> {
@@ -517,6 +546,9 @@ export class LifecycleService {
   }
 
   private listCheckedOutBranches(): Set<string> {
+    // Raw listWorktrees on purpose: a stale registration still holds its branch
+    // in git's view, so it must continue to block branch reuse. Switching this
+    // to listLiveWorktrees would falsely report the branch as free.
     return new Set(
       this.deps.git.listWorktrees(resolve(this.deps.projectRoot))
         .filter((entry): entry is GitWorktreeEntry & { branch: string } => !entry.bare && entry.branch !== null)
@@ -526,7 +558,7 @@ export class LifecycleService {
 
   private listProjectWorktrees(): GitWorktreeEntry[] {
     const projectRoot = resolve(this.deps.projectRoot);
-    return this.deps.git.listWorktrees(projectRoot).filter((entry) =>
+    return this.deps.git.listLiveWorktrees(projectRoot).filter((entry) =>
       !entry.bare && resolve(entry.path) !== projectRoot
     );
   }
@@ -649,6 +681,11 @@ export class LifecycleService {
     await this.deps.reconciliation.reconcile(this.deps.projectRoot, { force: true });
   }
 
+  // Prompts are split into two fields at the type level to prevent the bug
+  // PR #116 fixed (creation prompt accidentally re-firing on a worktree
+  // re-open). `creationPrompt` is only honored on `fresh` launches;
+  // `followUpPrompt` is only honored on `resume`. The build layer picks the
+  // right one based on `launchMode`.
   private async materializeRuntimeSession(input: {
     branch: string;
     profileName: string;
@@ -656,8 +693,10 @@ export class LifecycleService {
     agent: AgentDefinition;
     initialized: InitializeManagedWorktreeResult;
     worktreePath: string;
-    prompt?: string;
+    creationPrompt?: string;
+    followUpPrompt?: string;
     launchMode: AgentLaunchMode;
+    source?: WorktreeSource;
   }): Promise<void> {
     if (input.profile.runtime === "docker") {
       const dockerProfile = this.requireDockerProfile(input.profile);
@@ -676,8 +715,10 @@ export class LifecycleService {
         agent: input.agent,
         initialized: input.initialized,
         worktreePath: input.worktreePath,
-        prompt: input.prompt,
+        creationPrompt: input.creationPrompt,
+        followUpPrompt: input.followUpPrompt,
         launchMode: input.launchMode,
+        source: input.source,
         containerName,
       }));
       return;
@@ -690,8 +731,10 @@ export class LifecycleService {
       agent: input.agent,
       initialized: input.initialized,
       worktreePath: input.worktreePath,
-      prompt: input.prompt,
+      creationPrompt: input.creationPrompt,
+      followUpPrompt: input.followUpPrompt,
       launchMode: input.launchMode,
+      source: input.source,
     }));
   }
 
@@ -702,13 +745,24 @@ export class LifecycleService {
     agent: AgentDefinition;
     initialized: InitializeManagedWorktreeResult;
     worktreePath: string;
-    prompt?: string;
+    creationPrompt?: string;
+    followUpPrompt?: string;
     launchMode: AgentLaunchMode;
+    source?: WorktreeSource;
     containerName?: string;
   }) {
-    const systemPrompt = input.launchMode === "fresh" && input.profile.systemPrompt
+    const baseSystemPrompt = input.launchMode === "fresh" && input.profile.systemPrompt
       ? expandTemplate(input.profile.systemPrompt, input.initialized.runtimeEnv)
       : undefined;
+    const oneshotPrompt = input.launchMode === "fresh" && input.source === "oneshot"
+      ? this.deps.config.oneshot.systemPrompt
+      : undefined;
+    const systemPrompt = baseSystemPrompt && oneshotPrompt
+      ? `${baseSystemPrompt}\n\n${oneshotPrompt}`
+      : (oneshotPrompt ?? baseSystemPrompt);
+    // Pick the prompt source for the launch mode. Any value supplied for the
+    // wrong field is silently ignored — this is the defense PR #116 added.
+    const prompt = input.launchMode === "resume" ? input.followUpPrompt : input.creationPrompt;
     const containerName = input.containerName;
 
     return planSessionLayout(
@@ -729,7 +783,7 @@ export class LifecycleService {
                 profileName: input.profileName,
                 yolo: input.profile.yolo === true,
                 systemPrompt,
-                prompt: input.launchMode === "fresh" ? input.prompt : undefined,
+                prompt,
                 launchMode: input.launchMode,
               }),
               shell: buildDockerShellCommand(
@@ -748,7 +802,7 @@ export class LifecycleService {
                 profileName: input.profileName,
                 yolo: input.profile.yolo === true,
                 systemPrompt,
-                prompt: input.launchMode === "fresh" ? input.prompt : undefined,
+                prompt,
                 launchMode: input.launchMode,
               }),
               shell: buildManagedShellCommand(input.initialized.paths.runtimeEnvPath),
@@ -921,12 +975,14 @@ export class LifecycleService {
     const { profileName, profile } = this.resolveProfile(input.profile);
     const agent = this.resolveAgentDefinition(input.agent);
     const worktreePath = this.resolveWorktreePath(input.branch);
+    const source: WorktreeSource = input.source ?? "ui";
     const createProgressBase = {
       branch: input.branch,
       ...(baseBranch ? { baseBranch } : {}),
       path: worktreePath,
       profile: profileName,
       agent: input.agent,
+      source,
     } satisfies Omit<CreateWorktreeProgress, "phase">;
     const deleteBranchOnRollback = input.mode === "new" || branchAvailability.deleteBranchOnRollback;
     let initialized: InitializeManagedWorktreeResult | null = null;
@@ -956,6 +1012,8 @@ export class LifecycleService {
           controlUrl: this.controlUrl(profile.runtime),
           controlToken: await this.deps.getControlToken(),
           deleteBranchOnRollback,
+          source,
+          ...(input.oneshot ? { oneshot: input.oneshot } : {}),
         },
         {
           git: this.deps.git,
@@ -997,8 +1055,9 @@ export class LifecycleService {
         agent,
         initialized,
         worktreePath,
-        prompt: input.prompt,
+        creationPrompt: input.prompt,
         launchMode: "fresh",
+        source,
       });
 
       await this.reportCreateProgress({

@@ -80,7 +80,7 @@ describe("loadConfig", () => {
         "  linear:",
         "    enabled: false",
         "    createTicketOption: true",
-        "    teamId: team-123",
+        "    watchTeams: [ENG, ops]",
         "",
       ].join("\n"),
     );
@@ -110,7 +110,7 @@ describe("loadConfig", () => {
     expect(config.integrations.github.linkedRepos).toEqual([{ repo: "acme/linked", alias: "linked" }]);
     expect(config.integrations.linear.enabled).toBe(false);
     expect(config.integrations.linear.createTicketOption).toBe(true);
-    expect(config.integrations.linear.teamId).toBe("team-123");
+    expect(config.integrations.linear.watchTeams).toEqual(["ENG", "OPS"]);
   });
 
   it("uses the first configured profile when no default profile exists", async () => {
@@ -199,7 +199,7 @@ describe("loadConfig", () => {
 
     expect(config.integrations.linear.enabled).toBe(true);
     expect(config.integrations.linear.createTicketOption).toBe(false);
-    expect(config.integrations.linear.teamId).toBeUndefined();
+    expect(config.integrations.linear.watchTeams).toBeUndefined();
   });
 
   it("adds local profiles and appends local lifecycle hooks after project hooks", async () => {

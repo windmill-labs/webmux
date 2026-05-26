@@ -4,6 +4,7 @@ import type { WorktreeMeta } from "./model";
 const INVALID_BRANCH_CHARS_RE = /[~^:?*\[\]\\]+/g;
 const UNSAFE_ENV_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const VALID_WORKTREE_NAME_RE = /^[a-z0-9][a-z0-9\-_./]*$/;
+const VALID_INSTANCE_PREFIX_RE = /^[a-z0-9][a-z0-9\-]*$/;
 
 export function sanitizeBranchName(raw: string): string {
   return raw
@@ -28,6 +29,42 @@ export function isValidWorktreeName(name: string): boolean {
 
 export function isValidEnvKey(key: string): boolean {
   return UNSAFE_ENV_KEY_RE.test(key);
+}
+
+/** Path segments that the server's route map already owns. A derived instance
+ *  prefix must never collide with these or `/<prefix>` would be shadowed and
+ *  cross-instance redirects to that project would silently fail. */
+export const RESERVED_INSTANCE_PREFIXES: ReadonlySet<string> = new Set(["api", "ws", "assets"]);
+
+/** Sanitize a string into a URL-path-friendly prefix: lowercase, hyphenated,
+ *  alphanumeric only. Returns empty if nothing usable remains. */
+export function sanitizeInstancePrefix(raw: string): string {
+  return raw
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .replace(/-{2,}/g, "-");
+}
+
+export function isValidInstancePrefix(value: string): boolean {
+  return VALID_INSTANCE_PREFIX_RE.test(value) && !RESERVED_INSTANCE_PREFIXES.has(value);
+}
+
+/** Derive a webmux instance prefix from a project directory basename.
+ *  Adds `-2`, `-3`, … suffixes to avoid collisions with already-taken prefixes
+ *  and with reserved path segments owned by the server's route map. */
+export function deriveInstancePrefix(projectDir: string, takenPrefixes: Iterable<string>): string {
+  const basename = projectDir.replace(/\/+$/, "").split("/").pop() ?? "webmux";
+  const base = sanitizeInstancePrefix(basename) || "webmux";
+
+  const taken = new Set<string>([...takenPrefixes, ...RESERVED_INSTANCE_PREFIXES]);
+  if (!taken.has(base)) return base;
+
+  for (let n = 2; n < 1000; n++) {
+    const candidate = `${base}-${n}`;
+    if (!taken.has(candidate)) return candidate;
+  }
+  return `${base}-${Date.now()}`;
 }
 
 export function allocateServicePorts(

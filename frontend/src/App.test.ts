@@ -33,6 +33,7 @@ vi.mock("./lib/api", () => ({
   interruptWorktreeConversation: vi.fn(),
   sendWorktreeConversationMessage: vi.fn(),
   setWorktreeLabel: vi.fn(),
+  postWorktreeToLinear: vi.fn(),
   subscribeNotifications: vi.fn(),
 }));
 
@@ -42,6 +43,7 @@ import {
   attachWorktreeConversation,
   connectWorktreeConversationStream,
   fetchWorktrees,
+  postWorktreeToLinear,
   setWorktreeLabel,
   subscribeNotifications,
 } from "./lib/api";
@@ -146,6 +148,8 @@ function createWorktree(
     linearIssue: null,
     creating: false,
     creationPhase: null,
+    source: "ui",
+    oneshot: null,
     ...overrides,
   };
 }
@@ -299,6 +303,13 @@ describe("App create selection", () => {
     vi.mocked(api.sendWorktreePrompt).mockResolvedValue({ ok: true });
     vi.mocked(connectWorktreeConversationStream).mockReturnValue(() => {});
     vi.mocked(setWorktreeLabel).mockResolvedValue(null);
+    vi.mocked(postWorktreeToLinear).mockResolvedValue({
+      ok: true,
+      issueId: "ENG-42",
+      issueUrl: "https://linear.app/example/issue/ENG-42",
+      commentUrl: null,
+      attachmentUrl: "https://linear.app/attachment/x",
+    });
   });
 
   afterEach(() => {
@@ -656,6 +667,9 @@ describe("App create selection", () => {
     await fireEvent.input(screen.getByLabelText(/Prompt/i), {
       target: { value: "Implement the new flow" },
     });
+    await fireEvent.input(screen.getByLabelText(/Team key/i), {
+      target: { value: "ENG" },
+    });
     await fireEvent.input(screen.getByLabelText(/Linear ticket title/i), {
       target: { value: "Ship Linear-backed worktree creation" },
     });
@@ -672,6 +686,7 @@ describe("App create selection", () => {
           agents: ["claude"],
           prompt: "Implement the new flow",
           createLinearTicket: true,
+          linearTeamKey: "ENG",
           linearTitle: "Ship Linear-backed worktree creation",
         },
       });
@@ -824,5 +839,83 @@ describe("App create selection", () => {
     remoteBranches.resolve([{ name: "feature/local-only" }, { name: "feature/remote-only" }]);
 
     expect(await screen.findByRole("button", { name: "feature/remote-only" })).toBeInTheDocument();
+  });
+
+  it("posts directly to the linked Linear issue via the row menu confirm dialog", async () => {
+    const linkedWorktree = createWorktree("feature/linked", {
+      mux: "✓",
+      linearIssue: {
+        identifier: "ENG-42",
+        url: "https://linear.app/example/issue/ENG-42",
+        state: { name: "In Progress", color: "#5e6ad2", type: "started" },
+      },
+    });
+    vi.mocked(fetchWorktrees).mockResolvedValue([linkedWorktree]);
+
+    render(App);
+
+    await screen.findByTitle("feature/linked");
+
+    await fireEvent.click(screen.getByRole("button", { name: /actions for feature\/linked/i }));
+    await fireEvent.click(screen.getByRole("button", { name: "Post conversation to ENG-42" }));
+
+    const dialog = await screen.findByRole("dialog");
+    await fireEvent.click(within(dialog).getByRole("button", { name: "Post" }));
+
+    await waitFor(() => {
+      expect(postWorktreeToLinear).toHaveBeenCalledTimes(1);
+    });
+    expect(postWorktreeToLinear).toHaveBeenCalledWith("feature/linked", {
+      kind: "issue",
+      issueId: "ENG-42",
+    });
+    expect(screen.queryByText("Post to Linear")).not.toBeInTheDocument();
+  });
+
+  it("disables the linked-issue menu item while a post is in flight", async () => {
+    const linkedWorktree = createWorktree("feature/linked", {
+      mux: "✓",
+      linearIssue: {
+        identifier: "ENG-42",
+        url: "https://linear.app/example/issue/ENG-42",
+        state: { name: "In Progress", color: "#5e6ad2", type: "started" },
+      },
+    });
+    vi.mocked(fetchWorktrees).mockResolvedValue([linkedWorktree]);
+    const pending = deferred<{
+      ok: true;
+      issueId: string;
+      issueUrl: string;
+      commentUrl: string | null;
+      attachmentUrl: string;
+    }>();
+    vi.mocked(postWorktreeToLinear).mockReturnValueOnce(pending.promise);
+
+    render(App);
+
+    await screen.findByTitle("feature/linked");
+
+    await fireEvent.click(screen.getByRole("button", { name: /actions for feature\/linked/i }));
+    await fireEvent.click(screen.getByRole("button", { name: "Post conversation to ENG-42" }));
+    const dialog = await screen.findByRole("dialog");
+    await fireEvent.click(within(dialog).getByRole("button", { name: "Post" }));
+
+    await waitFor(() => {
+      expect(postWorktreeToLinear).toHaveBeenCalledTimes(1);
+    });
+
+    await fireEvent.click(screen.getByRole("button", { name: /actions for feature\/linked/i }));
+    const pendingMenuItem = await screen.findByRole("button", { name: "Posting to Linear…" });
+    expect(pendingMenuItem).toBeDisabled();
+    await fireEvent.click(pendingMenuItem);
+    expect(postWorktreeToLinear).toHaveBeenCalledTimes(1);
+
+    pending.resolve({
+      ok: true,
+      issueId: "ENG-42",
+      issueUrl: "https://linear.app/example/issue/ENG-42",
+      commentUrl: null,
+      attachmentUrl: "https://linear.app/attachment/x",
+    });
   });
 });

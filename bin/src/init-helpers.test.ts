@@ -242,7 +242,7 @@ describe("buildStarterTemplate", () => {
     expect(template).toContain("# autoRemoveOnMerge: true");
     expect(template).toContain("# autoCreateWorktrees: true");
     expect(template).toContain("# createTicketOption: true");
-    expect(template).toContain("# teamId: team-123");
+    expect(template).toContain("# watchTeams: [ENG, OPS]");
     expect(template).toContain("# lifecycleHooks:");
     expect(template).toContain("# auto_name:");
     expect(template).toContain("# startupEnvs become runtime env vars for panes, agents, and hooks.");

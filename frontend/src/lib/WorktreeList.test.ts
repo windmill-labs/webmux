@@ -33,6 +33,8 @@ function createWorktree(branch: string): WorktreeInfo {
     },
     creating: false,
     creationPhase: null,
+    source: "ui",
+    oneshot: null,
   };
 }
 
@@ -52,6 +54,7 @@ describe("WorktreeList", () => {
         removing: new Set<string>(),
         initializing: new Set<string>(),
         archiving: new Set<string>(),
+        postingLinear: new Set<string>(),
         notifiedBranches: new Set<string>(),
         onselect,
         onclose: vi.fn(),
@@ -76,6 +79,7 @@ describe("WorktreeList", () => {
         removing: new Set(["feature/list-removing"]),
         initializing: new Set<string>(),
         archiving: new Set<string>(),
+        postingLinear: new Set<string>(),
         notifiedBranches: new Set<string>(),
         onselect: vi.fn(),
         onclose: vi.fn(),
@@ -99,6 +103,7 @@ describe("WorktreeList", () => {
         removing: new Set<string>(),
         initializing: new Set<string>(),
         archiving: new Set<string>(),
+        postingLinear: new Set<string>(),
         notifiedBranches: new Set<string>(),
         onselect: vi.fn(),
         onclose: vi.fn(),
@@ -127,6 +132,7 @@ describe("WorktreeList", () => {
         removing: new Set<string>(),
         initializing: new Set<string>(),
         archiving: new Set<string>(),
+        postingLinear: new Set<string>(),
         notifiedBranches: new Set<string>(),
         onselect: vi.fn(),
         onclose: vi.fn(),
@@ -140,6 +146,45 @@ describe("WorktreeList", () => {
     expect(screen.getByText("feature/random-fallback")).toBeInTheDocument();
   });
 
+  it("places archived and closed row badges below the worktree name", () => {
+    render(WorktreeList, {
+      props: {
+        rows: [
+          createRow({
+            ...createWorktree("feature/very-long-archived-closed-name"),
+            archived: true,
+            mux: "",
+          }),
+        ],
+        selected: null,
+        removing: new Set<string>(),
+        initializing: new Set<string>(),
+        archiving: new Set<string>(),
+        postingLinear: new Set<string>(),
+        notifiedBranches: new Set<string>(),
+        onselect: vi.fn(),
+        onclose: vi.fn(),
+        onarchive: vi.fn(),
+        onmerge: vi.fn(),
+        onremove: vi.fn(),
+      },
+    });
+
+    const name = screen.getByText("feature/very-long-archived-closed-name");
+    const archived = screen.getByText("archived");
+    const closed = screen.getByText("closed");
+    const nameRow = name.closest("[data-worktree-name-row]");
+    const badgeRow = archived.closest("[data-worktree-badge-row]");
+
+    if (!nameRow || !badgeRow) {
+      throw new Error("Expected separate name and badge rows");
+    }
+
+    expect(nameRow).not.toContainElement(archived);
+    expect(badgeRow).toContainElement(archived);
+    expect(badgeRow).toContainElement(closed);
+  });
+
   it("disables the archive action while the row is archiving", async () => {
     render(WorktreeList, {
       props: {
@@ -148,6 +193,7 @@ describe("WorktreeList", () => {
         removing: new Set<string>(),
         initializing: new Set<string>(),
         archiving: new Set<string>(["feature/archiving"]),
+        postingLinear: new Set<string>(),
         notifiedBranches: new Set<string>(),
         onselect: vi.fn(),
         onclose: vi.fn(),

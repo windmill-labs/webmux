@@ -43,6 +43,15 @@ Run agents in isolated Docker containers for untrusted or experimental work. web
 
 See your assigned Linear issues alongside your worktrees. Webmux matches branches to issues automatically, so you can browse your backlog, pick an issue, and spin up a worktree for it in one click.
 
+**Auto-create from labels.** When the server polls your assigned Linear issues, it acts on two labels:
+
+- **`webmux`** — auto-creates a worktree for the issue, seeded with the issue title + description as the agent prompt.
+- **`webmux_oneshot`** — launches the issue via `webmux oneshot` (autonomous run; auto-closes the session and posts the conversation back to the Linear issue when the agent terminates or opens a PR). When both labels are present, `webmux_oneshot` wins.
+
+Each issue is processed once while it stays in Todo + labeled. Remove the label and re-add it to retrigger.
+
+When the auto-create watcher picks up a `webmux_oneshot` issue, it posts a structured comment on the Linear issue (prefix `` **Webmux pickup — branch `<branch>`** ``) so external automation can track when the autonomous run starts. (Regular `webmux` pickups are user-driven and skip the comment.)
+
 ## Quick Start
 
 ```bash

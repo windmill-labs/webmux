@@ -20,6 +20,7 @@ Usage:
   webmux service      Manage webmux as a system service
   webmux update       Update webmux to the latest version
   webmux add          Create a worktree using the dashboard lifecycle
+  webmux oneshot      Run a worktree start-to-finish, streaming logs to stdout
   webmux list         List worktrees and their status
   webmux open         Open an existing worktree session
   webmux close        Close a worktree session without removing it
@@ -30,10 +31,13 @@ Usage:
   webmux merge        Merge a worktree into the main branch and remove it
   webmux send         Send a prompt to a running worktree agent
   webmux prune        Remove all worktrees in the current project
+  webmux linear       Post a worktree conversation to a Linear issue/team
   webmux completion   Generate shell completion script (bash, zsh)
 
 Options:
-  --port N            Set port (default: 5111)
+  --port N            Set port (default: 5111). Falls back to a free port when taken.
+  --prefix NAME       URL prefix this instance registers under (default: project dir basename).
+                      Other webmux instances on this machine will redirect /<NAME> to this port.
   --app               Open dashboard in browser app mode (minimal window)
   --debug             Show debug-level logs
   --version           Show version number
@@ -41,15 +45,21 @@ Options:
 
 Environment:
   PORT             Same as --port (flag takes precedence)
+  WEBMUX_PREFIX    Same as --prefix
 `);
 }
 
-type RootCommand = "serve" | "init" | "service" | "update" | "add" | "list" | "open" | "close" | "archive" | "unarchive" | "label" | "remove" | "merge" | "send" | "prune" | "completion" | null;
+type RootCommand = "serve" | "init" | "service" | "update" | "add" | "oneshot" | "list" | "open" | "close" | "archive" | "unarchive" | "label" | "remove" | "merge" | "send" | "prune" | "linear" | "completion" | null;
 
 interface ParsedRootArgs {
   port: number;
+  /** True when the port came from the user (--port flag or pre-existing PORT
+   *  env). False means the default 5111 — backend treats that as a hint and
+   *  may walk to the next free port on EADDRINUSE. */
+  portExplicit: boolean;
   debug: boolean;
   app: boolean;
+  prefix: string | null;
   command: RootCommand;
   commandArgs: string[];
 }
@@ -60,6 +70,7 @@ function isRootCommand(value: string): value is NonNullable<RootCommand> {
     || value === "service"
     || value === "update"
     || value === "add"
+    || value === "oneshot"
     || value === "list"
     || value === "open"
     || value === "close"
@@ -70,11 +81,13 @@ function isRootCommand(value: string): value is NonNullable<RootCommand> {
     || value === "merge"
     || value === "send"
     || value === "prune"
+    || value === "linear"
     || value === "completion";
 }
 
 function isServeRootOption(value: string): boolean {
   return value === "--port"
+    || value === "--prefix"
     || value === "--app"
     || value === "--debug"
     || value === "--help"
@@ -85,8 +98,10 @@ function isServeRootOption(value: string): boolean {
 
 export function parseRootArgs(args: string[]): ParsedRootArgs {
   let port = parseInt(process.env.PORT || "5111", 10);
+  let portExplicit = process.env.PORT !== undefined;
   let debug = false;
   let app = false;
+  let prefix: string | null = process.env.WEBMUX_PREFIX?.trim() || null;
   let command: RootCommand = null;
   const commandArgs: string[] = [];
 
@@ -109,6 +124,16 @@ export function parseRootArgs(args: string[]): ParsedRootArgs {
         if (Number.isNaN(port)) {
           throw new Error("Error: --port requires a numeric value");
         }
+        portExplicit = true;
+        index += 1;
+        break;
+      }
+      case "--prefix": {
+        const value = args[index + 1];
+        if (!value) {
+          throw new Error("Error: --prefix requires a value");
+        }
+        prefix = value.trim();
         index += 1;
         break;
       }
@@ -137,8 +162,10 @@ export function parseRootArgs(args: string[]): ParsedRootArgs {
 
   return {
     port,
+    portExplicit,
     debug,
     app,
+    prefix,
     command,
     commandArgs,
   };
@@ -223,7 +250,7 @@ function openAppMode(url: string): void {
 function pipeWithPrefix(
   stream: ReadableStream<Uint8Array>,
   prefix: string,
-  onTrigger?: { text: string; callback: () => void },
+  onTrigger?: { text: string; callback: (line: string) => void },
 ): void {
   const reader = stream.getReader();
   const decoder = new TextDecoder();
@@ -241,7 +268,7 @@ function pipeWithPrefix(
         console.log(`${prefix} ${line}`);
         if (onTrigger && !fired && line.includes(onTrigger.text)) {
           fired = true;
-          onTrigger.callback();
+          onTrigger.callback(line);
         }
       }
     }
@@ -292,11 +319,43 @@ async function main(args: string[] = process.argv.slice(2)): Promise<void> {
       stderr: "inherit",
     });
     const code = await proc.exited;
+    if (code === 0) {
+      const { listInstalledServices, updateInstalledService } = await import("./service-restart.ts");
+      const services = listInstalledServices();
+      if (services.length > 0) {
+        const whichResult = Bun.spawnSync(["which", "webmux"], { stdout: "pipe", stderr: "pipe" });
+        const webmuxPath = whichResult.success ? whichResult.stdout.toString().trim() : "";
+        console.log(`\nRefreshing ${services.length} installed webmux service(s) to pick up the new version...`);
+        for (const svc of services) {
+          const outcome = await updateInstalledService(svc, webmuxPath);
+          const parts: string[] = [];
+          if (outcome.regenerated) parts.push("regenerated unit");
+          if (outcome.restarted) parts.push("restarted");
+          if (!outcome.regenerated && !outcome.restarted && !outcome.error) parts.push("no change");
+          const status = outcome.error
+            ? `failed — ${outcome.error}`
+            : parts.join(", ");
+          console.log(`  ${svc.name}: ${status}`);
+        }
+      }
+    }
     process.exit(code);
   }
 
   await loadEnvFile(resolve(process.cwd(), ".env.local"));
   await loadEnvFile(resolve(process.cwd(), ".env"));
+
+  if (parsed.command === "oneshot") {
+    const { runOneshotCommand } = await import("./oneshot.ts");
+    const exitCode = await runOneshotCommand(parsed.commandArgs, parsed.port);
+    process.exit(exitCode);
+  }
+
+  if (parsed.command === "linear") {
+    const { runLinearCommand } = await import("./linear-commands.ts");
+    const exitCode = await runLinearCommand(parsed.commandArgs, parsed.port);
+    process.exit(exitCode);
+  }
 
   if (isWorktreeCommand(parsed.command)) {
     const { runWorktreeCommand } = await import("./worktree-commands.ts");
@@ -323,6 +382,8 @@ async function main(args: string[] = process.argv.slice(2)): Promise<void> {
     ...process.env,
     PORT: String(parsed.port),
     WEBMUX_PROJECT_DIR: process.cwd(),
+    ...(parsed.portExplicit ? { WEBMUX_PORT_STRICT: "1" } : {}),
+    ...(parsed.prefix ? { WEBMUX_PREFIX: parsed.prefix } : {}),
     ...(parsed.debug ? { WEBMUX_DEBUG: "1" } : {}),
   };
 
@@ -358,7 +419,11 @@ async function main(args: string[] = process.argv.slice(2)): Promise<void> {
     process.exit(1);
   }
 
-  console.log(`Starting webmux on port ${parsed.port}...`);
+  console.log(
+    parsed.portExplicit
+      ? `Starting webmux on port ${parsed.port}...`
+      : `Starting webmux on port ${parsed.port} (falls back to a free port if taken)...`,
+  );
 
   const be = Bun.spawn(["bun", backendEntry], {
     env: { ...baseEnv, WEBMUX_STATIC_DIR: staticDir },
@@ -370,7 +435,12 @@ async function main(args: string[] = process.argv.slice(2)): Promise<void> {
   if (parsed.app) {
     pipeWithPrefix(be.stdout, "[BE]", {
       text: "Dev Dashboard API running at",
-      callback: () => openAppMode(`http://localhost:${parsed.port}`),
+      callback: (line) => {
+        // Backend logs the actual bound port (which may differ from parsed.port
+        // when the requested port was taken and we fell back to a free one).
+        const match = line.match(/https?:\/\/[^\s]+/);
+        openAppMode(match?.[0] ?? `http://localhost:${parsed.port}`);
+      },
     });
   } else {
     pipeWithPrefix(be.stdout, "[BE]");

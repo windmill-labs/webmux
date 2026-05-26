@@ -4,12 +4,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   BunGitGateway,
+  filterLiveWorktreeEntries,
+  listGitWorktrees,
   listLocalGitBranches,
   parseGitWorktreePorcelain,
   readGitWorktreeStatus,
   removeGitWorktree,
   resolveWorktreeGitDir,
   resolveWorktreeRoot,
+  worktreeEntryPathExists,
 } from "../adapters/git";
 
 function normalizePath(path: string): string {
@@ -320,6 +323,79 @@ describe("BunGitGateway", () => {
     const status = new BunGitGateway().readStatus(repoRoot);
     expect(status).toContain("A  added.txt");
     expect(status).toContain("D  removed.txt");
+  });
+});
+
+describe("stale worktree resilience", () => {
+  let repoRoot = "";
+
+  afterEach(async () => {
+    if (repoRoot) {
+      await rm(repoRoot, { recursive: true, force: true });
+      repoRoot = "";
+    }
+  });
+
+  it("does not throw posix_spawn ENOENT for tryRunGit-backed callers when cwd is missing", () => {
+    // Regression for the crash: Bun.spawnSync throws synchronously when cwd is gone.
+    // tryRunGit-backed callers (readDiff, listUnpushedCommits, fetchBranch, ...) must
+    // surface this as a normal failure, not propagate the throw.
+    const gateway = new BunGitGateway();
+    expect(() => gateway.readDiff("/tmp/webmux-missing-xyz-12345-does-not-exist")).not.toThrow();
+    expect(gateway.readDiff("/tmp/webmux-missing-xyz-12345-does-not-exist")).toBe("");
+    expect(() => gateway.listUnpushedCommits("/tmp/webmux-missing-xyz-12345-does-not-exist")).not.toThrow();
+    expect(gateway.listUnpushedCommits("/tmp/webmux-missing-xyz-12345-does-not-exist")).toEqual([]);
+  });
+
+  it("throws a controlled error when runGit is invoked against a missing cwd", () => {
+    // runGit-backed callers re-raise with a readable message that names the cwd —
+    // not a bare posix_spawn stack trace.
+    expect(() => listLocalGitBranches("/tmp/webmux-missing-xyz-12345-does-not-exist"))
+      .toThrow(/cwd=\/tmp\/webmux-missing-xyz-12345-does-not-exist/);
+  });
+
+  it("worktreeEntryPathExists rejects missing paths", () => {
+    expect(worktreeEntryPathExists({
+      path: "/tmp/webmux-missing-xyz-12345-does-not-exist",
+      head: null,
+      branch: null,
+      detached: false,
+      bare: false,
+    })).toBe(false);
+  });
+
+  it("filterLiveWorktreeEntries drops stale entries and keeps live ones", async () => {
+    repoRoot = await mkdtemp(join(tmpdir(), "webmux-filter-live-"));
+    expect(filterLiveWorktreeEntries([
+      { path: repoRoot, head: "abc", branch: "main", detached: false, bare: false },
+      { path: "/tmp/webmux-missing-xyz-12345-does-not-exist", head: "def", branch: "stale", detached: false, bare: false },
+    ])).toEqual([
+      { path: repoRoot, head: "abc", branch: "main", detached: false, bare: false },
+    ]);
+  });
+
+  it("BunGitGateway.listLiveWorktrees omits registrations whose directory was deleted", async () => {
+    repoRoot = await mkdtemp(join(tmpdir(), "webmux-stale-wt-"));
+    run(["git", "init", "-b", "main"], repoRoot);
+    run(["git", "config", "user.name", "Test User"], repoRoot);
+    run(["git", "config", "user.email", "test@example.com"], repoRoot);
+    await Bun.write(join(repoRoot, "README.md"), "# repo\n");
+    run(["git", "add", "README.md"], repoRoot);
+    run(["git", "commit", "-m", "init"], repoRoot);
+
+    const worktreePath = join(repoRoot, "__worktrees", "stale");
+    await mkdir(join(repoRoot, "__worktrees"), { recursive: true });
+    run(["git", "worktree", "add", "-b", "stale", worktreePath], repoRoot);
+
+    await rm(worktreePath, { recursive: true, force: true });
+
+    // Raw list keeps the dangling registration (semantics preserved for removeGitWorktree).
+    expect(listGitWorktrees(repoRoot).some((entry) => entry.path === worktreePath)).toBe(true);
+
+    // Live list filters it out.
+    const gateway = new BunGitGateway();
+    expect(gateway.listLiveWorktrees(repoRoot).some((entry) => entry.path === worktreePath)).toBe(false);
+    expect(gateway.listLiveWorktrees(repoRoot).some((entry) => entry.path === repoRoot)).toBe(true);
   });
 });
 

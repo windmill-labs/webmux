@@ -13,6 +13,7 @@
     removing,
     initializing,
     archiving,
+    postingLinear,
     notifiedBranches,
     emptyMessage = "No worktrees found.",
     onselect,
@@ -20,12 +21,14 @@
     onarchive,
     onmerge,
     onremove,
+    onposttolinear,
   }: {
     rows: WorktreeListRow[];
     selected: string | null;
     removing: Set<string>;
     initializing: Set<string>;
     archiving: Set<string>;
+    postingLinear: Set<string>;
     notifiedBranches: Set<string>;
     emptyMessage?: string;
     onselect: (branch: string) => void;
@@ -33,6 +36,7 @@
     onarchive: (branch: string) => void;
     onmerge: (branch: string) => void;
     onremove: (branch: string) => void;
+    onposttolinear?: (branch: string) => void;
   } = $props();
 
   function toggleMenu(branch: string): void {
@@ -84,6 +88,7 @@
     {@const isArchived = wt.archived}
     {@const isBusy = isRemoving || isInitializing}
     {@const hasLabel = !!wt.label}
+    {@const hasBadgeRow = isArchived || isCreating || isInitializing || isClosed || wt.prs.length > 0 || !!wt.linearIssue || wt.source === "oneshot"}
     <li class="mb-0.5 group relative {isBusy ? 'opacity-40 pointer-events-none' : ''}">
       <button
         type="button"
@@ -97,44 +102,59 @@
           onselect(wt.branch);
         }}
       >
-        <span class="flex items-center gap-1.5 pr-5 flex-wrap">
-          <div class="flex items-center gap-2 max-w-[90%] min-w-0">
-            {#if row.depth > 0}
-              <span class="shrink-0 text-muted/60">↳</span>
-            {/if}
-            <span class="min-w-0 flex flex-col">
-              <span class="font-medium truncate">{wt.label ?? wt.branch}</span>
-              {#if hasLabel}
-                <span class="text-[10px] leading-tight text-muted truncate">{wt.branch}</span>
+        <span class="flex min-w-0 items-start gap-2 pr-5">
+          {#if row.depth > 0}
+            <span class="shrink-0 text-muted/60">↳</span>
+          {/if}
+          <span class="min-w-0 flex flex-1 flex-col gap-1">
+            <span class="flex min-w-0 items-center gap-1.5" data-worktree-name-row>
+              <span class="min-w-0 flex flex-1 flex-col">
+                <span class="font-medium truncate">{wt.label ?? wt.branch}</span>
+                {#if hasLabel}
+                  <span class="text-[10px] leading-tight text-muted truncate">{wt.branch}</span>
+                {/if}
+              </span>
+              {#if !isCreating && !isInitializing && !isClosed}
+                <span class="shrink-0"><AgentStatusIcon status={wt.agent} size={14} /></span>
+              {/if}
+              {#if notifiedBranches.has(wt.branch)}
+                <span class="shrink-0 w-2 h-2 rounded-full bg-accent"></span>
               {/if}
             </span>
-            {#if isArchived}
-              <span class="shrink-0 text-[10px] px-1.5 py-0.5 rounded border border-edge text-muted">
-                archived
+            {#if hasBadgeRow}
+              <span class="flex min-w-0 flex-wrap items-center gap-1.5" data-worktree-badge-row>
+                {#if wt.source === "oneshot"}
+                  <span
+                    class="shrink-0 text-[10px] px-1.5 py-0.5 rounded border border-edge text-muted"
+                    title="Autonomous run — auto-closes when done"
+                  >
+                    oneshot
+                  </span>
+                {/if}
+                {#if isArchived}
+                  <span class="shrink-0 text-[10px] px-1.5 py-0.5 rounded border border-edge text-muted">
+                    archived
+                  </span>
+                {/if}
+                {#if isCreating}
+                  <span class="shrink-0 inline-flex items-center gap-1 text-[10px] text-muted">
+                    <span class="spinner"></span>
+                    {worktreeCreationPhaseLabel(wt.creationPhase)}...
+                  </span>
+                {:else if isInitializing}
+                  <span class="shrink-0 text-[10px] text-muted">opening...</span>
+                {:else if isClosed}
+                  <span class="shrink-0 text-[10px] text-muted">closed</span>
+                {/if}
+                {#each wt.prs as pr (pr.repo)}
+                  <PrBadge {pr} />
+                {/each}
+                {#if wt.linearIssue}
+                  <LinearBadge issue={wt.linearIssue} clickable={false} />
+                {/if}
               </span>
             {/if}
-            {#if isCreating}
-              <span class="shrink-0 inline-flex items-center gap-1 text-[10px] text-muted">
-                <span class="spinner"></span>
-                {worktreeCreationPhaseLabel(wt.creationPhase)}...
-              </span>
-            {:else if isInitializing}
-              <span class="shrink-0 text-[10px] text-muted">opening...</span>
-            {:else if isClosed}
-              <span class="shrink-0 text-[10px] text-muted">closed</span>
-            {:else}
-              <span class="shrink-0"><AgentStatusIcon status={wt.agent} size={14} /></span>
-            {/if}
-            {#if notifiedBranches.has(wt.branch)}
-              <span class="shrink-0 w-2 h-2 rounded-full bg-accent"></span>
-            {/if}
-          </div>
-          {#each wt.prs as pr (pr.repo)}
-            <PrBadge {pr} />
-          {/each}
-          {#if wt.linearIssue}
-            <LinearBadge issue={wt.linearIssue} clickable={false} />
-          {/if}
+          </span>
         </span>
         <span class="flex gap-2 text-[11px] text-muted items-center flex-wrap">
           {#if wt.agentLabel ?? wt.agentName}
@@ -230,6 +250,28 @@
           >
             Remove
           </button>
+          {#if onposttolinear}
+            {@const isPostingLinear = postingLinear.has(wt.branch)}
+            <div class="my-1 border-t border-edge"></div>
+            <button
+              type="button"
+              disabled={isPostingLinear}
+              class="w-full px-2 py-1.5 rounded text-left text-xs text-primary hover:bg-hover disabled:opacity-50 disabled:cursor-not-allowed"
+              onclick={(event) => {
+                event.stopPropagation();
+                openMenuBranch = null;
+                onposttolinear(wt.branch);
+              }}
+            >
+              {#if isPostingLinear}
+                Posting to Linear…
+              {:else if wt.linearIssue}
+                Post conversation to {wt.linearIssue.identifier}
+              {:else}
+                Post conversation to Linear…
+              {/if}
+            </button>
+          {/if}
         </div>
       {/if}
     </li>

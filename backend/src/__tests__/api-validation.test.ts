@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { NotificationIdParamsSchema, RunIdParamsSchema, WorktreeNameParamsSchema } from "@webmux/api-contract";
+import { CreateWorktreeRequestSchema, NotificationIdParamsSchema, RunIdParamsSchema, WorktreeNameParamsSchema } from "@webmux/api-contract";
 import { z } from "zod";
 import { parseParams } from "../api-validation";
 
@@ -53,5 +53,38 @@ describe("parseParams", () => {
     expect(await parsed.response.json()).toEqual({
       error: "Invalid path parameters: first: Required (and 1 more error)",
     });
+  });
+});
+
+describe("CreateWorktreeRequestSchema linearTeamKey", () => {
+  it("uppercases and accepts a valid team key", () => {
+    const parsed = CreateWorktreeRequestSchema.safeParse({
+      createLinearTicket: true,
+      linearTeamKey: "eng",
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect(parsed.data.linearTeamKey).toBe("ENG");
+  });
+
+  it("rejects an issue-shaped key like ENG-123", () => {
+    const parsed = CreateWorktreeRequestSchema.safeParse({
+      createLinearTicket: true,
+      linearTeamKey: "ENG-123",
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it("rejects non-alpha characters", () => {
+    const parsed = CreateWorktreeRequestSchema.safeParse({
+      createLinearTicket: true,
+      linearTeamKey: "ENG2",
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it("allows omitting linearTeamKey", () => {
+    const parsed = CreateWorktreeRequestSchema.safeParse({});
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect(parsed.data.linearTeamKey).toBeUndefined();
   });
 });

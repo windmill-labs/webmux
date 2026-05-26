@@ -24,6 +24,52 @@ export const AgentIdSchema = z.string().trim().min(1);
 export const AgentKindSchema = BuiltInAgentIdSchema;
 export const WorktreeCreateModeSchema = z.enum(["new", "existing"]);
 
+export const LinearIssueIdSchema = z.string().regex(/^[A-Z]+-\d+$/, "Expected Linear issue id (e.g. ENG-123)");
+export const LinearTeamKeySchema = z.string().regex(/^[A-Z]+$/, "Expected Linear team key (e.g. ENG)");
+
+/** Distinguishes a Linear issue id (TEAM-123) from a team key (TEAM). */
+export type LinearTarget =
+  | { kind: "issue"; issueId: string }
+  | { kind: "team"; teamKey: string }
+  | { kind: "invalid"; raw: string };
+
+export function parseLinearTarget(raw: string): LinearTarget {
+  const trimmed = raw.trim();
+  if (LinearIssueIdSchema.safeParse(trimmed).success) return { kind: "issue", issueId: trimmed };
+  if (LinearTeamKeySchema.safeParse(trimmed).success) return { kind: "team", teamKey: trimmed };
+  return { kind: "invalid", raw: trimmed };
+}
+
+export const PostWorktreeToLinearTargetSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("issue"), issueId: LinearIssueIdSchema }),
+  z.object({ kind: z.literal("team"), teamKey: LinearTeamKeySchema, title: z.string().trim().min(1).optional() }),
+]);
+
+export const PostWorktreeToLinearRequestSchema = z.object({
+  target: PostWorktreeToLinearTargetSchema,
+});
+
+export const PostWorktreeToLinearResponseSchema = z.object({
+  ok: z.literal(true),
+  issueId: z.string(),
+  issueUrl: z.string(),
+  commentUrl: z.string().nullable(),
+  attachmentUrl: z.string(),
+});
+
+export const FromLinearInputSchema = z.object({
+  issueId: LinearIssueIdSchema,
+  conversationContext: z.string().optional(),
+});
+
+/** Oneshot watch config carried on create/open requests. When present, the server-side
+ *  oneshot watcher will auto-close the session (and optionally post to Linear) once the
+ *  agent finishes. Any browser-originated interaction with the session disarms the watcher. */
+export const OneshotConfigSchema = z.object({
+  autoCloseOnDone: z.boolean().optional(),
+  postToLinearOnDone: PostWorktreeToLinearTargetSchema.optional(),
+});
+
 export const AgentCapabilitiesSchema = z.object({
   terminal: z.literal(true),
   inAppChat: z.boolean(),
@@ -91,6 +137,8 @@ export const BranchListResponseSchema = z.object({
   branches: z.array(AvailableBranchSchema),
 });
 
+export const WorktreeSourceSchema = z.enum(["ui", "oneshot"]);
+
 export const CreateWorktreeRequestSchema = z.object({
   mode: WorktreeCreateModeSchema.optional(),
   branch: z.string().optional(),
@@ -102,6 +150,22 @@ export const CreateWorktreeRequestSchema = z.object({
   envOverrides: z.record(z.string()).optional(),
   createLinearTicket: z.literal(true).optional(),
   linearTitle: z.string().optional(),
+  // Accept any case at the boundary, then normalize and validate against the
+  // team-key shape. Invalid inputs (e.g. "ENG-1") get a clear 400 instead of
+  // being forwarded to Linear for a vague 404.
+  linearTeamKey: z.string()
+    .trim()
+    .transform((value) => value.toUpperCase())
+    .pipe(LinearTeamKeySchema)
+    .optional(),
+  fromLinear: FromLinearInputSchema.optional(),
+  source: WorktreeSourceSchema.optional(),
+  oneshot: OneshotConfigSchema.optional(),
+});
+
+export const OpenWorktreeRequestSchema = z.object({
+  prompt: z.string().optional(),
+  oneshot: OneshotConfigSchema.optional(),
 });
 
 export const CreateWorktreeResponseSchema = z.object({
@@ -272,6 +336,11 @@ export const ProjectWorktreeSnapshotSchema = z.object({
   prs: z.array(PrEntrySchema),
   linearIssue: LinkedLinearIssueSchema.nullable(),
   creation: WorktreeCreationStateSchema.nullable(),
+  source: WorktreeSourceSchema,
+  /** Present when the server-side oneshot watcher is armed for this worktree.
+   *  Cleared by `disarmOneshot` on the first browser-originated interaction.
+   *  CLI clients read this to detect "user took over" mid-run. */
+  oneshot: OneshotConfigSchema.nullable(),
 });
 
 export const ProjectSnapshotSchema = z.object({
@@ -327,6 +396,7 @@ export const AgentsUiWorktreeSummarySchema = z.object({
 
 export const AgentsUiConversationMessageRoleSchema = z.enum(["user", "assistant"]);
 export const AgentsUiConversationMessageStatusSchema = z.enum(["completed", "inProgress"]);
+export const AgentsUiConversationMessageKindSchema = z.enum(["text", "toolUse", "toolResult"]);
 
 export const AgentsUiConversationMessageSchema = z.object({
   id: z.string(),
@@ -335,6 +405,8 @@ export const AgentsUiConversationMessageSchema = z.object({
   text: z.string(),
   status: AgentsUiConversationMessageStatusSchema,
   createdAt: z.string().nullable(),
+  kind: AgentsUiConversationMessageKindSchema.optional(),
+  toolName: z.string().optional(),
 });
 
 export const AgentsUiConversationStateSchema = z.object({
@@ -455,6 +527,20 @@ export const RunIdParamsSchema = z.object({
   runId: NumberLikePathParamSchema,
 });
 
+export const InstanceSummarySchema = z.object({
+  prefix: z.string(),
+  port: z.number(),
+  projectDir: z.string(),
+  startedAt: z.number(),
+});
+
+export const InstancesResponseSchema = z.object({
+  instances: z.array(InstanceSummarySchema),
+});
+
+export type InstanceSummary = z.infer<typeof InstanceSummarySchema>;
+export type InstancesResponse = z.infer<typeof InstancesResponseSchema>;
+
 export type BuiltInAgentId = z.infer<typeof BuiltInAgentIdSchema>;
 export type AgentId = z.infer<typeof AgentIdSchema>;
 export type AgentKind = z.infer<typeof AgentKindSchema>;
@@ -466,12 +552,21 @@ export type UpsertCustomAgentRequest = z.infer<typeof UpsertCustomAgentRequestSc
 export type AgentResponse = z.infer<typeof AgentResponseSchema>;
 export type ValidateCustomAgentResponse = z.infer<typeof ValidateCustomAgentResponseSchema>;
 export type WorktreeCreateMode = z.infer<typeof WorktreeCreateModeSchema>;
+export type LinearIssueId = z.infer<typeof LinearIssueIdSchema>;
+export type LinearTeamKey = z.infer<typeof LinearTeamKeySchema>;
+export type PostWorktreeToLinearTarget = z.infer<typeof PostWorktreeToLinearTargetSchema>;
+export type PostWorktreeToLinearRequest = z.infer<typeof PostWorktreeToLinearRequestSchema>;
+export type PostWorktreeToLinearResponse = z.infer<typeof PostWorktreeToLinearResponseSchema>;
+export type FromLinearInput = z.infer<typeof FromLinearInputSchema>;
+export type OneshotConfig = z.infer<typeof OneshotConfigSchema>;
 export type WorktreeCreationPhase = z.infer<typeof WorktreeCreationPhaseSchema>;
 export type AvailableBranch = z.infer<typeof AvailableBranchSchema>;
 // Keep this manual so frontend callers pass booleans instead of raw `"true"`/`"false"` query literals.
 export type AvailableBranchesQuery = { includeRemote?: boolean };
 export type BranchListResponse = z.infer<typeof BranchListResponseSchema>;
 export type CreateWorktreeRequest = z.infer<typeof CreateWorktreeRequestSchema>;
+export type OpenWorktreeRequest = z.infer<typeof OpenWorktreeRequestSchema>;
+export type WorktreeSource = z.infer<typeof WorktreeSourceSchema>;
 export type CreateWorktreeResponse = z.infer<typeof CreateWorktreeResponseSchema>;
 export type SetWorktreeArchivedRequest = z.infer<typeof SetWorktreeArchivedRequestSchema>;
 export type SetWorktreeArchivedResponse = z.infer<typeof SetWorktreeArchivedResponseSchema>;
@@ -503,6 +598,7 @@ export type WorktreeConversationRef = z.infer<typeof WorktreeConversationRefSche
 export type AgentsUiWorktreeSummary = z.infer<typeof AgentsUiWorktreeSummarySchema>;
 export type AgentsUiConversationMessageRole = z.infer<typeof AgentsUiConversationMessageRoleSchema>;
 export type AgentsUiConversationMessageStatus = z.infer<typeof AgentsUiConversationMessageStatusSchema>;
+export type AgentsUiConversationMessageKind = z.infer<typeof AgentsUiConversationMessageKindSchema>;
 export type AgentsUiConversationMessage = z.infer<typeof AgentsUiConversationMessageSchema>;
 export type AgentsUiConversationState = z.infer<typeof AgentsUiConversationStateSchema>;
 export type AgentsUiWorktreeConversationResponse = z.infer<typeof AgentsUiWorktreeConversationResponseSchema>;

@@ -12,9 +12,11 @@
   import ToastStack from "./lib/ToastStack.svelte";
   import LinearPanel from "./lib/LinearPanel.svelte";
   import LinearDetailDialog from "./lib/LinearDetailDialog.svelte";
+  import LinearPostDialog from "./lib/LinearPostDialog.svelte";
   import MobileChatSurface from "./lib/MobileChatSurface.svelte";
   import WorktreeLabelDialog from "./lib/WorktreeLabelDialog.svelte";
   import SidebarRepoRow from "./lib/SidebarRepoRow.svelte";
+  import InstanceSwitcher from "./lib/InstanceSwitcher.svelte";
   import Toggle from "./lib/Toggle.svelte";
   import type {
     AvailableBranch,
@@ -54,7 +56,7 @@
   import { getTheme } from "./lib/themes";
   import type { ThemeKey } from "./lib/themes";
   import { setToastController } from "./lib/toast-context";
-  import { api, fetchWorktrees, setWorktreeLabel, subscribeNotifications } from "./lib/api";
+  import { api, fetchWorktrees, postWorktreeToLinear, setWorktreeLabel, subscribeNotifications } from "./lib/api";
 
   function createDefaultConfig(): AppConfig {
     return {
@@ -87,6 +89,9 @@
   let hasLoadedWorktrees = $state(false);
   let removeBranch = $state<string | null>(null);
   let mergeBranch = $state<string | null>(null);
+  let postToLinearBranch = $state<string | null>(null);
+  let postToLinkedConfirm = $state<{ branch: string; issueId: string } | null>(null);
+  let postingLinearBranches = $state<Set<string>>(new Set());
   let labelBranch = $state<string | null>(null);
   let labelLoading = $state(false);
   let labelError = $state("");
@@ -590,11 +595,17 @@
     if (shouldAutoSelectCreatedWorktree) {
       pendingCreateBranchHint = expectedCreatedCount > 1 ? null : request.branch ?? null;
     }
+    // When the dialog was opened from a LinearPanel click, route the create
+    // through the `fromLinear` seed so the backend injects the issue header
+    // and any prior webmux attachment as context.
+    const finalRequest: CreateWorktreeRequest = assignIssue
+      ? { ...request, fromLinear: { issueId: assignIssue.identifier } }
+      : request;
     showCreateDialog = false;
     assignIssue = null;
 
     try {
-      const createPromise = api.createWorktree({ body: request });
+      const createPromise = api.createWorktree({ body: finalRequest });
       void refresh();
       const result = await createPromise;
       if (shouldAutoSelectCreatedWorktree) {
@@ -782,7 +793,7 @@
     if (!branch) return;
     openingBranches = new Set([...openingBranches, branch]);
     try {
-      await api.openWorktree({ params: { name: branch } });
+      await api.openWorktree({ params: { name: branch }, body: {} });
       await refresh();
     } catch (err) {
       showToast({ tone: "error", message: `Failed to open worktree: ${errorMessage(err)}` });
@@ -821,6 +832,39 @@
     }
   }
 
+  function handlePostToLinear(branch: string): void {
+    if (postingLinearBranches.has(branch)) return;
+    const worktree = worktrees.find((w) => w.branch === branch);
+    if (!worktree?.linearIssue) {
+      // No linked issue → fall back to the create-new-issue dialog.
+      postToLinearBranch = branch;
+      return;
+    }
+    // Linked worktree → confirm before posting; the endpoint is non-idempotent
+    // and each call creates a fresh attachment + comment on the issue. Snapshot
+    // the issue id now so a worktree refresh between click and confirm can't
+    // render the dialog against missing state.
+    postToLinkedConfirm = { branch, issueId: worktree.linearIssue.identifier };
+  }
+
+  async function confirmPostToLinkedIssue(): Promise<void> {
+    const snapshot = postToLinkedConfirm;
+    if (!snapshot) return;
+    const { branch, issueId } = snapshot;
+    postToLinkedConfirm = null;
+    postingLinearBranches = new Set([...postingLinearBranches, branch]);
+    try {
+      const response = await postWorktreeToLinear(branch, { kind: "issue", issueId });
+      showToast({ tone: "success", message: `Posted to Linear: ${response.issueUrl}` });
+    } catch (err) {
+      showToast({ tone: "error", message: `Failed to post to Linear: ${errorMessage(err)}` });
+    } finally {
+      postingLinearBranches = new Set(
+        [...postingLinearBranches].filter((b) => b !== branch),
+      );
+    }
+  }
+
   async function handleArchiveToggle() {
     const branch = selectedBranch;
     if (!branch) return;
@@ -852,7 +896,7 @@
 
   function handleKeydown(e: KeyboardEvent) {
     // Ignore shortcuts when a dialog is open (let dialog handle its own keys)
-    if (showCreateDialog || removeBranch || mergeBranch || pullMainConfirm || pullLinkedRepoAlias) return;
+    if (showCreateDialog || removeBranch || mergeBranch || pullMainConfirm || pullLinkedRepoAlias || postToLinkedConfirm) return;
 
     const mod = e.metaKey || e.ctrlKey;
     if (!mod) return;
@@ -992,7 +1036,10 @@
     >
       <div class="p-4 border-b border-edge">
         <div class="flex items-center justify-between">
-          <h1 class="text-base font-semibold">{config.name ?? "Dashboard"}</h1>
+          <div class="flex items-center gap-1 min-w-0">
+            <h1 class="text-base font-semibold truncate">{config.name ?? "Dashboard"}</h1>
+            <InstanceSwitcher selfName={config.name ?? "Dashboard"} />
+          </div>
           <div class="flex items-center gap-2">
             <button
               class="h-8 px-2 gap-1.5 rounded-md border border-edge bg-surface text-accent text-xs flex items-center justify-center cursor-pointer hover:bg-hover disabled:opacity-50 disabled:cursor-not-allowed"
@@ -1058,6 +1105,7 @@
         removing={removingBranches}
         initializing={openingBranches}
         archiving={archivingBranches}
+        postingLinear={postingLinearBranches}
         {notifiedBranches}
         emptyMessage={worktreeListEmptyMessage}
         onselect={handleSelectWorktree}
@@ -1067,6 +1115,7 @@
           mergeBranch = branch;
         }}
         onremove={(b) => (removeBranch = b)}
+        onposttolinear={handlePostToLinear}
       />
       {#if config.projectDir}
         <SidebarRepoRow
@@ -1370,6 +1419,32 @@
     issue={detailIssue}
     onassign={(issue) => { detailIssue = null; handleAssignIssue(issue); }}
     onclose={() => (detailIssue = null)}
+  />
+{/if}
+
+{#if postToLinearBranch}
+  <LinearPostDialog
+    branch={postToLinearBranch}
+    onsubmit={async (target) => {
+      const branch = postToLinearBranch;
+      if (!branch) return;
+      const response = await postWorktreeToLinear(branch, target);
+      showToast({
+        tone: "success",
+        message: `Posted to Linear: ${response.issueUrl}`,
+      });
+    }}
+    onclose={() => (postToLinearBranch = null)}
+  />
+{/if}
+
+{#if postToLinkedConfirm}
+  <ConfirmDialog
+    message={`Post conversation to ${postToLinkedConfirm.issueId}? This creates a new attachment and comment on the issue.`}
+    confirmLabel="Post"
+    variant="accent"
+    onconfirm={() => { void confirmPostToLinkedIssue(); }}
+    oncancel={() => (postToLinkedConfirm = null)}
   />
 {/if}
 

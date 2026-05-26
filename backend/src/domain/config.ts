@@ -72,7 +72,9 @@ export interface LinearIntegrationConfig {
   enabled: boolean;
   autoCreateWorktrees: boolean;
   createTicketOption: boolean;
-  teamId?: string;
+  /** Restrict the auto-create watcher to issues from these team keys (e.g. ["ENG", "OPS"]).
+   *  When unset, all teams the authenticated user is assigned in are watched. */
+  watchTeams?: string[];
 }
 
 export interface IntegrationConfig {
@@ -91,6 +93,10 @@ export interface AutoNameConfig {
   systemPrompt?: string;
 }
 
+export interface OneshotConfig {
+  systemPrompt: string;
+}
+
 export interface ProjectConfig {
   name: string;
   workspace: WorkspaceConfig;
@@ -101,4 +107,5 @@ export interface ProjectConfig {
   integrations: IntegrationConfig;
   lifecycleHooks: LifecycleHooksConfig;
   autoName: AutoNameConfig | null;
+  oneshot: OneshotConfig;
 }

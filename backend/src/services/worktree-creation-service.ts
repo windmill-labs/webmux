@@ -1,5 +1,5 @@
 import type { AgentId } from "../domain/config";
-import type { CreatingWorktreeState, WorktreeCreationPhase } from "../domain/model";
+import type { CreatingWorktreeState, WorktreeCreationPhase, WorktreeSource } from "../domain/model";
 
 export interface WorktreeCreationProgress {
   branch: string;
@@ -8,6 +8,7 @@ export interface WorktreeCreationProgress {
   profile: string;
   agent: AgentId;
   phase: WorktreeCreationPhase;
+  source: WorktreeSource;
 }
 
 export class WorktreeCreationTracker {
@@ -21,6 +22,7 @@ export class WorktreeCreationTracker {
       profile: progress.profile,
       agentName: progress.agent,
       phase: progress.phase,
+      source: progress.source,
     };
     this.worktrees.set(progress.branch, next);
   }

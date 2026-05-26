@@ -67,6 +67,7 @@ export interface GitGateway {
   resolveWorktreeRoot(cwd: string): string;
   resolveWorktreeGitDir(cwd: string): string;
   listWorktrees(cwd: string): GitWorktreeEntry[];
+  listLiveWorktrees(cwd: string): GitWorktreeEntry[];
   listLocalBranches(cwd: string): string[];
   listRemoteBranches(cwd: string): string[];
   readWorktreeStatus(cwd: string): GitWorktreeStatus;
@@ -83,12 +84,28 @@ export interface GitGateway {
   hardReset(repoRoot: string, ref: string): TryGitCommandResult;
 }
 
+function spawnGit(args: string[], cwd: string): { ok: true; result: Bun.SyncSubprocess<"pipe", "pipe"> } | { ok: false; stderr: string } {
+  try {
+    return {
+      ok: true,
+      result: Bun.spawnSync(["git", ...args], {
+        cwd,
+        stdout: "pipe",
+        stderr: "pipe",
+      }),
+    };
+  } catch (error) {
+    // Bun.spawnSync throws synchronously when cwd doesn't exist (posix_spawn ENOENT).
+    return { ok: false, stderr: `spawn error (cwd=${cwd}): ${errorMessage(error)}` };
+  }
+}
+
 function runGit(args: string[], cwd: string): string {
-  const result = Bun.spawnSync(["git", ...args], {
-    cwd,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+  const spawned = spawnGit(args, cwd);
+  if (!spawned.ok) {
+    throw new Error(`git ${args.join(" ")} failed: ${spawned.stderr}`);
+  }
+  const { result } = spawned;
 
   if (result.exitCode !== 0) {
     const stderr = new TextDecoder().decode(result.stderr).trim();
@@ -99,11 +116,11 @@ function runGit(args: string[], cwd: string): string {
 }
 
 function tryRunGit(args: string[], cwd: string): TryGitCommandResult {
-  const result = Bun.spawnSync(["git", ...args], {
-    cwd,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+  const spawned = spawnGit(args, cwd);
+  if (!spawned.ok) {
+    return { ok: false, stderr: spawned.stderr };
+  }
+  const { result } = spawned;
 
   if (result.exitCode !== 0) {
     return {
@@ -248,6 +265,18 @@ export function listGitWorktrees(cwd: string): GitWorktreeEntry[] {
   return parseGitWorktreePorcelain(output);
 }
 
+export function worktreeEntryPathExists(entry: GitWorktreeEntry): boolean {
+  try {
+    return statSync(entry.path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+export function filterLiveWorktreeEntries(entries: GitWorktreeEntry[]): GitWorktreeEntry[] {
+  return entries.filter(worktreeEntryPathExists);
+}
+
 export function listLocalGitBranches(cwd: string): string[] {
   const output = runGit(["for-each-ref", "--format=%(refname:short)", "refs/heads"], cwd);
   return output
@@ -330,6 +359,10 @@ export class BunGitGateway implements GitGateway {
 
   listWorktrees(cwd: string): GitWorktreeEntry[] {
     return listGitWorktrees(cwd);
+  }
+
+  listLiveWorktrees(cwd: string): GitWorktreeEntry[] {
+    return filterLiveWorktreeEntries(listGitWorktrees(cwd));
   }
 
   listLocalBranches(cwd: string): string[] {

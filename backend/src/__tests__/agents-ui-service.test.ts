@@ -38,6 +38,8 @@ describe("buildAgentsUiWorktreeSummary", () => {
       creation: {
         phase: "starting_session",
       },
+      source: "ui",
+      oneshot: null,
     }, {
       provider: "codexAppServer",
       conversationId: "thr_123",
@@ -105,6 +107,8 @@ describe("buildAgentsUiWorktreeSummary", () => {
       prs: [],
       linearIssue: null,
       creation: null,
+      source: "ui",
+      oneshot: null,
     }, null);
 
     expect(summary.conversation).toBeNull();

@@ -179,6 +179,8 @@ function makeWorktree(): WorktreeSnapshot {
     prs: [],
     linearIssue: null,
     creation: null,
+    source: "ui",
+    oneshot: null,
   };
 }
 

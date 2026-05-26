@@ -26,6 +26,20 @@ export type WorktreeConversationMeta =
   | CodexWorktreeConversationMeta
   | ClaudeWorktreeConversationMeta;
 
+export type WorktreeSource = "ui" | "oneshot";
+
+/** Linear post-back target embedded in oneshot meta. Re-exported from the
+ *  contract so meta + wire shapes stay in lockstep. */
+export type OneshotPostTarget = import("@webmux/api-contract").PostWorktreeToLinearTarget;
+
+/** Per-worktree oneshot watch state. Persisted on disk; the server-side watcher
+ *  reads it to decide when to auto-close / post back to Linear. Presence of this
+ *  field is the "armed" signal — any browser-originated interaction clears it. */
+export interface OneshotMeta {
+  autoCloseOnDone: boolean;
+  postToLinearOnDone?: OneshotPostTarget;
+}
+
 export interface WorktreeMeta {
   schemaVersion: number;
   worktreeId: string;
@@ -38,6 +52,8 @@ export interface WorktreeMeta {
   runtime: RuntimeKind;
   startupEnvValues: Record<string, string>;
   allocatedPorts: Record<string, number>;
+  source?: WorktreeSource;
+  oneshot?: OneshotMeta;
   conversation?: WorktreeConversationMeta | null;
 }
 
@@ -154,6 +170,7 @@ export interface CreatingWorktreeState {
   profile: string | null;
   agentName: AgentId | null;
   phase: WorktreeCreationPhase;
+  source: WorktreeSource;
 }
 
 export interface WorktreeCreationSnapshot {
@@ -168,6 +185,8 @@ export interface ManagedWorktreeRuntimeState {
   path: string;
   profile: string | null;
   agentName: AgentId | null;
+  source: WorktreeSource;
+  oneshot: OneshotMeta | null;
   git: GitWorktreeRuntimeState;
   session: SessionRuntimeState;
   agent: AgentRuntimeState;
@@ -204,6 +223,8 @@ export interface WorktreeSnapshot {
   prs: PrEntry[];
   linearIssue: LinkedLinearIssue | null;
   creation: WorktreeCreationSnapshot | null;
+  source: WorktreeSource;
+  oneshot: OneshotMeta | null;
 }
 
 export interface ProjectSnapshot {

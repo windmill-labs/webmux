@@ -114,6 +114,8 @@ describe("parseAddCommandArgs", () => {
         },
       },
       detach: false,
+      fromLinearIssueId: null,
+      branchExplicit: true,
     } satisfies ParsedAddCommand);
   });
 
@@ -121,6 +123,8 @@ describe("parseAddCommandArgs", () => {
     expect(parseAddCommandArgs(["feature/search", "--existing"])).toEqual({
       input: { branch: "feature/search", mode: "existing" },
       detach: false,
+      fromLinearIssueId: null,
+      branchExplicit: true,
     });
   });
 
@@ -128,6 +132,8 @@ describe("parseAddCommandArgs", () => {
     expect(parseAddCommandArgs(["feature/search", "--existing", "--agent", "claude", "--detach"])).toEqual({
       input: { branch: "feature/search", mode: "existing", agents: ["claude"] },
       detach: true,
+      fromLinearIssueId: null,
+      branchExplicit: true,
     });
   });
 
@@ -135,6 +141,8 @@ describe("parseAddCommandArgs", () => {
     expect(parseAddCommandArgs(["feature/search", "--detach"])).toEqual({
       input: { branch: "feature/search" },
       detach: true,
+      fromLinearIssueId: null,
+      branchExplicit: true,
     });
   });
 
@@ -142,6 +150,8 @@ describe("parseAddCommandArgs", () => {
     expect(parseAddCommandArgs(["-d", "feature/search"])).toEqual({
       input: { branch: "feature/search" },
       detach: true,
+      fromLinearIssueId: null,
+      branchExplicit: true,
     });
   });
 
@@ -149,6 +159,8 @@ describe("parseAddCommandArgs", () => {
     expect(parseAddCommandArgs(["feature/search", "--agent=claude", "--agent", "gemini"])).toEqual({
       input: { branch: "feature/search", agents: ["claude", "gemini"] },
       detach: false,
+      fromLinearIssueId: null,
+      branchExplicit: true,
     });
   });
 
@@ -158,6 +170,27 @@ describe("parseAddCommandArgs", () => {
 
   it("returns null for help", () => {
     expect(parseAddCommandArgs(["--help"])).toBeNull();
+  });
+
+  it("parses --from-linear", () => {
+    expect(parseAddCommandArgs(["--from-linear", "ENG-12"])).toEqual({
+      input: {},
+      detach: false,
+      fromLinearIssueId: "ENG-12",
+      branchExplicit: false,
+    });
+  });
+
+  it("rejects malformed --from-linear values", () => {
+    expect(() => parseAddCommandArgs(["--from-linear", "eng-1"]))
+      .toThrow("--from-linear expects an issue id like ENG-123");
+  });
+
+  it("accepts --branch override alongside --from-linear", () => {
+    const parsed = parseAddCommandArgs(["--from-linear", "ENG-12", "--branch", "feat/override"]);
+    expect(parsed?.input.branch).toBe("feat/override");
+    expect(parsed?.branchExplicit).toBe(true);
+    expect(parsed?.fromLinearIssueId).toBe("ENG-12");
   });
 });
 

@@ -165,6 +165,14 @@ lifecycleHooks:
   # Shell command run before a managed worktree is removed.
   preRemove: scripts/pre-remove.sh
 
+# Overrides the system prompt injected into oneshot-mode agent runs.
+# Omit to use the built-in default (instructs the agent to finish, commit,
+# push, and open a PR without asking for confirmation).
+oneshot:
+  systemPrompt: >
+    You are running in webmux ONESHOT mode. Drive the task to completion
+    without asking for approval, then commit, push, and open a PR.
+
 auto_name:
   # Model used when the branch field is left empty and a prompt is provided.
   # Supported provider families currently include:

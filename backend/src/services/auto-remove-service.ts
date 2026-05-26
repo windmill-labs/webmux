@@ -17,7 +17,7 @@ export interface AutoRemoveDependencies {
 /** Check all worktrees for merged PRs and remove clean ones.
  *  Called after PR sync completes -- reads the PR files that sync just wrote. */
 export async function runAutoRemove(deps: AutoRemoveDependencies): Promise<void> {
-  const worktrees = deps.git.listWorktrees(deps.projectRoot)
+  const worktrees = deps.git.listLiveWorktrees(deps.projectRoot)
     .filter((e) => !e.bare && e.branch !== null && e.path !== deps.projectRoot);
 
   for (const entry of worktrees) {

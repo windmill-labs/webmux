@@ -64,6 +64,8 @@ function mapWorktreeSnapshot(
     prs: state.prs.map((pr) => clonePrEntry(pr)),
     linearIssue: findLinearIssue ? findLinearIssue(state.branch) : null,
     creation: mapCreationSnapshot(creating),
+    source: state.source,
+    oneshot: state.oneshot,
   };
 }
 
@@ -93,6 +95,8 @@ function mapCreatingWorktreeSnapshot(
     prs: [],
     linearIssue: findLinearIssue ? findLinearIssue(creating.branch) : null,
     creation: mapCreationSnapshot(creating),
+    source: creating.source,
+    oneshot: null,
   };
 }
 

@@ -2,9 +2,11 @@ import type {
   AgentId,
   BuiltInAgentId,
   LinkedLinearIssue,
+  OneshotConfig,
   PrEntry,
   ServiceStatus,
   WorktreeCreationPhase,
+  WorktreeSource,
 } from "@webmux/api-contract";
 
 export type {
@@ -39,6 +41,12 @@ export type {
   LinearIssuesResponse,
   LinkedLinearIssue,
   LinkedRepoInfo,
+  OneshotConfig,
+  PostWorktreeToLinearRequest,
+  PostWorktreeToLinearResponse,
+  PostWorktreeToLinearTarget,
+  FromLinearInput,
+  InstanceSummary,
   PrComment,
   PrEntry,
   ProfileConfig,
@@ -58,6 +66,7 @@ export type {
   WorktreeCreateMode,
   WorktreeDiffResponse,
   WorktreeListResponse,
+  WorktreeSource,
 } from "@webmux/api-contract";
 export type { AgentsSendMessageRequest as AgentsUiSendMessageRequest } from "@webmux/api-contract";
 
@@ -93,6 +102,8 @@ export interface WorktreeInfo {
   linearIssue: LinkedLinearIssue | null;
   creating: boolean;
   creationPhase: WorktreeCreationPhase | null;
+  source: WorktreeSource;
+  oneshot: OneshotConfig | null;
 }
 
 export interface WorktreeListRow {

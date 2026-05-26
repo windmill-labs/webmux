@@ -53,6 +53,10 @@ class FakeGitGateway implements GitGateway {
     return [];
   }
 
+  listLiveWorktrees() {
+    return [];
+  }
+
   listLocalBranches(): string[] {
     return [];
   }

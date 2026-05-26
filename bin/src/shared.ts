@@ -26,6 +26,13 @@ export function getGitRoot(): string | null {
   return result.stdout.toString().trim();
 }
 
+/**
+ * Thrown by argparse functions to signal usage errors (e.g. missing flag value,
+ * unknown option). Caught at the command entry point so the CLI can print the
+ * help banner alongside the message.
+ */
+export class CommandUsageError extends Error {}
+
 export function detectProjectName(gitRoot: string): string {
   const pkgPath = join(gitRoot, "package.json");
   if (existsSync(pkgPath)) {
@@ -35,4 +42,29 @@ export function detectProjectName(gitRoot: string): string {
     } catch {} // malformed package.json, fall back to dir name
   }
   return basename(gitRoot);
+}
+
+/**
+ * Bun throws a `TypeError: fetch failed` when the webmux server isn't
+ * reachable; the bare message is unhelpful to users. This returns a friendly
+ * "Is the server running?" hint for that case and leaves HTTP/other errors
+ * untouched.
+ */
+export function formatServerError(error: unknown, port: number): string {
+  if (error instanceof Error) {
+    if (error.message.startsWith("HTTP")) return error.message;
+    if (error.message.includes("fetch")) {
+      return `Could not connect to webmux server on port ${port}. Is it running?`;
+    }
+    return error.message;
+  }
+  return String(error);
+}
+
+export async function withServerConnection<T>(port: number, fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (error) {
+    throw new Error(formatServerError(error, port));
+  }
 }

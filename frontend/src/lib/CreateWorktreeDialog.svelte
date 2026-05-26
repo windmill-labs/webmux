@@ -8,6 +8,7 @@
     ProfileConfig,
     WorktreeCreateMode,
   } from "./types";
+  import { parseLinearTarget } from "@webmux/api-contract";
   import BaseDialog from "./BaseDialog.svelte";
   import BranchSelector from "./BranchSelector.svelte";
   import Btn from "./Btn.svelte";
@@ -60,8 +61,10 @@
   const AGENT_STORAGE_KEY = "wt-default-agents";
   const MULTI_AGENT_STORAGE_KEY = "wt-default-multi-agents";
   const ENV_STORAGE_KEY = "wt-default-envs";
+  const LINEAR_TEAM_KEY_STORAGE_KEY = "wt-linear-team-key";
   const savedProfile = localStorage.getItem(STORAGE_KEY);
   const savedEnvs = localStorage.getItem(ENV_STORAGE_KEY);
+  const savedLinearTeamKey = localStorage.getItem(LINEAR_TEAM_KEY_STORAGE_KEY) ?? "";
 
   function sameAgentIds(left: AgentId[], right: AgentId[]): boolean {
     return left.length === right.length && left.every((id, index) => id === right[index]);
@@ -125,6 +128,8 @@
   let profile = $state(savedProfile ?? "");
   let createLinearTicket = $state(false);
   let linearTitle = $state("");
+  // svelte-ignore state_referenced_locally
+  let linearTeamKey = $state(savedLinearTeamKey);
   const hasSavedDefaults = savedProfile != null
     || localStorage.getItem(AGENT_STORAGE_KEY) != null
     || localStorage.getItem(MULTI_AGENT_STORAGE_KEY) != null
@@ -141,6 +146,10 @@
   );
   let creatingMultipleAgents = $derived(multiAgentMode && selectedAgentIds.length > 1);
   let promptRequired = $derived(showLinearTicketOption && createLinearTicket);
+  let linearTeamKeyTrimmed = $derived(linearTeamKey.trim().toUpperCase());
+  let linearTeamKeyParsed = $derived(linearTeamKeyTrimmed ? parseLinearTarget(linearTeamKeyTrimmed) : null);
+  let linearTeamKeyLooksLikeIssue = $derived(linearTeamKeyParsed?.kind === "issue");
+  let linearTeamKeyValid = $derived(linearTeamKeyParsed?.kind === "team");
   let branchPreview = $derived(
     mode === "new" && !createLinearTicket && creatingMultipleAgents && newBranchName.trim().length > 0
       ? selectedAgentIds.map((agentId) => `${agentId}-${newBranchName.trim()}`)
@@ -149,7 +158,8 @@
   let canSubmit = $derived(
     selectedAgentIds.length > 0
       && (mode === "new" || selectedExistingBranch.length > 0)
-      && (!promptRequired || prompt.trim().length > 0),
+      && (!promptRequired || prompt.trim().length > 0)
+      && (!createLinearTicket || linearTeamKeyValid),
   );
 
   $effect(() => {
@@ -249,6 +259,9 @@
       }
       const trimmedPrompt = prompt.trim();
       const branchName = mode === "existing" ? selectedExistingBranch : newBranchName.trim();
+      if (createLinearTicket && linearTeamKeyValid) {
+        localStorage.setItem(LINEAR_TEAM_KEY_STORAGE_KEY, linearTeamKeyTrimmed);
+      }
       oncreate({
         mode,
         ...(branchName && !(mode === "new" && createLinearTicket) ? { branch: branchName } : {}),
@@ -257,7 +270,7 @@
         agents: [...selectedAgentIds],
         ...(trimmedPrompt ? { prompt: trimmedPrompt } : {}),
         ...(Object.keys(filteredEnvs).length > 0 ? { envOverrides: filteredEnvs } : {}),
-        ...(createLinearTicket ? { createLinearTicket: true } : {}),
+        ...(createLinearTicket ? { createLinearTicket: true, linearTeamKey: linearTeamKeyTrimmed } : {}),
         ...(createLinearTicket && linearTitle.trim() ? { linearTitle: linearTitle.trim() } : {}),
       });
     }}
@@ -461,6 +474,25 @@
           <Toggle bind:checked={createLinearTicket} aria-label="Create Linear ticket" />
         </div>
         {#if createLinearTicket}
+          <div class="mt-3">
+            <label class="block text-xs text-muted mb-1.5" for="wt-linear-team-key">Team key</label>
+            <input
+              id="wt-linear-team-key"
+              type="text"
+              class="w-full px-2.5 py-1.5 rounded-md border border-edge bg-surface text-primary text-[13px] placeholder:text-muted/50 outline-none focus:border-accent font-mono uppercase"
+              placeholder="ENG"
+              value={linearTeamKey}
+              oninput={(e) => { linearTeamKey = e.currentTarget.value.toUpperCase(); }}
+              autocomplete="off"
+            />
+            {#if linearTeamKeyTrimmed && linearTeamKeyLooksLikeIssue}
+              <p class="mt-1 text-[11px] text-danger">
+                Looks like an issue id. Enter the team key only (e.g. ENG).
+              </p>
+            {:else if linearTeamKeyTrimmed && !linearTeamKeyValid}
+              <p class="mt-1 text-[11px] text-danger">Expected a team key like ENG (uppercase letters only).</p>
+            {/if}
+          </div>
           <div class="mt-3">
             <label class="block text-xs text-muted mb-1.5" for="wt-linear-title">
               Linear ticket title <span class="opacity-60">(optional)</span>

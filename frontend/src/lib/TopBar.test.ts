@@ -28,6 +28,8 @@ function createWorktree(
     linearIssue: null,
     creating: false,
     creationPhase: null,
+    source: "ui",
+    oneshot: null,
     ...overrides,
   };
 }

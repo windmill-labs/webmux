@@ -16,6 +16,7 @@
   } = $props();
 
   let dialogEl: HTMLDialogElement;
+  let pressStartedOnBackdrop = false;
 
   $effect(() => {
     dialogEl?.showModal();
@@ -25,8 +26,12 @@
 <dialog
   bind:this={dialogEl}
   {onclose}
+  onmousedown={(e: MouseEvent) => {
+    pressStartedOnBackdrop = e.target === dialogEl;
+  }}
   onclick={(e: MouseEvent) => {
-    if (e.target === dialogEl) dialogEl.close();
+    if (e.target === dialogEl && pressStartedOnBackdrop) dialogEl.close();
+    pressStartedOnBackdrop = false;
   }}
   class="bg-sidebar text-primary border border-edge rounded-xl w-[90%] {maxWidth
     ? ''

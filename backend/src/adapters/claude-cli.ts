@@ -2,12 +2,16 @@ import { readdir, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { log } from "../lib/log";
 
+export type ClaudeCliConversationMessageKind = "text" | "toolUse" | "toolResult";
+
 export interface ClaudeCliConversationMessage {
   id: string;
   turnId: string;
   role: "user" | "assistant";
   text: string;
   createdAt: string | null;
+  kind?: ClaudeCliConversationMessageKind;
+  toolName?: string;
 }
 
 export interface ClaudeCliSession {
@@ -69,11 +73,6 @@ interface ClaudeStoredMessage {
   stop_reason?: unknown;
 }
 
-interface ClaudeParsedTurn {
-  assistant: ClaudeCliConversationMessage | null;
-  user: ClaudeCliConversationMessage;
-}
-
 function isRecord(raw: unknown): raw is Record<string, unknown> {
   return typeof raw === "object" && raw !== null && !Array.isArray(raw);
 }
@@ -101,6 +100,35 @@ function extractClaudeMessageText(raw: unknown): string {
     .trim();
 }
 
+const TOOL_PAYLOAD_TRUNCATE_LIMIT = 2000;
+
+function compactJson(value: unknown): string {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function truncate(text: string, limit = TOOL_PAYLOAD_TRUNCATE_LIMIT): string {
+  if (text.length <= limit) return text;
+  return `${text.slice(0, limit)}… (truncated, ${text.length - limit} more chars)`;
+}
+
+function extractToolResultText(content: unknown): string {
+  if (typeof content === "string") return truncate(content.trim());
+  if (!Array.isArray(content)) return truncate(compactJson(content));
+  const text = content
+    .map((entry) => {
+      if (!isRecord(entry)) return "";
+      if (entry.type === "text" && typeof entry.text === "string") return entry.text;
+      return compactJson(entry);
+    })
+    .join("")
+    .trim();
+  return truncate(text);
+}
+
 function isTopLevelClaudeUserPrompt(raw: ClaudeStoredRecord): raw is ClaudeStoredRecord & {
   message: ClaudeStoredMessage & { content: string; role: "user" };
   type: "user";
@@ -111,6 +139,17 @@ function isTopLevelClaudeUserPrompt(raw: ClaudeStoredRecord): raw is ClaudeStore
     && typeof raw.message.content === "string"
     && typeof raw.uuid === "string"
     && raw.message.content.trim().length > 0;
+}
+
+function isClaudeUserToolResultRecord(raw: ClaudeStoredRecord): raw is ClaudeStoredRecord & {
+  message: ClaudeStoredMessage & { content: unknown[]; role: "user" };
+  type: "user";
+  uuid: string;
+} {
+  if (raw.type !== "user" || !isRecord(raw.message)) return false;
+  return raw.message.role === "user"
+    && Array.isArray(raw.message.content)
+    && typeof raw.uuid === "string";
 }
 
 function isClaudeAssistantRecord(raw: ClaudeStoredRecord): raw is ClaudeStoredRecord & {
@@ -175,12 +214,14 @@ function parseClaudeSessionRecords(text: string): ClaudeStoredRecord[] {
   return text
     .split("\n")
     .map((line) => line.trim())
-    .filter((line) => line.length > 0)
+    .filter((line) => line.length > 0 && line.startsWith("{"))
     .flatMap((line) => {
       try {
-        const parsed = JSON.parse(line) as ClaudeStoredRecord;
-        return [parsed];
-      } catch (error) {
+        return [JSON.parse(line) as ClaudeStoredRecord];
+      } catch {
+        // The prefix filter already drops obvious non-JSON noise, so anything
+        // reaching this catch is a corrupt JSON record — warn so a regression
+        // (e.g. partial write, truncated session file) is visible.
         log.warn(`[agents] failed to parse Claude session line: ${line.slice(0, 120)}`);
         return [];
       }
@@ -195,12 +236,18 @@ export function buildClaudeSessionFromText(
   },
 ): ClaudeCliSession {
   const records = parseClaudeSessionRecords(input.text);
-  const turns: ClaudeParsedTurn[] = [];
+  const messages: ClaudeCliConversationMessage[] = [];
   let cwd: string | null = null;
   let gitBranch: string | null = null;
   let createdAt: string | null = null;
   let lastSeenAt: string | null = null;
-  let currentTurn: ClaudeParsedTurn | null = null;
+  let currentTurnId: string | null = null;
+  let blockIndex = 0;
+
+  const pushMessage = (message: ClaudeCliConversationMessage): void => {
+    messages.push(message);
+    blockIndex += 1;
+  };
 
   for (const record of records) {
     cwd ??= readString(record.cwd);
@@ -211,43 +258,71 @@ export function buildClaudeSessionFromText(
     lastSeenAt = readString(record.timestamp) ?? lastSeenAt;
 
     if (isTopLevelClaudeUserPrompt(record)) {
-      if (currentTurn) {
-        turns.push(currentTurn);
-      }
+      currentTurnId = record.uuid;
+      blockIndex = 0;
+      pushMessage({
+        id: record.uuid,
+        turnId: record.uuid,
+        role: "user",
+        kind: "text",
+        text: record.message.content.trim(),
+        createdAt: readString(record.timestamp),
+      });
+      continue;
+    }
 
-      currentTurn = {
-        user: {
-          id: record.uuid,
-          turnId: record.uuid,
+    if (!currentTurnId) continue;
+
+    if (isClaudeUserToolResultRecord(record)) {
+      for (const entry of record.message.content) {
+        if (!isRecord(entry) || entry.type !== "tool_result") continue;
+        const text = extractToolResultText(entry.content);
+        if (text.length === 0) continue;
+        pushMessage({
+          id: `${record.uuid}:${blockIndex}`,
+          turnId: currentTurnId,
           role: "user",
-          text: record.message.content.trim(),
+          kind: "toolResult",
+          text,
           createdAt: readString(record.timestamp),
-        },
-        assistant: null,
-      };
+        });
+      }
       continue;
     }
 
-    if (!currentTurn || !isClaudeAssistantRecord(record)) {
-      continue;
+    if (!isClaudeAssistantRecord(record)) continue;
+    if (!Array.isArray(record.message.content)) continue;
+
+    for (const block of record.message.content) {
+      if (!isRecord(block)) continue;
+      if (block.type === "text" && typeof block.text === "string") {
+        const text = block.text.trim();
+        if (text.length === 0) continue;
+        pushMessage({
+          id: `${record.uuid}:${blockIndex}`,
+          turnId: currentTurnId,
+          role: "assistant",
+          kind: "text",
+          text,
+          createdAt: readString(record.timestamp),
+        });
+        continue;
+      }
+      if (block.type === "tool_use") {
+        const toolName = typeof block.name === "string" ? block.name : "tool";
+        const text = truncate(compactJson(block.input ?? {}));
+        pushMessage({
+          id: `${record.uuid}:${blockIndex}`,
+          turnId: currentTurnId,
+          role: "assistant",
+          kind: "toolUse",
+          toolName,
+          text,
+          createdAt: readString(record.timestamp),
+        });
+        continue;
+      }
     }
-
-    const text = extractClaudeMessageText(record.message.content);
-    if (text.length === 0 || record.message.stop_reason !== "end_turn") {
-      continue;
-    }
-
-    currentTurn.assistant = {
-      id: record.uuid,
-      turnId: currentTurn.user.turnId,
-      role: "assistant",
-      text,
-      createdAt: readString(record.timestamp),
-    };
-  }
-
-  if (currentTurn) {
-    turns.push(currentTurn);
   }
 
   return {
@@ -257,7 +332,7 @@ export function buildClaudeSessionFromText(
     gitBranch,
     createdAt,
     lastSeenAt,
-    messages: turns.flatMap((turn) => turn.assistant ? [turn.user, turn.assistant] : [turn.user]),
+    messages,
   };
 }
 

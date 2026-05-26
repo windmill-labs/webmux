@@ -187,11 +187,15 @@ export const rootCommands: DocCommand[] = [
   {
     title: "service",
     usage:
-      "webmux service install [--port <number>]\nwebmux service uninstall\nwebmux service status\nwebmux service logs",
+      "webmux service install [--port <number>] [--env KEY=VALUE]... [--no-auto-env]\nwebmux service uninstall\nwebmux service status\nwebmux service logs",
     description: "Manage webmux as a user-level service on Linux or macOS.",
     details: [
       "Uses systemctl --user on Linux and launchctl on macOS.",
       "install writes a service file that runs webmux serve --port ... from the git root.",
+      "--env KEY=VALUE bakes an env var into the unit (repeatable). Reserved keys PORT, WEBMUX_PROJECT_DIR, PATH are rejected.",
+      "By default, install auto-picks LINEAR_API_KEY from the installing shell's environment. Pass --no-auto-env to disable.",
+      "Reinstall preserves env vars already in the existing unit file unless overridden by --env or auto-pickup.",
+      "The unit file is chmod'd to 0600 whenever any env var is set.",
       "Not supported on other platforms.",
     ],
   },

@@ -13,6 +13,7 @@ import {
   CiLogsResponseSchema,
   CreateWorktreeRequestSchema,
   CreateWorktreeResponseSchema,
+  OpenWorktreeRequestSchema,
   EnabledResponseSchema,
   ErrorResponseSchema,
   OkResponseSchema,
@@ -25,6 +26,9 @@ import {
   SendWorktreePromptRequestSchema,
   SetWorktreeArchivedRequestSchema,
   SetWorktreeArchivedResponseSchema,
+  PostWorktreeToLinearRequestSchema,
+  PostWorktreeToLinearResponseSchema,
+  ProjectWorktreeSnapshotSchema,
   SetWorktreeLabelRequestSchema,
   SetWorktreeLabelResponseSchema,
   ToggleEnabledRequestSchema,
@@ -33,6 +37,7 @@ import {
   WorktreeNameParamsSchema,
   NotificationIdParamsSchema,
   LinearIssuesResponseSchema,
+  InstancesResponseSchema,
 } from "./schemas";
 
 const c = initContract();
@@ -58,6 +63,8 @@ export const apiPaths = {
   openWorktree: "/api/worktrees/:name/open",
   closeWorktree: "/api/worktrees/:name/close",
   setWorktreeArchived: "/api/worktrees/:name/archive",
+  syncWorktreePrs: "/api/worktrees/:name/sync-prs",
+  postWorktreeToLinear: "/api/worktrees/:name/linear/post",
   setWorktreeLabel: "/api/worktrees/:name/label",
   sendWorktreePrompt: "/api/worktrees/:name/send",
   mergeWorktree: "/api/worktrees/:name/merge",
@@ -68,6 +75,7 @@ export const apiPaths = {
   pullMain: "/api/pull-main",
   fetchCiLogs: "/api/ci-logs/:runId",
   dismissNotification: "/api/notifications/:id/dismiss",
+  fetchInstances: "/api/instances",
 } as const;
 
 const commonErrorResponses = {
@@ -238,7 +246,7 @@ export const apiContract = c.router({
     method: "POST",
     path: apiPaths.openWorktree,
     pathParams: WorktreeNameParamsSchema,
-    body: c.noBody(),
+    body: OpenWorktreeRequestSchema,
     responses: {
       200: OkResponseSchema,
       ...commonErrorResponses,
@@ -261,6 +269,26 @@ export const apiContract = c.router({
     body: SetWorktreeArchivedRequestSchema,
     responses: {
       200: SetWorktreeArchivedResponseSchema,
+      ...commonErrorResponses,
+    },
+  },
+  postWorktreeToLinear: {
+    method: "POST",
+    path: apiPaths.postWorktreeToLinear,
+    pathParams: WorktreeNameParamsSchema,
+    body: PostWorktreeToLinearRequestSchema,
+    responses: {
+      200: PostWorktreeToLinearResponseSchema,
+      ...commonErrorResponses,
+    },
+  },
+  syncWorktreePrs: {
+    method: "POST",
+    path: apiPaths.syncWorktreePrs,
+    pathParams: WorktreeNameParamsSchema,
+    body: c.noBody(),
+    responses: {
+      200: ProjectWorktreeSnapshotSchema,
       ...commonErrorResponses,
     },
   },
@@ -357,6 +385,14 @@ export const apiContract = c.router({
       200: OkResponseSchema,
       400: ErrorResponseSchema,
       404: ErrorResponseSchema,
+    },
+  },
+  fetchInstances: {
+    method: "GET",
+    path: apiPaths.fetchInstances,
+    responses: {
+      200: InstancesResponseSchema,
+      500: ErrorResponseSchema,
     },
   },
 }, {

@@ -1,23 +1,37 @@
 import * as p from "@clack/prompts";
-import { existsSync, mkdirSync, unlinkSync } from "node:fs";
-import { join } from "node:path";
+import { chmodSync, existsSync, mkdirSync, readFileSync, unlinkSync } from "node:fs";
+import { basename, join } from "node:path";
 import { homedir } from "node:os";
 import { run, getGitRoot, detectProjectName } from "./shared.ts";
 import type { RunResult } from "./shared.ts";
+import { discoverTakenPorts, pickFreePort, readPortFromUnit } from "./install-ports.ts";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
-type Platform = "linux" | "darwin";
+export type Platform = "linux" | "darwin";
 type Command = [bin: string, args: string[]];
 
-interface ServiceConfig {
+export interface ServiceConfig {
   platform: Platform;
   projectName: string;
   serviceName: string;
   webmuxPath: string;
   projectDir: string;
   port: number;
+  /** Extra environment variables to bake into the unit (LINEAR_API_KEY etc.).
+   *  PORT / WEBMUX_PROJECT_DIR / PATH are managed by the generator and must
+   *  not be passed here. */
+  envVars: Record<string, string>;
 }
+
+/** Env vars webmux reads at runtime that are worth auto-detecting from the
+ *  installing shell's environment. Limited to credentials/integrations users
+ *  typically `export` in their dotfiles — not knobs like WEBMUX_DEBUG. */
+export const AUTO_PICKUP_ENV_VARS = ["LINEAR_API_KEY"] as const;
+
+/** Env-var names the generator owns and refuses to accept as user envVars —
+ *  the unit file sets them separately. */
+const RESERVED_ENV_KEYS = new Set(["PORT", "WEBMUX_PROJECT_DIR", "PATH"]);
 
 // ── Platform helpers ────────────────────────────────────────────────────────
 
@@ -69,6 +83,12 @@ function serviceFilePath(config: ServiceConfig): string {
 // ── Service file content ────────────────────────────────────────────────────
 
 function generateSystemdUnit(config: ServiceConfig): string {
+  // Sort by key so reinstalls / regenerations produce stable output regardless
+  // of which order the user passed --env flags or which order Object.keys
+  // happens to iterate.
+  const extra = Object.keys(config.envVars).sort()
+    .map((key) => `Environment=${key}=${config.envVars[key]}`)
+    .join("\n");
   return `[Unit]
 Description=webmux dashboard — ${config.projectName}
 
@@ -80,15 +100,25 @@ Restart=on-failure
 RestartSec=5
 Environment=PORT=${config.port}
 Environment=WEBMUX_PROJECT_DIR=${config.projectDir}
-Environment=PATH=${process.env.PATH}
+Environment=PATH=${process.env.PATH}${extra ? "\n" + extra : ""}
 
 [Install]
 WantedBy=default.target
 `;
 }
 
+function escapePlistText(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
 function generateLaunchdPlist(config: ServiceConfig): string {
   const logPath = join(homedir(), "Library", "Logs", `webmux-${config.serviceName}.log`);
+  const extra = Object.keys(config.envVars).sort()
+    .map((key) => `    <key>${escapePlistText(key)}</key>\n    <string>${escapePlistText(config.envVars[key])}</string>`)
+    .join("\n");
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -122,16 +152,106 @@ function generateLaunchdPlist(config: ServiceConfig): string {
     <key>WEBMUX_PROJECT_DIR</key>
     <string>${config.projectDir}</string>
     <key>PATH</key>
-    <string>${process.env.PATH}</string>
+    <string>${process.env.PATH}</string>${extra ? "\n" + extra : ""}
   </dict>
 </dict>
 </plist>
 `;
 }
 
-function generateServiceFile(config: ServiceConfig): string {
+export function generateServiceFile(config: ServiceConfig): string {
   if (config.platform === "linux") return generateSystemdUnit(config);
   return generateLaunchdPlist(config);
+}
+
+const SYSTEMD_WORKDIR_RE = /^WorkingDirectory=(.+)$/m;
+const LAUNCHD_WORKDIR_RE = /<key>WorkingDirectory<\/key>\s*<string>([^<]+)<\/string>/;
+const SYSTEMD_ENV_RE = /^Environment=([A-Za-z_][A-Za-z0-9_]*)=(.*)$/gm;
+const LAUNCHD_ENV_DICT_RE = /<key>EnvironmentVariables<\/key>\s*<dict>([\s\S]*?)<\/dict>/;
+const LAUNCHD_ENV_ENTRY_RE = /<key>([^<]+)<\/key>\s*<string>([^<]*)<\/string>/g;
+
+function readWorkingDirFromUnit(filePath: string, platform: Platform): string | null {
+  let text: string;
+  try {
+    text = readFileSync(filePath, "utf8");
+  } catch {
+    return null;
+  }
+  const regex = platform === "linux" ? SYSTEMD_WORKDIR_RE : LAUNCHD_WORKDIR_RE;
+  const match = regex.exec(text);
+  return match ? match[1].trim() : null;
+}
+
+function unescapePlistText(value: string): string {
+  return value
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+}
+
+/** Extract user-set env vars from an existing unit file. Strips out the keys
+ *  the generator manages itself (PORT/WEBMUX_PROJECT_DIR/PATH) so a re-parse
+ *  → re-generate cycle stays idempotent and doesn't double-emit them. */
+export function readEnvVarsFromUnit(filePath: string, platform: Platform): Record<string, string> {
+  let text: string;
+  try {
+    text = readFileSync(filePath, "utf8");
+  } catch {
+    return {};
+  }
+  const out: Record<string, string> = {};
+  if (platform === "linux") {
+    for (const match of text.matchAll(SYSTEMD_ENV_RE)) {
+      const key = match[1];
+      if (RESERVED_ENV_KEYS.has(key)) continue;
+      out[key] = match[2];
+    }
+    return out;
+  }
+  const dict = LAUNCHD_ENV_DICT_RE.exec(text);
+  if (!dict) return out;
+  for (const match of dict[1].matchAll(LAUNCHD_ENV_ENTRY_RE)) {
+    const key = unescapePlistText(match[1]);
+    if (RESERVED_ENV_KEYS.has(key)) continue;
+    out[key] = unescapePlistText(match[2]);
+  }
+  return out;
+}
+
+/** Reconstruct a ServiceConfig from an installed unit file. The serviceName
+ *  is taken from the file basename (not re-derived) so a renamed project dir
+ *  doesn't change the launchd Label / systemd unit name that the OS is
+ *  already tracking — only the regenerated *content* (description, paths,
+ *  environment) reflects the current state. Returns null when the file is
+ *  missing required fields. */
+export function parseInstalledServiceConfig(
+  filePath: string,
+  platform: Platform,
+  webmuxPath: string,
+): ServiceConfig | null {
+  const port = readPortFromUnit(filePath);
+  if (port === null) return null;
+
+  const projectDir = readWorkingDirFromUnit(filePath, platform);
+  if (projectDir === null) return null;
+
+  const fileBase = basename(filePath);
+  const serviceName = platform === "linux"
+    ? fileBase.replace(/\.service$/, "")
+    : fileBase.replace(/^com\.webmux\./, "").replace(/\.plist$/, "");
+
+  const projectName = detectProjectName(projectDir);
+  const envVars = readEnvVarsFromUnit(filePath, platform);
+
+  return {
+    platform,
+    projectName,
+    serviceName,
+    webmuxPath,
+    projectDir,
+    port,
+    envVars,
+  };
 }
 
 // ── Install/uninstall commands ──────────────────────────────────────────────
@@ -168,10 +288,125 @@ function isInstalled(config: ServiceConfig): boolean {
 
 // ── Subcommands ─────────────────────────────────────────────────────────────
 
-async function install(config: ServiceConfig): Promise<void> {
-  const filePath = serviceFilePath(config);
+interface EnvVarResolution {
+  envVars: Record<string, string>;
+  /** Human-readable lines describing where each var came from, for logging. */
+  notes: string[];
+}
 
-  if (isInstalled(config)) {
+/** Build the final env-var set for the unit by merging, in order of
+ *  precedence (later wins):
+ *    1. env vars already in the installed unit (so reinstall preserves them)
+ *    2. auto-picked from process.env (LINEAR_API_KEY etc.)
+ *    3. explicit --env KEY=VAL from the CLI
+ *  Notes capture every key added so the user sees what got baked in before
+ *  confirming the install. */
+export function resolveEnvVars(opts: {
+  cliEnv: Record<string, string>;
+  processEnv: Record<string, string | undefined>;
+  existing: Record<string, string>;
+  autoPickup: boolean;
+}): EnvVarResolution {
+  const envVars: Record<string, string> = { ...opts.existing };
+  const notes: string[] = [];
+
+  for (const key of Object.keys(opts.existing).sort()) {
+    notes.push(`  ${key}  (kept from existing unit)`);
+  }
+
+  if (opts.autoPickup) {
+    for (const key of AUTO_PICKUP_ENV_VARS) {
+      const value = opts.processEnv[key];
+      if (value === undefined || value === "") continue;
+      const prior = envVars[key];
+      envVars[key] = value;
+      notes.push(
+        prior === undefined
+          ? `  ${key}  (auto-picked from shell environment)`
+          : prior === value
+            ? `  ${key}  (auto-pick matched existing value)`
+            : `  ${key}  (auto-picked from shell environment, overrides existing)`,
+      );
+    }
+  }
+
+  for (const [key, value] of Object.entries(opts.cliEnv)) {
+    const prior = envVars[key];
+    envVars[key] = value;
+    notes.push(
+      prior === undefined
+        ? `  ${key}  (from --env)`
+        : `  ${key}  (from --env, overrides previous value)`,
+    );
+  }
+
+  return { envVars, notes };
+}
+
+export interface CliEnvParseResult {
+  envVars: Record<string, string>;
+  errors: string[];
+}
+
+/** Parse repeated `--env KEY=VAL` occurrences out of the CLI args. The split
+ *  is anchored on the first `=` so values containing `=` (JWTs, base64) pass
+ *  through intact. */
+export function parseEnvCliArgs(args: string[]): CliEnvParseResult {
+  const envVars: Record<string, string> = {};
+  const errors: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] !== "--env") continue;
+    const raw = args[i + 1];
+    if (raw === undefined) {
+      errors.push("--env requires a KEY=VALUE argument");
+      break;
+    }
+    i++;
+    const eq = raw.indexOf("=");
+    if (eq <= 0) {
+      errors.push(`--env expects KEY=VALUE (got: ${raw})`);
+      continue;
+    }
+    const key = raw.slice(0, eq);
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+      errors.push(`--env key is not a valid identifier: ${key}`);
+      continue;
+    }
+    if (RESERVED_ENV_KEYS.has(key)) {
+      errors.push(`--env cannot set ${key} — it is managed by the service unit`);
+      continue;
+    }
+    envVars[key] = raw.slice(eq + 1);
+  }
+  return { envVars, errors };
+}
+
+/** Replace secret-looking values in the preview output. Anything with a
+ *  key suffix that smells secret (TOKEN/KEY/PASSWORD/SECRET) is shown as
+ *  `••• (NN chars)` so the install note can be safely copy-pasted into a
+ *  bug report without leaking credentials. */
+function redactSecretsInUnit(content: string, envVars: Record<string, string>): string {
+  let out = content;
+  for (const [key, value] of Object.entries(envVars)) {
+    if (!value) continue;
+    if (!/(?:TOKEN|KEY|PASSWORD|SECRET)$/i.test(key)) continue;
+    const masked = `••• (${value.length} chars)`;
+    // Cheap whole-string replace — env values are unique enough in a unit
+    // file that this won't collide with other content.
+    out = out.split(value).join(masked);
+  }
+  return out;
+}
+
+async function install(
+  config: ServiceConfig,
+  portExplicit: boolean,
+  envVarNotes: string[],
+): Promise<void> {
+  const filePath = serviceFilePath(config);
+  const alreadyInstalled = isInstalled(config);
+
+  if (alreadyInstalled) {
     const reinstall = await p.confirm({ message: "Service is already installed. Reinstall?" });
     if (p.isCancel(reinstall) || !reinstall) {
       p.log.info("Aborted.");
@@ -182,20 +417,66 @@ async function install(config: ServiceConfig): Promise<void> {
     }
   }
 
+  // Pick the port that will go into the unit file. With an explicit `--port`,
+  // the user wins. On reinstall, reuse the existing unit's port so a re-run
+  // without flags is idempotent. Otherwise scan the live registry + already
+  // installed unit files and find the lowest free port at or above the
+  // requested start, so installing in a second project doesn't silently
+  // collide on 5111.
+  const requestedPort = config.port;
+  let chosenPort = requestedPort;
+  let portNote: string | null = null;
+  let portWarning: string | null = null;
+
+  if (!portExplicit) {
+    const existingPort = alreadyInstalled ? readPortFromUnit(filePath) : null;
+    if (existingPort !== null) {
+      chosenPort = existingPort;
+      if (existingPort !== requestedPort) {
+        portNote = `Reusing port ${existingPort} from the existing service unit (pass --port to override).`;
+      }
+    } else {
+      const taken = discoverTakenPorts({ excludeUnitPath: filePath });
+      chosenPort = pickFreePort(requestedPort, taken);
+      if (chosenPort !== requestedPort) {
+        portNote = `Port ${requestedPort} is already used by another webmux instance — picked ${chosenPort} instead (pass --port to override).`;
+      }
+    }
+  } else {
+    // Explicit `--port` always wins, but the service will fail to bind on
+    // start if something else is already there — surface it now rather than
+    // making the user dig through `journalctl` / `launchctl` logs later.
+    const taken = discoverTakenPorts({ excludeUnitPath: filePath });
+    if (taken.has(requestedPort)) {
+      portWarning = `Port ${requestedPort} is already claimed by another webmux instance. The service will fail to bind on start; omit --port to auto-pick a free port.`;
+    }
+  }
+
+  config = { ...config, port: chosenPort };
   const content = generateServiceFile(config);
   const commands = installCommands(config);
+
+  // Mask secret-shaped values in the preview so the dry-run note doesn't
+  // splat tokens onto the terminal. The on-disk unit gets chmod 600 below.
+  const displayContent = redactSecretsInUnit(content, config.envVars);
 
   p.note(
     [
       `File: ${filePath}`,
       "",
       "Contents:",
-      content,
+      displayContent,
       "Commands to run:",
       ...commands.map((c) => `  $ ${formatCommand(c)}`),
     ].join("\n"),
     "Install service",
   );
+
+  if (Object.keys(config.envVars).length > 0) {
+    p.log.info(`Environment variables baked into the unit:\n${envVarNotes.join("\n")}`);
+  }
+  if (portNote) p.log.info(portNote);
+  if (portWarning) p.log.warn(portWarning);
 
   const ok = await p.confirm({ message: "Proceed?" });
   if (p.isCancel(ok) || !ok) {
@@ -206,6 +487,13 @@ async function install(config: ServiceConfig): Promise<void> {
   mkdirSync(filePath.substring(0, filePath.lastIndexOf("/")), { recursive: true });
 
   await Bun.write(filePath, content);
+  if (Object.keys(config.envVars).length > 0) {
+    try {
+      chmodSync(filePath, 0o600);
+    } catch (err: unknown) {
+      p.log.warn(`Wrote ${filePath} but could not chmod 600: ${String(err)}`);
+    }
+  }
   p.log.success(`Wrote ${filePath}`);
 
   for (const cmd of commands) {
@@ -322,6 +610,22 @@ Usage:
   webmux service uninstall   Stop, disable, and remove the service
   webmux service status      Show service status
   webmux service logs        Tail service logs
+
+Options:
+  --port N                   Pin the service to a specific port. When omitted,
+                             a free port is picked automatically by scanning
+                             other webmux instances and installed services
+                             — second-project installs no longer collide on 5111.
+  --env KEY=VALUE            Bake an environment variable into the service
+                             unit (repeatable). Reserved keys PORT,
+                             WEBMUX_PROJECT_DIR, and PATH are rejected.
+  --no-auto-env              Skip auto-detection of webmux-relevant env vars
+                             from the current shell (default: detect
+                             ${AUTO_PICKUP_ENV_VARS.join(", ")}).
+                             Useful in CI / non-interactive installs.
+
+  When any env var is set, the unit file is written with mode 0600 so
+  secrets are readable only by the installing user.
 `);
 }
 
@@ -365,6 +669,8 @@ export default async function service(args: string[]): Promise<void> {
   }
 
   let port = parseInt(process.env.PORT || "5111");
+  let portExplicit = false;
+  let autoPickup = true;
   for (let i = 1; i < args.length; i++) {
     if (args[i] === "--port" && args[i + 1]) {
       const parsed = parseInt(args[++i]);
@@ -373,11 +679,41 @@ export default async function service(args: string[]): Promise<void> {
         return;
       }
       port = parsed;
+      portExplicit = true;
+    } else if (args[i] === "--no-auto-env") {
+      autoPickup = false;
     }
+  }
+
+  const cliEnv = parseEnvCliArgs(args.slice(1));
+  if (cliEnv.errors.length > 0) {
+    for (const err of cliEnv.errors) p.log.error(err);
+    return;
   }
 
   const projectName = detectProjectName(gitRoot);
   const serviceName = `webmux-${sanitizeName(projectName)}`;
+
+  let envVars: Record<string, string> = {};
+  let envVarNotes: string[] = [];
+  if (action === "install") {
+    const existing = isInstalledAt(platform, serviceName)
+      ? readEnvVarsFromUnit(
+          platform === "linux"
+            ? systemdUnitPath(serviceName)
+            : launchdPlistPath(serviceName),
+          platform,
+        )
+      : {};
+    const resolved = resolveEnvVars({
+      cliEnv: cliEnv.envVars,
+      processEnv: process.env,
+      existing,
+      autoPickup,
+    });
+    envVars = resolved.envVars;
+    envVarNotes = resolved.notes;
+  }
 
   const config: ServiceConfig = {
     platform,
@@ -386,11 +722,12 @@ export default async function service(args: string[]): Promise<void> {
     webmuxPath,
     projectDir: gitRoot,
     port,
+    envVars,
   };
 
   switch (action) {
     case "install":
-      await install(config);
+      await install(config, portExplicit, envVarNotes);
       break;
     case "uninstall":
       await uninstall(config);
@@ -402,4 +739,11 @@ export default async function service(args: string[]): Promise<void> {
       logs(config);
       break;
   }
+}
+
+function isInstalledAt(platform: Platform, serviceName: string): boolean {
+  const path = platform === "linux"
+    ? systemdUnitPath(serviceName)
+    : launchdPlistPath(serviceName);
+  return existsSync(path);
 }

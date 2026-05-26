@@ -75,6 +75,7 @@ describe("buildProjectSnapshot", () => {
           profile: "default",
           agentName: "claude",
           phase: "starting_session",
+          source: "ui",
         },
       ],
       notifications: notifications.list(),
@@ -156,6 +157,8 @@ describe("buildProjectSnapshot", () => {
         creation: {
           phase: "starting_session",
         },
+        source: "ui",
+        oneshot: null,
       },
     ]);
     expect(snapshot.notifications).toHaveLength(1);
@@ -201,6 +204,7 @@ describe("buildProjectSnapshot", () => {
           profile: "default",
           agentName: "codex",
           phase: "creating_worktree",
+          source: "ui",
         },
       ],
       findLinearIssue: (branch) =>
@@ -249,6 +253,8 @@ describe("buildProjectSnapshot", () => {
         creation: {
           phase: "creating_worktree",
         },
+        source: "ui",
+        oneshot: null,
       },
     ]);
   });
@@ -280,6 +286,7 @@ describe("buildProjectSnapshot", () => {
           profile: "default",
           agentName: "claude",
           phase: "creating_worktree",
+          source: "ui",
         },
       ],
       findAgentLabel: (agentId) => agentId === "claude" ? "Claude" : agentId,

@@ -418,7 +418,7 @@
     labelBranch ? worktrees.find((w) => w.branch === labelBranch) : undefined,
   );
   let canConnect = $derived(!!selectedBranch && selectedWorktree?.mux === "✓" && !selectedWorktree?.creating);
-  let showMobileChat = $derived(useWebChatUi && canConnect && supportsWorktreeChat(selectedWorktree));
+  let showWebChat = $derived(useWebChatUi && canConnect && supportsWorktreeChat(selectedWorktree));
   let isSelectedOpening = $derived(selectedBranch ? openingBranches.has(selectedBranch) : false);
   let isSelectedArchiving = $derived(selectedBranch ? archivingBranches.has(selectedBranch) : false);
   let pollIntervalMs = $derived(
@@ -547,7 +547,7 @@
       label: String(i + 1),
     }));
   });
-  let showPaneBar = $derived(isMobile && canConnect && !showMobileChat && paneBarPanes.length > 0);
+  let showPaneBar = $derived(isMobile && canConnect && !showWebChat && paneBarPanes.length > 0);
 
   function refreshLinear(): void {
     const now = Date.now();
@@ -1204,7 +1204,7 @@
       archiving={isSelectedArchiving}
     />
 
-    {#if showMobileChat}
+    {#if showWebChat}
       {#key selectedBranch}
         <MobileChatSurface worktree={selectedWorktree!} />
       {/key}

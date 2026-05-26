@@ -1,9 +1,12 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   LAST_SELECTED_WORKTREE_STORAGE_KEY,
+  WEB_CHAT_UI_STORAGE_KEY,
   loadSavedSelectedWorktree,
+  loadUseWebChatUi,
   resolveSelectedBranch,
   saveSelectedWorktree,
+  saveUseWebChatUi,
 } from "./utils";
 
 describe("worktree selection persistence", () => {
@@ -50,5 +53,19 @@ describe("worktree selection persistence", () => {
 
     expect(loadSavedSelectedWorktree()).toBeNull();
     expect(localStorage.getItem(LAST_SELECTED_WORKTREE_STORAGE_KEY)).toBeNull();
+  });
+
+  it("stores and clears the web chat UI preference", () => {
+    expect(loadUseWebChatUi()).toBe(false);
+
+    saveUseWebChatUi(true);
+
+    expect(loadUseWebChatUi()).toBe(true);
+    expect(localStorage.getItem(WEB_CHAT_UI_STORAGE_KEY)).toBe("true");
+
+    saveUseWebChatUi(false);
+
+    expect(loadUseWebChatUi()).toBe(false);
+    expect(localStorage.getItem(WEB_CHAT_UI_STORAGE_KEY)).toBeNull();
   });
 });

@@ -23,9 +23,11 @@
 
   let {
     currentTheme,
+    useWebChatUi,
     linearAutoCreate,
     autoRemoveOnMerge,
     onthemechange,
+    onwebchatuichange,
     onlinearautocreatechange,
     onautoremovechange,
     onagentschange,
@@ -33,9 +35,11 @@
     onclose,
   }: {
     currentTheme: ThemeKey;
+    useWebChatUi: boolean;
     linearAutoCreate: boolean;
     autoRemoveOnMerge: boolean;
     onthemechange: (key: ThemeKey) => void;
+    onwebchatuichange: (enabled: boolean) => void;
     onlinearautocreatechange: (enabled: boolean) => void;
     onautoremovechange: (enabled: boolean) => void;
     onagentschange: (agents: AgentSummary[]) => void;
@@ -222,6 +226,24 @@
             <span>{theme.label}</span>
           </button>
         {/each}
+      </div>
+    </div>
+
+    <div class="mb-5">
+      <span class="block text-xs text-muted mb-2">Interface</span>
+      <div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md border border-edge bg-surface">
+        <div>
+          <span class="text-[13px] text-primary">Use web chat UI</span>
+          <p class="text-[11px] text-muted mt-0.5">
+            Show the in-app agent conversation instead of the terminal for supported agents.
+          </p>
+        </div>
+
+        <Toggle
+          checked={useWebChatUi}
+          ontoggle={onwebchatuichange}
+          aria-label="Use web chat UI"
+        />
       </div>
     </div>
 

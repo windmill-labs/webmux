@@ -1,6 +1,12 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AppConfig, AppNotification, LinearIssuesResponse, WorktreeInfo } from "./lib/types";
+import type {
+  AgentsUiWorktreeConversationResponse,
+  AppConfig,
+  AppNotification,
+  LinearIssuesResponse,
+  WorktreeInfo,
+} from "./lib/types";
 
 vi.mock("./lib/api", () => ({
   api: {
@@ -20,13 +26,26 @@ vi.mock("./lib/api", () => ({
     setWorktreeArchived: vi.fn(),
     sendWorktreePrompt: vi.fn(),
   },
+  attachWorktreeConversation: vi.fn(),
+  connectWorktreeConversationStream: vi.fn(),
+  fetchWorktreeConversationHistory: vi.fn(),
   fetchWorktrees: vi.fn(),
+  interruptWorktreeConversation: vi.fn(),
+  sendWorktreeConversationMessage: vi.fn(),
   setWorktreeLabel: vi.fn(),
   subscribeNotifications: vi.fn(),
 }));
 
 import App from "./App.svelte";
-import { api, fetchWorktrees, setWorktreeLabel, subscribeNotifications } from "./lib/api";
+import {
+  api,
+  attachWorktreeConversation,
+  connectWorktreeConversationStream,
+  fetchWorktrees,
+  setWorktreeLabel,
+  subscribeNotifications,
+} from "./lib/api";
+import { WEB_CHAT_UI_STORAGE_KEY } from "./lib/utils";
 
 interface Deferred<T> {
   promise: Promise<T>;
@@ -141,6 +160,38 @@ function createLinearIssuesResponse(
   };
 }
 
+function createConversationResponse(
+  worktree: WorktreeInfo,
+): AgentsUiWorktreeConversationResponse {
+  return {
+    worktree: {
+      branch: worktree.branch,
+      path: worktree.path,
+      archived: worktree.archived,
+      profile: worktree.profile,
+      agentName: worktree.agentName,
+      agentLabel: worktree.agentLabel,
+      mux: worktree.mux === "✓",
+      status: worktree.status,
+      dirty: worktree.dirty,
+      unpushed: worktree.unpushed,
+      services: worktree.services,
+      prs: worktree.prs,
+      creating: worktree.creating,
+      creationPhase: worktree.creationPhase,
+      conversation: null,
+    },
+    conversation: {
+      provider: worktree.agentName === "codex" ? "codexAppServer" : "claudeCode",
+      conversationId: worktree.agentName === "codex" ? "thread-1" : "session-1",
+      cwd: worktree.path,
+      running: false,
+      activeTurnId: null,
+      messages: [],
+    },
+  };
+}
+
 function createAppNotification(
   overrides: Partial<AppNotification> = {},
 ): AppNotification {
@@ -246,6 +297,7 @@ describe("App create selection", () => {
     vi.mocked(api.dismissNotification).mockResolvedValue({ ok: true });
     vi.mocked(api.fetchCiLogs).mockResolvedValue({ logs: "" });
     vi.mocked(api.sendWorktreePrompt).mockResolvedValue({ ok: true });
+    vi.mocked(connectWorktreeConversationStream).mockReturnValue(() => {});
     vi.mocked(setWorktreeLabel).mockResolvedValue(null);
   });
 
@@ -550,6 +602,22 @@ describe("App create selection", () => {
     expect(
       await screen.findByText("No assigned Linear issues right now."),
     ).toBeInTheDocument();
+  });
+
+  it("shows the web chat UI on desktop when the local setting is enabled", async () => {
+    const worktree = createWorktree("feature/chat", {
+      mux: "✓",
+      agentName: "claude",
+      agentLabel: "Claude",
+    });
+    localStorage.setItem(WEB_CHAT_UI_STORAGE_KEY, "true");
+    vi.mocked(fetchWorktrees).mockResolvedValue([worktree]);
+    vi.mocked(attachWorktreeConversation).mockResolvedValue(createConversationResponse(worktree));
+
+    render(App);
+
+    expect(await screen.findByRole("textbox", { name: "Message" })).toBeInTheDocument();
+    expect(attachWorktreeConversation).toHaveBeenCalledWith("feature/chat");
   });
 
   it("hides the Linear ticket option when disabled in config", async () => {

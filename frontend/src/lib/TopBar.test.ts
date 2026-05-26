@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/svelte";
+import { render, screen } from "@testing-library/svelte";
 import { describe, expect, it, vi } from "vitest";
 import TopBar from "./TopBar.svelte";
 import type { WorktreeInfo } from "./types";
@@ -128,9 +128,8 @@ describe("TopBar", () => {
     );
   });
 
-  it("shows stale terminal state as a top banner and refreshes from it", async () => {
+  it("does not render stale terminal state in the web top bar", () => {
     const branch = "feature/stale-terminal";
-    const onrefreshagentterminal = vi.fn();
 
     render(TopBar, {
       props: {
@@ -147,16 +146,10 @@ describe("TopBar", () => {
         onsettings: vi.fn(),
         onCiClick: vi.fn(),
         onReviewsClick: vi.fn(),
-        onrefreshagentterminal,
       },
     });
 
-    expect(screen.getByText("Terminal stale")).toBeInTheDocument();
-    const refreshButton = screen.getByRole("button", { name: "Refresh" });
-    expect(screen.queryByRole("button", { name: "Refresh terminal" })).not.toBeInTheDocument();
-
-    await fireEvent.click(refreshButton);
-    expect(onrefreshagentterminal).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("Terminal stale")).not.toBeInTheDocument();
   });
 
   it("keeps desktop PR badges inside a wrapping header container", () => {

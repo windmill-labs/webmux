@@ -7,11 +7,22 @@
   import { uploadFiles } from "./api";
   import "@xterm/xterm/css/xterm.css";
 
-  let { worktree, isMobile = false, initialPane, terminalTheme }: {
+  let {
+    worktree,
+    isMobile = false,
+    initialPane,
+    terminalTheme,
+    agentTerminalStale = false,
+    refreshingAgentTerminal = false,
+    onrefreshagentterminal,
+  }: {
     worktree: string;
     isMobile?: boolean;
     initialPane?: number;
     terminalTheme: ITheme;
+    agentTerminalStale?: boolean;
+    refreshingAgentTerminal?: boolean;
+    onrefreshagentterminal?: () => void;
   } = $props();
 
   const DISCONNECTED_NOTICE = "\r\n\x1b[90m[Disconnected]\x1b[0m";
@@ -453,6 +464,23 @@
   ondragleave={handleDragLeave}
   ondrop={handleDrop}
 >
+  {#if agentTerminalStale}
+    <div class="absolute left-3 right-3 top-3 z-20 flex items-center justify-between gap-3 rounded-md border border-warning/40 bg-surface/95 px-4 py-3 text-sm text-primary shadow-lg">
+      <span class="min-w-0 truncate">Terminal stale</span>
+      {#if onrefreshagentterminal}
+        <button
+          type="button"
+          class="shrink-0 rounded-md border border-warning/50 bg-surface px-3 py-1.5 text-xs font-medium text-warning hover:bg-warning/10 disabled:cursor-not-allowed disabled:opacity-50"
+          title="Refresh agent terminal"
+          onclick={onrefreshagentterminal}
+          disabled={refreshingAgentTerminal}
+        >
+          {refreshingAgentTerminal ? "Refreshing" : "Refresh"}
+        </button>
+      {/if}
+    </div>
+  {/if}
+
   {#if isDraggingOver}
     <div class="absolute inset-0 z-10 flex items-center justify-center bg-black/50 border-2 border-dashed border-[var(--color-accent)] rounded pointer-events-none">
       <span class="text-white text-sm font-medium">Drop image(s) to upload</span>

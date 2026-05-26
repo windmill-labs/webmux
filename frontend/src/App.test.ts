@@ -810,6 +810,23 @@ describe("App create selection", () => {
     expect(attachWorktreeConversation).toHaveBeenCalledWith("feature/chat");
   });
 
+  it("does not show the stale terminal banner in the web chat UI", async () => {
+    const worktree = createWorktree("feature/chat-stale-terminal", {
+      mux: "✓",
+      agentName: "codex",
+      agentLabel: "Codex",
+      agentTerminalStale: true,
+    });
+    localStorage.setItem(WEB_CHAT_UI_STORAGE_KEY, "true");
+    vi.mocked(fetchWorktrees).mockResolvedValue([worktree]);
+    vi.mocked(attachWorktreeConversation).mockResolvedValue(createConversationResponse(worktree));
+
+    render(App);
+
+    expect(await screen.findByRole("textbox", { name: "Message" })).toBeInTheDocument();
+    expect(screen.queryByText("Terminal stale")).not.toBeInTheDocument();
+  });
+
   it("hides the Linear ticket option when disabled in config", async () => {
     vi.mocked(fetchWorktrees).mockResolvedValue([]);
 

@@ -1245,10 +1245,6 @@
       onbellopen={handleBellOpen}
       onnotificationselect={handleSelectWorktree}
       archiving={isSelectedArchiving}
-      refreshingAgentTerminal={isSelectedAgentTerminalRefreshing}
-      onrefreshagentterminal={() => {
-        if (selectedBranch) void handleRefreshAgentTerminal(selectedBranch);
-      }}
     />
 
     {#if showWebChat}
@@ -1265,6 +1261,11 @@
           {isMobile}
           initialPane={isMobile ? activePane : undefined}
           {terminalTheme}
+          agentTerminalStale={selectedWorktree?.agentTerminalStale ?? false}
+          refreshingAgentTerminal={isSelectedAgentTerminalRefreshing}
+          onrefreshagentterminal={() => {
+            if (selectedBranch) void handleRefreshAgentTerminal(selectedBranch);
+          }}
           bind:this={terminalRef}
         />
       {/key}

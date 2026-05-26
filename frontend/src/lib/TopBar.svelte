@@ -32,8 +32,6 @@
     onbellopen,
     onnotificationselect,
     archiving = false,
-    refreshingAgentTerminal = false,
-    onrefreshagentterminal,
   }: {
     name: string | null;
     worktree: WorktreeInfo | undefined;
@@ -55,8 +53,6 @@
     onbellopen?: () => void;
     onnotificationselect?: (branch: string) => void;
     archiving?: boolean;
-    refreshingAgentTerminal?: boolean;
-    onrefreshagentterminal?: () => void;
   } = $props();
 
   let bellOpen = $state(false);
@@ -377,25 +373,6 @@
     </button>
     </div>
   </div>
-
-  {#if worktree?.agentTerminalStale}
-    <div class="px-4 pb-3">
-      <div class="flex items-center justify-between gap-3 rounded-md border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-primary">
-        <span class="min-w-0 truncate">Terminal stale</span>
-        {#if onrefreshagentterminal}
-          <button
-            type="button"
-            class="shrink-0 rounded-md border border-warning/50 bg-surface px-3 py-1.5 text-xs font-medium text-warning hover:bg-warning/10 disabled:cursor-not-allowed disabled:opacity-50"
-            title="Refresh agent terminal"
-            onclick={onrefreshagentterminal}
-            disabled={refreshingAgentTerminal || worktree.creating}
-          >
-            {refreshingAgentTerminal ? "Refreshing" : "Refresh"}
-          </button>
-        {/if}
-      </div>
-    </div>
-  {/if}
 </div>
 
 <svelte:window onclick={handleClickOutside} />

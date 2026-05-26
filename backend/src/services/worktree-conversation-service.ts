@@ -1,6 +1,9 @@
 import { readWorktreeMeta, writeWorktreeMeta } from "../adapters/fs";
 import type {
   CodexAppServerAgentMessageItem,
+  CodexAppServerApprovalPolicy,
+  CodexAppServerPersonality,
+  CodexAppServerSandboxMode,
   CodexAppServerThread,
   CodexAppServerThreadItem,
   CodexAppServerThreadListResponse,
@@ -8,9 +11,12 @@ import type {
   CodexAppServerUserMessageItem,
 } from "../adapters/codex-app-server";
 import type { GitGateway } from "../adapters/git";
+import type { ProfileConfig } from "../domain/config";
 import type {
   AgentsUiConversationMessage,
   AgentsUiConversationState,
+  AgentsUiInterruptResponse,
+  AgentsUiSendMessageResponse,
   AgentsUiWorktreeConversationResponse,
 } from "../domain/agents-ui";
 import type {
@@ -23,9 +29,23 @@ import { log } from "../lib/log";
 import { buildAgentsUiWorktreeSummary } from "./agents-ui-service";
 import { err, ok, type WorktreeConversationResult } from "./worktree-conversation-result";
 
+export interface CodexAppServerLaunchContext {
+  approvalPolicy: CodexAppServerApprovalPolicy;
+  personality: CodexAppServerPersonality;
+  sandbox: CodexAppServerSandboxMode;
+}
+
+export interface ResolveCodexAppServerLaunchContextInput {
+  worktree: WorktreeSnapshot;
+  meta: WorktreeMeta;
+}
+
 export interface WorktreeConversationServiceDependencies {
-  appServer: Pick<import("../adapters/codex-app-server").CodexAppServerGateway, "threadList" | "threadRead" | "threadResume" | "threadStart">;
+  appServer: Pick<import("../adapters/codex-app-server").CodexAppServerGateway, "threadList" | "threadRead" | "threadResume" | "threadStart" | "turnStart" | "turnInterrupt">;
   git: Pick<GitGateway, "resolveWorktreeGitDir">;
+  resolveLaunchContext: (
+    input: ResolveCodexAppServerLaunchContextInput,
+  ) => Promise<WorktreeConversationResult<CodexAppServerLaunchContext>> | WorktreeConversationResult<CodexAppServerLaunchContext>;
   now?: () => Date;
   readMeta?: (gitDir: string) => Promise<WorktreeMeta | null>;
   writeMeta?: (gitDir: string, meta: WorktreeMeta) => Promise<void>;
@@ -36,6 +56,35 @@ interface ResolvedConversation {
   meta: WorktreeMeta;
   thread: CodexAppServerThread;
   conversationMeta: WorktreeConversationMeta;
+  launchContext: CodexAppServerLaunchContext;
+}
+
+export function resolveCodexAppServerLaunchContext(input: {
+  worktree: WorktreeSnapshot;
+  meta: WorktreeMeta;
+  profile: ProfileConfig | null | undefined;
+}): WorktreeConversationResult<CodexAppServerLaunchContext> {
+  if (input.worktree.agentName !== "codex" || input.meta.agent !== "codex") {
+    return err(409, "Codex web chat is only available for Codex worktrees");
+  }
+
+  if (!input.profile) {
+    return err(409, `Profile is missing for Codex web chat: ${input.meta.profile}`);
+  }
+
+  if (input.meta.runtime !== "host" || input.profile.runtime !== "host") {
+    return err(409, "Codex web chat is only available for host-runtime worktrees. Use the terminal for Docker worktrees.");
+  }
+
+  if (input.profile.yolo !== true) {
+    return err(409, "Codex web chat requires a yolo profile to preserve the Codex approval policy. Use the terminal for this worktree.");
+  }
+
+  return ok({
+    approvalPolicy: "never",
+    personality: "pragmatic",
+    sandbox: "danger-full-access",
+  });
 }
 
 function isCodexWorktree(worktree: WorktreeSnapshot): boolean {
@@ -192,6 +241,47 @@ export class WorktreeConversationService {
     );
   }
 
+  async sendWorktreeConversationMessage(
+    worktree: WorktreeSnapshot,
+    text: string,
+  ): Promise<WorktreeConversationResult<AgentsUiSendMessageResponse>> {
+    return await this.withResolvedConversation(worktree, true, async ({ thread, launchContext }) => {
+      const started = await this.deps.appServer.turnStart({
+        threadId: thread.id,
+        cwd: worktree.path,
+        approvalPolicy: launchContext.approvalPolicy,
+        input: [{ type: "text", text }],
+      });
+      return ok({
+        conversationId: thread.id,
+        turnId: started.turn.id,
+        running: true,
+      });
+    });
+  }
+
+  async interruptWorktreeConversation(
+    worktree: WorktreeSnapshot,
+  ): Promise<WorktreeConversationResult<AgentsUiInterruptResponse>> {
+    return await this.withResolvedConversation(worktree, false, async ({ thread }) => {
+      const conversation = buildConversationState(thread);
+      const turnId = conversation.activeTurnId;
+      if (!turnId) {
+        return err(409, "No active Codex turn to interrupt");
+      }
+
+      await this.deps.appServer.turnInterrupt({
+        threadId: thread.id,
+        turnId,
+      });
+      return ok({
+        conversationId: thread.id,
+        turnId,
+        interrupted: true,
+      });
+    });
+  }
+
   private async withResolvedConversation<T>(
     worktree: WorktreeSnapshot,
     allowCreate: boolean,
@@ -221,8 +311,12 @@ export class WorktreeConversationService {
       return err(409, "Worktree metadata is missing");
     }
 
+    const launchContextResult = await this.deps.resolveLaunchContext({ worktree, meta });
+    if (!launchContextResult.ok) return launchContextResult;
+    const launchContext = launchContextResult.data;
+
     const now = this.now();
-    const thread = await this.resolveThread(meta, worktree.path, allowCreate);
+    const thread = await this.resolveThread(meta, worktree.path, allowCreate, launchContext);
     if (!thread) {
       return err(404, "No Codex thread could be resolved for this worktree");
     }
@@ -241,6 +335,7 @@ export class WorktreeConversationService {
       meta: nextMeta,
       thread,
       conversationMeta: nextMeta.conversation ?? conversationMeta,
+      launchContext,
     });
   }
 
@@ -248,6 +343,7 @@ export class WorktreeConversationService {
     meta: WorktreeMeta,
     cwd: string,
     allowCreate: boolean,
+    launchContext: CodexAppServerLaunchContext,
   ): Promise<CodexAppServerThread | null> {
     const discoveredThread = selectDiscoveredThread((await this.deps.appServer.threadList({
       cwd,
@@ -255,14 +351,14 @@ export class WorktreeConversationService {
       sortKey: "updated_at",
     })).data);
     if (discoveredThread) {
-      return await this.ensureThreadLoaded(discoveredThread.id, cwd);
+      return await this.ensureThreadLoaded(discoveredThread.id, cwd, launchContext);
     }
 
     const savedThreadId = isCodexConversationMeta(meta.conversation)
       ? meta.conversation.threadId
       : null;
     if (savedThreadId) {
-      const savedThread = await this.tryLoadThread(savedThreadId, cwd);
+      const savedThread = await this.tryLoadThread(savedThreadId, cwd, launchContext);
       if (savedThread) return savedThread;
       log.warn(`[agents] saved codex thread missing, rediscovering cwd=${cwd} threadId=${savedThreadId}`);
     }
@@ -271,29 +367,38 @@ export class WorktreeConversationService {
 
     const started = await this.deps.appServer.threadStart({
       cwd,
-      approvalPolicy: "never",
-      personality: "pragmatic",
-      sandbox: "danger-full-access",
+      approvalPolicy: launchContext.approvalPolicy,
+      personality: launchContext.personality,
+      sandbox: launchContext.sandbox,
     });
     return started.thread;
   }
 
-  private async tryLoadThread(threadId: string, cwd: string): Promise<CodexAppServerThread | null> {
+  private async tryLoadThread(
+    threadId: string,
+    cwd: string,
+    launchContext: CodexAppServerLaunchContext,
+  ): Promise<CodexAppServerThread | null> {
     try {
-      return await this.ensureThreadLoaded(threadId, cwd);
+      return await this.ensureThreadLoaded(threadId, cwd, launchContext);
     } catch {
       return null;
     }
   }
 
-  private async ensureThreadLoaded(threadId: string, cwd: string): Promise<CodexAppServerThread> {
+  private async ensureThreadLoaded(
+    threadId: string,
+    cwd: string,
+    launchContext: CodexAppServerLaunchContext,
+  ): Promise<CodexAppServerThread> {
     const initial = await this.deps.appServer.threadRead(threadId, false);
     if (initial.thread.status.type === "notLoaded") {
       await this.deps.appServer.threadResume({
         threadId,
         cwd,
-        approvalPolicy: "never",
-        personality: "pragmatic",
+        approvalPolicy: launchContext.approvalPolicy,
+        personality: launchContext.personality,
+        sandbox: launchContext.sandbox,
       });
     }
 

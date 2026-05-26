@@ -37,6 +37,10 @@ function stubLifecycleService(calls: Array<{ method: string; value: unknown }>) 
     async closeWorktree(branch: string): Promise<void> {
       calls.push({ method: "closeWorktree", value: branch });
     },
+    async refreshAgentTerminal(branch: string): Promise<{ branch: string; worktreeId: string }> {
+      calls.push({ method: "refreshAgentTerminal", value: branch });
+      return { branch, worktreeId: "wt-3" };
+    },
     async setWorktreeArchived(branch: string, archived: boolean): Promise<void> {
       calls.push({ method: "setWorktreeArchived", value: { branch, archived } });
     },
@@ -458,6 +462,28 @@ describe("runWorktreeCommand", () => {
     expect(calls).toEqual([{ method: "openWorktree", value: "feature/search" }]);
     expect(stdout).toEqual(["Opened worktree feature/search"]);
     expect(switchCalls).toEqual([{ projectDir: "/repo", branch: "feature/search" }]);
+  });
+
+  it("dispatches refresh through the lifecycle service", async () => {
+    const { runtime, calls } = makeRuntime();
+    const stdout: string[] = [];
+
+    const exitCode = await runWorktreeCommand(
+      {
+        command: "refresh",
+        args: ["feature/search"],
+        projectDir: "/repo",
+        port: 5111,
+      },
+      {
+        createRuntime: () => runtime,
+        stdout: (message) => stdout.push(message),
+      },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(calls).toEqual([{ method: "refreshAgentTerminal", value: "feature/search" }]);
+    expect(stdout).toEqual(["Refreshed agent terminal for feature/search"]);
   });
 
   it("dispatches archive through the lifecycle service", async () => {

@@ -183,6 +183,21 @@ describe("webmux entrypoint", () => {
     });
   });
 
+  it("parses refresh as a worktree command", () => {
+    delete process.env.PORT;
+    delete process.env.WEBMUX_PREFIX;
+
+    expect(parseRootArgs(["refresh", "feature/search"])).toEqual({
+      port: 5111,
+      portExplicit: false,
+      debug: false,
+      app: false,
+      prefix: null,
+      command: "refresh",
+      commandArgs: ["feature/search"],
+    });
+  });
+
   it("parses label as a worktree command", () => {
     delete process.env.PORT;
     delete process.env.WEBMUX_PREFIX;

@@ -99,6 +99,7 @@ interface ReconciledWorktreeState {
   path: string;
   profile: string | null;
   agentName: AgentId | null;
+  agentTerminalStale: boolean;
   runtime: "host" | "docker";
   source: WorktreeSource;
   oneshot: OneshotMeta | null;
@@ -183,6 +184,7 @@ export class ReconciliationService {
         path: entry.path,
         profile: meta?.profile ?? null,
         agentName: meta?.agent ?? null,
+        agentTerminalStale: meta?.agentTerminalStale === true,
         runtime: meta?.runtime ?? "host",
         source: meta?.source ?? "ui",
         oneshot: meta?.oneshot ?? null,
@@ -222,6 +224,7 @@ export class ReconciliationService {
         path: state.path,
         profile: state.profile,
         agentName: state.agentName,
+        agentTerminalStale: state.agentTerminalStale,
         runtime: state.runtime,
         source: state.source,
         oneshot: state.oneshot,

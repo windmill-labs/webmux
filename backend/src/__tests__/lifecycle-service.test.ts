@@ -1127,6 +1127,125 @@ describe("LifecycleService", () => {
     expect(agentCommand).not.toContain("initial task");
   });
 
+  it("reopens a stale managed codex terminal from its saved app-server thread", async () => {
+    const repoRoot = await initRepo();
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const lifecycle = makeLifecycleService(
+      repoRoot,
+      tmux,
+      runtime,
+      new FakeDockerGateway(),
+      new FakeHookRunner(),
+      {
+        ...TEST_CONFIG,
+        workspace: {
+          ...TEST_CONFIG.workspace,
+          defaultAgent: "codex",
+        },
+        profiles: {
+          ...TEST_CONFIG.profiles,
+          default: {
+            ...TEST_CONFIG.profiles.default,
+            yolo: true,
+          },
+        },
+      },
+    );
+
+    await lifecycle.createWorktree({
+      branch: "feature-codex-open-refresh",
+      prompt: "ship the fix",
+    });
+
+    const worktreePath = join(repoRoot, "__worktrees", "feature-codex-open-refresh");
+    const gitDir = new BunGitGateway().resolveWorktreeGitDir(worktreePath);
+    const meta = await readWorktreeMeta(gitDir);
+    if (!meta) throw new Error("Expected worktree metadata");
+    await writeWorktreeMeta(gitDir, {
+      ...meta,
+      agentTerminalStale: true,
+      conversation: {
+        provider: "codexAppServer",
+        conversationId: "thread-open-refresh",
+        threadId: "thread-open-refresh",
+        cwd: worktreePath,
+        lastSeenAt: "2026-04-15T10:00:00.000Z",
+      },
+    });
+
+    tmux.commands.length = 0;
+    await lifecycle.closeWorktree("feature-codex-open-refresh");
+    await lifecycle.openWorktree("feature-codex-open-refresh");
+
+    const agentCommand = tmux.commands.at(-1)?.command;
+    expect(agentCommand).toContain("codex --enable hooks --yolo resume 'thread-open-refresh'");
+    expect(agentCommand).not.toContain("resume --last");
+
+    const refreshedMeta = await readWorktreeMeta(gitDir);
+    expect(refreshedMeta?.agentTerminalStale).toBe(false);
+    expect(runtime.getWorktreeByBranch("feature-codex-open-refresh")?.agentTerminalStale).toBe(false);
+  });
+
+  it("refreshes a managed codex terminal from its saved app-server thread", async () => {
+    const repoRoot = await initRepo();
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const lifecycle = makeLifecycleService(
+      repoRoot,
+      tmux,
+      runtime,
+      new FakeDockerGateway(),
+      new FakeHookRunner(),
+      {
+        ...TEST_CONFIG,
+        workspace: {
+          ...TEST_CONFIG.workspace,
+          defaultAgent: "codex",
+        },
+        profiles: {
+          ...TEST_CONFIG.profiles,
+          default: {
+            ...TEST_CONFIG.profiles.default,
+            yolo: true,
+          },
+        },
+      },
+    );
+
+    await lifecycle.createWorktree({
+      branch: "feature-codex-refresh",
+      prompt: "ship the fix",
+    });
+
+    const worktreePath = join(repoRoot, "__worktrees", "feature-codex-refresh");
+    const gitDir = new BunGitGateway().resolveWorktreeGitDir(worktreePath);
+    const meta = await readWorktreeMeta(gitDir);
+    if (!meta) throw new Error("Expected worktree metadata");
+    await writeWorktreeMeta(gitDir, {
+      ...meta,
+      agentTerminalStale: true,
+      conversation: {
+        provider: "codexAppServer",
+        conversationId: "thread-refresh",
+        threadId: "thread-refresh",
+        cwd: worktreePath,
+        lastSeenAt: "2026-04-15T10:00:00.000Z",
+      },
+    });
+
+    tmux.commands.length = 0;
+    await lifecycle.refreshAgentTerminal("feature-codex-refresh");
+
+    const agentCommand = tmux.commands.at(-1)?.command;
+    expect(agentCommand).toContain("codex --enable hooks --yolo resume 'thread-refresh'");
+    expect(agentCommand).not.toContain("resume --last");
+
+    const refreshedMeta = await readWorktreeMeta(gitDir);
+    expect(refreshedMeta?.agentTerminalStale).toBe(false);
+    expect(runtime.getWorktreeByBranch("feature-codex-refresh")?.agentTerminalStale).toBe(false);
+  });
+
   it("closes the tmux window without removing the worktree or branch", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();

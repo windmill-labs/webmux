@@ -40,6 +40,7 @@ import {
   type TerminalAttachTarget,
 } from "./adapters/terminal";
 import { loadControlToken } from "./adapters/control-token";
+import { readWorktreeMeta, writeWorktreeMeta } from "./adapters/fs";
 import { ClaudeCliClient } from "./adapters/claude-cli";
 import { CodexAppServerClient } from "./adapters/codex-app-server";
 import {
@@ -93,7 +94,10 @@ import {
 import { classifyAgentsTerminalWorktreeError } from "./services/agents-ui-action-service";
 import { buildProjectSnapshot } from "./services/snapshot-service";
 import { ClaudeConversationService } from "./services/claude-conversation-service";
-import { WorktreeConversationService } from "./services/worktree-conversation-service";
+import {
+  WorktreeConversationService,
+  resolveCodexAppServerLaunchContext,
+} from "./services/worktree-conversation-service";
 import { parseRuntimeEvent } from "./domain/events";
 import type { AgentsUiConversationEvent, AgentsUiWorktreeConversationResponse } from "./domain/agents-ui";
 import type { OneshotMeta, ProjectSnapshot, WorktreeSnapshot } from "./domain/model";
@@ -125,6 +129,12 @@ const claudeCliClient = new ClaudeCliClient();
 const worktreeConversationService = new WorktreeConversationService({
   appServer: codexAppServerClient,
   git,
+  resolveLaunchContext: ({ worktree, meta }) =>
+    resolveCodexAppServerLaunchContext({
+      worktree,
+      meta,
+      profile: config.profiles[meta.profile],
+    }),
 });
 const claudeConversationService = new ClaudeConversationService({
   claude: claudeCliClient,
@@ -628,6 +638,20 @@ function resolveWorktreeTerminalSubmitDelayMs(agentName: WorktreeSnapshot["agent
   });
 }
 
+async function setAgentTerminalStale(worktree: WorktreeSnapshot, stale: boolean): Promise<void> {
+  const gitDir = git.resolveWorktreeGitDir(worktree.path);
+  const meta = await readWorktreeMeta(gitDir);
+  if (!meta) return;
+
+  await writeWorktreeMeta(gitDir, {
+    ...meta,
+    agentTerminalStale: stale,
+  });
+  if (projectRuntime.getWorktree(meta.worktreeId)) {
+    projectRuntime.setAgentTerminalStale(meta.worktreeId, stale);
+  }
+}
+
 async function apiAttachAgentsWorktree(branch: string): Promise<Response> {
   touchDashboardActivity();
   const resolved = await resolveAgentsWorktree(branch);
@@ -681,13 +705,22 @@ async function apiSendAgentsWorktreeMessage(branch: string, req: Request): Promi
     return errorResponse(chatSupport.error, chatSupport.status);
   }
 
-  const conversationResult = chatSupport.data.provider === "claude"
-    ? await claudeConversationService.readWorktreeConversation(resolved.worktree)
-    : await worktreeConversationService.readWorktreeConversation(resolved.worktree);
+  if (chatSupport.data.provider === "codex") {
+    const sendResult = await worktreeConversationService.sendWorktreeConversationMessage(
+      resolved.worktree,
+      parsed.data.text,
+    );
+    if (!sendResult.ok) {
+      return errorResponse(sendResult.error, sendResult.status);
+    }
+    await setAgentTerminalStale(resolved.worktree, true);
+    return jsonResponse(sendResult.data);
+  }
+
+  const conversationResult = await claudeConversationService.readWorktreeConversation(resolved.worktree);
   if (!conversationResult.ok) {
     return errorResponse(conversationResult.error, conversationResult.status);
   }
-
   const terminalWorktree = await resolveAgentsTerminalWorktree(branch);
   if (!terminalWorktree.ok) return terminalWorktree.response;
   const sendResult = await sendTerminalPrompt(
@@ -724,13 +757,19 @@ async function apiInterruptAgentsWorktree(branch: string): Promise<Response> {
     return errorResponse(chatSupport.error, chatSupport.status);
   }
 
-  const conversationResult = chatSupport.data.provider === "claude"
-    ? await claudeConversationService.readWorktreeConversation(resolved.worktree)
-    : await worktreeConversationService.readWorktreeConversation(resolved.worktree);
+  if (chatSupport.data.provider === "codex") {
+    const interruptResult = await worktreeConversationService.interruptWorktreeConversation(resolved.worktree);
+    if (!interruptResult.ok) {
+      return errorResponse(interruptResult.error, interruptResult.status);
+    }
+    await setAgentTerminalStale(resolved.worktree, true);
+    return jsonResponse(interruptResult.data);
+  }
+
+  const conversationResult = await claudeConversationService.readWorktreeConversation(resolved.worktree);
   if (!conversationResult.ok) {
     return errorResponse(conversationResult.error, conversationResult.status);
   }
-
   const terminalWorktree = await resolveAgentsTerminalWorktree(branch);
   if (!terminalWorktree.ok) return terminalWorktree.response;
   const interruptResult = await interruptPrompt(terminalWorktree.data.attachTarget, 0);
@@ -743,6 +782,13 @@ async function apiInterruptAgentsWorktree(branch: string): Promise<Response> {
     turnId: conversationResult.data.conversation.activeTurnId ?? `tmux:${crypto.randomUUID()}`,
     interrupted: true,
   });
+}
+
+async function apiRefreshWorktreeAgentTerminal(branch: string): Promise<Response> {
+  touchDashboardActivity();
+  ensureBranchNotBusy(branch);
+  await lifecycleService.refreshAgentTerminal(branch);
+  return jsonResponse({ ok: true });
 }
 
 async function loadAgentsConversationSnapshot(
@@ -1670,6 +1716,15 @@ function startServer(port: number): ReturnType<typeof Bun.serve> {
         if (!parsed.ok) return parsed.response;
         const name = parsed.data;
         return catching(`POST /api/worktrees/${name}/close`, () => apiCloseWorktree(name));
+      },
+    },
+
+    [apiPaths.refreshWorktreeAgentTerminal]: {
+      POST: (req) => {
+        const parsed = parseWorktreeNameParam(req.params);
+        if (!parsed.ok) return parsed.response;
+        const name = parsed.data;
+        return catching(`POST /api/worktrees/${name}/agent-terminal/refresh`, () => apiRefreshWorktreeAgentTerminal(name));
       },
     },
 

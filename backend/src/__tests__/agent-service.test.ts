@@ -201,7 +201,24 @@ describe("agent-service command builders", () => {
       launchMode: "resume",
     });
 
-    expect(command).toContain("codex --enable codex_hooks --yolo resume --last -- 'ship the fix'");
+    expect(command).toContain("codex --enable hooks --yolo resume --last -- 'ship the fix'");
+  });
+
+  it("uses an explicit Codex conversation id when refreshing a terminal", () => {
+    const command = buildAgentPaneCommand({
+      agent: builtInAgent("codex"),
+      runtimeEnvPath: "/tmp/gitdir/webmux/runtime.env",
+      repoRoot: "/repo",
+      worktreePath: "/repo/__worktrees/feature",
+      branch: "feature",
+      profileName: "default",
+      yolo: true,
+      launchMode: "resume",
+      resumeConversationId: "thread-refresh",
+    });
+
+    expect(command).toContain("codex --enable hooks --yolo resume 'thread-refresh'");
+    expect(command).not.toContain("resume --last");
   });
 
   it("uses -- before the prompt so dash-prefixed prompts are not parsed as flags", () => {

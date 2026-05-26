@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/svelte";
+import { fireEvent, render, screen } from "@testing-library/svelte";
 import { describe, expect, it, vi } from "vitest";
 import TopBar from "./TopBar.svelte";
 import type { WorktreeInfo } from "./types";
@@ -22,6 +22,7 @@ function createWorktree(
     profile: null,
     agentName: null,
     agentLabel: null,
+    agentTerminalStale: false,
     services: [],
     paneCount: 1,
     prs: [],
@@ -125,6 +126,37 @@ describe("TopBar", () => {
       "href",
       linearIssue.url,
     );
+  });
+
+  it("shows stale terminal state as a top banner and refreshes from it", async () => {
+    const branch = "feature/stale-terminal";
+    const onrefreshagentterminal = vi.fn();
+
+    render(TopBar, {
+      props: {
+        name: branch,
+        worktree: createWorktree(branch, { agentTerminalStale: true }),
+        sshHost: "",
+        linkedRepos: [],
+        notificationHistory: [],
+        unreadCount: 0,
+        onclose: vi.fn(),
+        onarchive: vi.fn(),
+        onmerge: vi.fn(),
+        onremove: vi.fn(),
+        onsettings: vi.fn(),
+        onCiClick: vi.fn(),
+        onReviewsClick: vi.fn(),
+        onrefreshagentterminal,
+      },
+    });
+
+    expect(screen.getByText("Terminal stale")).toBeInTheDocument();
+    const refreshButton = screen.getByRole("button", { name: "Refresh" });
+    expect(screen.queryByRole("button", { name: "Refresh terminal" })).not.toBeInTheDocument();
+
+    await fireEvent.click(refreshButton);
+    expect(onrefreshagentterminal).toHaveBeenCalledTimes(1);
   });
 
   it("keeps desktop PR badges inside a wrapping header container", () => {

@@ -24,6 +24,7 @@ Usage:
   webmux list         List worktrees and their status
   webmux open         Open an existing worktree session
   webmux close        Close a worktree session without removing it
+  webmux refresh      Refresh a Codex agent terminal from saved chat
   webmux archive      Hide a worktree from the default list
   webmux unarchive    Show an archived worktree again
   webmux label        Set or clear a workspace label
@@ -49,7 +50,7 @@ Environment:
 `);
 }
 
-type RootCommand = "serve" | "init" | "service" | "update" | "add" | "oneshot" | "list" | "open" | "close" | "archive" | "unarchive" | "label" | "remove" | "merge" | "send" | "prune" | "linear" | "completion" | null;
+type RootCommand = "serve" | "init" | "service" | "update" | "add" | "oneshot" | "list" | "open" | "close" | "refresh" | "archive" | "unarchive" | "label" | "remove" | "merge" | "send" | "prune" | "linear" | "completion" | null;
 
 interface ParsedRootArgs {
   port: number;
@@ -74,6 +75,7 @@ function isRootCommand(value: string): value is NonNullable<RootCommand> {
     || value === "list"
     || value === "open"
     || value === "close"
+    || value === "refresh"
     || value === "archive"
     || value === "unarchive"
     || value === "label"
@@ -171,11 +173,12 @@ export function parseRootArgs(args: string[]): ParsedRootArgs {
   };
 }
 
-function isWorktreeCommand(command: RootCommand): command is "add" | "list" | "open" | "close" | "archive" | "unarchive" | "label" | "remove" | "merge" | "send" | "prune" {
+function isWorktreeCommand(command: RootCommand): command is "add" | "list" | "open" | "close" | "refresh" | "archive" | "unarchive" | "label" | "remove" | "merge" | "send" | "prune" {
   return command === "add"
     || command === "list"
     || command === "open"
     || command === "close"
+    || command === "refresh"
     || command === "archive"
     || command === "unarchive"
     || command === "label"

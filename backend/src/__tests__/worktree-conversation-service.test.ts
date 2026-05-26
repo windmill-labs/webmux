@@ -13,11 +13,15 @@ import type {
   CodexAppServerTurnStartParams,
   CodexAppServerTurnStartResponse,
 } from "../adapters/codex-app-server";
+import type { ProfileConfig } from "../domain/config";
 import type { WorktreeMeta, WorktreeSnapshot } from "../domain/model";
 import {
   WorktreeConversationService,
   buildConversationState,
+  resolveCodexAppServerLaunchContext,
+  type CodexAppServerLaunchContext,
 } from "../services/worktree-conversation-service";
+import { ok, type WorktreeConversationResult } from "../services/worktree-conversation-result";
 
 class FakeGitGateway {
   resolveWorktreeGitDir(cwd: string): string {
@@ -27,6 +31,9 @@ class FakeGitGateway {
 
 class FakeCodexAppServer implements CodexAppServerGateway {
   readonly calls: string[] = [];
+  readonly threadResumeParams: CodexAppServerThreadResumeParams[] = [];
+  readonly threadStartParams: CodexAppServerThreadStartParams[] = [];
+  readonly turnStartParams: CodexAppServerTurnStartParams[] = [];
   listedThreads: CodexAppServerThread[] = [];
   readonly threads = new Map<string, CodexAppServerThread>();
   nextStartedThreadId = "thread-created";
@@ -57,6 +64,7 @@ class FakeCodexAppServer implements CodexAppServerGateway {
 
   async threadResume(params: CodexAppServerThreadResumeParams): Promise<CodexAppServerThreadContext> {
     this.calls.push(`threadResume:${params.threadId}`);
+    this.threadResumeParams.push(structuredClone(params));
     const thread = this.requireThread(params.threadId);
     thread.status = { type: "idle" };
     return this.buildContext(thread);
@@ -64,6 +72,7 @@ class FakeCodexAppServer implements CodexAppServerGateway {
 
   async threadStart(params: CodexAppServerThreadStartParams): Promise<CodexAppServerThreadContext> {
     this.calls.push(`threadStart:${params.cwd}`);
+    this.threadStartParams.push(structuredClone(params));
     const thread = makeThread({
       id: this.nextStartedThreadId,
       cwd: params.cwd,
@@ -80,6 +89,7 @@ class FakeCodexAppServer implements CodexAppServerGateway {
   async turnStart(params: CodexAppServerTurnStartParams): Promise<CodexAppServerTurnStartResponse> {
     const text = params.input[0]?.text ?? "";
     this.calls.push(`turnStart:${params.threadId}:${text}`);
+    this.turnStartParams.push(structuredClone(params));
     const thread = this.requireThread(params.threadId);
     const turn = makeTurn({
       id: this.nextStartedTurnId,
@@ -149,6 +159,14 @@ function makeMeta(): WorktreeMeta {
   };
 }
 
+function allowCodexLaunchContext(): WorktreeConversationResult<CodexAppServerLaunchContext> {
+  return ok({
+    approvalPolicy: "never",
+    personality: "pragmatic",
+    sandbox: "danger-full-access",
+  });
+}
+
 function makeCodexConversationMeta(threadId: string, cwd: string, lastSeenAt = "2026-04-14T11:00:00.000Z") {
   return {
     provider: "codexAppServer" as const,
@@ -169,6 +187,7 @@ function makeWorktree(): WorktreeSnapshot {
     profile: "default",
     agentName: "codex",
     agentLabel: "Codex",
+    agentTerminalStale: false,
     mux: true,
     dirty: false,
     unpushed: false,
@@ -181,6 +200,16 @@ function makeWorktree(): WorktreeSnapshot {
     creation: null,
     source: "ui",
     oneshot: null,
+  };
+}
+
+function makeProfile(overrides: Partial<ProfileConfig> = {}): ProfileConfig {
+  return {
+    runtime: "host",
+    envPassthrough: [],
+    yolo: true,
+    panes: [{ id: "agent", kind: "agent", focus: true }],
+    ...overrides,
   };
 }
 
@@ -346,6 +375,45 @@ describe("buildConversationState", () => {
   });
 });
 
+describe("resolveCodexAppServerLaunchContext", () => {
+  it("allows host yolo Codex worktrees and maps them to app-server launch params", () => {
+    expect(resolveCodexAppServerLaunchContext({
+      worktree: makeWorktree(),
+      meta: makeMeta(),
+      profile: makeProfile(),
+    })).toEqual({
+      ok: true,
+      data: {
+        approvalPolicy: "never",
+        personality: "pragmatic",
+        sandbox: "danger-full-access",
+      },
+    });
+  });
+
+  it("rejects Docker and non-yolo worktrees instead of changing execution context", () => {
+    expect(resolveCodexAppServerLaunchContext({
+      worktree: makeWorktree(),
+      meta: { ...makeMeta(), runtime: "docker" },
+      profile: makeProfile({ runtime: "docker", image: "node:22" }),
+    })).toEqual({
+      ok: false,
+      status: 409,
+      error: "Codex web chat is only available for host-runtime worktrees. Use the terminal for Docker worktrees.",
+    });
+
+    expect(resolveCodexAppServerLaunchContext({
+      worktree: makeWorktree(),
+      meta: makeMeta(),
+      profile: makeProfile({ yolo: false }),
+    })).toEqual({
+      ok: false,
+      status: 409,
+      error: "Codex web chat requires a yolo profile to preserve the Codex approval policy. Use the terminal for this worktree.",
+    });
+  });
+});
+
 describe("WorktreeConversationService", () => {
   it("discovers the newest thread by cwd and persists the conversation mapping", async () => {
     const metaStore = new Map<string, WorktreeMeta>();
@@ -397,6 +465,7 @@ describe("WorktreeConversationService", () => {
     const service = new WorktreeConversationService({
       appServer,
       git: new FakeGitGateway(),
+      resolveLaunchContext: allowCodexLaunchContext,
       now: () => new Date("2026-04-14T12:00:00.000Z"),
       readMeta: async (path) => structuredClone(metaStore.get(path) ?? null),
       writeMeta: async (path, meta) => {
@@ -416,6 +485,13 @@ describe("WorktreeConversationService", () => {
       "threadResume:thread-new",
       "threadRead:thread-new:true",
     ]);
+    expect(appServer.threadResumeParams[0]).toEqual({
+      threadId: "thread-new",
+      cwd: worktree.path,
+      approvalPolicy: "never",
+      personality: "pragmatic",
+      sandbox: "danger-full-access",
+    });
 
     expect(metaStore.get(gitDir)?.conversation).toEqual(
       makeCodexConversationMeta("thread-new", worktree.path, "2026-04-14T12:00:00.000Z"),
@@ -432,6 +508,7 @@ describe("WorktreeConversationService", () => {
     const service = new WorktreeConversationService({
       appServer,
       git: new FakeGitGateway(),
+      resolveLaunchContext: allowCodexLaunchContext,
       now: () => new Date("2026-04-14T12:10:00.000Z"),
       readMeta: async (path) => structuredClone(metaStore.get(path) ?? null),
       writeMeta: async (path, meta) => {
@@ -448,9 +525,158 @@ describe("WorktreeConversationService", () => {
       "threadList",
       "threadStart:/tmp/worktrees/codex-feature",
     ]);
+    expect(appServer.threadStartParams[0]).toEqual({
+      cwd: worktree.path,
+      approvalPolicy: "never",
+      personality: "pragmatic",
+      sandbox: "danger-full-access",
+    });
     expect(metaStore.get(gitDir)?.conversation).toEqual(
       makeCodexConversationMeta("thread-created", worktree.path, "2026-04-14T12:10:00.000Z"),
     );
+  });
+
+  it("starts a Codex turn through the app server", async () => {
+    const metaStore = new Map<string, WorktreeMeta>();
+    const worktree = makeWorktree();
+    const gitDir = `${worktree.path}/.git`;
+    metaStore.set(gitDir, {
+      ...makeMeta(),
+      conversation: makeCodexConversationMeta("thread-existing", worktree.path),
+    });
+
+    const thread = makeThread({
+      id: "thread-existing",
+      cwd: worktree.path,
+      updatedAt: 250,
+      statusType: "idle",
+      source: "cli",
+      turns: [],
+    });
+    const appServer = new FakeCodexAppServer();
+    appServer.threads.set(thread.id, structuredClone(thread));
+
+    const service = new WorktreeConversationService({
+      appServer,
+      git: new FakeGitGateway(),
+      resolveLaunchContext: allowCodexLaunchContext,
+      readMeta: async (path) => structuredClone(metaStore.get(path) ?? null),
+      writeMeta: async (path, meta) => {
+        metaStore.set(path, structuredClone(meta));
+      },
+    });
+
+    const result = await service.sendWorktreeConversationMessage(worktree, "Ship it");
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        conversationId: "thread-existing",
+        turnId: "turn-created",
+        running: true,
+      },
+    });
+    expect(appServer.calls).toEqual([
+      "threadList",
+      "threadRead:thread-existing:false",
+      "threadRead:thread-existing:true",
+      "turnStart:thread-existing:Ship it",
+    ]);
+    expect(appServer.turnStartParams[0]).toEqual({
+      threadId: "thread-existing",
+      cwd: worktree.path,
+      approvalPolicy: "never",
+      input: [{ type: "text", text: "Ship it" }],
+    });
+  });
+
+  it("rejects Codex turns before app-server calls when launch context is unsupported", async () => {
+    const metaStore = new Map<string, WorktreeMeta>();
+    const worktree = makeWorktree();
+    const gitDir = `${worktree.path}/.git`;
+    metaStore.set(gitDir, {
+      ...makeMeta(),
+      runtime: "docker",
+      conversation: makeCodexConversationMeta("thread-existing", worktree.path),
+    });
+
+    const appServer = new FakeCodexAppServer();
+    const service = new WorktreeConversationService({
+      appServer,
+      git: new FakeGitGateway(),
+      resolveLaunchContext: ({ worktree: resolvedWorktree, meta }) =>
+        resolveCodexAppServerLaunchContext({
+          worktree: resolvedWorktree,
+          meta,
+          profile: makeProfile({ runtime: "docker", image: "node:22" }),
+        }),
+      readMeta: async (path) => structuredClone(metaStore.get(path) ?? null),
+      writeMeta: async (path, meta) => {
+        metaStore.set(path, structuredClone(meta));
+      },
+    });
+
+    const result = await service.sendWorktreeConversationMessage(worktree, "Ship it");
+    expect(result).toEqual({
+      ok: false,
+      status: 409,
+      error: "Codex web chat is only available for host-runtime worktrees. Use the terminal for Docker worktrees.",
+    });
+    expect(appServer.calls).toEqual([]);
+  });
+
+  it("interrupts the active Codex app-server turn", async () => {
+    const metaStore = new Map<string, WorktreeMeta>();
+    const worktree = makeWorktree();
+    const gitDir = `${worktree.path}/.git`;
+    metaStore.set(gitDir, {
+      ...makeMeta(),
+      conversation: makeCodexConversationMeta("thread-active", worktree.path),
+    });
+
+    const thread = makeThread({
+      id: "thread-active",
+      cwd: worktree.path,
+      updatedAt: 250,
+      statusType: "active",
+      source: "cli",
+      turns: [
+        makeTurn({
+          id: "turn-active",
+          status: "inProgress",
+          startedAt: 111,
+          items: [
+            {
+              type: "userMessage",
+              id: "user-active",
+              content: [{ type: "text", text: "Run checks" }],
+            },
+          ],
+        }),
+      ],
+    });
+    const appServer = new FakeCodexAppServer();
+    appServer.threads.set(thread.id, structuredClone(thread));
+
+    const service = new WorktreeConversationService({
+      appServer,
+      git: new FakeGitGateway(),
+      resolveLaunchContext: allowCodexLaunchContext,
+      readMeta: async (path) => structuredClone(metaStore.get(path) ?? null),
+      writeMeta: async (path, meta) => {
+        metaStore.set(path, structuredClone(meta));
+      },
+    });
+
+    const result = await service.interruptWorktreeConversation(worktree);
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        conversationId: "thread-active",
+        turnId: "turn-active",
+        interrupted: true,
+      },
+    });
+    expect(appServer.calls.at(-1)).toBe("turnInterrupt:thread-active:turn-active");
   });
 
   it("switches to the newest discovered thread when saved metadata points to an older thread", async () => {
@@ -526,6 +752,7 @@ describe("WorktreeConversationService", () => {
     const service = new WorktreeConversationService({
       appServer,
       git: new FakeGitGateway(),
+      resolveLaunchContext: allowCodexLaunchContext,
       now: () => new Date("2026-04-16T09:00:00.000Z"),
       readMeta: async (path) => structuredClone(metaStore.get(path) ?? null),
       writeMeta: async (path, meta) => {
@@ -559,6 +786,7 @@ describe("WorktreeConversationService", () => {
     const service = new WorktreeConversationService({
       appServer,
       git: new FakeGitGateway(),
+      resolveLaunchContext: allowCodexLaunchContext,
       readMeta: async (path) => structuredClone(metaStore.get(path) ?? null),
       writeMeta: async (path, meta) => {
         metaStore.set(path, structuredClone(meta));

@@ -17,6 +17,7 @@ export function buildAgentsUiWorktreeSummary(
     profile: worktree.profile,
     agentName: worktree.agentName,
     agentLabel: worktree.agentLabel,
+    agentTerminalStale: worktree.agentTerminalStale,
     mux: worktree.mux,
     status: worktree.status,
     dirty: worktree.dirty,

@@ -55,6 +55,7 @@ export interface WorktreeMeta {
   source?: WorktreeSource;
   oneshot?: OneshotMeta;
   conversation?: WorktreeConversationMeta | null;
+  agentTerminalStale?: boolean;
 }
 
 export interface ArchivedWorktreeEntry {
@@ -187,6 +188,7 @@ export interface ManagedWorktreeRuntimeState {
   agentName: AgentId | null;
   source: WorktreeSource;
   oneshot: OneshotMeta | null;
+  agentTerminalStale: boolean;
   git: GitWorktreeRuntimeState;
   session: SessionRuntimeState;
   agent: AgentRuntimeState;
@@ -213,6 +215,7 @@ export interface WorktreeSnapshot {
   profile: string | null;
   agentName: AgentId | null;
   agentLabel: string | null;
+  agentTerminalStale: boolean;
   mux: boolean;
   dirty: boolean;
   unpushed: boolean;

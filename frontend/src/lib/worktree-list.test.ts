@@ -18,6 +18,7 @@ function createWorktree(branch: string, overrides: Partial<WorktreeInfo> = {}): 
     profile: null,
     agentName: null,
     agentLabel: null,
+    agentTerminalStale: false,
     services: [],
     paneCount: 1,
     prs: [],

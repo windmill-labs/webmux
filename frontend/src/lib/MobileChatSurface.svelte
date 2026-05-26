@@ -22,9 +22,13 @@
 
   interface Props {
     worktree: WorktreeInfo;
+    onConversationMessageSent?: () => void;
   }
 
-  const { worktree }: Props = $props();
+  const {
+    worktree,
+    onConversationMessageSent = () => {},
+  }: Props = $props();
 
   let conversation = $state<AgentsUiConversationState | null>(null);
   let conversationError = $state<string | null>(null);
@@ -201,6 +205,7 @@
       conversation = markConversationTurnStarted(conversation, response.turnId, text);
       syncConversationStream();
       startRefreshPolling(baselineConversation);
+      onConversationMessageSent();
     } catch (error) {
       conversationError = error instanceof Error ? error.message : String(error);
     } finally {
@@ -233,8 +238,8 @@
     const token = pollingState.token;
     let requestInFlight = false;
 
-    // Codex websocket deltas help when app-server notifications arrive, but tmux-sent turns can
-    // still miss them, so history polling stays active until the conversation snapshot settles.
+    // Codex websocket deltas are primary, and history polling keeps the transcript settled if
+    // app-server notifications arrive late or are missed while the socket reconnects.
     const interval = window.setInterval(() => {
       if (!refreshPollingState || refreshPollingState.token !== token || requestInFlight) return;
       requestInFlight = true;

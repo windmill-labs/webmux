@@ -20,7 +20,7 @@ const PHASE_LABELS: Record<WorktreeCreationPhase, string> = {
   reconciling: "Reconciling",
 };
 
-export type WorktreeSubcommand = "add" | "list" | "open" | "close" | "remove" | "merge" | "send" | "prune" | "archive" | "unarchive" | "label";
+export type WorktreeSubcommand = "add" | "list" | "open" | "close" | "refresh" | "remove" | "merge" | "send" | "prune" | "archive" | "unarchive" | "label";
 
 type WorktreeListMode = "active" | "all" | "archived";
 
@@ -29,6 +29,7 @@ interface LifecycleServiceLike {
   createWorktrees(input: CreateLifecycleWorktreesInput): Promise<CreateLifecycleWorktreesResult>;
   openWorktree(branch: string): Promise<{ branch: string; worktreeId: string }>;
   closeWorktree(branch: string): Promise<void>;
+  refreshAgentTerminal(branch: string): Promise<{ branch: string; worktreeId: string }>;
   setWorktreeArchived(branch: string, archived: boolean): Promise<void>;
   setWorktreeLabel(branch: string, label: string | null): Promise<{ label: string | null }>;
   removeWorktree(branch: string): Promise<void>;
@@ -106,6 +107,8 @@ export function getWorktreeCommandUsage(command: WorktreeSubcommand): string {
       return "Usage:\n  webmux open <branch>";
     case "close":
       return "Usage:\n  webmux close <branch>";
+    case "refresh":
+      return "Usage:\n  webmux refresh <branch>";
     case "archive":
       return "Usage:\n  webmux archive <branch>";
     case "unarchive":
@@ -861,6 +864,10 @@ export async function runWorktreeCommand(
       case "close":
         await runtime.lifecycleService.closeWorktree(branch);
         stdout(`Closed worktree ${branch}`);
+        return 0;
+      case "refresh":
+        await runtime.lifecycleService.refreshAgentTerminal(branch);
+        stdout(`Refreshed agent terminal for ${branch}`);
         return 0;
       case "archive":
         await runtime.lifecycleService.setWorktreeArchived(branch, true);

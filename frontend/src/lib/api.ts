@@ -54,6 +54,7 @@ function mapWorktree(snapshot: ProjectWorktreeSnapshot): WorktreeInfo {
     profile: snapshot.profile,
     agentName: snapshot.agentName,
     agentLabel: snapshot.agentLabel,
+    agentTerminalStale: snapshot.agentTerminalStale,
     services: snapshot.services,
     paneCount: snapshot.paneCount,
     prs: snapshot.prs,
@@ -114,6 +115,12 @@ export function interruptWorktreeConversation(branch: string): Promise<AgentsUiI
   return api.interruptAgentsWorktreeConversation({
     params: { name: branch },
   });
+}
+
+export function refreshWorktreeAgentTerminal(branch: string): Promise<void> {
+  return api.refreshWorktreeAgentTerminal({
+    params: { name: branch },
+  }).then(() => undefined);
 }
 
 function withWorktreeName(path: string, branch: string): string {

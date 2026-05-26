@@ -62,6 +62,7 @@ export const apiPaths = {
   removeWorktree: "/api/worktrees/:name",
   openWorktree: "/api/worktrees/:name/open",
   closeWorktree: "/api/worktrees/:name/close",
+  refreshWorktreeAgentTerminal: "/api/worktrees/:name/agent-terminal/refresh",
   setWorktreeArchived: "/api/worktrees/:name/archive",
   syncWorktreePrs: "/api/worktrees/:name/sync-prs",
   postWorktreeToLinear: "/api/worktrees/:name/linear/post",
@@ -255,6 +256,16 @@ export const apiContract = c.router({
   closeWorktree: {
     method: "POST",
     path: apiPaths.closeWorktree,
+    pathParams: WorktreeNameParamsSchema,
+    body: c.noBody(),
+    responses: {
+      200: OkResponseSchema,
+      ...commonErrorResponses,
+    },
+  },
+  refreshWorktreeAgentTerminal: {
+    method: "POST",
+    path: apiPaths.refreshWorktreeAgentTerminal,
     pathParams: WorktreeNameParamsSchema,
     body: c.noBody(),
     responses: {

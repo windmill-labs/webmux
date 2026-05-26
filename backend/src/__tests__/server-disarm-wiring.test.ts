@@ -27,4 +27,16 @@ describe("server.ts disarm-on-interaction wiring", () => {
     const pattern = new RegExp(`disarmOneshotIfArmed\\([^)]*"${reason}"`);
     expect(source).toMatch(pattern);
   });
+
+  it("marks Codex app-server interrupts as terminal-stale after success", async () => {
+    const source = await Bun.file(serverPath).text();
+    const pattern = /if \(chatSupport\.data\.provider === "codex"\) \{[\s\S]*?interruptWorktreeConversation\(resolved\.worktree\)[\s\S]*?if \(!interruptResult\.ok\)[\s\S]*?setAgentTerminalStale\(resolved\.worktree, true\)[\s\S]*?jsonResponse\(interruptResult\.data\)/;
+    expect(source).toMatch(pattern);
+  });
+
+  it("guards agent terminal refreshes against busy worktrees", async () => {
+    const source = await Bun.file(serverPath).text();
+    const pattern = /async function apiRefreshWorktreeAgentTerminal\(branch: string\): Promise<Response> \{[\s\S]*?ensureBranchNotBusy\(branch\)[\s\S]*?lifecycleService\.refreshAgentTerminal\(branch\)/;
+    expect(source).toMatch(pattern);
+  });
 });

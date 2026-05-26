@@ -87,6 +87,18 @@ function buildRuntimeControlBaseUrl(controlBaseUrl: string, runtime: RuntimeKind
   }
 }
 
+function resolveCodexResumeConversationId(
+  meta: WorktreeMeta,
+  agent: AgentDefinition,
+  launchMode: AgentLaunchMode,
+): string | undefined {
+  if (launchMode !== "resume") return undefined;
+  if (meta.agentTerminalStale !== true) return undefined;
+  if (agent.kind !== "builtin" || agent.implementation.agent !== "codex") return undefined;
+  if (meta.conversation?.provider !== "codexAppServer") return undefined;
+  return meta.conversation.threadId;
+}
+
 export interface CreateWorktreeTarget {
   branch: string;
   agent: AgentId;
@@ -266,6 +278,7 @@ export class LifecycleService {
       const { profileName, profile } = this.resolveProfile(initialized.meta.profile);
       const agent = this.resolveAgentDefinition(initialized.meta.agent);
       const launchMode: AgentLaunchMode = resolved.meta && agent.capabilities.resume ? "resume" : "fresh";
+      const resumeConversationId = resolveCodexResumeConversationId(initialized.meta, agent, launchMode);
       await ensureAgentRuntimeArtifacts({
         gitDir: initialized.paths.gitDir,
         worktreePath: resolved.entry.path,
@@ -280,8 +293,68 @@ export class LifecycleService {
         worktreePath: resolved.entry.path,
         launchMode,
         followUpPrompt: options.prompt,
+        resumeConversationId,
       });
 
+      if (initialized.meta.agentTerminalStale === true) {
+        await writeWorktreeMeta(resolved.gitDir, {
+          ...initialized.meta,
+          agentTerminalStale: false,
+        });
+      }
+      await this.deps.reconciliation.reconcile(this.deps.projectRoot, { force: true });
+
+      return {
+        branch,
+        worktreeId: initialized.meta.worktreeId,
+      };
+    } catch (error) {
+      throw this.wrapOperationError(error);
+    }
+  }
+
+  async refreshAgentTerminal(branch: string): Promise<{
+    branch: string;
+    worktreeId: string;
+  }> {
+    try {
+      const resolved = await this.resolveExistingWorktree(branch);
+      if (!resolved.meta) {
+        throw new LifecycleError(`Worktree ${branch} has no managed metadata to refresh`, 409);
+      }
+
+      const initialized = await this.refreshManagedArtifacts(resolved);
+      const { profileName, profile } = this.resolveProfile(initialized.meta.profile);
+      const agent = this.resolveAgentDefinition(initialized.meta.agent);
+      if (agent.kind !== "builtin" || agent.implementation.agent !== "codex") {
+        throw new LifecycleError("Refreshing the agent terminal is only available for Codex worktrees", 409);
+      }
+
+      const conversation = initialized.meta.conversation;
+      if (conversation?.provider !== "codexAppServer") {
+        throw new LifecycleError("No Codex conversation is available to refresh", 409);
+      }
+
+      await ensureAgentRuntimeArtifacts({
+        gitDir: initialized.paths.gitDir,
+        worktreePath: resolved.entry.path,
+      });
+
+      await this.materializeRuntimeSession({
+        branch,
+        profileName,
+        profile,
+        agent,
+        initialized,
+        worktreePath: resolved.entry.path,
+        launchMode: "resume",
+        resumeConversationId: conversation.threadId,
+      });
+
+      await writeWorktreeMeta(resolved.gitDir, {
+        ...initialized.meta,
+        agentTerminalStale: false,
+      });
       await this.deps.reconciliation.reconcile(this.deps.projectRoot, { force: true });
 
       return {
@@ -697,6 +770,7 @@ export class LifecycleService {
     followUpPrompt?: string;
     launchMode: AgentLaunchMode;
     source?: WorktreeSource;
+    resumeConversationId?: string;
   }): Promise<void> {
     if (input.profile.runtime === "docker") {
       const dockerProfile = this.requireDockerProfile(input.profile);
@@ -719,6 +793,7 @@ export class LifecycleService {
         followUpPrompt: input.followUpPrompt,
         launchMode: input.launchMode,
         source: input.source,
+        resumeConversationId: input.resumeConversationId,
         containerName,
       }));
       return;
@@ -735,6 +810,7 @@ export class LifecycleService {
       followUpPrompt: input.followUpPrompt,
       launchMode: input.launchMode,
       source: input.source,
+      resumeConversationId: input.resumeConversationId,
     }));
   }
 
@@ -749,6 +825,7 @@ export class LifecycleService {
     followUpPrompt?: string;
     launchMode: AgentLaunchMode;
     source?: WorktreeSource;
+    resumeConversationId?: string;
     containerName?: string;
   }) {
     const baseSystemPrompt = input.launchMode === "fresh" && input.profile.systemPrompt
@@ -785,6 +862,7 @@ export class LifecycleService {
                 systemPrompt,
                 prompt,
                 launchMode: input.launchMode,
+                resumeConversationId: input.resumeConversationId,
               }),
               shell: buildDockerShellCommand(
                 containerName,
@@ -804,6 +882,7 @@ export class LifecycleService {
                 systemPrompt,
                 prompt,
                 launchMode: input.launchMode,
+                resumeConversationId: input.resumeConversationId,
               }),
               shell: buildManagedShellCommand(input.initialized.paths.runtimeEnvPath),
         },

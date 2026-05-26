@@ -32,6 +32,7 @@ function makeWorktree(overrides: {
     agentName: "claude",
     source: overrides.source ?? "oneshot",
     oneshot: null,
+    agentTerminalStale: false,
     git: { exists: true, branch: overrides.branch, dirty: false, aheadCount: 0, currentCommit: null },
     session: { exists: true, sessionName: null, windowName: overrides.branch, paneCount: 1 },
     agent: {

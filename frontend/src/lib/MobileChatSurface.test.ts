@@ -38,6 +38,7 @@ function createWorktree(overrides: Partial<WorktreeInfo> = {}): WorktreeInfo {
     profile: null,
     agentName: "claude",
     agentLabel: "Claude",
+    agentTerminalStale: false,
     services: [],
     paneCount: 1,
     prs: [],
@@ -68,6 +69,7 @@ function createConversationResponse(
       creationPhase: null,
       agentName: provider === "claudeCode" ? "claude" : "codex",
       agentLabel: provider === "claudeCode" ? "Claude" : "Codex",
+      agentTerminalStale: false,
       profile: null,
       mux: true,
       conversation: provider === "claudeCode"

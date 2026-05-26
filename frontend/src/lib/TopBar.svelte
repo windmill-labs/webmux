@@ -32,6 +32,8 @@
     onbellopen,
     onnotificationselect,
     archiving = false,
+    refreshingAgentTerminal = false,
+    onrefreshagentterminal,
   }: {
     name: string | null;
     worktree: WorktreeInfo | undefined;
@@ -53,6 +55,8 @@
     onbellopen?: () => void;
     onnotificationselect?: (branch: string) => void;
     archiving?: boolean;
+    refreshingAgentTerminal?: boolean;
+    onrefreshagentterminal?: () => void;
   } = $props();
 
   let bellOpen = $state(false);
@@ -109,11 +113,12 @@
   );
 </script>
 
-<div class="flex items-stretch bg-topbar border-b border-edge min-h-12">
-  <!-- Left + middle: rows of repo groups -->
-  <div class="flex-1 min-w-0 flex flex-col justify-center px-4 py-2.5 gap-1.5">
-    <!-- Main row: branch name + worktree-level badges + main repo PR badges -->
-    <div class="topbar-main-row flex items-start gap-3 min-w-0">
+<div class="bg-topbar border-b border-edge">
+  <div class="flex items-stretch min-h-12">
+    <!-- Left + middle: rows of repo groups -->
+    <div class="flex-1 min-w-0 flex flex-col justify-center px-4 py-2.5 gap-1.5">
+      <!-- Main row: branch name + worktree-level badges + main repo PR badges -->
+      <div class="topbar-main-row flex items-start gap-3 min-w-0">
       <div class="topbar-main-meta flex items-center gap-3 min-w-0">
         {#if isMobile && ontogglesidebar}
           <button
@@ -370,7 +375,27 @@
         <circle cx="12" cy="12" r="3" />
       </svg>
     </button>
+    </div>
   </div>
+
+  {#if worktree?.agentTerminalStale}
+    <div class="px-4 pb-3">
+      <div class="flex items-center justify-between gap-3 rounded-md border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-primary">
+        <span class="min-w-0 truncate">Terminal stale</span>
+        {#if onrefreshagentterminal}
+          <button
+            type="button"
+            class="shrink-0 rounded-md border border-warning/50 bg-surface px-3 py-1.5 text-xs font-medium text-warning hover:bg-warning/10 disabled:cursor-not-allowed disabled:opacity-50"
+            title="Refresh agent terminal"
+            onclick={onrefreshagentterminal}
+            disabled={refreshingAgentTerminal || worktree.creating}
+          >
+            {refreshingAgentTerminal ? "Refreshing" : "Refresh"}
+          </button>
+        {/if}
+      </div>
+    </div>
+  {/if}
 </div>
 
 <svelte:window onclick={handleClickOutside} />

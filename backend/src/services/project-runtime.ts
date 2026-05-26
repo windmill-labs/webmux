@@ -24,6 +24,7 @@ function makeDefaultState(input: {
   path: string;
   profile?: string | null;
   agentName?: AgentId | null;
+  agentTerminalStale?: boolean;
   runtime?: RuntimeKind;
   source?: WorktreeSource;
   oneshot?: OneshotMeta | null;
@@ -38,6 +39,7 @@ function makeDefaultState(input: {
     agentName: input.agentName ?? null,
     source: input.source ?? "ui",
     oneshot: input.oneshot ?? null,
+    agentTerminalStale: input.agentTerminalStale === true,
     git: {
       exists: true,
       branch: input.branch,
@@ -83,6 +85,7 @@ export class ProjectRuntime {
     path: string;
     profile?: string | null;
     agentName?: AgentId | null;
+    agentTerminalStale?: boolean;
     runtime?: RuntimeKind;
     source?: WorktreeSource;
     oneshot?: OneshotMeta | null;
@@ -96,6 +99,7 @@ export class ProjectRuntime {
       if (input.baseBranch !== undefined) existing.baseBranch = input.baseBranch;
       existing.profile = input.profile ?? existing.profile;
       existing.agentName = input.agentName ?? existing.agentName;
+      if (input.agentTerminalStale !== undefined) existing.agentTerminalStale = input.agentTerminalStale;
       if (input.runtime) existing.agent.runtime = input.runtime;
       if (input.source !== undefined) existing.source = input.source;
       if (input.oneshot !== undefined) existing.oneshot = input.oneshot;
@@ -170,6 +174,12 @@ export class ProjectRuntime {
   setPrs(worktreeId: string, prs: PrEntry[]): ManagedWorktreeRuntimeState {
     const state = this.requireWorktree(worktreeId);
     state.prs = prs.map((pr) => clonePrEntry(pr));
+    return state;
+  }
+
+  setAgentTerminalStale(worktreeId: string, stale: boolean): ManagedWorktreeRuntimeState {
+    const state = this.requireWorktree(worktreeId);
+    state.agentTerminalStale = stale;
     return state;
   }
 

@@ -8,6 +8,96 @@ import type {
   WorktreeInfo,
 } from "./lib/types";
 
+const { MockFitAddon, MockTerminal, MockWebSocket } = vi.hoisted(() => {
+  class MockFitAddon {
+    static instances: MockFitAddon[] = [];
+
+    fit = vi.fn();
+
+    constructor() {
+      MockFitAddon.instances.push(this);
+    }
+  }
+
+  class MockTerminal {
+    static instances: MockTerminal[] = [];
+
+    options: { theme?: unknown } = {};
+    cols = 80;
+    rows = 24;
+    modes = { mouseTrackingMode: "none" };
+    parser = { registerOscHandler: vi.fn(() => true) };
+    loadAddon = vi.fn();
+    onSelectionChange = vi.fn();
+    attachCustomKeyEventHandler = vi.fn();
+    focus = vi.fn();
+    writeln = vi.fn();
+    write = vi.fn();
+    clearSelection = vi.fn();
+    dispose = vi.fn();
+
+    constructor(_options: unknown) {
+      MockTerminal.instances.push(this);
+    }
+
+    open(container: HTMLElement): void {
+      const xterm = document.createElement("div");
+      xterm.className = "xterm";
+      const viewport = document.createElement("div");
+      viewport.className = "xterm-viewport";
+      xterm.appendChild(viewport);
+      container.appendChild(xterm);
+    }
+
+    onData(_handler: (data: string) => void): void {}
+
+    getSelection(): string {
+      return "";
+    }
+
+    hasSelection(): boolean {
+      return false;
+    }
+  }
+
+  class MockWebSocket {
+    static readonly CONNECTING = 0;
+    static readonly OPEN = 1;
+    static readonly CLOSING = 2;
+    static readonly CLOSED = 3;
+    static instances: MockWebSocket[] = [];
+
+    readonly url: string;
+    readyState = MockWebSocket.CONNECTING;
+    sent: string[] = [];
+    onopen: ((event: Event) => void) | null = null;
+    onmessage: ((event: MessageEvent<string>) => void) | null = null;
+    onclose: ((event: CloseEvent) => void) | null = null;
+    onerror: ((event: Event) => void) | null = null;
+
+    constructor(url: string | URL) {
+      this.url = String(url);
+      MockWebSocket.instances.push(this);
+    }
+
+    send(data: string): void {
+      this.sent.push(data);
+    }
+
+    close(): void {
+      this.readyState = MockWebSocket.CLOSED;
+    }
+  }
+
+  return { MockFitAddon, MockTerminal, MockWebSocket };
+});
+
+vi.mock("@xterm/xterm", () => ({ Terminal: MockTerminal }));
+vi.mock("@xterm/addon-fit", () => ({ FitAddon: MockFitAddon }));
+vi.mock("@xterm/addon-web-links", () => ({
+  WebLinksAddon: class MockWebLinksAddon {},
+}));
+
 vi.mock("./lib/api", () => ({
   api: {
     closeWorktree: vi.fn(),
@@ -31,10 +121,12 @@ vi.mock("./lib/api", () => ({
   fetchWorktreeConversationHistory: vi.fn(),
   fetchWorktrees: vi.fn(),
   interruptWorktreeConversation: vi.fn(),
+  refreshWorktreeAgentTerminal: vi.fn(),
   sendWorktreeConversationMessage: vi.fn(),
   setWorktreeLabel: vi.fn(),
   postWorktreeToLinear: vi.fn(),
   subscribeNotifications: vi.fn(),
+  uploadFiles: vi.fn(),
 }));
 
 import App from "./App.svelte";
@@ -44,6 +136,7 @@ import {
   connectWorktreeConversationStream,
   fetchWorktrees,
   postWorktreeToLinear,
+  refreshWorktreeAgentTerminal,
   setWorktreeLabel,
   subscribeNotifications,
 } from "./lib/api";
@@ -67,6 +160,15 @@ const originalMatchMedia = window.matchMedia;
 const originalNotification = globalThis.Notification;
 const originalDialogShowModal = HTMLDialogElement.prototype.showModal;
 const originalDialogClose = HTMLDialogElement.prototype.close;
+const originalWebSocket = globalThis.WebSocket;
+const originalResizeObserver = globalThis.ResizeObserver;
+const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
+
+class MockResizeObserver {
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+}
 
 function deferred<T>(): Deferred<T> {
   let resolve!: (value: T) => void;
@@ -142,6 +244,7 @@ function createWorktree(
     profile: null,
     agentName: null,
     agentLabel: null,
+    agentTerminalStale: false,
     services: [],
     paneCount: 1,
     prs: [],
@@ -175,6 +278,7 @@ function createConversationResponse(
       profile: worktree.profile,
       agentName: worktree.agentName,
       agentLabel: worktree.agentLabel,
+      agentTerminalStale: worktree.agentTerminalStale,
       mux: worktree.mux === "✓",
       status: worktree.status,
       dirty: worktree.dirty,
@@ -230,6 +334,24 @@ function setupBrowserMocks(): void {
     writable: true,
     value: MockNotification,
   });
+  Object.defineProperty(globalThis, "WebSocket", {
+    configurable: true,
+    writable: true,
+    value: MockWebSocket,
+  });
+  Object.defineProperty(globalThis, "ResizeObserver", {
+    configurable: true,
+    writable: true,
+    value: MockResizeObserver,
+  });
+  Object.defineProperty(globalThis, "requestAnimationFrame", {
+    configurable: true,
+    writable: true,
+    value: (callback: FrameRequestCallback) => {
+      callback(0);
+      return 0;
+    },
+  });
   HTMLDialogElement.prototype.showModal = vi.fn(function (this: HTMLDialogElement): void {
     this.open = true;
   });
@@ -248,6 +370,21 @@ function restoreBrowserMocks(): void {
     configurable: true,
     writable: true,
     value: originalNotification,
+  });
+  Object.defineProperty(globalThis, "WebSocket", {
+    configurable: true,
+    writable: true,
+    value: originalWebSocket,
+  });
+  Object.defineProperty(globalThis, "ResizeObserver", {
+    configurable: true,
+    writable: true,
+    value: originalResizeObserver,
+  });
+  Object.defineProperty(globalThis, "requestAnimationFrame", {
+    configurable: true,
+    writable: true,
+    value: originalRequestAnimationFrame,
   });
   HTMLDialogElement.prototype.showModal = originalDialogShowModal;
   HTMLDialogElement.prototype.close = originalDialogClose;
@@ -276,6 +413,9 @@ async function openCreateDialogWithBaseAndSubmit(branch: string, baseBranch: str
 describe("App create selection", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    MockTerminal.instances = [];
+    MockFitAddon.instances = [];
+    MockWebSocket.instances = [];
     cleanup();
     localStorage.clear();
     setupBrowserMocks();
@@ -302,6 +442,7 @@ describe("App create selection", () => {
     vi.mocked(api.fetchCiLogs).mockResolvedValue({ logs: "" });
     vi.mocked(api.sendWorktreePrompt).mockResolvedValue({ ok: true });
     vi.mocked(connectWorktreeConversationStream).mockReturnValue(() => {});
+    vi.mocked(refreshWorktreeAgentTerminal).mockResolvedValue(undefined);
     vi.mocked(setWorktreeLabel).mockResolvedValue(null);
     vi.mocked(postWorktreeToLinear).mockResolvedValue({
       ok: true,
@@ -556,6 +697,44 @@ describe("App create selection", () => {
         body: { archived: true },
       });
     });
+  });
+
+  it("reconnects the visible terminal after refreshing a stale terminal", async () => {
+    localStorage.setItem("wt-last-selected-worktree", "feature/active");
+    const staleWorktree = createWorktree("feature/active", {
+      mux: "✓",
+      agentName: "codex",
+      agentLabel: "Codex",
+      agentTerminalStale: true,
+    });
+    const refreshedWorktree = createWorktree("feature/active", {
+      mux: "✓",
+      agentName: "codex",
+      agentLabel: "Codex",
+      agentTerminalStale: false,
+    });
+
+    vi.mocked(fetchWorktrees)
+      .mockResolvedValueOnce([staleWorktree])
+      .mockResolvedValueOnce([refreshedWorktree])
+      .mockResolvedValue([refreshedWorktree]);
+
+    render(App);
+
+    await screen.findByText("Terminal stale");
+    await waitFor(() => {
+      expect(MockWebSocket.instances).toHaveLength(1);
+    });
+
+    await fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+
+    await waitFor(() => {
+      expect(refreshWorktreeAgentTerminal).toHaveBeenCalledWith("feature/active");
+    });
+    await waitFor(() => {
+      expect(MockWebSocket.instances).toHaveLength(2);
+    });
+    expect(MockWebSocket.instances[0]?.readyState).toBe(MockWebSocket.CLOSED);
   });
 
   it("edits the selected worktree label from the header", async () => {

@@ -31,6 +31,7 @@ function buildBuiltInAgentInvocation(input: {
   systemPrompt?: string;
   prompt?: string;
   launchMode?: AgentLaunchMode;
+  resumeConversationId?: string;
 }): string {
   const promptSuffix = input.prompt ? ` -- ${quoteShell(input.prompt)}` : "";
 
@@ -40,7 +41,8 @@ function buildBuiltInAgentInvocation(input: {
     if (input.launchMode === "resume") {
       // `codex resume --last` takes the prompt after `--`, so a follow-up is
       // processed before the TUI starts — no paste/Enter race.
-      return `codex${hooksFlag}${yoloFlag} resume --last${promptSuffix}`;
+      const resumeTarget = input.resumeConversationId ? ` ${quoteShell(input.resumeConversationId)}` : " --last";
+      return `codex${hooksFlag}${yoloFlag} resume${resumeTarget}${promptSuffix}`;
     }
     if (input.systemPrompt) {
       return `codex${hooksFlag}${yoloFlag} -c ${quoteShell(`developer_instructions=${input.systemPrompt}`)}${promptSuffix}`;
@@ -121,6 +123,7 @@ function buildAgentInvocation(input: {
   repoRoot: string;
   branch: string;
   profileName: string;
+  resumeConversationId?: string;
 }): string {
   if (input.agent.kind === "builtin") {
     return buildBuiltInAgentInvocation({
@@ -129,6 +132,7 @@ function buildAgentInvocation(input: {
       systemPrompt: input.systemPrompt,
       prompt: input.prompt,
       launchMode: input.launchMode,
+      resumeConversationId: input.resumeConversationId,
     });
   }
 
@@ -155,6 +159,7 @@ function buildAgentCommand(input: {
   systemPrompt?: string;
   prompt?: string;
   launchMode?: AgentLaunchMode;
+  resumeConversationId?: string;
 }, bootstrap = buildRuntimeBootstrap): string {
   return `${bootstrap(input.runtimeEnvPath)}; ${buildAgentInvocation(input)}`;
 }
@@ -185,6 +190,7 @@ export function buildAgentPaneCommand(input: {
   systemPrompt?: string;
   prompt?: string;
   launchMode?: AgentLaunchMode;
+  resumeConversationId?: string;
 }): string {
   return buildAgentCommand(input);
 }
@@ -213,6 +219,7 @@ export function buildDockerAgentPaneCommand(input: {
   systemPrompt?: string;
   prompt?: string;
   launchMode?: AgentLaunchMode;
+  resumeConversationId?: string;
 }): string {
   return buildAgentCommand(input, buildDockerRuntimeBootstrap);
 }

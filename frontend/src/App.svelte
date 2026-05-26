@@ -56,7 +56,14 @@
   import { getTheme } from "./lib/themes";
   import type { ThemeKey } from "./lib/themes";
   import { setToastController } from "./lib/toast-context";
-  import { api, fetchWorktrees, postWorktreeToLinear, setWorktreeLabel, subscribeNotifications } from "./lib/api";
+  import {
+    api,
+    fetchWorktrees,
+    postWorktreeToLinear,
+    refreshWorktreeAgentTerminal,
+    setWorktreeLabel,
+    subscribeNotifications,
+  } from "./lib/api";
 
   function createDefaultConfig(): AppConfig {
     return {
@@ -382,6 +389,8 @@
 
   let openingBranches = $state<Set<string>>(new Set());
   let archivingBranches = $state<Set<string>>(new Set());
+  let refreshingAgentTerminalBranches = $state<Set<string>>(new Set());
+  let terminalSessionRevisions = $state<Record<string, number>>({});
   let trimmedWorktreeSearch = $derived(searchQuery.trim());
   let archivedWorktreeCount = $derived(worktrees.filter((w) => w.archived).length);
   let hiddenArchivedMatchCount = $derived(
@@ -421,6 +430,12 @@
   let showWebChat = $derived(useWebChatUi && canConnect && supportsWorktreeChat(selectedWorktree));
   let isSelectedOpening = $derived(selectedBranch ? openingBranches.has(selectedBranch) : false);
   let isSelectedArchiving = $derived(selectedBranch ? archivingBranches.has(selectedBranch) : false);
+  let isSelectedAgentTerminalRefreshing = $derived(
+    selectedBranch ? refreshingAgentTerminalBranches.has(selectedBranch) : false,
+  );
+  let selectedTerminalKey = $derived(
+    selectedBranch ? `${selectedBranch}:${terminalSessionRevisions[selectedBranch] ?? 0}` : "",
+  );
   let pollIntervalMs = $derived(
     hasCreatingWorktrees ? ACTIVE_CREATE_POLL_INTERVAL_MS : DEFAULT_POLL_INTERVAL_MS,
   );
@@ -444,6 +459,14 @@
     );
     if (nextSelectedBranch !== selectedBranch) {
       selectedBranch = nextSelectedBranch;
+    }
+  });
+
+  $effect(() => {
+    const branches = new Set(worktrees.map((worktree) => worktree.branch));
+    const nextEntries = Object.entries(terminalSessionRevisions).filter(([branch]) => branches.has(branch));
+    if (nextEntries.length !== Object.keys(terminalSessionRevisions).length) {
+      terminalSessionRevisions = Object.fromEntries(nextEntries);
     }
   });
 
@@ -865,6 +888,26 @@
     }
   }
 
+  async function handleRefreshAgentTerminal(branch: string): Promise<void> {
+    if (refreshingAgentTerminalBranches.has(branch)) return;
+    refreshingAgentTerminalBranches = new Set([...refreshingAgentTerminalBranches, branch]);
+    try {
+      await refreshWorktreeAgentTerminal(branch);
+      await refresh();
+      terminalSessionRevisions = {
+        ...terminalSessionRevisions,
+        [branch]: (terminalSessionRevisions[branch] ?? 0) + 1,
+      };
+      showToast({ tone: "success", message: "Agent terminal refreshed" });
+    } catch (err) {
+      showToast({ tone: "error", message: `Failed to refresh terminal: ${errorMessage(err)}` });
+    } finally {
+      refreshingAgentTerminalBranches = new Set(
+        [...refreshingAgentTerminalBranches].filter((candidate) => candidate !== branch),
+      );
+    }
+  }
+
   async function handleArchiveToggle() {
     const branch = selectedBranch;
     if (!branch) return;
@@ -1202,14 +1245,21 @@
       onbellopen={handleBellOpen}
       onnotificationselect={handleSelectWorktree}
       archiving={isSelectedArchiving}
+      refreshingAgentTerminal={isSelectedAgentTerminalRefreshing}
+      onrefreshagentterminal={() => {
+        if (selectedBranch) void handleRefreshAgentTerminal(selectedBranch);
+      }}
     />
 
     {#if showWebChat}
       {#key selectedBranch}
-        <MobileChatSurface worktree={selectedWorktree!} />
+        <MobileChatSurface
+          worktree={selectedWorktree!}
+          onConversationMessageSent={() => void refresh()}
+        />
       {/key}
     {:else if canConnect}
-      {#key selectedBranch}
+      {#key selectedTerminalKey}
         <Terminal
           worktree={selectedBranch!}
           {isMobile}

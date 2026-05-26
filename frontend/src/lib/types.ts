@@ -96,6 +96,7 @@ export interface WorktreeInfo {
   profile: string | null;
   agentName: AgentId | null;
   agentLabel: string | null;
+  agentTerminalStale: boolean;
   services: ServiceStatus[];
   paneCount: number;
   prs: PrEntry[];

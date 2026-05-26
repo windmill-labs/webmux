@@ -19,6 +19,7 @@ function createWorktree(overrides: Partial<WorktreeInfo> = {}): WorktreeInfo {
     profile: null,
     agentName: "claude",
     agentLabel: "Claude",
+    agentTerminalStale: false,
     services: [],
     paneCount: 1,
     prs: [],
@@ -113,5 +114,13 @@ describe("WorktreeConversationPanel", () => {
 
     expect(screen.getByRole("button", { name: "Send" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Interrupt" })).not.toBeInTheDocument();
+  });
+
+  it("does not duplicate the stale terminal banner inside chat", () => {
+    renderPanel({
+      worktree: createWorktree({ agentTerminalStale: true }),
+    });
+
+    expect(screen.queryByText("Terminal stale")).not.toBeInTheDocument();
   });
 });

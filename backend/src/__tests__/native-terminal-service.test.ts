@@ -13,6 +13,7 @@ function makeState(overrides: Partial<ManagedWorktreeRuntimeState> = {}): Manage
     agentName: "codex",
     source: "ui",
     oneshot: null,
+    agentTerminalStale: false,
     git: {
       exists: true,
       branch: "feature/search",

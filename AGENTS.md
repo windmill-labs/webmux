@@ -47,6 +47,10 @@ Do not ship a feature that only works from one surface.
 - Don't add comments, docstrings, or type annotations to code you didn't change.
 - Don't add error handling for scenarios that can't happen. Trust internal code and framework guarantees.
 
+## Bug fixing
+
+When investigating and fixing a bug, start by reproducing it with a failing test when practical. Write the test against the current broken behavior, confirm it fails, implement the fix, then rerun that test to confirm it passes.
+
 ## Debugging
 
 When you are uncertain about the root cause of an issue, **add extensive debug logging before guessing at a fix**. This is mandatory, not optional.

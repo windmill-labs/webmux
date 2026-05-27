@@ -189,14 +189,7 @@ const CodexAppServerAgentMessageItemSchema: z.ZodType<CodexAppServerAgentMessage
   message: z.string().optional(),
   phase: z.string().optional(),
   memoryCitation: UnknownValueSchema.optional(),
-}).transform((value) => ({
-  type: value.type,
-  id: value.id,
-  ...(value.text !== undefined ? { text: value.text } : {}),
-  ...(value.message !== undefined ? { message: value.message } : {}),
-  ...(value.phase !== undefined ? { phase: value.phase } : {}),
-  ...(value.memoryCitation !== undefined ? { memoryCitation: value.memoryCitation } : {}),
-}));
+});
 const CodexAppServerGenericItemSchema: z.ZodType<CodexAppServerGenericItem, z.ZodTypeDef, unknown> = z.object({
   type: z.string(),
   id: z.string(),

@@ -105,9 +105,7 @@ function isUserMessageItem(item: CodexAppServerThreadItem): item is CodexAppServ
 }
 
 function isAgentMessageItem(item: CodexAppServerThreadItem): item is CodexAppServerAgentMessageItem {
-  return item.type === "agentMessage"
-    && (("text" in item && typeof item.text === "string")
-      || ("message" in item && typeof item.message === "string"));
+  return item.type === "agentMessage";
 }
 
 function extractUserText(item: CodexAppServerUserMessageItem): string {

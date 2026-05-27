@@ -317,6 +317,68 @@ describe("buildConversationState", () => {
     });
   });
 
+  it("maps app-server assistant message fields into transcript messages", () => {
+    const thread = makeThread({
+      id: "thread-message-field",
+      cwd: "/tmp/worktree",
+      updatedAt: 120,
+      statusType: "idle",
+      source: "cli",
+      turns: [
+        makeTurn({
+          id: "turn-message-field",
+          status: "completed",
+          startedAt: 111,
+          items: [
+            {
+              type: "agentMessage",
+              id: "assistant-message-field",
+              message: "The newer app server uses message here.",
+              phase: "final_answer",
+              memoryCitation: null,
+            },
+          ],
+        }),
+      ],
+    });
+
+    expect(buildConversationState(thread).messages).toEqual([
+      {
+        id: "assistant-message-field",
+        turnId: "turn-message-field",
+        role: "assistant",
+        text: "The newer app server uses message here.",
+        status: "completed",
+        createdAt: "1970-01-01T00:03:20.000Z",
+      },
+    ]);
+  });
+
+  it("ignores assistant-looking items without message text", () => {
+    const thread = makeThread({
+      id: "thread-generic-agent",
+      cwd: "/tmp/worktree",
+      updatedAt: 120,
+      statusType: "idle",
+      source: "cli",
+      turns: [
+        makeTurn({
+          id: "turn-generic-agent",
+          status: "completed",
+          startedAt: 111,
+          items: [
+            {
+              type: "agentMessage",
+              id: "assistant-generic",
+            },
+          ],
+        }),
+      ],
+    });
+
+    expect(buildConversationState(thread).messages).toEqual([]);
+  });
+
   it("does not mark interrupted turns as running", () => {
     const thread = makeThread({
       id: "thread-2",

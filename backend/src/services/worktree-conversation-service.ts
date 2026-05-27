@@ -105,7 +105,9 @@ function isUserMessageItem(item: CodexAppServerThreadItem): item is CodexAppServ
 }
 
 function isAgentMessageItem(item: CodexAppServerThreadItem): item is CodexAppServerAgentMessageItem {
-  return item.type === "agentMessage";
+  return item.type === "agentMessage"
+    && (("text" in item && typeof item.text === "string")
+      || ("message" in item && typeof item.message === "string"));
 }
 
 function extractUserText(item: CodexAppServerUserMessageItem): string {
@@ -113,6 +115,10 @@ function extractUserText(item: CodexAppServerUserMessageItem): string {
     .map((contentItem) => contentItem.text ?? "")
     .join("")
     .trim();
+}
+
+function extractAgentText(item: CodexAppServerAgentMessageItem): string {
+  return item.text ?? item.message ?? "";
 }
 
 function isActiveTurnStatus(status: string): boolean {
@@ -152,13 +158,14 @@ function buildConversationMessages(thread: CodexAppServerThread): AgentsUiConver
       }
 
       if (!isAgentMessageItem(item)) continue;
-      if (item.text.length === 0) continue;
+      const text = extractAgentText(item);
+      if (text.length === 0) continue;
 
       messages.push({
         id: item.id,
         turnId: turn.id,
         role: "assistant",
-        text: item.text,
+        text,
         status: isActiveTurnStatus(turn.status) ? "inProgress" : "completed",
         createdAt: toIsoTimestamp(turn.completedAt ?? turn.startedAt),
       });

@@ -463,22 +463,22 @@ export class WorktreeConversationService {
     allowCreate: boolean,
     launchContext: CodexAppServerLaunchContext,
   ): Promise<CodexAppServerThread | null> {
-    const discoveredThread = selectDiscoveredThread((await this.deps.appServer.threadList({
-      cwd,
-      limit: 20,
-      sortKey: "updated_at",
-    })).data);
-    if (discoveredThread) {
-      return await this.ensureThreadLoaded(discoveredThread.id, cwd, launchContext);
-    }
-
     const savedThreadId = isCodexConversationMeta(meta.conversation)
       ? meta.conversation.threadId
       : null;
     if (savedThreadId) {
       const savedThread = await this.tryLoadThread(savedThreadId, cwd, launchContext);
       if (savedThread) return savedThread;
-      log.warn(`[agents] saved codex thread missing, rediscovering cwd=${cwd} threadId=${savedThreadId}`);
+      log.warn(`[agents] saved codex thread missing, starting fresh conversation cwd=${cwd} threadId=${savedThreadId}`);
+    } else {
+      const discoveredThread = selectDiscoveredThread((await this.deps.appServer.threadList({
+        cwd,
+        limit: 20,
+        sortKey: "updated_at",
+      })).data);
+      if (discoveredThread) {
+        return await this.ensureThreadLoaded(discoveredThread.id, cwd, launchContext);
+      }
     }
 
     if (!allowCreate) return null;

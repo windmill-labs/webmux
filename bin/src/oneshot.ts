@@ -221,6 +221,7 @@ interface ConversationPrintState {
   printedMessageIds: Set<string>;
   streamingItemId: string | null;
   streamingNeedsHeader: boolean;
+  lastStreamRevision: number;
 }
 
 function timestamp(): string {
@@ -347,10 +348,14 @@ function handleConversationEvent(
   stderr: (line: string) => void,
 ): void {
   if (event.type === "snapshot") {
+    if (event.revision <= state.lastStreamRevision) return;
+    state.lastStreamRevision = event.revision;
     printNewMessages(state, event.data.conversation.messages);
     return;
   }
   if (event.type === "messageDelta") {
+    if (event.revision <= state.lastStreamRevision) return;
+    state.lastStreamRevision = event.revision;
     if (state.streamingItemId !== event.itemId) {
       flushStreamingLine(state);
       state.streamingItemId = event.itemId;
@@ -361,6 +366,12 @@ function handleConversationEvent(
       state.streamingNeedsHeader = false;
     }
     process.stdout.write(event.delta);
+    return;
+  }
+  if (event.type === "messageUpsert") {
+    if (event.revision <= state.lastStreamRevision) return;
+    state.lastStreamRevision = event.revision;
+    printNewMessages(state, [event.message]);
     return;
   }
   if (event.type === "error") {
@@ -398,6 +409,7 @@ function streamConversation(
     socket = ws;
     ws.addEventListener("open", () => {
       consecutiveFailures = 0;
+      state.lastStreamRevision = 0;
     });
     ws.addEventListener("message", (event) => {
       if (typeof event.data !== "string") return;
@@ -895,6 +907,7 @@ export async function runOneshot(parsed: ParsedOneshotCommand, port: number): Pr
     printedMessageIds: new Set(),
     streamingItemId: null,
     streamingNeedsHeader: false,
+    lastStreamRevision: 0,
   };
 
   // Print initial history once before opening the WS so the user sees their prompt right away.

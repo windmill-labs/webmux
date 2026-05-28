@@ -34,6 +34,7 @@ export function applyConversationMessageDelta(
           id: event.itemId,
           turnId: event.turnId,
           role: "assistant",
+          kind: "text",
           text: event.delta,
           status: "inProgress",
           createdAt: null,
@@ -59,14 +60,56 @@ export function applyConversationMessageDelta(
 }
 
 function mergeConversationMessage(
-  existing: AgentsUiConversationMessage,
+  _existing: AgentsUiConversationMessage,
   incoming: AgentsUiConversationMessage,
 ): AgentsUiConversationMessage {
-  return {
-    ...existing,
-    ...incoming,
-    text: existing.text.length > incoming.text.length ? existing.text : incoming.text,
-  };
+  return incoming;
+}
+
+function messageKind(message: AgentsUiConversationMessage): NonNullable<AgentsUiConversationMessage["kind"]> {
+  return message.kind ?? "text";
+}
+
+function normalizedMessageText(message: AgentsUiConversationMessage): string {
+  return message.text.trim();
+}
+
+function textOverlaps(left: string, right: string): boolean {
+  return left === right || left.startsWith(right) || right.startsWith(left);
+}
+
+function isSameServerUserMessage(
+  pendingMessage: AgentsUiConversationMessage,
+  incomingMessage: AgentsUiConversationMessage,
+): boolean {
+  return incomingMessage.role === "user"
+    && messageKind(incomingMessage) === "text"
+    && (
+      pendingMessage.turnId === incomingMessage.turnId
+      || normalizedMessageText(pendingMessage) === normalizedMessageText(incomingMessage)
+    );
+}
+
+function isSameLogicalConversationMessage(
+  existing: AgentsUiConversationMessage,
+  incoming: AgentsUiConversationMessage,
+): boolean {
+  if (existing.id === incoming.id) return true;
+  if (isOptimisticUserMessage(existing)) {
+    return isSameServerUserMessage(existing, incoming);
+  }
+  if (existing.role !== incoming.role) return false;
+  if (messageKind(existing) !== messageKind(incoming)) return false;
+  if (existing.toolCallId && incoming.toolCallId) return existing.toolCallId === incoming.toolCallId;
+  if (existing.turnId !== incoming.turnId) return false;
+  if (existing.phase !== incoming.phase) return false;
+
+  const kind = messageKind(existing);
+  if (kind === "text" || kind === "thinking") {
+    return textOverlaps(existing.text, incoming.text);
+  }
+
+  return false;
 }
 
 export function applyConversationMessageUpsert(
@@ -75,7 +118,9 @@ export function applyConversationMessageUpsert(
 ): AgentsUiConversationState | null {
   if (!conversation || conversation.conversationId !== event.conversationId) return conversation;
 
-  const existingIndex = conversation.messages.findIndex((message) => message.id === event.message.id);
+  const existingIndex = conversation.messages.findIndex((message) =>
+    isSameLogicalConversationMessage(message, event.message)
+  );
   const messages = existingIndex === -1
     ? [...conversation.messages, event.message]
     : conversation.messages.map((message, index) =>
@@ -90,22 +135,8 @@ export function applyConversationMessageUpsert(
   };
 }
 
-function shouldPreserveLocalMessage(message: AgentsUiConversationMessage): boolean {
-  return message.role === "assistant" || message.kind === "toolUse" || message.kind === "toolResult";
-}
-
-function preserveLocalMessage(
-  message: AgentsUiConversationMessage,
-  incoming: AgentsUiConversationState,
-): AgentsUiConversationMessage {
-  if (message.status !== "inProgress" || incoming.running || incoming.activeTurnId === message.turnId) {
-    return message;
-  }
-
-  return {
-    ...message,
-    status: "completed",
-  };
+function isOptimisticUserMessage(message: AgentsUiConversationMessage): boolean {
+  return message.role === "user" && message.id.startsWith("pending-user:");
 }
 
 export function mergeConversationSnapshot(
@@ -118,8 +149,10 @@ export function mergeConversationSnapshot(
 
   const incomingById = new Map(incoming.messages.map((message) => [message.id, message]));
   const currentById = new Map(current.messages.map((message) => [message.id, message]));
+  const incomingUserMessages = incoming.messages.filter((message) => message.role === "user");
   const seen = new Set<string>();
   const messages: AgentsUiConversationMessage[] = [];
+  let preservedOptimisticTurnId: string | null = null;
 
   for (const currentMessage of current.messages) {
     const incomingMessage = incomingById.get(currentMessage.id);
@@ -129,8 +162,12 @@ export function mergeConversationSnapshot(
       continue;
     }
 
-    if (shouldPreserveLocalMessage(currentMessage)) {
-      messages.push(preserveLocalMessage(currentMessage, incoming));
+    if (
+      isOptimisticUserMessage(currentMessage)
+      && !incomingUserMessages.some((message) => isSameServerUserMessage(currentMessage, message))
+    ) {
+      messages.push(currentMessage);
+      preservedOptimisticTurnId = currentMessage.turnId;
       seen.add(currentMessage.id);
     }
   }
@@ -143,6 +180,8 @@ export function mergeConversationSnapshot(
 
   return {
     ...incoming,
+    running: incoming.running || preservedOptimisticTurnId !== null,
+    activeTurnId: incoming.activeTurnId ?? preservedOptimisticTurnId,
     messages,
   };
 }

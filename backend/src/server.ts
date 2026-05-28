@@ -42,7 +42,7 @@ import {
 import { loadControlToken } from "./adapters/control-token";
 import { readWorktreeMeta, writeWorktreeMeta } from "./adapters/fs";
 import { ClaudeCliClient } from "./adapters/claude-cli";
-import { CodexAppServerClient } from "./adapters/codex-app-server";
+import { CodexAppServerClient, type CodexAppServerNotification } from "./adapters/codex-app-server";
 import {
   getDefaultProfileName,
   persistLocalCustomAgent,
@@ -87,10 +87,8 @@ import { startOneshotWatcher } from "./services/oneshot-watcher-service";
 import { runAutoRemove, type AutoRemoveDependencies } from "./services/auto-remove-service";
 import { pullMainBranch, forcePullMainBranch, startAutoPullMonitor } from "./services/auto-pull-service";
 import {
-  buildAgentsUiMessageDeltaEvent,
-  buildAgentsUiMessageUpsertEvents,
+  AgentsConversationStreamSession,
   readAgentsNotificationThreadId,
-  shouldRefreshAgentsConversationSnapshot,
 } from "./services/agents-ui-stream-service";
 import { classifyAgentsTerminalWorktreeError } from "./services/agents-ui-action-service";
 import { buildProjectSnapshot } from "./services/snapshot-service";
@@ -846,53 +844,62 @@ async function openAgentsSocket(
   ws: { readyState: number; send: (data: string) => void; close: (code?: number, reason?: string) => void },
   data: AgentsWsData,
 ): Promise<void> {
+  let bufferingNotifications = true;
+  let socketClosed = false;
+  let streamSession: AgentsConversationStreamSession | null = null;
+  const bufferedNotifications: CodexAppServerNotification[] = [];
+  const unsubscribeNotifications = codexAppServerClient.onNotification((notification) => {
+    if (bufferingNotifications || !streamSession) {
+      bufferedNotifications.push(notification);
+      return;
+    }
+
+    const notificationThreadId = readAgentsNotificationThreadId(notification);
+    if (!notificationThreadId || notificationThreadId !== data.conversationId) return;
+    streamSession.handleNotification(notification);
+    data.conversationId = streamSession.currentConversationId();
+  });
+  data.unsubscribe = () => {
+    socketClosed = true;
+    streamSession?.close();
+    unsubscribeNotifications();
+  };
+
   const snapshot = await loadAgentsConversationSnapshot(data.branch);
+  if (socketClosed) return;
   if (!snapshot.ok) {
+    unsubscribeNotifications();
     sendAgentsWs(ws, { type: "error", message: snapshot.message });
     ws.close(1011, snapshot.message.slice(0, 123));
     return;
   }
 
-  data.conversationId = snapshot.data.conversation.conversationId;
-  sendAgentsWs(ws, {
-    type: "snapshot",
-    data: snapshot.data,
+  streamSession = new AgentsConversationStreamSession({
+    conversationId: snapshot.data.conversation.conversationId,
+    loadSnapshot: () => loadAgentsConversationSnapshot(data.branch),
+    send: (event) => sendAgentsWs(ws, event),
   });
-
+  data.conversationId = streamSession.currentConversationId();
   if (snapshot.data.conversation.provider !== "codexAppServer") {
+    unsubscribeNotifications();
+    data.unsubscribe = null;
+    sendAgentsWs(ws, {
+      type: "snapshot",
+      revision: 1,
+      data: snapshot.data,
+    });
     return;
   }
 
-  data.unsubscribe = codexAppServerClient.onNotification((notification) => {
-    const notificationThreadId = readAgentsNotificationThreadId(notification);
-    if (!notificationThreadId || notificationThreadId !== data.conversationId) return;
+  streamSession.sendSnapshot(snapshot.data);
+  data.conversationId = streamSession.currentConversationId();
+  bufferingNotifications = false;
 
-    const deltaEvent = buildAgentsUiMessageDeltaEvent(notification);
-    if (deltaEvent) {
-      sendAgentsWs(ws, deltaEvent);
-      return;
-    }
+  for (const notification of bufferedNotifications) {
+    streamSession.handleNotification(notification);
+    data.conversationId = streamSession.currentConversationId();
+  }
 
-    for (const upsertEvent of buildAgentsUiMessageUpsertEvents(notification)) {
-      sendAgentsWs(ws, upsertEvent);
-    }
-
-    if (!shouldRefreshAgentsConversationSnapshot(notification)) return;
-
-    void (async () => {
-      const nextSnapshot = await loadAgentsConversationSnapshot(data.branch);
-      if (!nextSnapshot.ok) {
-        sendAgentsWs(ws, { type: "error", message: nextSnapshot.message });
-        return;
-      }
-
-      data.conversationId = nextSnapshot.data.conversation.conversationId;
-      sendAgentsWs(ws, {
-        type: "snapshot",
-        data: nextSnapshot.data,
-      });
-    })();
-  });
 }
 
 async function apiRuntimeEvent(req: Request): Promise<Response> {

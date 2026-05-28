@@ -270,11 +270,6 @@
                 }`}
               >
                 <div class="whitespace-pre-wrap break-words">{message.text}</div>
-                {#if message.status === "inProgress"}
-                  <div class="mt-2 text-[10px] uppercase tracking-[0.12em] text-muted">
-                    typing
-                  </div>
-                {/if}
               </div>
             {/if}
           {/each}

@@ -80,11 +80,13 @@ export interface AgentsUiInterruptResponse {
 
 export interface AgentsUiConversationSnapshotEvent {
   type: "snapshot";
+  revision: number;
   data: AgentsUiWorktreeConversationResponse;
 }
 
 export interface AgentsUiConversationMessageDeltaEvent {
   type: "messageDelta";
+  revision: number;
   conversationId: string;
   turnId: string;
   itemId: string;
@@ -93,6 +95,7 @@ export interface AgentsUiConversationMessageDeltaEvent {
 
 export interface AgentsUiConversationMessageUpsertEvent {
   type: "messageUpsert";
+  revision: number;
   conversationId: string;
   message: AgentsUiConversationMessage;
 }

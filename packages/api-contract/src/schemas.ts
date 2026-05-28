@@ -456,11 +456,13 @@ export const AgentsUiInterruptResponseSchema = z.object({
 
 export const AgentsUiConversationSnapshotEventSchema = z.object({
   type: z.literal("snapshot"),
+  revision: z.number().int().nonnegative(),
   data: AgentsUiWorktreeConversationResponseSchema,
 });
 
 export const AgentsUiConversationMessageDeltaEventSchema = z.object({
   type: z.literal("messageDelta"),
+  revision: z.number().int().nonnegative(),
   conversationId: z.string(),
   turnId: z.string(),
   itemId: z.string(),
@@ -469,6 +471,7 @@ export const AgentsUiConversationMessageDeltaEventSchema = z.object({
 
 export const AgentsUiConversationMessageUpsertEventSchema = z.object({
   type: z.literal("messageUpsert"),
+  revision: z.number().int().nonnegative(),
   conversationId: z.string(),
   message: AgentsUiConversationMessageSchema,
 });

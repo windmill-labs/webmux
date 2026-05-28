@@ -726,7 +726,6 @@ describe("WorktreeConversationService", () => {
       },
     });
     expect(appServer.calls).toEqual([
-      "threadList",
       "threadRead:thread-existing:false",
       "threadRead:thread-existing:true",
       "turnStart:thread-existing:Ship it",
@@ -829,7 +828,7 @@ describe("WorktreeConversationService", () => {
     expect(appServer.calls.at(-1)).toBe("turnInterrupt:thread-active:turn-active");
   });
 
-  it("switches to the newest discovered thread when saved metadata points to an older thread", async () => {
+  it("keeps the saved thread when cwd discovery contains a newer unrelated thread", async () => {
     const metaStore = new Map<string, WorktreeMeta>();
     const worktree = makeWorktree();
     const gitDir = `${worktree.path}/.git`;
@@ -914,15 +913,14 @@ describe("WorktreeConversationService", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
 
-    expect(result.data.worktree.conversation?.conversationId).toBe("thread-new");
-    expect(result.data.conversation.messages.at(-1)?.text).toBe("Latest reply");
+    expect(result.data.worktree.conversation?.conversationId).toBe("thread-old");
+    expect(result.data.conversation.messages.at(-1)?.text).toBe("Old reply");
     expect(appServer.calls).toEqual([
-      "threadList",
-      "threadRead:thread-new:false",
-      "threadRead:thread-new:true",
+      "threadRead:thread-old:false",
+      "threadRead:thread-old:true",
     ]);
     expect(metaStore.get(gitDir)?.conversation).toEqual(
-      makeCodexConversationMeta("thread-new", worktree.path, "2026-04-16T09:00:00.000Z"),
+      makeCodexConversationMeta("thread-old", worktree.path, "2026-04-14T11:00:00.000Z"),
     );
   });
 

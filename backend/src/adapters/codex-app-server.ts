@@ -323,6 +323,36 @@ const CodexAppServerInitializeResponseSchema = z.object({
   platformOs: z.string(),
 });
 
+export function readCodexAppServerStdoutLines(input: {
+  decoder: TextDecoder;
+  buffer: string;
+  chunk?: Uint8Array;
+}): {
+  buffer: string;
+  lines: string[];
+} {
+  let buffer = input.buffer + (
+    input.chunk ? input.decoder.decode(input.chunk, { stream: true }) : input.decoder.decode()
+  );
+  const lines: string[] = [];
+
+  while (true) {
+    const newlineIndex = buffer.indexOf("\n");
+    if (newlineIndex === -1) break;
+    const line = buffer.slice(0, newlineIndex).trim();
+    buffer = buffer.slice(newlineIndex + 1);
+    if (line.length > 0) lines.push(line);
+  }
+
+  if (!input.chunk) {
+    const finalLine = buffer.trim();
+    buffer = "";
+    if (finalLine.length > 0) lines.push(finalLine);
+  }
+
+  return { buffer, lines };
+}
+
 export function parseCodexAppServerThreadItem(raw: unknown): CodexAppServerThreadItem | null {
   const parsed = CodexAppServerThreadItemSchema.safeParse(raw);
   return parsed.success ? parsed.data : null;
@@ -340,7 +370,8 @@ export class CodexAppServerRequestError extends Error {
 
 export class CodexAppServerClient implements CodexAppServerGateway {
   private readonly encoder = new TextEncoder();
-  private readonly decoder = new TextDecoder();
+  private readonly stdoutDecoder = new TextDecoder();
+  private readonly stderrDecoder = new TextDecoder();
   private readonly listeners = new Set<(notification: CodexAppServerNotification) => void>();
   private readonly pending = new Map<number, PendingRequest>();
   private nextId = 1;
@@ -451,16 +482,24 @@ export class CodexAppServerClient implements CodexAppServerGateway {
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-          buffer += this.decoder.decode(value);
 
-          while (true) {
-            const newlineIndex = buffer.indexOf("\n");
-            if (newlineIndex === -1) break;
-            const line = buffer.slice(0, newlineIndex).trim();
-            buffer = buffer.slice(newlineIndex + 1);
-            if (line.length === 0) continue;
+          const decoded = readCodexAppServerStdoutLines({
+            decoder: this.stdoutDecoder,
+            buffer,
+            chunk: value,
+          });
+          buffer = decoded.buffer;
+          for (const line of decoded.lines) {
             this.handleStdoutLine(line);
           }
+        }
+
+        const decoded = readCodexAppServerStdoutLines({
+          decoder: this.stdoutDecoder,
+          buffer,
+        });
+        for (const line of decoded.lines) {
+          this.handleStdoutLine(line);
         }
       } catch (error) {
         if (this.proc === proc) {
@@ -477,7 +516,7 @@ export class CodexAppServerClient implements CodexAppServerGateway {
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-          const chunk = this.decoder.decode(value).trim();
+          const chunk = this.stderrDecoder.decode(value).trim();
           if (chunk.length > 0) {
             log.debug(`[agents] codex app-server stderr: ${chunk}`);
           }

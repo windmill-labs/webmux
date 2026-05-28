@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
+  AgentsUiConversationEvent,
   AgentsUiSendMessageResponse,
   AgentsUiWorktreeConversationResponse,
   WorktreeInfo,
@@ -229,6 +230,47 @@ describe("MobileChatSurface", () => {
       expect(fetchWorktreeConversationHistory).toHaveBeenCalledTimes(2);
     });
     await screen.findByText("Done.");
+  });
+
+  it("keeps streamed Codex assistant text when a stale snapshot arrives", async () => {
+    vi.mocked(attachWorktreeConversation).mockResolvedValue(createConversationResponse("codexAppServer"));
+
+    render(MobileChatSurface, {
+      props: {
+        worktree: createWorktree({ agentName: "codex", agentLabel: "Codex" }),
+      },
+    });
+
+    await waitFor(() => {
+      expect(connectWorktreeConversationStream).toHaveBeenCalledWith(
+        "feature/mobile-chat",
+        expect.any(Object),
+      );
+    });
+
+    const callbacks = vi.mocked(connectWorktreeConversationStream).mock.calls[0]?.[1];
+    const deltaEvent: AgentsUiConversationEvent = {
+      type: "messageDelta",
+      conversationId: "thread-1",
+      turnId: "turn-1",
+      itemId: "assistant-1",
+      delta: "Streaming status update",
+    };
+    callbacks?.onEvent(deltaEvent);
+    await screen.findByText("Streaming status update");
+
+    const snapshotEvent: AgentsUiConversationEvent = {
+      type: "snapshot",
+      data: createConversationResponse("codexAppServer", {
+        running: false,
+        activeTurnId: null,
+        messages: [],
+      }),
+    };
+    callbacks?.onEvent(snapshotEvent);
+
+    await screen.findByText("Streaming status update");
+    expect(screen.queryByText("typing")).not.toBeInTheDocument();
   });
 
   it("keeps polling beyond two minutes until a quiet conversation finally changes", async () => {

@@ -32,6 +32,24 @@ export interface CodexAppServerAgentMessageItem {
   memoryCitation?: unknown;
 }
 
+export interface CodexAppServerCommandAction {
+  type: string;
+  command?: string;
+  path?: string | null;
+}
+
+export interface CodexAppServerCommandExecutionItem {
+  type: "commandExecution";
+  id: string;
+  command: string;
+  cwd: string | null;
+  status: string;
+  commandActions: CodexAppServerCommandAction[];
+  aggregatedOutput: string | null;
+  exitCode: number | null;
+  durationMs: number | null;
+}
+
 export interface CodexAppServerGenericItem {
   type: string;
   id: string;
@@ -40,6 +58,7 @@ export interface CodexAppServerGenericItem {
 export type CodexAppServerThreadItem =
   | CodexAppServerUserMessageItem
   | CodexAppServerAgentMessageItem
+  | CodexAppServerCommandExecutionItem
   | CodexAppServerGenericItem;
 
 export interface CodexAppServerTurn {
@@ -190,6 +209,22 @@ const CodexAppServerAgentMessageItemSchema: z.ZodType<CodexAppServerAgentMessage
   phase: z.string().optional(),
   memoryCitation: UnknownValueSchema.optional(),
 });
+const CodexAppServerCommandActionSchema: z.ZodType<CodexAppServerCommandAction, z.ZodTypeDef, unknown> = z.object({
+  type: z.string(),
+  command: z.string().optional(),
+  path: z.string().nullable().optional(),
+});
+const CodexAppServerCommandExecutionItemSchema: z.ZodType<CodexAppServerCommandExecutionItem, z.ZodTypeDef, unknown> = z.object({
+  type: z.literal("commandExecution"),
+  id: z.string(),
+  command: z.string(),
+  cwd: z.string().nullable(),
+  status: z.string(),
+  commandActions: z.array(CodexAppServerCommandActionSchema).default([]),
+  aggregatedOutput: z.string().nullable(),
+  exitCode: z.number().nullable(),
+  durationMs: z.number().nullable(),
+});
 const CodexAppServerGenericItemSchema: z.ZodType<CodexAppServerGenericItem, z.ZodTypeDef, unknown> = z.object({
   type: z.string(),
   id: z.string(),
@@ -197,6 +232,7 @@ const CodexAppServerGenericItemSchema: z.ZodType<CodexAppServerGenericItem, z.Zo
 const CodexAppServerThreadItemSchema: z.ZodType<CodexAppServerThreadItem, z.ZodTypeDef, unknown> = z.union([
   CodexAppServerUserMessageItemSchema,
   CodexAppServerAgentMessageItemSchema,
+  CodexAppServerCommandExecutionItemSchema,
   CodexAppServerGenericItemSchema,
 ]);
 const CodexAppServerTurnSchema: z.ZodType<CodexAppServerTurn, z.ZodTypeDef, unknown> = z.object({
@@ -286,6 +322,11 @@ const CodexAppServerInitializeResponseSchema = z.object({
   platformFamily: z.string(),
   platformOs: z.string(),
 });
+
+export function parseCodexAppServerThreadItem(raw: unknown): CodexAppServerThreadItem | null {
+  const parsed = CodexAppServerThreadItemSchema.safeParse(raw);
+  return parsed.success ? parsed.data : null;
+}
 
 export class CodexAppServerRequestError extends Error {
   constructor(

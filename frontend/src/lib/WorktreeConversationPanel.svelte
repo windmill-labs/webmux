@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import type { AgentsUiConversationState, WorktreeInfo } from "./types";
+  import type { AgentsUiConversationMessage, AgentsUiConversationState, WorktreeInfo } from "./types";
 
   interface Props {
     worktree: WorktreeInfo;
@@ -15,6 +15,15 @@
     onRefresh: () => void;
     onSend: () => void;
   }
+
+  type TranscriptItem =
+    | { type: "message"; key: string; message: AgentsUiConversationMessage }
+    | {
+      type: "tool";
+      key: string;
+      tool: AgentsUiConversationMessage;
+      result: AgentsUiConversationMessage | null;
+    };
 
   const {
     worktree,
@@ -34,6 +43,11 @@
   const supportsAgentChat = $derived(worktree.agentName === "codex" || worktree.agentName === "claude");
   const chatAvailable = $derived(supportsAgentChat && worktree.mux === "✓");
   const showInterrupt = $derived(chatAvailable && (conversation?.running ?? false));
+  const showProcessingIndicator = $derived(
+    (conversation?.running ?? false)
+      && !(conversation?.messages.some((message) => message.status === "inProgress") ?? false),
+  );
+  const transcriptItems = $derived(buildTranscriptItems(conversation?.messages ?? []));
   const canSend = $derived(
     chatAvailable
       && conversation !== null
@@ -67,6 +81,59 @@
     });
   }
 
+  function toolStatusLabel(message: AgentsUiConversationMessage): string {
+    if (message.status === "inProgress") return "Running";
+    if (message.status === "failed") return "Failed";
+    return "Completed";
+  }
+
+  function exitCodeLabel(message: AgentsUiConversationMessage): string | null {
+    return message.exitCode === null || message.exitCode === undefined ? null : `exit ${message.exitCode}`;
+  }
+
+  function formatDuration(durationMs: number | null | undefined): string | null {
+    if (durationMs === null || durationMs === undefined) return null;
+    if (durationMs < 1000) return `${durationMs}ms`;
+    return `${(durationMs / 1000).toFixed(1)}s`;
+  }
+
+  function messageKind(message: AgentsUiConversationMessage): NonNullable<AgentsUiConversationMessage["kind"]> {
+    return message.kind ?? "text";
+  }
+
+  function buildTranscriptItems(messages: AgentsUiConversationMessage[]): TranscriptItem[] {
+    const toolUseCallIds = new Set(
+      messages
+        .filter((message) => messageKind(message) === "toolUse" && message.toolCallId)
+        .map((message) => message.toolCallId as string),
+    );
+    const resultByCallId = new Map<string, AgentsUiConversationMessage>();
+
+    for (const message of messages) {
+      if (messageKind(message) === "toolResult" && message.toolCallId && !resultByCallId.has(message.toolCallId)) {
+        resultByCallId.set(message.toolCallId, message);
+      }
+    }
+
+    return messages.flatMap((message): TranscriptItem[] => {
+      const kind = messageKind(message);
+      if (kind === "toolUse") {
+        return [{
+          type: "tool",
+          key: message.id,
+          tool: message,
+          result: message.toolCallId ? resultByCallId.get(message.toolCallId) ?? null : null,
+        }];
+      }
+
+      if (kind === "toolResult" && message.toolCallId && toolUseCallIds.has(message.toolCallId)) {
+        return [];
+      }
+
+      return [{ type: "message", key: message.id, message }];
+    });
+  }
+
   $effect(() => {
     const conversationId = conversation?.conversationId ?? null;
     const messageCount = conversation?.messages.length ?? 0;
@@ -89,6 +156,12 @@
   >
     Interrupt
   </button>
+{/snippet}
+
+{#snippet processingIndicator()}
+  <div class="self-start max-w-[88%] rounded-md border border-edge bg-topbar px-3 py-2 text-xs text-muted">
+    {agentLabel} is processing
+  </div>
 {/snippet}
 
 {#if !supportsAgentChat}
@@ -131,23 +204,64 @@
           <div class="rounded-md border border-edge bg-topbar px-4 py-5 text-sm text-muted">
             Connecting to the {agentLabel} session...
           </div>
-        {:else if !conversation || conversation.messages.length === 0}
+        {:else if !conversation}
           <div class="rounded-md border border-edge bg-topbar px-4 py-5 text-sm text-muted">
             No messages yet. Send the first prompt to start this chat.
           </div>
+        {:else if conversation.messages.length === 0}
+          {#if showProcessingIndicator}
+            {@render processingIndicator()}
+          {:else}
+            <div class="rounded-md border border-edge bg-topbar px-4 py-5 text-sm text-muted">
+              No messages yet. Send the first prompt to start this chat.
+            </div>
+          {/if}
         {:else}
-          {#each conversation.messages as message (message.id)}
-            {@const kind = message.kind ?? "text"}
-            {#if kind === "toolUse"}
-              <div class="self-start max-w-full min-w-0 text-xs text-muted font-mono px-3 py-1.5 rounded-md bg-topbar/50">
-                <span class="text-accent">→ {message.toolName ?? "tool"}</span>
-                <span class="whitespace-pre-wrap break-words"> {message.text}</span>
+          {#each transcriptItems as item (item.key)}
+            {#if item.type === "message" && messageKind(item.message) === "thinking"}
+              {@const message = item.message}
+              <div class="self-start max-w-[88%] min-w-0 rounded-md border border-edge bg-topbar/60 px-3 py-2 text-xs text-muted">
+                <div class="mb-1 uppercase tracking-[0.12em]">Thinking</div>
+                <div class="whitespace-pre-wrap break-words text-primary/85">{message.text}</div>
+                {#if message.status === "inProgress"}
+                  <div class="mt-2 uppercase tracking-[0.12em]">working</div>
+                {/if}
               </div>
-            {:else if kind === "toolResult"}
-              <div class="self-start max-w-full min-w-0 text-xs text-muted font-mono px-3 py-1.5 rounded-md bg-topbar/30 whitespace-pre-wrap break-words">
-                {message.text}
+            {:else if item.type === "tool"}
+              {@const message = item.tool}
+              {@const result = item.result}
+              <div class={`self-start max-w-[94%] min-w-0 rounded-md border px-3 py-2 text-xs ${
+                message.status === "failed" || result?.status === "failed"
+                  ? "border-danger/40 bg-danger/10 text-primary"
+                  : "border-edge bg-topbar/70 text-primary"
+              }`}>
+                <div class="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] uppercase tracking-[0.12em] text-muted">
+                  <span>{toolStatusLabel(message)} {message.toolName ?? "tool"}</span>
+                  {#if exitCodeLabel(message)}
+                    <span>{exitCodeLabel(message)}</span>
+                  {/if}
+                  {#if formatDuration(message.durationMs)}
+                    <span>{formatDuration(message.durationMs)}</span>
+                  {/if}
+                </div>
+                <div class="whitespace-pre-wrap break-words font-mono">{message.text}</div>
+                {#if message.status === "inProgress"}
+                  <div class="mt-2 text-[10px] uppercase tracking-[0.12em] text-muted">running</div>
+                {/if}
+                {#if result}
+                  <details
+                    class="mt-2 rounded-md border border-edge/80 bg-surface/60 px-2 py-1.5 text-primary"
+                    open={result.status === "failed"}
+                  >
+                    <summary class="cursor-pointer text-[10px] uppercase tracking-[0.12em] text-muted">
+                      Output
+                    </summary>
+                    <pre class="mt-2 max-h-[18rem] overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed">{result.text}</pre>
+                  </details>
+                {/if}
               </div>
             {:else}
+              {@const message = item.message}
               <div
                 class={`max-w-[88%] min-w-0 rounded-2xl px-4 py-3 text-sm ${
                   message.role === "user"
@@ -164,6 +278,9 @@
               </div>
             {/if}
           {/each}
+          {#if showProcessingIndicator}
+            {@render processingIndicator()}
+          {/if}
         {/if}
       </div>
     </div>

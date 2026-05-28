@@ -9,8 +9,10 @@
   } from "./api";
   import {
     applyConversationMessageDelta,
+    applyConversationMessageUpsert,
     buildConversationProgressSignature,
     markConversationTurnStarted,
+    mergeConversationSnapshot,
   } from "./worktree-conversation";
   import type {
     AgentsUiConversationEvent,
@@ -65,7 +67,7 @@
   }
 
   function applyConversationResponse(response: AgentsUiWorktreeConversationResponse): void {
-    conversation = response.conversation;
+    conversation = mergeConversationSnapshot(conversation, response.conversation);
     conversationError = null;
     syncConversationStream();
   }
@@ -87,6 +89,9 @@
         break;
       case "messageDelta":
         conversation = applyConversationMessageDelta(conversation, event);
+        break;
+      case "messageUpsert":
+        conversation = applyConversationMessageUpsert(conversation, event);
         break;
       case "error":
         conversationError = event.message;

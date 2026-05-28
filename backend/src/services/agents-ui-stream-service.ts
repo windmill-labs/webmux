@@ -1,6 +1,10 @@
-import type { CodexAppServerNotification } from "../adapters/codex-app-server";
-import type { AgentsUiConversationMessageDeltaEvent } from "../domain/agents-ui";
+import { parseCodexAppServerThreadItem, type CodexAppServerNotification } from "../adapters/codex-app-server";
+import type {
+  AgentsUiConversationMessageDeltaEvent,
+  AgentsUiConversationMessageUpsertEvent,
+} from "../domain/agents-ui";
 import { isRecord } from "../lib/type-guards";
+import { buildCodexItemConversationMessages } from "./worktree-conversation-service";
 
 function readNotificationParams(raw: unknown): Record<string, unknown> | null {
   return isRecord(raw) ? raw : null;
@@ -13,6 +17,15 @@ function readThreadId(raw: unknown): string | null {
 function readNotificationItemType(raw: unknown): string | null {
   if (!isRecord(raw)) return null;
   return typeof raw.type === "string" ? raw.type : null;
+}
+
+function readNumber(raw: unknown): number | null {
+  return typeof raw === "number" ? raw : null;
+}
+
+function toIsoTimestampMs(epochMs: number | null): string | null {
+  if (epochMs === null) return null;
+  return new Date(epochMs).toISOString();
 }
 
 export function readAgentsNotificationThreadId(notification: CodexAppServerNotification): string | null {
@@ -43,6 +56,40 @@ export function buildAgentsUiMessageDeltaEvent(
     itemId,
     delta,
   };
+}
+
+export function buildAgentsUiMessageUpsertEvents(
+  notification: CodexAppServerNotification,
+): AgentsUiConversationMessageUpsertEvent[] {
+  if (notification.method !== "item/started" && notification.method !== "item/completed") return [];
+
+  const params = readNotificationParams(notification.params);
+  if (!params) return [];
+
+  const threadId = readThreadId(params.threadId);
+  const turnId = readThreadId(params.turnId);
+  if (!threadId || !turnId) return [];
+
+  const item = parseCodexAppServerThreadItem(params.item);
+  if (!item) return [];
+
+  const createdAt = toIsoTimestampMs(
+    notification.method === "item/started"
+      ? readNumber(params.startedAtMs)
+      : readNumber(params.completedAtMs),
+  );
+
+  return buildCodexItemConversationMessages({
+    item,
+    turnId,
+    turnStatus: notification.method === "item/started" ? "inProgress" : "completed",
+    createdAt,
+    includeEmptyText: true,
+  }).map((message) => ({
+    type: "messageUpsert",
+    conversationId: threadId,
+    message,
+  }));
 }
 
 export function shouldRefreshAgentsConversationSnapshot(notification: CodexAppServerNotification): boolean {

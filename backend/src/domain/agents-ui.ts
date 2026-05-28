@@ -28,8 +28,8 @@ export interface AgentsUiWorktreeSummary {
 }
 
 export type AgentsUiConversationMessageRole = "user" | "assistant";
-export type AgentsUiConversationMessageStatus = "completed" | "inProgress";
-export type AgentsUiConversationMessageKind = "text" | "toolUse" | "toolResult";
+export type AgentsUiConversationMessageStatus = "completed" | "inProgress" | "failed";
+export type AgentsUiConversationMessageKind = "text" | "thinking" | "toolUse" | "toolResult";
 
 export interface AgentsUiConversationMessage {
   id: string;
@@ -39,7 +39,13 @@ export interface AgentsUiConversationMessage {
   status: AgentsUiConversationMessageStatus;
   createdAt: string | null;
   kind?: AgentsUiConversationMessageKind;
+  phase?: string;
   toolName?: string;
+  toolCallId?: string;
+  command?: string;
+  cwd?: string;
+  exitCode?: number | null;
+  durationMs?: number | null;
 }
 
 export interface AgentsUiConversationState {
@@ -85,6 +91,12 @@ export interface AgentsUiConversationMessageDeltaEvent {
   delta: string;
 }
 
+export interface AgentsUiConversationMessageUpsertEvent {
+  type: "messageUpsert";
+  conversationId: string;
+  message: AgentsUiConversationMessage;
+}
+
 export interface AgentsUiConversationErrorEvent {
   type: "error";
   message: string;
@@ -93,4 +105,5 @@ export interface AgentsUiConversationErrorEvent {
 export type AgentsUiConversationEvent =
   | AgentsUiConversationSnapshotEvent
   | AgentsUiConversationMessageDeltaEvent
+  | AgentsUiConversationMessageUpsertEvent
   | AgentsUiConversationErrorEvent;

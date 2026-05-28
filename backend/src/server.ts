@@ -88,6 +88,7 @@ import { runAutoRemove, type AutoRemoveDependencies } from "./services/auto-remo
 import { pullMainBranch, forcePullMainBranch, startAutoPullMonitor } from "./services/auto-pull-service";
 import {
   buildAgentsUiMessageDeltaEvent,
+  buildAgentsUiMessageUpsertEvents,
   readAgentsNotificationThreadId,
   shouldRefreshAgentsConversationSnapshot,
 } from "./services/agents-ui-stream-service";
@@ -870,6 +871,10 @@ async function openAgentsSocket(
     if (deltaEvent) {
       sendAgentsWs(ws, deltaEvent);
       return;
+    }
+
+    for (const upsertEvent of buildAgentsUiMessageUpsertEvents(notification)) {
+      sendAgentsWs(ws, upsertEvent);
     }
 
     if (!shouldRefreshAgentsConversationSnapshot(notification)) return;

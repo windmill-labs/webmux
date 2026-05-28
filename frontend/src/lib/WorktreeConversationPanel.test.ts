@@ -123,4 +123,70 @@ describe("WorktreeConversationPanel", () => {
 
     expect(screen.queryByText("Terminal stale")).not.toBeInTheDocument();
   });
+
+  it("renders thinking and tool blocks", () => {
+    renderPanel({
+      conversation: createConversation({
+        messages: [
+          {
+            id: "thinking-1",
+            turnId: "turn-1",
+            role: "assistant",
+            kind: "thinking",
+            text: "I will inspect the directory.",
+            status: "completed",
+            createdAt: null,
+          },
+          {
+            id: "call-1",
+            turnId: "turn-1",
+            role: "assistant",
+            kind: "toolUse",
+            toolName: "shell",
+            toolCallId: "call-1",
+            text: "ls",
+            status: "completed",
+            createdAt: null,
+            cwd: "/repo/__worktrees/feature/mobile-chat",
+            exitCode: 0,
+            durationMs: 4,
+          },
+          {
+            id: "call-1:result",
+            turnId: "turn-1",
+            role: "user",
+            kind: "toolResult",
+            toolCallId: "call-1",
+            text: "README.md",
+            status: "completed",
+            createdAt: null,
+          },
+        ],
+      }),
+    });
+
+    expect(screen.getByText("Thinking")).toBeInTheDocument();
+    expect(screen.getByText("I will inspect the directory.")).toBeInTheDocument();
+    expect(screen.getByText("Completed shell")).toBeInTheDocument();
+    expect(screen.getByText("ls")).toBeInTheDocument();
+    expect(screen.getByText("Output")).toBeInTheDocument();
+    expect(screen.getByText("README.md")).toBeInTheDocument();
+    expect(screen.queryByText("/repo/__worktrees/feature/mobile-chat")).not.toBeInTheDocument();
+
+    const toolBlock = screen.getByText("Completed shell").closest("div")?.parentElement;
+    expect(toolBlock).toHaveTextContent("ls");
+    expect(toolBlock).toHaveTextContent("README.md");
+  });
+
+  it("shows a processing indicator before visible progress arrives", () => {
+    renderPanel({
+      conversation: createConversation({
+        running: true,
+        activeTurnId: "turn-1",
+        messages: [],
+      }),
+    });
+
+    expect(screen.getByText("Claude is processing")).toBeInTheDocument();
+  });
 });

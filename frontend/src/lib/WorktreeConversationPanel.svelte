@@ -45,9 +45,9 @@
   const showInterrupt = $derived(chatAvailable && (conversation?.running ?? false));
   const showProcessingIndicator = $derived(
     (conversation?.running ?? false)
-      && !(conversation?.messages.some((message) => message.status === "inProgress") ?? false),
+      && !(conversation?.messages.some((message) => message.status === "inProgress" && isVisibleTranscriptMessage(message)) ?? false),
   );
-  const transcriptItems = $derived(buildTranscriptItems(conversation?.messages ?? []));
+  const transcriptItems = $derived(buildTranscriptItems((conversation?.messages ?? []).filter(isVisibleTranscriptMessage)));
   const canSend = $derived(
     chatAvailable
       && conversation !== null
@@ -99,6 +99,14 @@
 
   function messageKind(message: AgentsUiConversationMessage): NonNullable<AgentsUiConversationMessage["kind"]> {
     return message.kind ?? "text";
+  }
+
+  function isVisibleTranscriptMessage(message: AgentsUiConversationMessage): boolean {
+    const kind = messageKind(message);
+    if ((kind === "text" || kind === "thinking") && message.text.trim().length === 0) {
+      return false;
+    }
+    return true;
   }
 
   function buildTranscriptItems(messages: AgentsUiConversationMessage[]): TranscriptItem[] {

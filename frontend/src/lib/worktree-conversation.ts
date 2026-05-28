@@ -66,6 +66,18 @@ function mergeConversationMessage(
   return incoming;
 }
 
+function mergeConversationUpsertMessage(
+  existing: AgentsUiConversationMessage,
+  incoming: AgentsUiConversationMessage,
+): AgentsUiConversationMessage {
+  const text = incoming.text.length >= existing.text.length ? incoming.text : existing.text;
+  return {
+    ...existing,
+    ...incoming,
+    text,
+  };
+}
+
 function messageKind(message: AgentsUiConversationMessage): NonNullable<AgentsUiConversationMessage["kind"]> {
   return message.kind ?? "text";
 }
@@ -124,7 +136,7 @@ export function applyConversationMessageUpsert(
   const messages = existingIndex === -1
     ? [...conversation.messages, event.message]
     : conversation.messages.map((message, index) =>
-        index === existingIndex ? mergeConversationMessage(message, event.message) : message
+        index === existingIndex ? mergeConversationUpsertMessage(message, event.message) : message
       );
 
   return {
@@ -149,7 +161,9 @@ export function mergeConversationSnapshot(
 
   const incomingById = new Map(incoming.messages.map((message) => [message.id, message]));
   const currentById = new Map(current.messages.map((message) => [message.id, message]));
-  const incomingUserMessages = incoming.messages.filter((message) => message.role === "user");
+  const newlyArrivedUserMessages = incoming.messages.filter((message) =>
+    message.role === "user" && !currentById.has(message.id)
+  );
   const seen = new Set<string>();
   const messages: AgentsUiConversationMessage[] = [];
   let preservedOptimisticTurnId: string | null = null;
@@ -164,7 +178,7 @@ export function mergeConversationSnapshot(
 
     if (
       isOptimisticUserMessage(currentMessage)
-      && !incomingUserMessages.some((message) => isSameServerUserMessage(currentMessage, message))
+      && !newlyArrivedUserMessages.some((message) => isSameServerUserMessage(currentMessage, message))
     ) {
       messages.push(currentMessage);
       preservedOptimisticTurnId = currentMessage.turnId;

@@ -10,6 +10,12 @@ interface ParsedLogRecord {
   payload: Record<string, unknown> | null;
 }
 
+interface ToolCallMetadata {
+  toolName: string;
+  command?: string;
+  cwd?: string;
+}
+
 function readString(raw: unknown): string | null {
   return typeof raw === "string" && raw.length > 0 ? raw : null;
 }
@@ -139,6 +145,7 @@ export async function readCodexSessionMessages(thread: CodexAppServerThread): Pr
   }
 
   const messages: AgentsUiConversationMessage[] = [];
+  const toolCallMetadata = new Map<string, ToolCallMetadata>();
   let currentTurnId: string | null = null;
   let blockIndex = 0;
 
@@ -190,6 +197,11 @@ export async function readCodexSessionMessages(thread: CodexAppServerThread): Pr
         : typeof record.payload.arguments === "string" ? record.payload.arguments : compactJson(record.payload.arguments ?? {});
       const command = readToolCommand(toolName, argumentsText);
       const cwd = payloadType === "custom_tool_call" ? null : readToolCwd(argumentsText);
+      toolCallMetadata.set(callId, {
+        toolName,
+        ...(command ? { command } : {}),
+        ...(cwd ? { cwd } : {}),
+      });
       messages.push({
         id: callId,
         turnId: currentTurnId,
@@ -210,6 +222,7 @@ export async function readCodexSessionMessages(thread: CodexAppServerThread): Pr
     if (payloadType === "function_call_output" || payloadType === "custom_tool_call_output") {
       const callId = readString(record.payload.call_id);
       if (!callId) continue;
+      const metadata = toolCallMetadata.get(callId);
       const output = typeof record.payload.output === "string"
         ? record.payload.output.trimEnd()
         : compactJson(record.payload.output ?? "");
@@ -219,8 +232,11 @@ export async function readCodexSessionMessages(thread: CodexAppServerThread): Pr
         turnId: currentTurnId,
         role: "user",
         kind: "toolResult",
+        ...(metadata?.toolName ? { toolName: metadata.toolName } : {}),
         toolCallId: callId,
         text: truncate(output),
+        ...(metadata?.command ? { command: metadata.command } : {}),
+        ...(metadata?.cwd ? { cwd: metadata.cwd } : {}),
         status: readOutputStatus(output),
         createdAt: record.timestamp,
         exitCode,

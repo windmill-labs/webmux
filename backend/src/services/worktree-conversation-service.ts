@@ -241,18 +241,83 @@ function compareMessagesByTimestamp(left: AgentsUiConversationMessage, right: Ag
   return Date.parse(left.createdAt) - Date.parse(right.createdAt);
 }
 
+function messageKind(message: AgentsUiConversationMessage): NonNullable<AgentsUiConversationMessage["kind"]> {
+  return message.kind ?? "text";
+}
+
+function normalizeMessageText(text: string): string {
+  return text.trim();
+}
+
+function sameOptionalValue(left: string | undefined, right: string | undefined): boolean {
+  return !left || !right || left === right;
+}
+
+function isSameLogicalMessage(left: AgentsUiConversationMessage, right: AgentsUiConversationMessage): boolean {
+  if (left.id === right.id) return true;
+  if (left.turnId !== right.turnId) return false;
+  if (left.role !== right.role) return false;
+  if (messageKind(left) !== messageKind(right)) return false;
+
+  const kind = messageKind(left);
+  if (kind === "toolUse") {
+    return normalizeMessageText(left.text) === normalizeMessageText(right.text)
+      && sameOptionalValue(left.cwd, right.cwd);
+  }
+
+  if (kind === "toolResult") {
+    return normalizeMessageText(left.text) === normalizeMessageText(right.text)
+      && sameOptionalValue(left.cwd, right.cwd);
+  }
+
+  return false;
+}
+
+function mergeMessageStatus(
+  left: AgentsUiConversationMessage["status"],
+  right: AgentsUiConversationMessage["status"],
+): AgentsUiConversationMessage["status"] {
+  if (left === "failed" || right === "failed") return "failed";
+  if (left === "inProgress" || right === "inProgress") return "inProgress";
+  return "completed";
+}
+
+function mergeMessageSources(
+  base: AgentsUiConversationMessage,
+  additional: AgentsUiConversationMessage,
+): AgentsUiConversationMessage {
+  const text = base.text.length >= additional.text.length ? base.text : additional.text;
+  return {
+    ...additional,
+    ...base,
+    text,
+    status: mergeMessageStatus(base.status, additional.status),
+    createdAt: base.createdAt ?? additional.createdAt,
+    command: base.command ?? additional.command,
+    cwd: base.cwd ?? additional.cwd,
+    exitCode: base.exitCode ?? additional.exitCode,
+    durationMs: base.durationMs ?? additional.durationMs,
+  };
+}
+
 function mergeConversationMessages(
   baseMessages: AgentsUiConversationMessage[],
   additionalMessages: AgentsUiConversationMessage[],
 ): AgentsUiConversationMessage[] {
   if (additionalMessages.length === 0) return baseMessages;
 
-  const seen = new Set<string>();
-  const merged: AgentsUiConversationMessage[] = [];
-  for (const message of [...baseMessages, ...additionalMessages]) {
-    if (seen.has(message.id)) continue;
-    seen.add(message.id);
-    merged.push(message);
+  const merged = [...baseMessages];
+  const matchedIndexes = new Set<number>();
+  for (const message of additionalMessages) {
+    const existingIndex = merged.findIndex((candidate, index) =>
+      !matchedIndexes.has(index) && isSameLogicalMessage(candidate, message)
+    );
+    if (existingIndex === -1) {
+      merged.push(message);
+    } else {
+      matchedIndexes.add(existingIndex);
+      merged[existingIndex] = mergeMessageSources(merged[existingIndex], message);
+    }
   }
 
   return merged

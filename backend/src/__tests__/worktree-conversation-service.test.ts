@@ -439,6 +439,98 @@ describe("buildConversationState", () => {
     ]);
   });
 
+  it("dedupes app-server command execution items against session-log tool calls with different ids", () => {
+    const thread = makeThread({
+      id: "thread-tools",
+      cwd: "/tmp/worktree",
+      updatedAt: 120,
+      statusType: "idle",
+      source: "cli",
+      turns: [
+        makeTurn({
+          id: "turn-tools",
+          status: "completed",
+          startedAt: 111,
+          items: [
+            {
+              type: "commandExecution",
+              id: "item-tool-1",
+              command: "/bin/zsh -lc ls",
+              cwd: "/tmp/worktree",
+              status: "completed",
+              commandActions: [{ type: "listFiles", command: "ls", path: null }],
+              aggregatedOutput: "README.md\n",
+              exitCode: 0,
+              durationMs: 12,
+            },
+          ],
+        }),
+      ],
+    });
+
+    expect(buildConversationState(thread, [
+      {
+        id: "call-log-1",
+        turnId: "turn-tools",
+        role: "assistant",
+        kind: "toolUse",
+        toolName: "exec_command",
+        toolCallId: "call-log-1",
+        text: "ls",
+        command: "ls",
+        cwd: "/tmp/worktree",
+        status: "completed",
+        createdAt: "1970-01-01T00:03:20.000Z",
+        exitCode: 0,
+      },
+      {
+        id: "call-log-1:result",
+        turnId: "turn-tools",
+        role: "user",
+        kind: "toolResult",
+        toolName: "exec_command",
+        toolCallId: "call-log-1",
+        text: "README.md",
+        command: "ls",
+        cwd: "/tmp/worktree",
+        status: "completed",
+        createdAt: "1970-01-01T00:03:20.000Z",
+        exitCode: 0,
+      },
+    ]).messages).toEqual([
+      {
+        id: "item-tool-1",
+        turnId: "turn-tools",
+        role: "assistant",
+        kind: "toolUse",
+        toolName: "shell",
+        toolCallId: "item-tool-1",
+        text: "ls",
+        command: "/bin/zsh -lc ls",
+        cwd: "/tmp/worktree",
+        status: "completed",
+        createdAt: "1970-01-01T00:03:20.000Z",
+        exitCode: 0,
+        durationMs: 12,
+      },
+      {
+        id: "item-tool-1:result",
+        turnId: "turn-tools",
+        role: "user",
+        kind: "toolResult",
+        toolName: "shell",
+        toolCallId: "item-tool-1",
+        text: "README.md",
+        command: "/bin/zsh -lc ls",
+        cwd: "/tmp/worktree",
+        status: "completed",
+        createdAt: "1970-01-01T00:03:20.000Z",
+        exitCode: 0,
+        durationMs: 12,
+      },
+    ]);
+  });
+
   it("ignores assistant-looking items without message text", () => {
     const thread = makeThread({
       id: "thread-generic-agent",

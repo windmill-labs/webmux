@@ -252,6 +252,77 @@ describe("worktree conversation helpers", () => {
     expect(merged.messages.filter((message) => message.text === "Ship it")).toHaveLength(1);
   });
 
+  it("keeps a repeated optimistic prompt when only an older matching server message exists", () => {
+    const current = markConversationTurnStarted({
+      ...makeConversation(),
+      messages: [
+        ...makeConversation().messages,
+        {
+          id: "user-ship-old",
+          turnId: "turn-old",
+          role: "user",
+          text: "Ship it",
+          status: "completed",
+          createdAt: "2026-05-28T12:00:00.000Z",
+        },
+      ],
+    }, "turn-new", "Ship it");
+
+    const merged = mergeConversationSnapshot(current, {
+      ...makeConversation(),
+      messages: [
+        ...makeConversation().messages,
+        {
+          id: "user-ship-old",
+          turnId: "turn-old",
+          role: "user",
+          text: "Ship it",
+          status: "completed",
+          createdAt: "2026-05-28T12:00:00.000Z",
+        },
+      ],
+    });
+
+    expect(merged.messages.some((message) => message.id === "pending-user:turn-new")).toBe(true);
+    expect(merged.messages.filter((message) => message.text === "Ship it")).toHaveLength(2);
+  });
+
+  it("keeps longer streamed text when an upsert arrives with shorter text", () => {
+    const current = applyConversationMessageDelta(makeConversation(), {
+      type: "messageDelta",
+      revision: 1,
+      conversationId: "thread-1",
+      turnId: "turn-2",
+      itemId: "assistant-2",
+      delta: "Still working on it",
+    });
+
+    const updated = applyConversationMessageUpsert(current, {
+      type: "messageUpsert",
+      revision: 2,
+      conversationId: "thread-1",
+      message: {
+        id: "assistant-2",
+        turnId: "turn-2",
+        role: "assistant",
+        kind: "text",
+        text: "Still",
+        status: "completed",
+        createdAt: "2026-05-28T13:00:00.000Z",
+      },
+    });
+
+    expect(updated?.messages.at(-1)).toEqual({
+      id: "assistant-2",
+      turnId: "turn-2",
+      role: "assistant",
+      kind: "text",
+      text: "Still working on it",
+      status: "completed",
+      createdAt: "2026-05-28T13:00:00.000Z",
+    });
+  });
+
   it("uses snapshot text for server-owned messages", () => {
     const current = applyConversationMessageDelta(makeConversation(), {
       type: "messageDelta",

@@ -189,4 +189,29 @@ describe("WorktreeConversationPanel", () => {
 
     expect(screen.getByText("Claude is processing")).toBeInTheDocument();
   });
+
+  it("does not render blank assistant bubbles for empty streamed starts", () => {
+    renderPanel({
+      worktree: createWorktree({ agentName: "codex", agentLabel: "Codex" }),
+      conversation: createConversation({
+        provider: "codexAppServer",
+        running: true,
+        activeTurnId: "turn-1",
+        messages: [
+          {
+            id: "assistant-empty",
+            turnId: "turn-1",
+            role: "assistant",
+            kind: "text",
+            text: "",
+            status: "inProgress",
+            createdAt: null,
+          },
+        ],
+      }),
+    });
+
+    expect(screen.getByText("Codex is processing")).toBeInTheDocument();
+    expect(screen.queryByText("typing")).not.toBeInTheDocument();
+  });
 });

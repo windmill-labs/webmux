@@ -28,9 +28,28 @@ function readThreadId(raw: unknown): string | null {
   return typeof raw === "string" && raw.length > 0 ? raw : null;
 }
 
+function readNotificationTurnId(notification: CodexAppServerNotification): string | null {
+  const params = readNotificationParams(notification.params);
+  if (!params) return null;
+  return readThreadId(params.turnId);
+}
+
 function readNotificationItemType(raw: unknown): string | null {
   if (!isRecord(raw)) return null;
   return typeof raw.type === "string" ? raw.type : null;
+}
+
+function readStatusType(raw: unknown): string | null {
+  if (typeof raw === "string") return raw;
+  if (!isRecord(raw)) return null;
+  if (typeof raw.type === "string") return raw.type;
+  return null;
+}
+
+function readNotificationStatusType(notification: CodexAppServerNotification): string | null {
+  const params = readNotificationParams(notification.params);
+  if (!params) return null;
+  return readStatusType(params.status) ?? (isRecord(params.thread) ? readStatusType(params.thread.status) : null);
 }
 
 function readNumber(raw: unknown): number | null {
@@ -151,7 +170,16 @@ function mergeSnapshotMessageWithLiveMessage(
 ): AgentsUiConversationMessage {
   const liveHasNewerState = liveMessage.text.length > snapshotMessage.text.length
     || (snapshotMessage.status === "inProgress" && liveMessage.status !== "inProgress");
-  return liveHasNewerState ? mergeConversationMessage(snapshotMessage, liveMessage) : snapshotMessage;
+  if (!liveHasNewerState) return snapshotMessage;
+
+  const merged = mergeConversationMessage(snapshotMessage, liveMessage);
+  return {
+    ...merged,
+    status: snapshotMessage.status !== "inProgress" && liveMessage.status === "inProgress"
+      ? snapshotMessage.status
+      : merged.status,
+    createdAt: snapshotMessage.createdAt ?? liveMessage.createdAt,
+  };
 }
 
 function mergeLiveMessages(
@@ -174,32 +202,63 @@ function mergeLiveMessages(
   return merged;
 }
 
+function findMatchingSnapshotMessage(
+  snapshot: AgentsUiWorktreeConversationResponse["conversation"],
+  liveMessage: AgentsUiConversationMessage,
+): AgentsUiConversationMessage | null {
+  return snapshot.messages.find((message) => isSameLogicalConversationMessage(message, liveMessage)) ?? null;
+}
+
+function completeLiveMessageFromSnapshot(
+  snapshot: AgentsUiWorktreeConversationResponse["conversation"],
+  liveMessage: AgentsUiConversationMessage,
+): AgentsUiConversationMessage {
+  const snapshotMessage = findMatchingSnapshotMessage(snapshot, liveMessage);
+  if (!snapshotMessage || snapshotMessage.status === "inProgress" || liveMessage.status !== "inProgress") {
+    return liveMessage;
+  }
+  return {
+    ...liveMessage,
+    status: snapshotMessage.status,
+  };
+}
+
 export function mergeConversationSnapshotWithLiveMessages(
   snapshot: AgentsUiWorktreeConversationResponse,
   liveMessages: AgentsUiConversationMessage[],
 ): AgentsUiWorktreeConversationResponse {
   if (liveMessages.length === 0) return snapshot;
 
-  const inProgress = liveMessages.find((message) => message.status === "inProgress") ?? null;
+  const reconciledLiveMessages = liveMessages.map((message) =>
+    completeLiveMessageFromSnapshot(snapshot.conversation, message)
+  );
+  const inProgress = reconciledLiveMessages.find((message) => message.status === "inProgress") ?? null;
   return {
     ...snapshot,
     conversation: {
       ...snapshot.conversation,
       running: snapshot.conversation.running || inProgress !== null,
       activeTurnId: snapshot.conversation.activeTurnId ?? inProgress?.turnId ?? null,
-      messages: mergeLiveMessages(snapshot.conversation.messages, liveMessages),
+      messages: mergeLiveMessages(snapshot.conversation.messages, reconciledLiveMessages),
     },
   };
 }
 
 function shouldKeepLiveMessage(
-  snapshotMessages: AgentsUiConversationMessage[],
+  snapshot: AgentsUiWorktreeConversationResponse["conversation"],
   liveMessage: AgentsUiConversationMessage,
 ): boolean {
-  const snapshotMessage = snapshotMessages.find((message) => isSameLogicalConversationMessage(message, liveMessage));
-  if (!snapshotMessage) return true;
+  const snapshotMessage = findMatchingSnapshotMessage(snapshot, liveMessage);
+  if (!snapshotMessage) return snapshot.running || liveMessage.status !== "inProgress";
   if (snapshotMessage.status === "inProgress") return true;
   return snapshotMessage.text.length < liveMessage.text.length;
+}
+
+function shouldCompleteLiveMessages(notification: CodexAppServerNotification): boolean {
+  if (notification.method === "turn/completed") return true;
+  if (notification.method !== "thread/status/changed") return false;
+  const statusType = readNotificationStatusType(notification);
+  return statusType === "idle" || statusType === "completed" || statusType === "interrupted";
 }
 
 export class AgentsConversationStreamSession {
@@ -232,12 +291,15 @@ export class AgentsConversationStreamSession {
     if (this.closed) return;
     this.conversationId = snapshot.conversation.conversationId;
     const liveMessages = [...this.liveMessages.values()];
-    const data = mergeConversationSnapshotWithLiveMessages(snapshot, liveMessages);
     for (const message of liveMessages) {
-      if (!shouldKeepLiveMessage(snapshot.conversation.messages, message)) {
+      if (!shouldKeepLiveMessage(snapshot.conversation, message)) {
         this.liveMessages.delete(message.id);
+      } else {
+        this.liveMessages.set(message.id, completeLiveMessageFromSnapshot(snapshot.conversation, message));
       }
     }
+    const retainedLiveMessages = [...this.liveMessages.values()];
+    const data = mergeConversationSnapshotWithLiveMessages(snapshot, retainedLiveMessages);
     this.deps.send({
       type: "snapshot",
       revision: this.nextRevision(),
@@ -270,6 +332,10 @@ export class AgentsConversationStreamSession {
       });
     }
 
+    if (shouldCompleteLiveMessages(notification)) {
+      this.completeLiveMessages(readNotificationTurnId(notification));
+    }
+
     if (shouldRefreshAgentsConversationSnapshot(notification)) {
       this.queueSnapshotRefresh();
     }
@@ -287,10 +353,10 @@ export class AgentsConversationStreamSession {
       turnId: event.turnId,
       role: "assistant",
       kind: existing?.kind ?? "text",
-      phase: existing?.phase,
       text: `${existing?.text ?? ""}${event.delta}`,
       status: "inProgress",
       createdAt: existing?.createdAt ?? null,
+      ...(existing?.phase ? { phase: existing.phase } : {}),
     });
   }
 
@@ -299,6 +365,17 @@ export class AgentsConversationStreamSession {
     const nextMessage = existing ? mergeConversationMessage(existing, message) : message;
     this.liveMessages.set(message.id, nextMessage);
     return nextMessage;
+  }
+
+  private completeLiveMessages(turnId: string | null): void {
+    for (const [messageId, message] of this.liveMessages) {
+      if (message.status !== "inProgress") continue;
+      if (turnId && message.turnId !== turnId) continue;
+      this.liveMessages.set(messageId, {
+        ...message,
+        status: "completed",
+      });
+    }
   }
 
   private queueSnapshotRefresh(): void {

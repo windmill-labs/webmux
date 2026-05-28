@@ -276,6 +276,49 @@ describe("agents-ui-stream-service", () => {
     ]);
   });
 
+  it("does not keep running true when a completed snapshot has shorter text", () => {
+    expect(mergeConversationSnapshotWithLiveMessages(makeSnapshot({
+      messages: [
+        {
+          id: "assistant-1",
+          turnId: "turn-1",
+          role: "assistant",
+          kind: "text",
+          text: "Partial",
+          status: "completed",
+          createdAt: "2026-05-28T10:50:41.194Z",
+        },
+      ],
+    }), [
+      {
+        id: "assistant-1",
+        turnId: "turn-1",
+        role: "assistant",
+        kind: "text",
+        text: "Partial answer",
+        status: "inProgress",
+        createdAt: null,
+      },
+    ]).conversation).toEqual({
+      provider: "codexAppServer",
+      conversationId: "thread-1",
+      cwd: "/tmp/worktree",
+      running: false,
+      activeTurnId: null,
+      messages: [
+        {
+          id: "assistant-1",
+          turnId: "turn-1",
+          role: "assistant",
+          kind: "text",
+          text: "Partial answer",
+          status: "completed",
+          createdAt: "2026-05-28T10:50:41.194Z",
+        },
+      ],
+    });
+  });
+
   it("adds revisions and includes live deltas in refresh snapshots", async () => {
     const events: AgentsUiConversationEvent[] = [];
     const session = new AgentsConversationStreamSession({
@@ -323,8 +366,8 @@ describe("agents-ui-stream-service", () => {
       type: "snapshot",
       revision: 4,
       data: makeSnapshot({
-        running: true,
-        activeTurnId: "turn-1",
+        running: false,
+        activeTurnId: null,
         messages: [
           {
             id: "assistant-1",
@@ -333,7 +376,7 @@ describe("agents-ui-stream-service", () => {
             kind: "text",
             phase: "commentary",
             text: "Streaming status",
-            status: "inProgress",
+            status: "completed",
             createdAt: "2026-05-28T10:50:41.194Z",
           },
         ],
@@ -369,5 +412,79 @@ describe("agents-ui-stream-service", () => {
     await waitFor(() => refreshCount === 2 && events.length === 2);
 
     expect(events.map((event) => event.type === "error" ? null : event.revision)).toEqual([1, 2]);
+  });
+
+  it("does not keep running true after an authoritative completed snapshot", async () => {
+    const events: AgentsUiConversationEvent[] = [];
+    const session = new AgentsConversationStreamSession({
+      conversationId: "thread-1",
+      loadSnapshot: async () => ({ ok: true, data: makeSnapshot() }),
+      send: (event) => events.push(event),
+    });
+
+    session.handleNotification({
+      method: "item/agentMessage/delta",
+      params: {
+        threadId: "thread-1",
+        turnId: "turn-1",
+        itemId: "assistant-1",
+        delta: "Partial answer",
+      },
+    });
+    session.handleNotification({
+      method: "turn/completed",
+      params: {
+        threadId: "thread-1",
+        turnId: "turn-1",
+      },
+    });
+
+    await waitFor(() => events.length === 2);
+
+    expect(events.at(-1)).toEqual({
+      type: "snapshot",
+      revision: 2,
+      data: makeSnapshot({
+        running: false,
+        activeTurnId: null,
+        messages: [
+          {
+            id: "assistant-1",
+            turnId: "turn-1",
+            role: "assistant",
+            kind: "text",
+            text: "Partial answer",
+            status: "completed",
+            createdAt: null,
+          },
+        ],
+      }),
+    });
+  });
+
+  it("drops unmatched in-progress live messages when a later snapshot is not running", () => {
+    const events: AgentsUiConversationEvent[] = [];
+    const session = new AgentsConversationStreamSession({
+      conversationId: "thread-1",
+      loadSnapshot: async () => ({ ok: true, data: makeSnapshot() }),
+      send: (event) => events.push(event),
+    });
+
+    session.handleNotification({
+      method: "item/agentMessage/delta",
+      params: {
+        threadId: "thread-1",
+        turnId: "turn-1",
+        itemId: "assistant-1",
+        delta: "Partial answer",
+      },
+    });
+    session.sendSnapshot(makeSnapshot());
+
+    expect(events.at(-1)).toEqual({
+      type: "snapshot",
+      revision: 2,
+      data: makeSnapshot(),
+    });
   });
 });

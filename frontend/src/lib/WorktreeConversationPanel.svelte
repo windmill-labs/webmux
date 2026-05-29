@@ -43,9 +43,10 @@
   const supportsAgentChat = $derived(worktree.agentName === "codex" || worktree.agentName === "claude");
   const chatAvailable = $derived(supportsAgentChat && worktree.mux === "✓");
   const showInterrupt = $derived(chatAvailable && (conversation?.running ?? false));
+  const showTurnPending = $derived(isSending || (conversation?.running ?? false));
   const showProcessingIndicator = $derived(
-    (conversation?.running ?? false)
-      && !(conversation?.messages.some((message) => message.status === "inProgress" && isVisibleTranscriptMessage(message)) ?? false),
+    showTurnPending
+      && !(conversation?.messages.some((message) => message.status === "inProgress" && isVisibleProgressMessage(message)) ?? false),
   );
   const transcriptItems = $derived(buildTranscriptItems((conversation?.messages ?? []).filter(isVisibleTranscriptMessage)));
   const canSend = $derived(
@@ -109,6 +110,15 @@
     return true;
   }
 
+  function isVisibleProgressMessage(message: AgentsUiConversationMessage): boolean {
+    if (message.role !== "assistant") return false;
+    const kind = messageKind(message);
+    if (kind === "text" || kind === "thinking" || kind === "toolUse") {
+      return message.text.trim().length > 0;
+    }
+    return false;
+  }
+
   function buildTranscriptItems(messages: AgentsUiConversationMessage[]): TranscriptItem[] {
     const toolUseCallIds = new Set(
       messages
@@ -166,8 +176,44 @@
   </button>
 {/snippet}
 
+{#snippet sendIcon()}
+  <svg
+    aria-hidden="true"
+    xmlns="http://www.w3.org/2000/svg"
+    width="22"
+    height="22"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
+    <path d="m9 10-4 4 4 4" />
+    <path d="M5 14h11a4 4 0 0 0 4-4V6" />
+  </svg>
+{/snippet}
+
+{#snippet stopIcon()}
+  <svg
+    aria-hidden="true"
+    xmlns="http://www.w3.org/2000/svg"
+    width="22"
+    height="22"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2.5"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
+    <rect x="7" y="7" width="10" height="10" rx="1.5" />
+  </svg>
+{/snippet}
+
 {#snippet processingIndicator()}
-  <div class="self-start max-w-[88%] rounded-md border border-edge bg-topbar px-3 py-2 text-xs text-muted">
+  <div class="flex max-w-[88%] items-center gap-2 self-start rounded-md border border-edge bg-topbar px-3 py-2 text-xs text-muted">
+    <span class="spinner"></span>
     {agentLabel} is processing
   </div>
 {/snippet}
@@ -202,11 +248,6 @@
     {/if}
 
     <div class="flex min-h-0 flex-1 flex-col px-4 pt-4">
-      <div class="mb-3 flex items-center justify-between gap-3 text-[11px] uppercase tracking-[0.12em] text-muted">
-        <div>{conversation?.running ? "Turn in progress" : "Ready"}</div>
-        <div>{conversationLoading && !conversation ? `Connecting to ${agentLabel}` : agentLabel}</div>
-      </div>
-
       <div bind:this={transcriptViewport} class="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overflow-x-hidden pb-4 pr-1">
         {#if conversationLoading && !conversation}
           <div class="rounded-md border border-edge bg-topbar px-4 py-5 text-sm text-muted">
@@ -289,35 +330,39 @@
     </div>
 
     <div
-      class="border-t border-edge bg-topbar px-4 pb-4 pt-3"
+      class="border-t border-edge bg-topbar px-4 pb-4 pt-4"
       style="padding-bottom: max(1rem, env(safe-area-inset-bottom, 0px));"
     >
-      <textarea
-        id="conversation-composer"
-        aria-label="Message"
-        class="block min-h-[7rem] w-full max-w-full rounded-md border border-edge bg-surface px-3 py-2 text-sm text-primary outline-none transition focus:border-accent"
-        placeholder="ask anything"
-        value={composerText}
-        oninput={handleComposerInput}
-        onkeydown={handleComposerKeydown}
-        disabled={isSending}
-      ></textarea>
-
-      <div class="mt-3 flex items-center justify-between gap-3">
-        <div class="text-[11px] text-muted">
-          {conversation?.running ? "Wait for the current turn to finish" : "Enter to send, Shift+Enter for newline"}
-        </div>
+      <div class="relative">
+        <textarea
+          id="conversation-composer"
+          aria-label="Message"
+          class="block min-h-[5.25rem] w-full max-w-full resize-none rounded-2xl border border-edge bg-surface py-3 pl-4 pr-14 text-sm text-primary outline-none transition placeholder:text-muted/70 focus:border-accent"
+          placeholder="ask anything"
+          value={composerText}
+          oninput={handleComposerInput}
+          onkeydown={handleComposerKeydown}
+          disabled={isSending}
+        ></textarea>
 
         {#if showInterrupt && !conversationError}
-          {@render interruptButton()}
+          <button
+            type="button"
+            aria-label="Interrupt"
+            class="absolute right-3 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-md text-muted transition hover:bg-hover hover:text-primary"
+            onclick={onInterrupt}
+          >
+            {@render stopIcon()}
+          </button>
         {:else}
           <button
             type="button"
-            class="rounded-md border border-accent bg-accent px-4 py-2 text-sm font-medium text-white transition disabled:cursor-not-allowed disabled:border-edge disabled:bg-edge disabled:text-muted"
+            aria-label="Send"
+            class="absolute right-3 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-md text-muted transition enabled:hover:bg-hover enabled:hover:text-primary disabled:cursor-not-allowed disabled:opacity-45"
             onclick={onSend}
             disabled={!canSend}
           >
-            {isSending ? "Sending..." : "Send"}
+            {@render sendIcon()}
           </button>
         {/if}
       </div>

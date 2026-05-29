@@ -261,7 +261,11 @@ function webSearchDisplayText(item: CodexAppServerWebSearchItem): string {
 }
 
 function isActiveTurnStatus(status: CodexAppServerTurn["status"]): boolean {
-  return status === "inProgress";
+  return status === "inProgress"
+    || status === "active"
+    || status === "running"
+    || status === "pending"
+    || status === "queued";
 }
 
 function findActiveTurn(thread: CodexAppServerThread): CodexAppServerTurn | null {

@@ -150,7 +150,7 @@ export interface CodexAppServerGenericItem {
   id: string;
 }
 
-export type CodexAppServerTurnStatus = "completed" | "interrupted" | "failed" | "inProgress";
+export type CodexAppServerTurnStatus = string;
 
 export type CodexAppServerThreadItem =
   | CodexAppServerUserMessageItem
@@ -431,7 +431,7 @@ const CodexAppServerThreadItemSchema: z.ZodType<CodexAppServerThreadItem, z.ZodT
 const CodexAppServerTurnSchema: z.ZodType<CodexAppServerTurn, z.ZodTypeDef, unknown> = z.object({
   id: z.string(),
   items: z.array(CodexAppServerThreadItemSchema),
-  status: z.enum(["completed", "interrupted", "failed", "inProgress"]),
+  status: z.string(),
   error: UnknownValueSchema,
   startedAt: z.number().nullable(),
   completedAt: z.number().nullable(),
@@ -548,6 +548,11 @@ export function readCodexAppServerStdoutLines(input: {
 
 export function parseCodexAppServerThreadItem(raw: unknown): CodexAppServerThreadItem | null {
   const parsed = CodexAppServerThreadItemSchema.safeParse(raw);
+  return parsed.success ? parsed.data : null;
+}
+
+export function parseCodexAppServerThreadReadResponse(raw: unknown): CodexAppServerThreadReadResponse | null {
+  const parsed = CodexAppServerThreadReadResponseSchema.safeParse(raw);
   return parsed.success ? parsed.data : null;
 }
 

@@ -60,6 +60,7 @@ function readNotificationItem(notification: CodexAppServerNotification): CodexAp
 }
 
 function orderSpanForItem(item: CodexAppServerThreadItem): number | null {
+  // Reserve the maximum number of messages the snapshot builder can emit for this item.
   switch (item.type) {
     case "userMessage":
     case "agentMessage":

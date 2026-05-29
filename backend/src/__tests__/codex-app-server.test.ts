@@ -1,5 +1,9 @@
 import { describe, expect, it } from "bun:test";
-import { parseCodexAppServerThreadItem, readCodexAppServerStdoutLines } from "../adapters/codex-app-server";
+import {
+  parseCodexAppServerThreadItem,
+  parseCodexAppServerThreadReadResponse,
+  readCodexAppServerStdoutLines,
+} from "../adapters/codex-app-server";
 
 describe("codex app-server adapter", () => {
   it("decodes split UTF-8 stdout chunks before splitting JSON-RPC lines", () => {
@@ -104,5 +108,39 @@ describe("codex app-server adapter", () => {
       type: "newFutureItem",
       id: "future-1",
     });
+  });
+
+  it("keeps parsing thread reads with future turn statuses", () => {
+    const parsed = parseCodexAppServerThreadReadResponse({
+      thread: {
+        id: "thread-1",
+        forkedFromId: null,
+        preview: "Run checks",
+        ephemeral: false,
+        modelProvider: "openai",
+        createdAt: 1,
+        updatedAt: 2,
+        status: { type: "active" },
+        path: "/tmp/worktree",
+        cwd: "/tmp/worktree",
+        cliVersion: "1.0.0",
+        source: "cli",
+        agentNickname: null,
+        agentRole: null,
+        gitInfo: null,
+        name: null,
+        turns: [{
+          id: "turn-1",
+          status: "running",
+          error: null,
+          startedAt: 1,
+          completedAt: null,
+          durationMs: null,
+          items: [],
+        }],
+      },
+    });
+
+    expect(parsed?.thread.turns[0]?.status).toBe("running");
   });
 });

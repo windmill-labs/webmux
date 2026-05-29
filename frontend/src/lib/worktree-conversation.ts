@@ -78,13 +78,12 @@ export function applyConversationMessageDelta(
       })
     : [...conversation.messages, newMessage];
 
-  const nextConversation = {
+  return {
     ...conversation,
     running: true,
     activeTurnId: event.turnId,
     messages: orderConversationMessages(messages),
   };
-  return nextConversation;
 }
 
 export function applyConversationMessageUpsert(
@@ -104,13 +103,12 @@ export function applyConversationMessageUpsert(
     ? [...conversation.messages, event.message]
     : replaceAt(conversation.messages, existingIndex, event.message);
 
-  const nextConversation = {
+  return {
     ...conversation,
     running: conversation.running || event.message.status === "inProgress",
     activeTurnId: event.message.status === "inProgress" ? event.message.turnId : conversation.activeTurnId,
     messages: orderConversationMessages(messages),
   };
-  return nextConversation;
 }
 
 export function applyConversationStatus(
@@ -159,13 +157,12 @@ export function mergeConversationSnapshot(
     preservedOptimisticTurnId = currentMessage.turnId;
   }
 
-  const nextConversation = {
+  return {
     ...orderedIncoming,
     running: orderedIncoming.running || preservedOptimisticTurnId !== null,
     activeTurnId: orderedIncoming.activeTurnId ?? preservedOptimisticTurnId,
     messages: orderConversationMessages(messages),
   };
-  return nextConversation;
 }
 
 export function markConversationTurnStarted(
@@ -179,19 +176,18 @@ export function markConversationTurnStarted(
     ? conversation.messages
     : [...conversation.messages, buildOptimisticUserMessage(turnId, text, nextMessageOrder(conversation))];
 
-  const nextConversation = {
+  return {
     ...conversation,
     running: true,
     activeTurnId: turnId,
     messages: orderConversationMessages(nextMessages),
   };
-  return nextConversation;
 }
 
 export function buildConversationProgressSignature(conversation: AgentsUiConversationState | null): string | null {
   if (!conversation) return null;
 
-  const messages = orderConversationMessages(conversation.messages);
+  const messages = conversation.messages;
   const lastMessage = messages[messages.length - 1] ?? null;
   return JSON.stringify({
     conversationId: conversation.conversationId,

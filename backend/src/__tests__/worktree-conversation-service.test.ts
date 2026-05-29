@@ -1038,6 +1038,7 @@ describe("WorktreeConversationService", () => {
         conversationId: "thread-existing",
         turnId: "turn-created",
         running: true,
+        streaming: true,
       },
     });
     expect(appServer.calls).toEqual([
@@ -1138,6 +1139,7 @@ describe("WorktreeConversationService", () => {
         conversationId: "thread-active",
         turnId: "turn-active",
         interrupted: true,
+        streaming: true,
       },
     });
     expect(appServer.calls.at(-1)).toBe("turnInterrupt:thread-active:turn-active");

@@ -120,6 +120,7 @@ describe("MobileChatSurface", () => {
       conversationId: "session-1",
       turnId: "turn-1",
       running: true,
+      streaming: true,
     } satisfies AgentsUiSendMessageResponse);
     vi.mocked(fetchWorktreeConversationHistory).mockResolvedValue(createConversationResponse("claudeCode"));
 
@@ -152,12 +153,70 @@ describe("MobileChatSurface", () => {
     expect(fetchWorktreeConversationHistory).not.toHaveBeenCalled();
   });
 
+  it("polls Claude history after terminal-routed sends", async () => {
+    vi.mocked(attachWorktreeConversation).mockResolvedValue(createConversationResponse("claudeCode"));
+    vi.mocked(sendWorktreeConversationMessage).mockResolvedValue({
+      conversationId: "session-1",
+      turnId: "tmux:turn-1",
+      running: true,
+      streaming: false,
+    } satisfies AgentsUiSendMessageResponse);
+    vi.mocked(fetchWorktreeConversationHistory).mockResolvedValue(createConversationResponse("claudeCode", {
+      messages: [
+        {
+          id: "user-1",
+          turnId: "turn-1",
+          order: 0,
+          role: "user",
+          kind: "text",
+          text: "Ship it",
+          status: "completed",
+          createdAt: "2026-05-28T10:00:00.000Z",
+        },
+        {
+          id: "assistant-1",
+          turnId: "turn-1",
+          order: 1,
+          role: "assistant",
+          kind: "text",
+          text: "Done from terminal",
+          status: "completed",
+          createdAt: "2026-05-28T10:00:01.000Z",
+        },
+      ],
+    }));
+
+    render(MobileChatSurface, {
+      props: {
+        worktree: createWorktree(),
+      },
+    });
+
+    await screen.findByText("No messages yet. Send the first prompt to start this chat.");
+
+    await fireEvent.input(screen.getByLabelText("Message"), {
+      target: { value: "Ship it" },
+    });
+    await fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() => {
+      expect(sendWorktreeConversationMessage).toHaveBeenCalledWith("feature/mobile-chat", { text: "Ship it" });
+    });
+    await vi.advanceTimersByTimeAsync(1000);
+
+    await waitFor(() => {
+      expect(fetchWorktreeConversationHistory).toHaveBeenCalledWith("feature/mobile-chat");
+    });
+    await screen.findByText("Done from terminal");
+  });
+
   it("does not poll Codex history after sending when the websocket stream is active", async () => {
     vi.mocked(attachWorktreeConversation).mockResolvedValue(createConversationResponse("codexAppServer"));
     vi.mocked(sendWorktreeConversationMessage).mockResolvedValue({
       conversationId: "thread-1",
       turnId: "turn-1",
       running: true,
+      streaming: true,
     } satisfies AgentsUiSendMessageResponse);
     vi.mocked(fetchWorktreeConversationHistory).mockResolvedValue(createConversationResponse("codexAppServer"));
 
@@ -227,6 +286,7 @@ describe("MobileChatSurface", () => {
       conversationId: "thread-1",
       turnId: "turn-1",
       running: true,
+      streaming: true,
     } satisfies AgentsUiSendMessageResponse);
 
     render(MobileChatSurface, {

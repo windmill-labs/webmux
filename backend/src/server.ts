@@ -40,7 +40,7 @@ import {
   type TerminalAttachTarget,
 } from "./adapters/terminal";
 import { loadControlToken } from "./adapters/control-token";
-import { buildRuntimeEnvMap, readWorktreeMeta, writeWorktreeMeta } from "./adapters/fs";
+import { readWorktreeMeta, writeWorktreeMeta } from "./adapters/fs";
 import { ClaudeCliClient } from "./adapters/claude-cli";
 import { CodexAppServerClient, type CodexAppServerNotification } from "./adapters/codex-app-server";
 import {
@@ -96,6 +96,10 @@ import {
   ClaudeConversationService,
   isPendingClaudeConversationId,
 } from "./services/claude-conversation-service";
+import {
+  buildClaudeStreamingLaunchContext,
+  type ClaudeStreamingLaunchContext,
+} from "./services/claude-streaming-launch-service";
 import { ClaudeConversationStreamService } from "./services/claude-conversation-stream-service";
 import {
   WorktreeConversationService,
@@ -680,12 +684,6 @@ async function setAgentTerminalStale(worktree: WorktreeSnapshot, stale: boolean)
   }
 }
 
-interface ClaudeStreamingLaunchContext {
-  env: Record<string, string>;
-  permissionMode: "bypassPermissions" | null;
-  systemPrompt: string | null;
-}
-
 async function resolveClaudeStreamingLaunchContext(
   worktree: WorktreeSnapshot,
 ): Promise<{
@@ -712,20 +710,13 @@ async function resolveClaudeStreamingLaunchContext(
     };
   }
 
-  if (meta.runtime !== "host" || profile.runtime !== "host") {
-    return {
-      ok: true,
-      data: null,
-    };
-  }
-
   return {
     ok: true,
-    data: {
-      env: buildRuntimeEnvMap(meta),
-      permissionMode: profile.yolo === true ? "bypassPermissions" : null,
-      systemPrompt: profile.systemPrompt ?? null,
-    },
+    data: await buildClaudeStreamingLaunchContext({
+      meta,
+      profile,
+      worktreePath: worktree.path,
+    }),
   };
 }
 
@@ -775,6 +766,7 @@ async function sendClaudeStreamingMessage(input: {
     conversationId: sessionId,
     turnId,
     running: true,
+    streaming: true,
   });
 }
 
@@ -874,6 +866,7 @@ async function apiSendAgentsWorktreeMessage(branch: string, req: Request): Promi
     conversationId: conversationResult.data.conversation.conversationId,
     turnId: `tmux:${crypto.randomUUID()}`,
     running: true,
+    streaming: false,
   });
 }
 
@@ -911,6 +904,7 @@ async function apiInterruptAgentsWorktree(branch: string): Promise<Response> {
       conversationId: conversationResult.data.conversation.conversationId,
       turnId: activeClaudeInterrupt.turnId,
       interrupted: true,
+      streaming: true,
     });
   }
 
@@ -925,6 +919,7 @@ async function apiInterruptAgentsWorktree(branch: string): Promise<Response> {
     conversationId: conversationResult.data.conversation.conversationId,
     turnId: conversationResult.data.conversation.activeTurnId ?? `tmux:${crypto.randomUUID()}`,
     interrupted: true,
+    streaming: false,
   });
 }
 

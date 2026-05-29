@@ -223,8 +223,10 @@
         };
       }
       conversation = markConversationTurnStarted(conversation, response.turnId, text);
-      syncConversationStream();
-      if (!supportsStreaming(conversation)) {
+      if (response.streaming) {
+        syncConversationStream();
+      } else {
+        closeConversationStream();
         startRefreshPolling(baselineConversation);
       }
       onConversationMessageSent();
@@ -239,8 +241,11 @@
     const baselineConversation = conversation;
     conversationError = null;
     try {
-      await interruptWorktreeConversation(worktree.branch);
-      if (!supportsStreaming(conversation)) {
+      const response = await interruptWorktreeConversation(worktree.branch);
+      if (response.streaming) {
+        syncConversationStream();
+      } else {
+        closeConversationStream();
         startRefreshPolling(baselineConversation);
       }
     } catch (error) {

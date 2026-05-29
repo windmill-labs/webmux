@@ -146,6 +146,50 @@ describe("worktree conversation helpers", () => {
     });
   });
 
+  it("moves newly visible assistant text after intervening tool calls", () => {
+    const assistantStarted = applyConversationMessageUpsert(makeConversation(), {
+      type: "messageUpsert",
+      revision: 1,
+      conversationId: "thread-1",
+      message: {
+        id: "assistant-2",
+        turnId: "turn-2",
+        role: "assistant",
+        kind: "text",
+        text: "",
+        status: "inProgress",
+        createdAt: "2026-05-28T10:00:00.000Z",
+      },
+    });
+    const toolStarted = applyConversationMessageUpsert(assistantStarted, {
+      type: "messageUpsert",
+      revision: 2,
+      conversationId: "thread-1",
+      message: {
+        id: "call-1",
+        turnId: "turn-2",
+        role: "assistant",
+        kind: "toolUse",
+        toolName: "shell",
+        toolCallId: "call-1",
+        text: "ls",
+        status: "completed",
+        createdAt: "2026-05-28T10:00:01.000Z",
+      },
+    });
+
+    const updated = applyConversationMessageDelta(toolStarted, {
+      type: "messageDelta",
+      revision: 3,
+      conversationId: "thread-1",
+      turnId: "turn-2",
+      itemId: "assistant-2",
+      delta: "Done.",
+    });
+
+    expect(updated?.messages.map((message) => message.id)).toEqual(["user-1", "call-1", "assistant-2"]);
+  });
+
   it("replaces optimistic user messages with streamed server user messages", () => {
     const current = markConversationTurnStarted(makeConversation(), "turn-2", "Ship it");
 

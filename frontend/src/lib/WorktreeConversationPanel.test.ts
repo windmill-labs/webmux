@@ -179,14 +179,15 @@ describe("WorktreeConversationPanel", () => {
     expect(screen.getByText("Thinking")).toBeInTheDocument();
     expect(screen.getByText("I will inspect the directory.")).toBeInTheDocument();
     expect(screen.getByText("Completed shell")).toBeInTheDocument();
-    expect(screen.getByText("ls")).toBeInTheDocument();
+    expect(screen.getAllByText("ls")).toHaveLength(2);
     expect(screen.getByText("Output")).toBeInTheDocument();
     expect(screen.getByText("README.md")).toBeInTheDocument();
     expect(screen.queryByText("/repo/__worktrees/feature/mobile-chat")).not.toBeInTheDocument();
 
-    const toolBlock = screen.getByText("Completed shell").closest("div")?.parentElement;
+    const toolBlock = screen.getByText("Completed shell").closest("details");
     expect(toolBlock).toHaveTextContent("ls");
     expect(toolBlock).toHaveTextContent("README.md");
+    expect(toolBlock?.querySelector("details")).toBeNull();
   });
 
   it("shows a processing indicator before visible progress arrives", () => {

@@ -43,19 +43,19 @@ export function applyConversationMessageDelta(
     };
   }
 
+  const existingMessage = conversation.messages[existingIndex];
+  if (!existingMessage) return conversation;
+  const nextMessage: AgentsUiConversationMessage = {
+    ...existingMessage,
+    text: `${existingMessage.text}${event.delta}`,
+    status: "inProgress",
+  };
+
   return {
     ...conversation,
     running: true,
     activeTurnId: event.turnId,
-    messages: conversation.messages.map((message, index) =>
-      index === existingIndex
-        ? {
-            ...message,
-            text: `${message.text}${event.delta}`,
-            status: "inProgress",
-          }
-        : message
-    ),
+    messages: replaceConversationMessage(conversation.messages, existingIndex, nextMessage),
   };
 }
 
@@ -80,6 +80,38 @@ function mergeConversationUpsertMessage(
 
 function messageKind(message: AgentsUiConversationMessage): NonNullable<AgentsUiConversationMessage["kind"]> {
   return message.kind ?? "text";
+}
+
+function isAssistantTextMessage(message: AgentsUiConversationMessage): boolean {
+  const kind = messageKind(message);
+  return message.role === "assistant" && (kind === "text" || kind === "thinking");
+}
+
+function shouldMoveNewlyVisibleAssistantMessage(
+  existing: AgentsUiConversationMessage,
+  incoming: AgentsUiConversationMessage,
+): boolean {
+  return isAssistantTextMessage(existing)
+    && isAssistantTextMessage(incoming)
+    && existing.text.trim().length === 0
+    && incoming.text.trim().length > 0;
+}
+
+function replaceConversationMessage(
+  messages: AgentsUiConversationMessage[],
+  index: number,
+  nextMessage: AgentsUiConversationMessage,
+): AgentsUiConversationMessage[] {
+  const existing = messages[index];
+  if (!existing) return messages;
+  if (shouldMoveNewlyVisibleAssistantMessage(existing, nextMessage)) {
+    return [
+      ...messages.slice(0, index),
+      ...messages.slice(index + 1),
+      nextMessage,
+    ];
+  }
+  return messages.map((message, messageIndex) => messageIndex === index ? nextMessage : message);
 }
 
 function normalizedMessageText(message: AgentsUiConversationMessage): string {
@@ -133,10 +165,13 @@ export function applyConversationMessageUpsert(
   const existingIndex = conversation.messages.findIndex((message) =>
     isSameLogicalConversationMessage(message, event.message)
   );
-  const messages = existingIndex === -1
+  const existingMessage = existingIndex === -1 ? null : conversation.messages[existingIndex] ?? null;
+  const messages = existingIndex === -1 || !existingMessage
     ? [...conversation.messages, event.message]
-    : conversation.messages.map((message, index) =>
-        index === existingIndex ? mergeConversationUpsertMessage(message, event.message) : message
+    : replaceConversationMessage(
+        conversation.messages,
+        existingIndex,
+        mergeConversationUpsertMessage(existingMessage, event.message),
       );
 
   return {

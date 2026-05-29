@@ -98,6 +98,10 @@
     return `${(durationMs / 1000).toFixed(1)}s`;
   }
 
+  function showToolInputFade(text: string): boolean {
+    return text.split("\n").length > 2 || text.length > 160;
+  }
+
   function messageKind(message: AgentsUiConversationMessage): NonNullable<AgentsUiConversationMessage["kind"]> {
     return message.kind ?? "text";
   }
@@ -279,36 +283,45 @@
             {:else if item.type === "tool"}
               {@const message = item.tool}
               {@const result = item.result}
-              <div class={`self-start max-w-[94%] min-w-0 rounded-md border px-3 py-2 text-xs ${
-                message.status === "failed" || result?.status === "failed"
-                  ? "border-danger/40 bg-danger/10 text-primary"
-                  : "border-edge bg-topbar/70 text-primary"
-              }`}>
-                <div class="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] uppercase tracking-[0.12em] text-muted">
-                  <span>{toolStatusLabel(message)} {message.toolName ?? "tool"}</span>
-                  {#if exitCodeLabel(message)}
-                    <span>{exitCodeLabel(message)}</span>
+              <details
+                class={`group self-start max-w-[94%] min-w-0 rounded-md border text-xs ${
+                  message.status === "failed" || result?.status === "failed"
+                    ? "border-danger/30 bg-danger/10 text-primary"
+                    : "border-edge/70 bg-topbar/40 text-primary"
+                }`}
+                open={message.status === "failed" || result?.status === "failed"}
+              >
+                <summary class="cursor-pointer px-3 py-2 text-muted">
+                  <div class="inline-flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] uppercase tracking-[0.12em]">
+                    <span>{toolStatusLabel(message)} {message.toolName ?? "tool"}</span>
+                    {#if exitCodeLabel(message)}
+                      <span>{exitCodeLabel(message)}</span>
+                    {/if}
+                    {#if formatDuration(message.durationMs)}
+                      <span>{formatDuration(message.durationMs)}</span>
+                    {/if}
+                  </div>
+                  <div class="group-open:hidden relative mt-1 max-h-[2.05rem] overflow-hidden">
+                    <pre class="whitespace-pre-wrap break-words font-mono text-[11px] leading-[1.35] text-primary/75">{message.text}</pre>
+                    {#if showToolInputFade(message.text)}
+                      <div class="pointer-events-none absolute inset-x-0 bottom-0 h-5 bg-gradient-to-b from-transparent to-topbar"></div>
+                    {/if}
+                  </div>
+                </summary>
+
+                <div class="border-t border-edge/60 px-3 py-2">
+                  <pre class="whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-primary">{message.text}</pre>
+                  {#if message.status === "inProgress"}
+                    <div class="mt-2 text-[10px] uppercase tracking-[0.12em] text-muted">running</div>
                   {/if}
-                  {#if formatDuration(message.durationMs)}
-                    <span>{formatDuration(message.durationMs)}</span>
+                  {#if result}
+                    <div class="mt-3 border-t border-edge/60 pt-2">
+                      <div class="mb-1 text-[10px] uppercase tracking-[0.12em] text-muted">Output</div>
+                      <pre class="max-h-[18rem] overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-primary">{result.text}</pre>
+                    </div>
                   {/if}
                 </div>
-                <div class="whitespace-pre-wrap break-words font-mono">{message.text}</div>
-                {#if message.status === "inProgress"}
-                  <div class="mt-2 text-[10px] uppercase tracking-[0.12em] text-muted">running</div>
-                {/if}
-                {#if result}
-                  <details
-                    class="mt-2 rounded-md border border-edge/80 bg-surface/60 px-2 py-1.5 text-primary"
-                    open={result.status === "failed"}
-                  >
-                    <summary class="cursor-pointer text-[10px] uppercase tracking-[0.12em] text-muted">
-                      Output
-                    </summary>
-                    <pre class="mt-2 max-h-[18rem] overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed">{result.text}</pre>
-                  </details>
-                {/if}
-              </div>
+              </details>
             {:else}
               {@const message = item.message}
               <div

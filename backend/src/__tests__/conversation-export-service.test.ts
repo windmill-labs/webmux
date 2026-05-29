@@ -21,9 +21,9 @@ function makeConversation(): AgentsUiConversationState {
     running: false,
     activeTurnId: null,
     messages: [
-      { id: "m1", turnId: "t1", role: "user", text: "Do the thing", status: "completed", createdAt: "2026-05-11T10:00:00.000Z" },
-      { id: "m2", turnId: "t1", role: "assistant", text: "Did the thing", status: "completed", createdAt: "2026-05-11T10:00:30.000Z" },
-      { id: "m3", turnId: "t2", role: "user", text: "Now the other thing", status: "completed", createdAt: "2026-05-11T10:01:00.000Z" },
+      { id: "m1", turnId: "t1", order: 0, role: "user", kind: "text", text: "Do the thing", status: "completed", createdAt: "2026-05-11T10:00:00.000Z" },
+      { id: "m2", turnId: "t1", order: 1, role: "assistant", kind: "text", text: "Did the thing", status: "completed", createdAt: "2026-05-11T10:00:30.000Z" },
+      { id: "m3", turnId: "t2", order: 2, role: "user", kind: "text", text: "Now the other thing", status: "completed", createdAt: "2026-05-11T10:01:00.000Z" },
     ],
   };
 }
@@ -80,7 +80,7 @@ describe("renderConversationAsMarkdown", () => {
       running: false,
       activeTurnId: null,
       messages: [
-        { id: "m1", turnId: "t1", role: "assistant", text: "Use ```bash here", status: "completed", createdAt: null },
+        { id: "m1", turnId: "t1", order: 0, role: "assistant", kind: "text", text: "Use ```bash here", status: "completed", createdAt: null },
       ],
     });
     expect(md).not.toContain("```bash");

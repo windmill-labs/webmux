@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyConversationMessageDelta,
   applyConversationMessageUpsert,
+  applyConversationStatus,
   buildConversationProgressSignature,
   markConversationTurnStarted,
   mergeConversationSnapshot,
@@ -41,6 +42,26 @@ describe("worktree conversation helpers", () => {
       text: "Ship it",
       status: "completed",
       createdAt: expect.any(String),
+    });
+  });
+
+  it("applies streamed conversation status without replacing messages", () => {
+    const conversation = {
+      ...makeConversation(),
+      running: true,
+      activeTurnId: "turn-1",
+    };
+
+    expect(applyConversationStatus(conversation, {
+      type: "conversationStatus",
+      revision: 4,
+      conversationId: "thread-1",
+      running: false,
+      activeTurnId: null,
+    })).toEqual({
+      ...conversation,
+      running: false,
+      activeTurnId: null,
     });
   });
 

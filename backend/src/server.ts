@@ -98,7 +98,11 @@ import {
   resolveCodexAppServerLaunchContext,
 } from "./services/worktree-conversation-service";
 import { parseRuntimeEvent } from "./domain/events";
-import type { AgentsUiConversationEvent, AgentsUiWorktreeConversationResponse } from "./domain/agents-ui";
+import type {
+  AgentsUiConversationEvent,
+  AgentsUiConversationMessage,
+  AgentsUiWorktreeConversationResponse,
+} from "./domain/agents-ui";
 import type { OneshotMeta, ProjectSnapshot, WorktreeSnapshot } from "./domain/model";
 import { deriveInstancePrefix, isValidBranchName, isValidInstancePrefix, isValidWorktreeName } from "./domain/policies";
 import { createWebmuxRuntime } from "./runtime";
@@ -790,7 +794,7 @@ async function apiRefreshWorktreeAgentTerminal(branch: string): Promise<Response
   return jsonResponse({ ok: true });
 }
 
-async function loadAgentsConversationSnapshot(
+async function loadAgentsConversationInitialState(
   branch: string,
 ): Promise<{
   ok: true;
@@ -840,6 +844,10 @@ async function readErrorMessage(response: Response): Promise<string> {
   return text.length > 0 ? text : `HTTP ${response.status}`;
 }
 
+function nextConversationMessageOrder(messages: AgentsUiConversationMessage[]): number {
+  return messages.reduce((order, message) => Math.max(order, message.order + 1), 0);
+}
+
 async function openAgentsSocket(
   ws: { readyState: number; send: (data: string) => void; close: (code?: number, reason?: string) => void },
   data: AgentsWsData,
@@ -865,41 +873,38 @@ async function openAgentsSocket(
     unsubscribeNotifications();
   };
 
-  const snapshot = await loadAgentsConversationSnapshot(data.branch);
+  const initialState = await loadAgentsConversationInitialState(data.branch);
   if (socketClosed) return;
-  if (!snapshot.ok) {
+  if (!initialState.ok) {
     unsubscribeNotifications();
-    sendAgentsWs(ws, { type: "error", message: snapshot.message });
-    ws.close(1011, snapshot.message.slice(0, 123));
+    sendAgentsWs(ws, { type: "error", message: initialState.message });
+    ws.close(1011, initialState.message.slice(0, 123));
     return;
   }
 
   streamSession = new AgentsConversationStreamSession({
-    conversationId: snapshot.data.conversation.conversationId,
-    loadSnapshot: () => loadAgentsConversationSnapshot(data.branch),
+    conversationId: initialState.data.conversation.conversationId,
+    nextOrder: nextConversationMessageOrder(initialState.data.conversation.messages),
     send: (event) => sendAgentsWs(ws, event),
   });
   data.conversationId = streamSession.currentConversationId();
-  if (snapshot.data.conversation.provider !== "codexAppServer") {
+  if (initialState.data.conversation.provider !== "codexAppServer") {
     unsubscribeNotifications();
     data.unsubscribe = null;
     sendAgentsWs(ws, {
-      type: "snapshot",
-      revision: 1,
-      data: snapshot.data,
+      type: "error",
+      message: "Conversation streaming is only available for Codex app-server conversations",
     });
+    ws.close(1008, "Conversation stream unsupported");
     return;
   }
 
-  streamSession.sendSnapshot(snapshot.data);
-  data.conversationId = streamSession.currentConversationId();
   bufferingNotifications = false;
 
   for (const notification of bufferedNotifications) {
     streamSession.handleNotification(notification);
     data.conversationId = streamSession.currentConversationId();
   }
-
 }
 
 async function apiRuntimeEvent(req: Request): Promise<Response> {

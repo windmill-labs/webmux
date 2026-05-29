@@ -8,7 +8,7 @@ export type {
   AgentsUiConversationMessageRole,
   AgentsUiConversationMessageStatus,
   AgentsUiConversationMessageUpsertEvent,
-  AgentsUiConversationSnapshotEvent,
+  AgentsUiConversationStatusEvent,
   AgentsUiConversationState,
   AgentsUiInterruptResponse,
   AgentsUiSendMessageResponse,

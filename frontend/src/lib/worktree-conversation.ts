@@ -2,6 +2,7 @@ import type {
   AgentsUiConversationMessage,
   AgentsUiConversationMessageDeltaEvent,
   AgentsUiConversationMessageUpsertEvent,
+  AgentsUiConversationStatusEvent,
   AgentsUiConversationState,
 } from "./types";
 
@@ -59,32 +60,31 @@ export function applyConversationMessageDelta(
 
   const existingIndex = conversation.messages.findIndex((message) => message.id === event.itemId);
   const existingMessage = existingIndex === -1 ? null : conversation.messages[existingIndex] ?? null;
+  const newMessage: AgentsUiConversationMessage = {
+    id: event.itemId,
+    turnId: event.turnId,
+    order: event.order,
+    role: "assistant",
+    kind: "text",
+    text: event.delta,
+    status: "inProgress",
+    createdAt: null,
+  };
   const messages = existingMessage
     ? replaceAt(conversation.messages, existingIndex, {
         ...existingMessage,
         text: `${existingMessage.text}${event.delta}`,
         status: "inProgress",
       })
-    : [
-        ...conversation.messages,
-        {
-          id: event.itemId,
-          turnId: event.turnId,
-          order: event.order,
-          role: "assistant",
-          kind: "text",
-          text: event.delta,
-          status: "inProgress",
-          createdAt: null,
-        },
-      ];
+    : [...conversation.messages, newMessage];
 
-  return {
+  const nextConversation = {
     ...conversation,
     running: true,
     activeTurnId: event.turnId,
     messages: orderConversationMessages(messages),
   };
+  return nextConversation;
 }
 
 export function applyConversationMessageUpsert(
@@ -104,11 +104,25 @@ export function applyConversationMessageUpsert(
     ? [...conversation.messages, event.message]
     : replaceAt(conversation.messages, existingIndex, event.message);
 
-  return {
+  const nextConversation = {
     ...conversation,
     running: conversation.running || event.message.status === "inProgress",
     activeTurnId: event.message.status === "inProgress" ? event.message.turnId : conversation.activeTurnId,
     messages: orderConversationMessages(messages),
+  };
+  return nextConversation;
+}
+
+export function applyConversationStatus(
+  conversation: AgentsUiConversationState | null,
+  event: AgentsUiConversationStatusEvent,
+): AgentsUiConversationState | null {
+  if (!conversation || conversation.conversationId !== event.conversationId) return conversation;
+
+  return {
+    ...conversation,
+    running: event.running,
+    activeTurnId: event.activeTurnId,
   };
 }
 
@@ -145,12 +159,13 @@ export function mergeConversationSnapshot(
     preservedOptimisticTurnId = currentMessage.turnId;
   }
 
-  return {
+  const nextConversation = {
     ...orderedIncoming,
     running: orderedIncoming.running || preservedOptimisticTurnId !== null,
     activeTurnId: orderedIncoming.activeTurnId ?? preservedOptimisticTurnId,
     messages: orderConversationMessages(messages),
   };
+  return nextConversation;
 }
 
 export function markConversationTurnStarted(
@@ -164,12 +179,13 @@ export function markConversationTurnStarted(
     ? conversation.messages
     : [...conversation.messages, buildOptimisticUserMessage(turnId, text, nextMessageOrder(conversation))];
 
-  return {
+  const nextConversation = {
     ...conversation,
     running: true,
     activeTurnId: turnId,
     messages: orderConversationMessages(nextMessages),
   };
+  return nextConversation;
 }
 
 export function buildConversationProgressSignature(conversation: AgentsUiConversationState | null): string | null {

@@ -287,22 +287,23 @@ describe("MobileChatSurface", () => {
     callbacks?.onEvent(deltaEvent);
     await screen.findByText("Streaming status update");
 
-    const snapshotEvent: AgentsUiConversationEvent = {
-      type: "snapshot",
+    const staleDeltaEvent: AgentsUiConversationEvent = {
+      type: "messageDelta",
       revision: 1,
-      data: createConversationResponse("codexAppServer", {
-        running: false,
-        activeTurnId: null,
-        messages: [],
-      }),
+      conversationId: "thread-1",
+      turnId: "turn-1",
+      itemId: "assistant-1",
+      order: 0,
+      delta: " stale",
     };
-    callbacks?.onEvent(snapshotEvent);
+    callbacks?.onEvent(staleDeltaEvent);
 
     await screen.findByText("Streaming status update");
-    expect(screen.queryByText("typing")).not.toBeInTheDocument();
+    await tick();
+    expect(document.body.textContent).not.toContain("stale");
   });
 
-  it("uses explicit snapshot order when a Codex completion snapshot array arrives reordered", async () => {
+  it("renders Codex stream events in their explicit order", async () => {
     vi.mocked(attachWorktreeConversation).mockResolvedValue(createConversationResponse("codexAppServer"));
 
     render(MobileChatSurface, {
@@ -358,56 +359,13 @@ describe("MobileChatSurface", () => {
     await screen.findByText("First assistant");
     await screen.findByText("Second assistant");
 
-    callbacks?.onEvent({
-      type: "snapshot",
-      revision: 4,
-      data: createConversationResponse("codexAppServer", {
-        running: false,
-        activeTurnId: null,
-        messages: [
-          {
-            id: "call-1",
-            turnId: "turn-1",
-            order: 1,
-            role: "assistant",
-            kind: "toolUse",
-            toolName: "shell",
-            toolCallId: "call-1",
-            text: "pwd",
-            status: "completed",
-            createdAt: "2026-05-28T10:00:01.000Z",
-          },
-          {
-            id: "assistant-1",
-            turnId: "turn-1",
-            order: 0,
-            role: "assistant",
-            kind: "text",
-            text: "First assistant finalized",
-            status: "completed",
-            createdAt: "2026-05-28T10:00:00.000Z",
-          },
-          {
-            id: "assistant-2",
-            turnId: "turn-1",
-            order: 2,
-            role: "assistant",
-            kind: "text",
-            text: "Second assistant finalized",
-            status: "completed",
-            createdAt: "2026-05-28T10:00:02.000Z",
-          },
-        ],
-      }),
-    });
-
     await tick();
 
-    expect(screen.getByText("First assistant finalized")).toBeInTheDocument();
-    expect(screen.getByText("Second assistant finalized")).toBeInTheDocument();
+    expect(screen.getByText("First assistant")).toBeInTheDocument();
+    expect(screen.getByText("Second assistant")).toBeInTheDocument();
     const text = document.body.textContent ?? "";
-    expect(text.indexOf("First assistant finalized")).toBeLessThan(text.indexOf("Completed shell"));
-    expect(text.indexOf("Completed shell")).toBeLessThan(text.indexOf("Second assistant finalized"));
+    expect(text.indexOf("First assistant")).toBeLessThan(text.indexOf("Completed shell"));
+    expect(text.indexOf("Completed shell")).toBeLessThan(text.indexOf("Second assistant"));
   });
 
   it("keeps polling beyond two minutes until a quiet conversation finally changes", async () => {

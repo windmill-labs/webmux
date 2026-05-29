@@ -10,6 +10,7 @@
   import {
     applyConversationMessageDelta,
     applyConversationMessageUpsert,
+    applyConversationStatus,
     buildConversationProgressSignature,
     markConversationTurnStarted,
     mergeConversationSnapshot,
@@ -74,12 +75,6 @@
     syncConversationStream();
   }
 
-  function applyConversationStreamSnapshot(response: AgentsUiWorktreeConversationResponse): void {
-    conversation = mergeConversationSnapshot(conversation, response.conversation);
-    conversationError = null;
-    syncConversationStream();
-  }
-
   function handleConversationStreamFailure(conversationId: string, message: string): void {
     if (!hasActiveConversationStream(conversationId) || !streamConnection) return;
     const currentConnection = streamConnection;
@@ -96,14 +91,14 @@
     }
 
     switch (event.type) {
-      case "snapshot":
-        applyConversationStreamSnapshot(event.data);
-        break;
       case "messageDelta":
         conversation = applyConversationMessageDelta(conversation, event);
         break;
       case "messageUpsert":
         conversation = applyConversationMessageUpsert(conversation, event);
+        break;
+      case "conversationStatus":
+        conversation = applyConversationStatus(conversation, event);
         break;
       case "error":
         conversationError = event.message;

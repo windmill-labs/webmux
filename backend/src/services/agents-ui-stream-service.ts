@@ -4,7 +4,9 @@ import {
   type CodexAppServerThreadItem,
 } from "../adapters/codex-app-server";
 import type {
+  AgentsUiConversationErrorEvent,
   AgentsUiConversationEvent,
+  AgentsUiConversationMessage,
   AgentsUiConversationMessageDeltaEvent,
   AgentsUiConversationMessageUpsertEvent,
   AgentsUiConversationStatusEvent,
@@ -14,7 +16,18 @@ import { buildCodexItemConversationMessages } from "./worktree-conversation-serv
 
 type AgentsUiConversationMessageDeltaPayload = Omit<AgentsUiConversationMessageDeltaEvent, "revision">;
 type AgentsUiConversationMessageUpsertPayload = Omit<AgentsUiConversationMessageUpsertEvent, "revision">;
-type AgentsUiConversationStatusPayload = Omit<AgentsUiConversationStatusEvent, "revision">;
+export type AgentsUiConversationStatusPayload = Omit<AgentsUiConversationStatusEvent, "revision">;
+export type AgentsUiConversationMessageDraft = Omit<AgentsUiConversationMessage, "order">;
+export type AgentsUiConversationMessageDeltaLivePayload = Omit<
+  AgentsUiConversationMessageDeltaEvent,
+  "revision" | "order"
+>;
+export type AgentsUiConversationMessageUpsertLivePayload = Omit<
+  AgentsUiConversationMessageUpsertEvent,
+  "revision" | "message"
+> & {
+  message: AgentsUiConversationMessageDraft;
+};
 
 function readNotificationParams(raw: unknown): Record<string, unknown> | null {
   return isRecord(raw) ? raw : null;
@@ -222,32 +235,60 @@ export class AgentsConversationStreamSession {
 
     const statusEvent = buildAgentsUiConversationStatusEvent(notification);
     if (statusEvent) {
-      this.deps.send({
-        ...statusEvent,
-        revision: this.nextRevision(),
-      });
+      this.handleConversationStatus(statusEvent);
       return;
     }
 
     const deltaOrder = this.orderForDeltaNotification(notification);
     const deltaEvent = deltaOrder === null ? null : buildAgentsUiMessageDeltaEvent(notification, deltaOrder);
     if (deltaEvent) {
-      this.deps.send({
-        ...deltaEvent,
-        revision: this.nextRevision(),
-      });
+      this.sendMessageDelta(deltaEvent);
       return;
     }
 
     const upsertOrder = this.orderForUpsertNotification(notification);
     if (upsertOrder !== null) {
       for (const upsertEvent of buildAgentsUiMessageUpsertEvents(notification, upsertOrder)) {
-        this.deps.send({
-          ...upsertEvent,
-          revision: this.nextRevision(),
-        });
+        this.sendMessageUpsert(upsertEvent);
       }
     }
+  }
+
+  handleLiveMessageDelta(event: AgentsUiConversationMessageDeltaLivePayload): void {
+    if (this.closed || event.conversationId !== this.conversationId) return;
+    this.sendMessageDelta({
+      ...event,
+      order: this.reserveOrder(event.itemId, 1),
+    });
+  }
+
+  handleLiveMessageUpsert(
+    event: AgentsUiConversationMessageUpsertLivePayload,
+    orderKey = event.message.id,
+  ): void {
+    if (this.closed || event.conversationId !== this.conversationId) return;
+    const order = this.reserveOrder(orderKey, 1);
+    this.itemOrders.set(event.message.id, order);
+    this.sendMessageUpsert({
+      ...event,
+      message: {
+        ...event.message,
+        order,
+      },
+    });
+  }
+
+  handleConversationStatus(event: AgentsUiConversationStatusPayload): void {
+    if (this.closed || event.conversationId !== this.conversationId) return;
+    this.deps.send({
+      ...event,
+      revision: this.nextRevision(),
+    });
+  }
+
+  sendError(message: string): void {
+    if (this.closed) return;
+    this.deps.send(this.errorEvent(message));
   }
 
   private nextRevision(): number {
@@ -263,6 +304,20 @@ export class AgentsConversationStreamSession {
     this.nextLiveOrder += span;
     this.itemOrders.set(itemId, order);
     return order;
+  }
+
+  private sendMessageDelta(event: AgentsUiConversationMessageDeltaPayload): void {
+    this.deps.send({
+      ...event,
+      revision: this.nextRevision(),
+    });
+  }
+
+  private sendMessageUpsert(event: AgentsUiConversationMessageUpsertPayload): void {
+    this.deps.send({
+      ...event,
+      revision: this.nextRevision(),
+    });
   }
 
   private orderForDeltaNotification(notification: CodexAppServerNotification): number | null {
@@ -282,5 +337,12 @@ export class AgentsConversationStreamSession {
     if (!itemId || !item) return null;
     const orderSpan = orderSpanForItem(item);
     return orderSpan === null ? null : this.reserveOrder(itemId, orderSpan);
+  }
+
+  private errorEvent(message: string): AgentsUiConversationErrorEvent {
+    return {
+      type: "error",
+      message,
+    };
   }
 }

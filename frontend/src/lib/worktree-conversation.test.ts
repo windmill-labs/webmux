@@ -417,6 +417,51 @@ describe("worktree conversation helpers", () => {
     });
   });
 
+  it("replaces a synthetic Claude live item with its final message id", () => {
+    const current = applyConversationMessageDelta({
+      ...makeConversation(),
+      provider: "claudeCode",
+      conversationId: "session-1",
+    }, {
+      type: "messageDelta",
+      revision: 1,
+      conversationId: "session-1",
+      turnId: "claude-turn:turn-2",
+      itemId: "claude-live:turn-2:1",
+      order: 1,
+      delta: "Still working",
+    });
+
+    const updated = applyConversationMessageUpsert(current, {
+      type: "messageUpsert",
+      revision: 2,
+      conversationId: "session-1",
+      message: {
+        id: "assistant-final:1",
+        turnId: "claude-turn:turn-2",
+        order: 1,
+        role: "assistant",
+        kind: "text",
+        text: "Still working",
+        status: "inProgress",
+        createdAt: null,
+      },
+    });
+
+    expect(updated?.messages.filter((message) => message.text === "Still working")).toEqual([
+      {
+        id: "assistant-final:1",
+        turnId: "claude-turn:turn-2",
+        order: 1,
+        role: "assistant",
+        kind: "text",
+        text: "Still working",
+        status: "inProgress",
+        createdAt: null,
+      },
+    ]);
+  });
+
   it("uses snapshot text for server-owned messages", () => {
     const current = applyConversationMessageDelta(makeConversation(), {
       type: "messageDelta",

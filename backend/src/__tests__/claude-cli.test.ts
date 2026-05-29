@@ -1,9 +1,102 @@
 import { describe, expect, it } from "bun:test";
-import { buildClaudeSessionFromText, encodeClaudeProjectDir } from "../adapters/claude-cli";
+import { buildClaudeSessionFromText, encodeClaudeProjectDir, parseClaudeStreamLine } from "../adapters/claude-cli";
 
 describe("claude-cli adapter", () => {
   it("encodes Claude project directories from cwd", () => {
     expect(encodeClaudeProjectDir("/tmp/worktrees/feature.one")).toBe("-tmp-worktrees-feature-one");
+  });
+
+  it("parses text deltas from Claude stream-json output", () => {
+    expect(parseClaudeStreamLine(JSON.stringify({
+      type: "stream_event",
+      session_id: "session-1",
+      event: {
+        type: "content_block_delta",
+        index: 2,
+        delta: {
+          type: "text_delta",
+          text: "hello",
+        },
+      },
+    }))).toEqual({
+      sessionId: "session-1",
+      assistantDelta: {
+        delta: "hello",
+        blockIndex: 2,
+      },
+      messages: [],
+      completeSessionId: null,
+      error: null,
+    });
+  });
+
+  it("parses finalized text and tool messages from Claude stream-json output", () => {
+    expect(parseClaudeStreamLine(JSON.stringify({
+      type: "assistant",
+      session_id: "session-1",
+      uuid: "assistant-1",
+      message: {
+        role: "assistant",
+        content: [
+          { type: "text", text: "Reading the file." },
+          { type: "tool_use", id: "tool-1", name: "Read", input: { file_path: "/tmp/foo.txt" } },
+        ],
+      },
+    }))?.messages).toEqual([
+      {
+        uuid: "assistant-1",
+        role: "assistant",
+        kind: "text",
+        text: "Reading the file.",
+        createdAt: null,
+      },
+      {
+        uuid: "assistant-1",
+        role: "assistant",
+        kind: "toolUse",
+        toolName: "Read",
+        toolCallId: "tool-1",
+        text: `{"file_path":"/tmp/foo.txt"}`,
+        createdAt: null,
+      },
+    ]);
+
+    expect(parseClaudeStreamLine(JSON.stringify({
+      type: "user",
+      session_id: "session-1",
+      uuid: "tool-result-1",
+      timestamp: "2026-04-14T15:00:02.000Z",
+      message: {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "tool-1", content: "hello world" },
+        ],
+      },
+    }))?.messages).toEqual([
+      {
+        uuid: "tool-result-1",
+        role: "user",
+        kind: "toolResult",
+        toolCallId: "tool-1",
+        text: "hello world",
+        createdAt: "2026-04-14T15:00:02.000Z",
+      },
+    ]);
+  });
+
+  it("parses errored result lines without completing the session", () => {
+    expect(parseClaudeStreamLine(JSON.stringify({
+      type: "result",
+      session_id: "session-1",
+      is_error: true,
+      result: "API key is invalid",
+    }))).toEqual({
+      sessionId: "session-1",
+      assistantDelta: null,
+      messages: [],
+      completeSessionId: null,
+      error: "API key is invalid",
+    });
   });
 
   it("builds a transcript from Claude session jsonl text", () => {
@@ -153,6 +246,7 @@ describe("claude-cli adapter", () => {
         role: "assistant",
         kind: "toolUse",
         toolName: "Read",
+        toolCallId: "tool-1",
         text: `{"file_path":"/tmp/foo.txt"}`,
         createdAt: "2026-04-14T15:00:01.000Z",
       },
@@ -161,6 +255,7 @@ describe("claude-cli adapter", () => {
         turnId: "user-1",
         role: "user",
         kind: "toolResult",
+        toolCallId: "tool-1",
         text: "hello world",
         createdAt: "2026-04-14T15:00:02.000Z",
       },

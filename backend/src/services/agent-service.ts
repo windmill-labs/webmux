@@ -52,10 +52,10 @@ function buildBuiltInAgentInvocation(input: {
 
   const yoloFlag = input.yolo ? " --dangerously-skip-permissions" : "";
   if (input.launchMode === "resume") {
-    // `claude --continue <prompt>` resumes the session AND submits the prompt
-    // as the first new turn, avoiding the tmux paste/Enter race that hits
-    // Claude's TUI before its input loop is ready.
-    return `claude${yoloFlag} --continue${promptSuffix}`;
+    // Claude accepts a prompt with --resume/--continue, so resume launches can
+    // process a follow-up before the TUI starts reading interactive input.
+    const resumeTarget = input.resumeConversationId ? ` --resume ${quoteShell(input.resumeConversationId)}` : " --continue";
+    return `claude${yoloFlag}${resumeTarget}${promptSuffix}`;
   }
   if (input.systemPrompt) {
     return `claude${yoloFlag} --append-system-prompt ${quoteShell(input.systemPrompt)}${promptSuffix}`;

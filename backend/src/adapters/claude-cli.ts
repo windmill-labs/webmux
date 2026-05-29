@@ -12,6 +12,7 @@ export interface ClaudeCliConversationMessage {
   createdAt: string | null;
   kind?: ClaudeCliConversationMessageKind;
   toolName?: string;
+  toolCallId?: string;
 }
 
 export interface ClaudeCliSession {
@@ -31,10 +32,36 @@ export interface ClaudeCliSessionSummary {
   lastSeenAt: string;
 }
 
+export interface ClaudeCliAssistantDelta {
+  blockIndex: number;
+}
+
+export interface ClaudeCliStreamMessage {
+  uuid: string;
+  role: "user" | "assistant";
+  kind: ClaudeCliConversationMessageKind;
+  text: string;
+  createdAt: string | null;
+  toolName?: string;
+  toolCallId?: string;
+}
+
+export interface ParsedClaudeCliStreamLine {
+  sessionId: string | null;
+  assistantDelta: {
+    delta: string;
+    blockIndex: number;
+  } | null;
+  messages: ClaudeCliStreamMessage[];
+  completeSessionId: string | null;
+  error: string | null;
+}
+
 export interface ClaudeCliRunCallbacks {
-  onAssistantDelta?: (delta: string) => void;
+  onAssistantDelta?: (delta: string, event?: ClaudeCliAssistantDelta) => void;
   onComplete?: (sessionId: string) => void;
   onError?: (message: string) => void;
+  onMessage?: (message: ClaudeCliStreamMessage) => void;
   onSessionId?: (sessionId: string) => void;
 }
 
@@ -51,7 +78,11 @@ export interface ClaudeCliGateway {
     params: {
       cwd: string;
       prompt: string;
+      env?: Record<string, string>;
+      permissionMode?: "bypassPermissions" | null;
       resumeSessionId?: string | null;
+      sessionId?: string | null;
+      systemPrompt?: string | null;
     },
     callbacks: ClaudeCliRunCallbacks,
   ): ClaudeCliRunHandle;
@@ -79,6 +110,10 @@ function isRecord(raw: unknown): raw is Record<string, unknown> {
 
 function readString(raw: unknown): string | null {
   return typeof raw === "string" && raw.length > 0 ? raw : null;
+}
+
+function readNumber(raw: unknown): number | null {
+  return typeof raw === "number" ? raw : null;
 }
 
 function extractClaudeMessageText(raw: unknown): string {
@@ -127,6 +162,136 @@ function extractToolResultText(content: unknown): string {
     .join("")
     .trim();
   return truncate(text);
+}
+
+function buildStreamMessagesFromAssistantRecord(raw: Record<string, unknown>): ClaudeCliStreamMessage[] {
+  const uuid = readString(raw.uuid);
+  if (!uuid || !isRecord(raw.message)) return [];
+  const message = raw.message;
+  if (message.role !== "assistant" || !Array.isArray(message.content)) return [];
+
+  return message.content.flatMap((block): ClaudeCliStreamMessage[] => {
+    if (!isRecord(block)) return [];
+    const createdAt = readString(raw.timestamp);
+    if (block.type === "text" && typeof block.text === "string") {
+      const text = block.text.trim();
+      if (text.length === 0) return [];
+      return [{
+        uuid,
+        role: "assistant",
+        kind: "text",
+        text,
+        createdAt,
+      }];
+    }
+    if (block.type === "tool_use") {
+      const toolName = typeof block.name === "string" ? block.name : "tool";
+      const toolCallId = readString(block.id) ?? uuid;
+      const text = truncate(compactJson(block.input ?? {}));
+      return [{
+        uuid,
+        role: "assistant",
+        kind: "toolUse",
+        toolName,
+        toolCallId,
+        text,
+        createdAt,
+      }];
+    }
+    return [];
+  });
+}
+
+function buildStreamMessagesFromUserRecord(raw: Record<string, unknown>): ClaudeCliStreamMessage[] {
+  const uuid = readString(raw.uuid);
+  if (!uuid || !isRecord(raw.message)) return [];
+  const message = raw.message;
+  if (message.role !== "user" || !Array.isArray(message.content)) return [];
+
+  return message.content.flatMap((block): ClaudeCliStreamMessage[] => {
+    if (!isRecord(block) || block.type !== "tool_result") return [];
+    const text = extractToolResultText(block.content);
+    if (text.length === 0) return [];
+    const toolCallId = readString(block.tool_use_id) ?? uuid;
+    return [{
+      uuid,
+      role: "user",
+      kind: "toolResult",
+      toolCallId,
+      text,
+      createdAt: readString(raw.timestamp),
+    }];
+  });
+}
+
+export function parseClaudeStreamLine(line: string): ParsedClaudeCliStreamLine | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(line);
+  } catch {
+    return null;
+  }
+
+  if (!isRecord(parsed)) return null;
+
+  const sessionId = readString(parsed.session_id);
+  const base: ParsedClaudeCliStreamLine = {
+    sessionId,
+    assistantDelta: null,
+    messages: [],
+    completeSessionId: null,
+    error: null,
+  };
+
+  if (parsed.type === "stream_event" && isRecord(parsed.event)) {
+    const event = parsed.event;
+    if (event.type === "content_block_delta" && isRecord(event.delta) && event.delta.type === "text_delta") {
+      const delta = readString(event.delta.text);
+      const blockIndex = readNumber(event.index);
+      if (delta && blockIndex !== null) {
+        return {
+          ...base,
+          assistantDelta: {
+            delta,
+            blockIndex,
+          },
+        };
+      }
+    }
+    return base;
+  }
+
+  if (parsed.type === "assistant") {
+    return {
+      ...base,
+      messages: buildStreamMessagesFromAssistantRecord(parsed),
+    };
+  }
+
+  if (parsed.type === "user") {
+    return {
+      ...base,
+      messages: buildStreamMessagesFromUserRecord(parsed),
+    };
+  }
+
+  if (parsed.type === "result") {
+    const isError = parsed.is_error === true;
+    return {
+      ...base,
+      completeSessionId: isError ? null : readString(parsed.session_id),
+      error: isError ? readString(parsed.result) ?? "Claude returned an error" : null,
+    };
+  }
+
+  if (parsed.type === "error") {
+    return {
+      ...base,
+      error: readString(parsed.message) ?? "Claude returned an error",
+    };
+  }
+
+  return base;
 }
 
 function isTopLevelClaudeUserPrompt(raw: ClaudeStoredRecord): raw is ClaudeStoredRecord & {
@@ -278,11 +443,13 @@ export function buildClaudeSessionFromText(
         if (!isRecord(entry) || entry.type !== "tool_result") continue;
         const text = extractToolResultText(entry.content);
         if (text.length === 0) continue;
+        const toolCallId = readString(entry.tool_use_id);
         pushMessage({
           id: `${record.uuid}:${blockIndex}`,
           turnId: currentTurnId,
           role: "user",
           kind: "toolResult",
+          ...(toolCallId ? { toolCallId } : {}),
           text,
           createdAt: readString(record.timestamp),
         });
@@ -310,6 +477,7 @@ export function buildClaudeSessionFromText(
       }
       if (block.type === "tool_use") {
         const toolName = typeof block.name === "string" ? block.name : "tool";
+        const toolCallId = readString(block.id);
         const text = truncate(compactJson(block.input ?? {}));
         pushMessage({
           id: `${record.uuid}:${blockIndex}`,
@@ -317,6 +485,7 @@ export function buildClaudeSessionFromText(
           role: "assistant",
           kind: "toolUse",
           toolName,
+          ...(toolCallId ? { toolCallId } : {}),
           text,
           createdAt: readString(record.timestamp),
         });
@@ -371,18 +540,30 @@ export class ClaudeCliClient implements ClaudeCliGateway {
     params: {
       cwd: string;
       prompt: string;
+      env?: Record<string, string>;
+      permissionMode?: "bypassPermissions" | null;
       resumeSessionId?: string | null;
+      sessionId?: string | null;
+      systemPrompt?: string | null;
     },
     callbacks: ClaudeCliRunCallbacks,
   ): ClaudeCliRunHandle {
     const args = ["claude", "-p", "--verbose", "--output-format", "stream-json", "--include-partial-messages"];
     if (params.resumeSessionId) {
       args.push("-r", params.resumeSessionId);
+    } else if (params.sessionId) {
+      args.push("--session-id", params.sessionId);
+    }
+    if (params.permissionMode) {
+      args.push("--permission-mode", params.permissionMode);
+    }
+    if (params.systemPrompt) {
+      args.push("--append-system-prompt", params.systemPrompt);
     }
 
     const proc = Bun.spawn(args, {
       cwd: params.cwd,
-      env: Bun.env,
+      env: params.env ? { ...Bun.env, ...params.env } : Bun.env,
       stdin: "pipe",
       stdout: "pipe",
       stderr: "pipe",
@@ -503,47 +684,33 @@ export class ClaudeCliClient implements ClaudeCliGateway {
     callbacks: ClaudeCliRunCallbacks,
     resolveSessionId: (value: string) => void,
   ): void {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(line);
-    } catch {
+    const parsed = parseClaudeStreamLine(line);
+    if (!parsed) {
       log.warn(`[agents] failed to parse Claude stream line: ${line.slice(0, 120)}`);
       return;
     }
 
-    if (!isRecord(parsed)) return;
-
-    const sessionId = readString(parsed.session_id);
-    if (sessionId) {
-      resolveSessionId(sessionId);
+    if (parsed.sessionId) {
+      resolveSessionId(parsed.sessionId);
     }
 
-    if (parsed.type === "stream_event" && isRecord(parsed.event)) {
-      const event = parsed.event;
-      if (event.type === "content_block_delta" && isRecord(event.delta) && event.delta.type === "text_delta") {
-        const delta = readString(event.delta.text);
-        if (delta) {
-          callbacks.onAssistantDelta?.(delta);
-        }
-      }
-      return;
+    if (parsed.assistantDelta) {
+      callbacks.onAssistantDelta?.(parsed.assistantDelta.delta, {
+        blockIndex: parsed.assistantDelta.blockIndex,
+      });
     }
 
-    if (parsed.type === "result") {
-      const resultSessionId = readString(parsed.session_id);
-      if (resultSessionId) {
-        resolveSessionId(resultSessionId);
-        callbacks.onComplete?.(resultSessionId);
-      }
-
-      if (parsed.is_error === true) {
-        callbacks.onError?.(readString(parsed.result) ?? "Claude returned an error");
-      }
-      return;
+    for (const message of parsed.messages) {
+      callbacks.onMessage?.(message);
     }
 
-    if (parsed.type === "error") {
-      callbacks.onError?.(readString(parsed.message) ?? "Claude returned an error");
+    if (parsed.completeSessionId) {
+      resolveSessionId(parsed.completeSessionId);
+      callbacks.onComplete?.(parsed.completeSessionId);
+    }
+
+    if (parsed.error) {
+      callbacks.onError?.(parsed.error);
     }
   }
 }

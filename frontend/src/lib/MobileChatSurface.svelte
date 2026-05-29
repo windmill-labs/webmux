@@ -62,7 +62,7 @@
   }
 
   function supportsStreaming(nextConversation: AgentsUiConversationState | null): boolean {
-    return nextConversation?.provider === "codexAppServer";
+    return nextConversation?.provider === "codexAppServer" || nextConversation?.provider === "claudeCode";
   }
 
   function hasActiveConversationStream(conversationId: string): boolean {
@@ -262,8 +262,7 @@
     const token = pollingState.token;
     let requestInFlight = false;
 
-    // Codex websocket deltas are primary, and history polling keeps the transcript settled if
-    // app-server notifications arrive late or are missed while the socket reconnects.
+    // Polling is only for conversation providers that do not publish live stream events.
     const interval = window.setInterval(() => {
       if (!refreshPollingState || refreshPollingState.token !== token || requestInFlight) return;
       requestInFlight = true;

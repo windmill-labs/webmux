@@ -118,6 +118,23 @@ describe("agent-service command builders", () => {
     expect(command).toContain("claude --dangerously-skip-permissions --continue -- 'fix the tests'");
   });
 
+  it("uses an explicit Claude session id when refreshing a terminal", () => {
+    const command = buildAgentPaneCommand({
+      agent: builtInAgent("claude"),
+      runtimeEnvPath: "/tmp/gitdir/webmux/runtime.env",
+      repoRoot: "/repo",
+      worktreePath: "/repo/__worktrees/feature",
+      branch: "feature",
+      profileName: "default",
+      yolo: true,
+      launchMode: "resume",
+      resumeConversationId: "session-123",
+    });
+
+    expect(command).toContain("claude --dangerously-skip-permissions --resume 'session-123'");
+    expect(command).not.toContain("--continue");
+  });
+
   it("builds docker commands that exec inside the container", () => {
     const shell = buildDockerShellCommand(
       "wm-feature-container",

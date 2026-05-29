@@ -220,6 +220,8 @@ export function parseOneshotArgs(args: string[]): ParsedOneshotCommand | null {
 interface ConversationPrintState {
   printedMessageIds: Set<string>;
   streamingItemId: string | null;
+  streamingText: string;
+  streamingTurnId: string | null;
   streamingNeedsHeader: boolean;
   lastStreamRevision: number;
 }
@@ -316,8 +318,26 @@ function flushStreamingLine(state: ConversationPrintState): void {
   if (state.streamingItemId !== null) {
     process.stdout.write("\n");
     state.streamingItemId = null;
+    state.streamingText = "";
+    state.streamingTurnId = null;
     state.streamingNeedsHeader = false;
   }
+}
+
+function messageKind(message: AgentsUiConversationMessage): NonNullable<AgentsUiConversationMessage["kind"]> {
+  return message.kind ?? "text";
+}
+
+function isSameStreamingMessage(
+  state: ConversationPrintState,
+  message: AgentsUiConversationMessage,
+): boolean {
+  if (state.streamingItemId === null) return false;
+  if (state.streamingItemId === message.id) return true;
+  if (message.role !== "assistant" || messageKind(message) !== "text") return false;
+  if (state.streamingText.length === 0) return false;
+  return message.turnId === state.streamingTurnId
+    && (state.streamingText.startsWith(message.text) || message.text.startsWith(state.streamingText));
 }
 
 function printNewMessages(
@@ -326,7 +346,7 @@ function printNewMessages(
 ): void {
   for (const message of messages) {
     if (state.printedMessageIds.has(message.id)) continue;
-    if (state.streamingItemId === message.id) {
+    if (isSameStreamingMessage(state, message)) {
       // Streaming has been printing this incrementally; mark printed and finish line if completed.
       state.printedMessageIds.add(message.id);
       if (message.status === "completed") flushStreamingLine(state);
@@ -347,18 +367,14 @@ function handleConversationEvent(
   state: ConversationPrintState,
   stderr: (line: string) => void,
 ): void {
-  if (event.type === "snapshot") {
-    if (event.revision <= state.lastStreamRevision) return;
-    state.lastStreamRevision = event.revision;
-    printNewMessages(state, event.data.conversation.messages);
-    return;
-  }
   if (event.type === "messageDelta") {
     if (event.revision <= state.lastStreamRevision) return;
     state.lastStreamRevision = event.revision;
     if (state.streamingItemId !== event.itemId) {
       flushStreamingLine(state);
       state.streamingItemId = event.itemId;
+      state.streamingText = "";
+      state.streamingTurnId = event.turnId;
       state.streamingNeedsHeader = true;
     }
     if (state.streamingNeedsHeader) {
@@ -366,12 +382,19 @@ function handleConversationEvent(
       state.streamingNeedsHeader = false;
     }
     process.stdout.write(event.delta);
+    state.streamingText += event.delta;
     return;
   }
   if (event.type === "messageUpsert") {
     if (event.revision <= state.lastStreamRevision) return;
     state.lastStreamRevision = event.revision;
     printNewMessages(state, [event.message]);
+    return;
+  }
+  if (event.type === "conversationStatus") {
+    if (event.revision <= state.lastStreamRevision) return;
+    state.lastStreamRevision = event.revision;
+    if (!event.running) flushStreamingLine(state);
     return;
   }
   if (event.type === "error") {
@@ -633,10 +656,9 @@ function printConversationHistory(
 
 /**
  * Polls `fetchAgentsWorktreeConversationHistory` on an interval and feeds new
- * messages through the same `printNewMessages` path the WS uses. This is the
- * primary streaming mechanism for Claude (which has no live WS deltas — the
- * server only forwards Codex notifications). For Codex, polling is harmless:
- * the dedup in `printNewMessages` makes it a safe fallback for missed deltas.
+ * messages through the same `printNewMessages` path the WS uses. Claude uses
+ * this only as a fallback for terminal-routed runs that cannot publish live WS
+ * deltas.
  */
 function pollConversationHistory(
   branch: string,
@@ -906,6 +928,8 @@ export async function runOneshot(parsed: ParsedOneshotCommand, port: number): Pr
   const conversationState: ConversationPrintState = {
     printedMessageIds: new Set(),
     streamingItemId: null,
+    streamingText: "",
+    streamingTurnId: null,
     streamingNeedsHeader: false,
     lastStreamRevision: 0,
   };
@@ -941,7 +965,8 @@ export async function runOneshot(parsed: ParsedOneshotCommand, port: number): Pr
     finalize(1);
   });
   // History polling is only needed for Claude — Codex publishes live deltas via WS,
-  // so polling there just spams the server every 2s for no benefit.
+  // so polling there just spams the server every 2s for no benefit. Claude also
+  // streams over WS now, but polling remains a fallback for terminal-routed runs.
   if (ready.worktree.agentName === "claude") {
     historyPoller = pollConversationHistory(branch, port, conversationState);
   }

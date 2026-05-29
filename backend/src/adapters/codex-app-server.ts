@@ -38,33 +38,129 @@ export interface CodexAppServerCommandAction {
   path?: string | null;
 }
 
+export type CodexAppServerCommandExecutionStatus = "inProgress" | "completed" | "failed" | "declined";
+
 export interface CodexAppServerCommandExecutionItem {
   type: "commandExecution";
   id: string;
   command: string;
   cwd: string | null;
-  status: string;
+  status: CodexAppServerCommandExecutionStatus;
   commandActions: CodexAppServerCommandAction[];
   aggregatedOutput: string | null;
   exitCode: number | null;
   durationMs: number | null;
 }
 
-export interface CodexAppServerGenericItem {
-  type: string;
+export type CodexAppServerPatchChangeKind =
+  | { type: "add" }
+  | { type: "delete" }
+  | { type: "update"; move_path: string | null };
+
+export type CodexAppServerPatchApplyStatus = "inProgress" | "completed" | "failed" | "declined";
+
+export interface CodexAppServerFileUpdateChange {
+  path: string;
+  kind: CodexAppServerPatchChangeKind;
+  diff: string;
+}
+
+export interface CodexAppServerFileChangeItem {
+  type: "fileChange";
+  id: string;
+  changes: CodexAppServerFileUpdateChange[];
+  status: CodexAppServerPatchApplyStatus;
+}
+
+export type CodexAppServerMcpToolCallStatus = "inProgress" | "completed" | "failed";
+
+export interface CodexAppServerMcpToolCallResult {
+  content: unknown[];
+  structuredContent: unknown;
+  _meta: unknown;
+}
+
+export interface CodexAppServerMcpToolCallError {
+  message: string;
+}
+
+export interface CodexAppServerMcpToolCallItem {
+  type: "mcpToolCall";
+  id: string;
+  server: string;
+  tool: string;
+  status: CodexAppServerMcpToolCallStatus;
+  arguments: unknown;
+  mcpAppResourceUri?: string;
+  pluginId: string | null;
+  result: CodexAppServerMcpToolCallResult | null;
+  error: CodexAppServerMcpToolCallError | null;
+  durationMs: number | null;
+}
+
+export type CodexAppServerDynamicToolCallStatus = "inProgress" | "completed" | "failed";
+
+export type CodexAppServerDynamicToolCallContentItem =
+  | { type: "inputText"; text: string }
+  | { type: "inputImage"; imageUrl: string };
+
+export interface CodexAppServerDynamicToolCallItem {
+  type: "dynamicToolCall";
+  id: string;
+  namespace: string | null;
+  tool: string;
+  arguments: unknown;
+  status: CodexAppServerDynamicToolCallStatus;
+  contentItems: CodexAppServerDynamicToolCallContentItem[] | null;
+  success: boolean | null;
+  durationMs: number | null;
+}
+
+export type CodexAppServerWebSearchAction =
+  | { type: "search"; query: string | null; queries: string[] | null }
+  | { type: "openPage"; url: string | null }
+  | { type: "findInPage"; url: string | null; pattern: string | null }
+  | { type: "other" };
+
+export interface CodexAppServerWebSearchItem {
+  type: "webSearch";
+  id: string;
+  query: string;
+  action: CodexAppServerWebSearchAction | null;
+}
+
+export type CodexAppServerIgnoredItemType =
+  | "hookPrompt"
+  | "plan"
+  | "reasoning"
+  | "collabAgentToolCall"
+  | "imageView"
+  | "imageGeneration"
+  | "enteredReviewMode"
+  | "exitedReviewMode"
+  | "contextCompaction";
+
+export interface CodexAppServerIgnoredItem {
+  type: CodexAppServerIgnoredItemType;
   id: string;
 }
+
+export type CodexAppServerTurnStatus = "completed" | "interrupted" | "failed" | "inProgress";
 
 export type CodexAppServerThreadItem =
   | CodexAppServerUserMessageItem
   | CodexAppServerAgentMessageItem
   | CodexAppServerCommandExecutionItem
-  | CodexAppServerGenericItem;
+  | CodexAppServerFileChangeItem
+  | CodexAppServerMcpToolCallItem
+  | CodexAppServerDynamicToolCallItem
+  | CodexAppServerWebSearchItem
+  | CodexAppServerIgnoredItem;
 
 export interface CodexAppServerTurn {
   id: string;
   items: CodexAppServerThreadItem[];
-  status: string;
+  status: CodexAppServerTurnStatus;
   error: unknown;
   startedAt: number | null;
   completedAt: number | null;
@@ -192,6 +288,14 @@ type PipedCodexAppServerProcess = Bun.Subprocess<"pipe", "pipe", "pipe">;
 
 const CodexAppServerApprovalPolicySchema = z.enum(["untrusted", "on-failure", "on-request", "never"]);
 const UnknownValueSchema = z.custom<unknown>(() => true);
+const JsonValueSchema = z.union([
+  z.string(),
+  z.number(),
+  z.boolean(),
+  z.null(),
+  z.array(UnknownValueSchema),
+  z.record(UnknownValueSchema),
+]);
 const CodexAppServerContentItemSchema: z.ZodType<CodexAppServerContentItem, z.ZodTypeDef, unknown> = z.object({
   type: z.string(),
   text: z.string().optional(),
@@ -219,26 +323,104 @@ const CodexAppServerCommandExecutionItemSchema: z.ZodType<CodexAppServerCommandE
   id: z.string(),
   command: z.string(),
   cwd: z.string().nullable(),
-  status: z.string(),
+  status: z.enum(["inProgress", "completed", "failed", "declined"]),
   commandActions: z.array(CodexAppServerCommandActionSchema).default([]),
   aggregatedOutput: z.string().nullable(),
   exitCode: z.number().nullable(),
   durationMs: z.number().nullable(),
 });
-const CodexAppServerGenericItemSchema: z.ZodType<CodexAppServerGenericItem, z.ZodTypeDef, unknown> = z.object({
-  type: z.string(),
+const CodexAppServerPatchChangeKindSchema: z.ZodType<CodexAppServerPatchChangeKind, z.ZodTypeDef, unknown> = z.union([
+  z.object({ type: z.literal("add") }),
+  z.object({ type: z.literal("delete") }),
+  z.object({ type: z.literal("update"), move_path: z.string().nullable() }),
+]);
+const CodexAppServerFileUpdateChangeSchema: z.ZodType<CodexAppServerFileUpdateChange, z.ZodTypeDef, unknown> = z.object({
+  path: z.string(),
+  kind: CodexAppServerPatchChangeKindSchema,
+  diff: z.string(),
+});
+const CodexAppServerFileChangeItemSchema: z.ZodType<CodexAppServerFileChangeItem, z.ZodTypeDef, unknown> = z.object({
+  type: z.literal("fileChange"),
+  id: z.string(),
+  changes: z.array(CodexAppServerFileUpdateChangeSchema),
+  status: z.enum(["inProgress", "completed", "failed", "declined"]),
+});
+const CodexAppServerMcpToolCallResultSchema: z.ZodType<CodexAppServerMcpToolCallResult, z.ZodTypeDef, unknown> = z.object({
+  content: z.array(JsonValueSchema),
+  structuredContent: JsonValueSchema,
+  _meta: JsonValueSchema,
+});
+const CodexAppServerMcpToolCallErrorSchema: z.ZodType<CodexAppServerMcpToolCallError, z.ZodTypeDef, unknown> = z.object({
+  message: z.string(),
+});
+const CodexAppServerMcpToolCallItemSchema: z.ZodType<CodexAppServerMcpToolCallItem, z.ZodTypeDef, unknown> = z.object({
+  type: z.literal("mcpToolCall"),
+  id: z.string(),
+  server: z.string(),
+  tool: z.string(),
+  status: z.enum(["inProgress", "completed", "failed"]),
+  arguments: JsonValueSchema,
+  mcpAppResourceUri: z.string().optional(),
+  pluginId: z.string().nullable(),
+  result: CodexAppServerMcpToolCallResultSchema.nullable(),
+  error: CodexAppServerMcpToolCallErrorSchema.nullable(),
+  durationMs: z.number().nullable(),
+});
+const CodexAppServerDynamicToolCallContentItemSchema: z.ZodType<CodexAppServerDynamicToolCallContentItem, z.ZodTypeDef, unknown> = z.union([
+  z.object({ type: z.literal("inputText"), text: z.string() }),
+  z.object({ type: z.literal("inputImage"), imageUrl: z.string() }),
+]);
+const CodexAppServerDynamicToolCallItemSchema: z.ZodType<CodexAppServerDynamicToolCallItem, z.ZodTypeDef, unknown> = z.object({
+  type: z.literal("dynamicToolCall"),
+  id: z.string(),
+  namespace: z.string().nullable(),
+  tool: z.string(),
+  arguments: JsonValueSchema,
+  status: z.enum(["inProgress", "completed", "failed"]),
+  contentItems: z.array(CodexAppServerDynamicToolCallContentItemSchema).nullable(),
+  success: z.boolean().nullable(),
+  durationMs: z.number().nullable(),
+});
+const CodexAppServerWebSearchActionSchema: z.ZodType<CodexAppServerWebSearchAction, z.ZodTypeDef, unknown> = z.union([
+  z.object({ type: z.literal("search"), query: z.string().nullable(), queries: z.array(z.string()).nullable() }),
+  z.object({ type: z.literal("openPage"), url: z.string().nullable() }),
+  z.object({ type: z.literal("findInPage"), url: z.string().nullable(), pattern: z.string().nullable() }),
+  z.object({ type: z.literal("other") }),
+]);
+const CodexAppServerWebSearchItemSchema: z.ZodType<CodexAppServerWebSearchItem, z.ZodTypeDef, unknown> = z.object({
+  type: z.literal("webSearch"),
+  id: z.string(),
+  query: z.string(),
+  action: CodexAppServerWebSearchActionSchema.nullable(),
+});
+const CodexAppServerIgnoredItemSchema: z.ZodType<CodexAppServerIgnoredItem, z.ZodTypeDef, unknown> = z.object({
+  type: z.enum([
+    "hookPrompt",
+    "plan",
+    "reasoning",
+    "collabAgentToolCall",
+    "imageView",
+    "imageGeneration",
+    "enteredReviewMode",
+    "exitedReviewMode",
+    "contextCompaction",
+  ]),
   id: z.string(),
 });
 const CodexAppServerThreadItemSchema: z.ZodType<CodexAppServerThreadItem, z.ZodTypeDef, unknown> = z.union([
   CodexAppServerUserMessageItemSchema,
   CodexAppServerAgentMessageItemSchema,
   CodexAppServerCommandExecutionItemSchema,
-  CodexAppServerGenericItemSchema,
+  CodexAppServerFileChangeItemSchema,
+  CodexAppServerMcpToolCallItemSchema,
+  CodexAppServerDynamicToolCallItemSchema,
+  CodexAppServerWebSearchItemSchema,
+  CodexAppServerIgnoredItemSchema,
 ]);
 const CodexAppServerTurnSchema: z.ZodType<CodexAppServerTurn, z.ZodTypeDef, unknown> = z.object({
   id: z.string(),
   items: z.array(CodexAppServerThreadItemSchema),
-  status: z.string(),
+  status: z.enum(["completed", "interrupted", "failed", "inProgress"]),
   error: UnknownValueSchema,
   startedAt: z.number().nullable(),
   completedAt: z.number().nullable(),

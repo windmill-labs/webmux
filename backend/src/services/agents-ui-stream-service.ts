@@ -43,8 +43,12 @@ function orderSpanForItem(item: CodexAppServerThreadItem): number | null {
   switch (item.type) {
     case "userMessage":
     case "agentMessage":
+    case "webSearch":
       return 1;
     case "commandExecution":
+    case "fileChange":
+    case "mcpToolCall":
+    case "dynamicToolCall":
       return 2;
     default:
       return null;

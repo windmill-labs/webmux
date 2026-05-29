@@ -134,6 +134,68 @@ describe("agents-ui-stream-service", () => {
     ]);
   });
 
+  it("builds upsert events from mcp tool call notifications", () => {
+    expect(buildAgentsUiMessageUpsertEvents({
+      method: "item/completed",
+      params: {
+        threadId: "thread-1",
+        turnId: "turn-1",
+        completedAtMs: 1779965441194,
+        item: {
+          type: "mcpToolCall",
+          id: "mcp-1",
+          server: "linear",
+          tool: "get_issue",
+          status: "completed",
+          arguments: { issueId: "ENG-123" },
+          pluginId: null,
+          result: {
+            content: [{ type: "text", text: "Issue title" }],
+            structuredContent: null,
+            _meta: null,
+          },
+          error: null,
+          durationMs: 25,
+        },
+      },
+    }, 4)).toEqual([
+      {
+        type: "messageUpsert",
+        conversationId: "thread-1",
+        message: {
+          id: "mcp-1",
+          turnId: "turn-1",
+          order: 4,
+          role: "assistant",
+          kind: "toolUse",
+          toolName: "linear.get_issue",
+          toolCallId: "mcp-1",
+          text: "{\n  \"issueId\": \"ENG-123\"\n}",
+          status: "completed",
+          createdAt: "2026-05-28T10:50:41.194Z",
+          durationMs: 25,
+        },
+      },
+      {
+        type: "messageUpsert",
+        conversationId: "thread-1",
+        message: {
+          id: "mcp-1:result",
+          turnId: "turn-1",
+          order: 5,
+          role: "user",
+          kind: "toolResult",
+          toolName: "linear.get_issue",
+          toolCallId: "mcp-1",
+          text: "Issue title",
+          status: "completed",
+          createdAt: "2026-05-28T10:50:41.194Z",
+          durationMs: 25,
+        },
+      },
+    ]);
+  });
+
   it("builds conversation status events from turn lifecycle notifications", () => {
     expect(buildAgentsUiConversationStatusEvent({
       method: "turn/started",

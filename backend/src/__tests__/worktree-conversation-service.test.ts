@@ -215,7 +215,7 @@ function makeProfile(overrides: Partial<ProfileConfig> = {}): ProfileConfig {
 
 function makeTurn(input: {
   id: string;
-  status: string;
+  status: CodexAppServerTurn["status"];
   startedAt: number | null;
   items: CodexAppServerTurn["items"];
 }): CodexAppServerTurn {
@@ -506,6 +506,165 @@ describe("buildConversationState", () => {
         createdAt: "1970-01-01T00:03:20.000Z",
         exitCode: 0,
         durationMs: 12,
+      },
+    ]);
+  });
+
+  it("maps app-server tool items into initial transcript tool blocks", () => {
+    const thread = makeThread({
+      id: "thread-tool-items",
+      cwd: "/tmp/worktree",
+      updatedAt: 120,
+      statusType: "idle",
+      source: "cli",
+      turns: [
+        makeTurn({
+          id: "turn-tool-items",
+          status: "completed",
+          startedAt: 111,
+          items: [
+            {
+              type: "mcpToolCall",
+              id: "mcp-1",
+              server: "linear",
+              tool: "get_issue",
+              status: "completed",
+              arguments: { issueId: "ENG-123" },
+              pluginId: null,
+              result: {
+                content: [{ type: "text", text: "Issue title" }],
+                structuredContent: { status: "Todo" },
+                _meta: null,
+              },
+              error: null,
+              durationMs: 25,
+            },
+            {
+              type: "fileChange",
+              id: "patch-1",
+              status: "completed",
+              changes: [
+                {
+                  path: "README.md",
+                  kind: { type: "update", move_path: null },
+                  diff: "--- a/README.md\n+++ b/README.md\n",
+                },
+              ],
+            },
+            {
+              type: "dynamicToolCall",
+              id: "dynamic-1",
+              namespace: "workspace",
+              tool: "lookup",
+              arguments: { query: "status" },
+              status: "completed",
+              contentItems: [{ type: "inputText", text: "ok" }],
+              success: true,
+              durationMs: 10,
+            },
+            {
+              type: "webSearch",
+              id: "search-1",
+              query: "codex app server",
+              action: {
+                type: "search",
+                query: null,
+                queries: ["codex app server"],
+              },
+            },
+          ],
+        }),
+      ],
+    });
+
+    expect(buildConversationState(thread).messages).toEqual([
+      {
+        id: "mcp-1",
+        turnId: "turn-tool-items",
+        order: 0,
+        role: "assistant",
+        kind: "toolUse",
+        toolName: "linear.get_issue",
+        toolCallId: "mcp-1",
+        text: "{\n  \"issueId\": \"ENG-123\"\n}",
+        status: "completed",
+        createdAt: "1970-01-01T00:03:20.000Z",
+        durationMs: 25,
+      },
+      {
+        id: "mcp-1:result",
+        turnId: "turn-tool-items",
+        order: 1,
+        role: "user",
+        kind: "toolResult",
+        toolName: "linear.get_issue",
+        toolCallId: "mcp-1",
+        text: "Issue title\n\n{\n  \"status\": \"Todo\"\n}",
+        status: "completed",
+        createdAt: "1970-01-01T00:03:20.000Z",
+        durationMs: 25,
+      },
+      {
+        id: "patch-1",
+        turnId: "turn-tool-items",
+        order: 2,
+        role: "assistant",
+        kind: "toolUse",
+        toolName: "file change",
+        toolCallId: "patch-1",
+        text: "update README.md",
+        status: "completed",
+        createdAt: "1970-01-01T00:03:20.000Z",
+      },
+      {
+        id: "patch-1:result",
+        turnId: "turn-tool-items",
+        order: 3,
+        role: "user",
+        kind: "toolResult",
+        toolName: "file change",
+        toolCallId: "patch-1",
+        text: "--- a/README.md\n+++ b/README.md",
+        status: "completed",
+        createdAt: "1970-01-01T00:03:20.000Z",
+      },
+      {
+        id: "dynamic-1",
+        turnId: "turn-tool-items",
+        order: 4,
+        role: "assistant",
+        kind: "toolUse",
+        toolName: "workspace.lookup",
+        toolCallId: "dynamic-1",
+        text: "{\n  \"query\": \"status\"\n}",
+        status: "completed",
+        createdAt: "1970-01-01T00:03:20.000Z",
+        durationMs: 10,
+      },
+      {
+        id: "dynamic-1:result",
+        turnId: "turn-tool-items",
+        order: 5,
+        role: "user",
+        kind: "toolResult",
+        toolName: "workspace.lookup",
+        toolCallId: "dynamic-1",
+        text: "ok",
+        status: "completed",
+        createdAt: "1970-01-01T00:03:20.000Z",
+        durationMs: 10,
+      },
+      {
+        id: "search-1",
+        turnId: "turn-tool-items",
+        order: 6,
+        role: "assistant",
+        kind: "toolUse",
+        toolName: "web search",
+        toolCallId: "search-1",
+        text: "codex app server",
+        status: "completed",
+        createdAt: "1970-01-01T00:03:20.000Z",
       },
     ]);
   });

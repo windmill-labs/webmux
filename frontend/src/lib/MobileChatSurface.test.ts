@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/svelte";
+import { tick } from "svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   AgentsUiConversationEvent,
@@ -293,6 +294,108 @@ describe("MobileChatSurface", () => {
 
     await screen.findByText("Streaming status update");
     expect(screen.queryByText("typing")).not.toBeInTheDocument();
+  });
+
+  it("keeps live message order when a Codex completion snapshot arrives reordered", async () => {
+    vi.mocked(attachWorktreeConversation).mockResolvedValue(createConversationResponse("codexAppServer"));
+
+    render(MobileChatSurface, {
+      props: {
+        worktree: createWorktree({ agentName: "codex", agentLabel: "Codex" }),
+      },
+    });
+
+    await waitFor(() => {
+      expect(connectWorktreeConversationStream).toHaveBeenCalledWith(
+        "feature/mobile-chat",
+        expect.any(Object),
+      );
+    });
+
+    const callbacks = vi.mocked(connectWorktreeConversationStream).mock.calls[0]?.[1];
+    callbacks?.onEvent({
+      type: "messageDelta",
+      revision: 1,
+      conversationId: "thread-1",
+      turnId: "turn-1",
+      itemId: "assistant-1",
+      delta: "First assistant",
+    });
+    callbacks?.onEvent({
+      type: "messageUpsert",
+      revision: 2,
+      conversationId: "thread-1",
+      message: {
+        id: "call-1",
+        turnId: "turn-1",
+        role: "assistant",
+        kind: "toolUse",
+        toolName: "shell",
+        toolCallId: "call-1",
+        text: "pwd",
+        status: "completed",
+        createdAt: "2026-05-28T10:00:01.000Z",
+      },
+    });
+    callbacks?.onEvent({
+      type: "messageDelta",
+      revision: 3,
+      conversationId: "thread-1",
+      turnId: "turn-1",
+      itemId: "assistant-2",
+      delta: "Second assistant",
+    });
+
+    await screen.findByText("First assistant");
+    await screen.findByText("Second assistant");
+
+    callbacks?.onEvent({
+      type: "snapshot",
+      revision: 4,
+      data: createConversationResponse("codexAppServer", {
+        running: false,
+        activeTurnId: null,
+        messages: [
+          {
+            id: "call-1",
+            turnId: "turn-1",
+            role: "assistant",
+            kind: "toolUse",
+            toolName: "shell",
+            toolCallId: "call-1",
+            text: "pwd",
+            status: "completed",
+            createdAt: "2026-05-28T10:00:01.000Z",
+          },
+          {
+            id: "assistant-1",
+            turnId: "turn-1",
+            role: "assistant",
+            kind: "text",
+            text: "First assistant finalized",
+            status: "completed",
+            createdAt: "2026-05-28T10:00:00.000Z",
+          },
+          {
+            id: "assistant-2",
+            turnId: "turn-1",
+            role: "assistant",
+            kind: "text",
+            text: "Second assistant finalized",
+            status: "completed",
+            createdAt: "2026-05-28T10:00:02.000Z",
+          },
+        ],
+      }),
+    });
+
+    await tick();
+
+    expect(screen.getByText("First assistant finalized")).toBeInTheDocument();
+    expect(screen.getByText("Second assistant finalized")).toBeInTheDocument();
+    const text = document.body.textContent ?? "";
+    expect(text.indexOf("First assistant finalized")).toBeLessThan(text.indexOf("Completed shell"));
+    expect(text.indexOf("Completed shell")).toBeLessThan(text.indexOf("Second assistant finalized"));
   });
 
   it("keeps polling beyond two minutes until a quiet conversation finally changes", async () => {

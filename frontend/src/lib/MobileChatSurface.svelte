@@ -75,7 +75,7 @@
   }
 
   function applyConversationStreamSnapshot(response: AgentsUiWorktreeConversationResponse): void {
-    conversation = response.conversation;
+    conversation = mergeConversationSnapshot(conversation, response.conversation);
     conversationError = null;
     syncConversationStream();
   }

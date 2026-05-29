@@ -216,6 +216,31 @@ describe("WorktreeConversationPanel", () => {
     expect(screen.getByText("Codex is processing")).toBeInTheDocument();
   });
 
+  it("keeps the processing indicator while the interrupt button is visible", () => {
+    renderPanel({
+      worktree: createWorktree({ agentName: "codex", agentLabel: "Codex" }),
+      conversation: createConversation({
+        provider: "codexAppServer",
+        running: true,
+        activeTurnId: "turn-1",
+        messages: [
+          {
+            id: "assistant-1",
+            turnId: "turn-1",
+            role: "assistant",
+            kind: "text",
+            text: "I am checking the files.",
+            status: "inProgress",
+            createdAt: null,
+          },
+        ],
+      }),
+    });
+
+    expect(screen.getByRole("button", { name: "Interrupt" })).toBeInTheDocument();
+    expect(screen.getByText("Codex is processing")).toBeInTheDocument();
+  });
+
   it("does not render blank assistant bubbles for empty streamed starts", () => {
     renderPanel({
       worktree: createWorktree({ agentName: "codex", agentLabel: "Codex" }),

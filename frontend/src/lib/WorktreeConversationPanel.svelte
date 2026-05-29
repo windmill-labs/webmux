@@ -43,11 +43,8 @@
   const supportsAgentChat = $derived(worktree.agentName === "codex" || worktree.agentName === "claude");
   const chatAvailable = $derived(supportsAgentChat && worktree.mux === "✓");
   const showInterrupt = $derived(chatAvailable && (conversation?.running ?? false));
-  const showTurnPending = $derived(isSending || (conversation?.running ?? false));
-  const showProcessingIndicator = $derived(
-    showTurnPending
-      && !(conversation?.messages.some((message) => message.status === "inProgress" && isVisibleProgressMessage(message)) ?? false),
-  );
+  const showComposerInterrupt = $derived(showInterrupt && !conversationError);
+  const showProcessingIndicator = $derived(isSending || showComposerInterrupt);
   const transcriptItems = $derived(buildTranscriptItems((conversation?.messages ?? []).filter(isVisibleTranscriptMessage)));
   const canSend = $derived(
     chatAvailable
@@ -112,15 +109,6 @@
       return false;
     }
     return true;
-  }
-
-  function isVisibleProgressMessage(message: AgentsUiConversationMessage): boolean {
-    if (message.role !== "assistant") return false;
-    const kind = messageKind(message);
-    if (kind === "text" || kind === "thinking" || kind === "toolUse") {
-      return message.text.trim().length > 0;
-    }
-    return false;
   }
 
   function buildTranscriptItems(messages: AgentsUiConversationMessage[]): TranscriptItem[] {
@@ -358,7 +346,7 @@
           disabled={isSending}
         ></textarea>
 
-        {#if showInterrupt && !conversationError}
+        {#if showComposerInterrupt}
           <button
             type="button"
             aria-label="Interrupt"

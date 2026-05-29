@@ -78,4 +78,31 @@ describe("codex app-server adapter", () => {
       ],
     })?.type).toBe("fileChange");
   });
+
+  it("keeps parsing partially modeled app-server items", () => {
+    expect(parseCodexAppServerThreadItem({
+      type: "agentMessage",
+      id: "assistant-null-phase",
+      text: "Hello",
+      phase: null,
+      memoryCitation: null,
+    })).toEqual({
+      type: "agentMessage",
+      id: "assistant-null-phase",
+      text: "Hello",
+      phase: null,
+      memoryCitation: null,
+    });
+
+    expect(parseCodexAppServerThreadItem({
+      type: "newFutureItem",
+      id: "future-1",
+      nested: {
+        unsupported: true,
+      },
+    })).toEqual({
+      type: "newFutureItem",
+      id: "future-1",
+    });
+  });
 });

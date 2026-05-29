@@ -891,11 +891,6 @@ async function openAgentsSocket(
   if (initialState.data.conversation.provider !== "codexAppServer") {
     unsubscribeNotifications();
     data.unsubscribe = null;
-    sendAgentsWs(ws, {
-      type: "error",
-      message: "Conversation streaming is only available for Codex app-server conversations",
-    });
-    ws.close(1008, "Conversation stream unsupported");
     return;
   }
 

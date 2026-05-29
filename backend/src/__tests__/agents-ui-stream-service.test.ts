@@ -224,6 +224,33 @@ describe("agents-ui-stream-service", () => {
     });
   });
 
+  it("builds terminal conversation status events from thread status notifications", () => {
+    expect(buildAgentsUiConversationStatusEvent({
+      method: "thread/status/changed",
+      params: {
+        threadId: "thread-1",
+        status: {
+          type: "systemError",
+        },
+      },
+    })).toEqual({
+      type: "conversationStatus",
+      conversationId: "thread-1",
+      running: false,
+      activeTurnId: null,
+    });
+
+    expect(buildAgentsUiConversationStatusEvent({
+      method: "thread/status/changed",
+      params: {
+        threadId: "thread-1",
+        status: {
+          type: "active",
+        },
+      },
+    })).toBeNull();
+  });
+
   it("streams live events without emitting snapshots", () => {
     const events: AgentsUiConversationEvent[] = [];
     const session = new AgentsConversationStreamSession({

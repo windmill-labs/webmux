@@ -6,6 +6,7 @@ import {
   countConversationTurns,
   deriveIssueTitleFromPrompt,
   exportConversationToLinear,
+  parseWebmuxConversationAttachmentPayload,
   renderConversationAsMarkdown,
   type ExportConversationDependencies,
   type ExportConversationInput,
@@ -94,6 +95,59 @@ describe("buildConversationAttachmentPayload", () => {
     expect(payload.branch).toBe("feat/foo");
     expect(payload.baseBranch).toBe("main");
     expect(payload.conversation).toHaveLength(3);
+  });
+});
+
+describe("parseWebmuxConversationAttachmentPayload", () => {
+  it("normalizes old webmux v1 attachment messages without order or kind", () => {
+    const payload = parseWebmuxConversationAttachmentPayload({
+      webmux: 1,
+      branch: "feat/foo",
+      baseBranch: null,
+      agent: "codex",
+      createdAt: "2026-05-11T00:00:00.000Z",
+      conversation: [
+        {
+          id: "m1",
+          turnId: "t1",
+          role: "user",
+          text: "Old prompt",
+          status: "completed",
+          createdAt: "2026-05-11T00:00:01.000Z",
+        },
+        {
+          id: "m2",
+          turnId: "t1",
+          role: "assistant",
+          text: "Old reply",
+          status: "completed",
+          createdAt: "2026-05-11T00:00:02.000Z",
+        },
+      ],
+    });
+
+    expect(payload?.conversation).toEqual([
+      {
+        id: "m1",
+        turnId: "t1",
+        order: 0,
+        role: "user",
+        kind: "text",
+        text: "Old prompt",
+        status: "completed",
+        createdAt: "2026-05-11T00:00:01.000Z",
+      },
+      {
+        id: "m2",
+        turnId: "t1",
+        order: 1,
+        role: "assistant",
+        kind: "text",
+        text: "Old reply",
+        status: "completed",
+        createdAt: "2026-05-11T00:00:02.000Z",
+      },
+    ]);
   });
 });
 

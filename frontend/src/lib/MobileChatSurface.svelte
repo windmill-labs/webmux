@@ -99,6 +99,7 @@
         break;
       case "conversationStatus":
         conversation = applyConversationStatus(conversation, event);
+        syncConversationStream();
         break;
       case "error":
         conversationError = event.message;
@@ -106,7 +107,7 @@
     }
   }
 
-  function syncConversationStream(): void {
+  function syncConversationStream(force = false): void {
     if (!supportsStreaming(conversation)) {
       closeConversationStream();
       return;
@@ -114,6 +115,11 @@
 
     const conversationId = conversation?.conversationId ?? null;
     if (!conversationId) {
+      closeConversationStream();
+      return;
+    }
+
+    if (!force && conversation?.running !== true) {
       closeConversationStream();
       return;
     }
@@ -207,6 +213,7 @@
     isSending = true;
     conversationError = null;
     try {
+      syncConversationStream(true);
       const response = await sendWorktreeConversationMessage(worktree.branch, { text });
       composerText = "";
       if (conversation.conversationId !== response.conversationId) {

@@ -190,6 +190,7 @@ describe("MobileChatSurface", () => {
     });
 
     await screen.findByText("No messages yet. Send the first prompt to start this chat.");
+    expect(connectWorktreeConversationStream).not.toHaveBeenCalled();
 
     await fireEvent.input(screen.getByLabelText("Message"), {
       target: { value: "Ship it" },
@@ -206,6 +207,40 @@ describe("MobileChatSurface", () => {
     await screen.findByText("Ship it");
     await vi.advanceTimersByTimeAsync(5000);
     expect(fetchWorktreeConversationHistory).not.toHaveBeenCalled();
+  });
+
+  it("does not open an idle Codex stream after loading the snapshot", async () => {
+    vi.mocked(attachWorktreeConversation).mockResolvedValue(createConversationResponse("codexAppServer"));
+
+    render(MobileChatSurface, {
+      props: {
+        worktree: createWorktree({ agentName: "codex" }),
+      },
+    });
+
+    await screen.findByText("No messages yet. Send the first prompt to start this chat.");
+
+    expect(connectWorktreeConversationStream).not.toHaveBeenCalled();
+  });
+
+  it("opens a Codex stream immediately when the snapshot is already running", async () => {
+    vi.mocked(attachWorktreeConversation).mockResolvedValue(createConversationResponse("codexAppServer", {
+      running: true,
+      activeTurnId: "turn-1",
+    }));
+
+    render(MobileChatSurface, {
+      props: {
+        worktree: createWorktree({ agentName: "codex" }),
+      },
+    });
+
+    await waitFor(() => {
+      expect(connectWorktreeConversationStream).toHaveBeenCalledWith(
+        "feature/mobile-chat",
+        expect.any(Object),
+      );
+    });
   });
 
   it("does not duplicate optimistic Codex user messages when the stream upserts the real user item", async () => {
@@ -259,7 +294,10 @@ describe("MobileChatSurface", () => {
   });
 
   it("ignores stale Codex stream revisions", async () => {
-    vi.mocked(attachWorktreeConversation).mockResolvedValue(createConversationResponse("codexAppServer"));
+    vi.mocked(attachWorktreeConversation).mockResolvedValue(createConversationResponse("codexAppServer", {
+      running: true,
+      activeTurnId: "turn-1",
+    }));
 
     render(MobileChatSurface, {
       props: {
@@ -304,7 +342,10 @@ describe("MobileChatSurface", () => {
   });
 
   it("renders Codex stream events in their explicit order", async () => {
-    vi.mocked(attachWorktreeConversation).mockResolvedValue(createConversationResponse("codexAppServer"));
+    vi.mocked(attachWorktreeConversation).mockResolvedValue(createConversationResponse("codexAppServer", {
+      running: true,
+      activeTurnId: "turn-1",
+    }));
 
     render(MobileChatSurface, {
       props: {

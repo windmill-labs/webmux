@@ -28,7 +28,7 @@ export interface CodexAppServerAgentMessageItem {
   id: string;
   text?: string;
   message?: string;
-  phase?: string;
+  phase?: string | null;
   memoryCitation?: unknown;
 }
 
@@ -145,6 +145,11 @@ export interface CodexAppServerIgnoredItem {
   id: string;
 }
 
+export interface CodexAppServerGenericItem {
+  type: string;
+  id: string;
+}
+
 export type CodexAppServerTurnStatus = "completed" | "interrupted" | "failed" | "inProgress";
 
 export type CodexAppServerThreadItem =
@@ -155,7 +160,8 @@ export type CodexAppServerThreadItem =
   | CodexAppServerMcpToolCallItem
   | CodexAppServerDynamicToolCallItem
   | CodexAppServerWebSearchItem
-  | CodexAppServerIgnoredItem;
+  | CodexAppServerIgnoredItem
+  | CodexAppServerGenericItem;
 
 export interface CodexAppServerTurn {
   id: string;
@@ -310,7 +316,7 @@ const CodexAppServerAgentMessageItemSchema: z.ZodType<CodexAppServerAgentMessage
   id: z.string(),
   text: z.string().optional(),
   message: z.string().optional(),
-  phase: z.string().optional(),
+  phase: z.string().nullable().optional(),
   memoryCitation: UnknownValueSchema.optional(),
 });
 const CodexAppServerCommandActionSchema: z.ZodType<CodexAppServerCommandAction, z.ZodTypeDef, unknown> = z.object({
@@ -407,6 +413,10 @@ const CodexAppServerIgnoredItemSchema: z.ZodType<CodexAppServerIgnoredItem, z.Zo
   ]),
   id: z.string(),
 });
+const CodexAppServerGenericItemSchema: z.ZodType<CodexAppServerGenericItem, z.ZodTypeDef, unknown> = z.object({
+  type: z.string(),
+  id: z.string(),
+});
 const CodexAppServerThreadItemSchema: z.ZodType<CodexAppServerThreadItem, z.ZodTypeDef, unknown> = z.union([
   CodexAppServerUserMessageItemSchema,
   CodexAppServerAgentMessageItemSchema,
@@ -416,6 +426,7 @@ const CodexAppServerThreadItemSchema: z.ZodType<CodexAppServerThreadItem, z.ZodT
   CodexAppServerDynamicToolCallItemSchema,
   CodexAppServerWebSearchItemSchema,
   CodexAppServerIgnoredItemSchema,
+  CodexAppServerGenericItemSchema,
 ]);
 const CodexAppServerTurnSchema: z.ZodType<CodexAppServerTurn, z.ZodTypeDef, unknown> = z.object({
   id: z.string(),

@@ -24,6 +24,26 @@ function readThreadId(raw: unknown): string | null {
   return typeof raw === "string" && raw.length > 0 ? raw : null;
 }
 
+function readStatusType(raw: unknown): string | null {
+  if (typeof raw === "string") return raw;
+  if (!isRecord(raw)) return null;
+  return typeof raw.type === "string" ? raw.type : null;
+}
+
+function readNotificationStatusType(notification: CodexAppServerNotification): string | null {
+  const params = readNotificationParams(notification.params);
+  if (!params) return null;
+  return readStatusType(params.status) ?? (isRecord(params.thread) ? readStatusType(params.thread.status) : null);
+}
+
+function isTerminalThreadStatus(statusType: string | null): boolean {
+  return statusType === "idle"
+    || statusType === "completed"
+    || statusType === "interrupted"
+    || statusType === "failed"
+    || statusType === "systemError";
+}
+
 function readNumber(raw: unknown): number | null {
   return typeof raw === "number" ? raw : null;
 }
@@ -126,13 +146,27 @@ export function buildAgentsUiMessageUpsertEvents(
 export function buildAgentsUiConversationStatusEvent(
   notification: CodexAppServerNotification,
 ): AgentsUiConversationStatusPayload | null {
-  if (notification.method !== "turn/started" && notification.method !== "turn/completed") return null;
+  if (
+    notification.method !== "turn/started"
+    && notification.method !== "turn/completed"
+    && notification.method !== "thread/status/changed"
+  ) return null;
 
   const params = readNotificationParams(notification.params);
   if (!params) return null;
 
   const conversationId = readThreadId(params.threadId);
   if (!conversationId) return null;
+
+  if (notification.method === "thread/status/changed") {
+    if (!isTerminalThreadStatus(readNotificationStatusType(notification))) return null;
+    return {
+      type: "conversationStatus",
+      conversationId,
+      running: false,
+      activeTurnId: null,
+    };
+  }
 
   if (notification.method === "turn/started") {
     const activeTurnId = readThreadId(params.turnId);

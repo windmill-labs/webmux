@@ -38,6 +38,7 @@ import type {
 import { log } from "../lib/log";
 import { isRecord } from "../lib/type-guards";
 import { buildAgentsUiWorktreeSummary } from "./agents-ui-service";
+import { readCodexSessionMessages } from "./codex-session-log-service";
 import { err, ok, type WorktreeConversationResult } from "./worktree-conversation-result";
 
 export interface CodexAppServerLaunchContext {
@@ -58,6 +59,7 @@ export interface WorktreeConversationServiceDependencies {
     input: ResolveCodexAppServerLaunchContextInput,
   ) => Promise<WorktreeConversationResult<CodexAppServerLaunchContext>> | WorktreeConversationResult<CodexAppServerLaunchContext>;
   now?: () => Date;
+  readSessionMessages?: (thread: CodexAppServerThread) => Promise<AgentsUiConversationMessage[]>;
   readMeta?: (gitDir: string) => Promise<WorktreeMeta | null>;
   writeMeta?: (gitDir: string, meta: WorktreeMeta) => Promise<void>;
 }
@@ -493,14 +495,15 @@ export function buildCodexItemConversationMessages(input: {
   if (isAgentMessageItem(item)) {
     const text = extractAgentText(item);
     if (text.length === 0 && !includeEmptyText) return [];
-    const isThinking = item.phase === "analysis";
+    const phase = item.phase ?? undefined;
+    const isThinking = phase === "analysis";
     return [{
       id: item.id,
       turnId,
       order,
       role: "assistant",
       kind: isThinking ? "thinking" : "text",
-      phase: item.phase,
+      phase,
       text,
       status: isActiveTurnStatus(turnStatus) ? "inProgress" : "completed",
       createdAt,
@@ -539,15 +542,17 @@ function buildConversationMessages(thread: CodexAppServerThread): AgentsUiConver
 
 export function buildConversationState(
   thread: CodexAppServerThread,
+  sessionMessages: AgentsUiConversationMessage[] = [],
 ): AgentsUiConversationState {
   const activeTurn = findActiveTurn(thread);
+  const messages = sessionMessages.length > 0 ? sessionMessages : buildConversationMessages(thread);
   return {
     provider: "codexAppServer",
     conversationId: thread.id,
     cwd: thread.cwd,
     running: thread.status.type === "active" || activeTurn !== null,
     activeTurnId: activeTurn?.id ?? null,
-    messages: buildConversationMessages(thread),
+    messages,
   };
 }
 
@@ -578,20 +583,23 @@ function toWorktreeConversationResponse(
   worktree: WorktreeSnapshot,
   conversationMeta: WorktreeConversationMeta,
   thread: CodexAppServerThread,
+  sessionMessages: AgentsUiConversationMessage[],
 ): AgentsUiWorktreeConversationResponse {
   return {
     worktree: buildAgentsUiWorktreeSummary(worktree, conversationMeta),
-    conversation: buildConversationState(thread),
+    conversation: buildConversationState(thread, sessionMessages),
   };
 }
 
 export class WorktreeConversationService {
   private readonly now: () => Date;
+  private readonly readSessionMessages: (thread: CodexAppServerThread) => Promise<AgentsUiConversationMessage[]>;
   private readonly readMeta;
   private readonly writeMeta;
 
   constructor(private readonly deps: WorktreeConversationServiceDependencies) {
     this.now = deps.now ?? (() => new Date());
+    this.readSessionMessages = deps.readSessionMessages ?? readCodexSessionMessages;
     this.readMeta = deps.readMeta ?? readWorktreeMeta;
     this.writeMeta = deps.writeMeta ?? writeWorktreeMeta;
   }
@@ -600,7 +608,8 @@ export class WorktreeConversationService {
     worktree: WorktreeSnapshot,
   ): Promise<WorktreeConversationResult<AgentsUiWorktreeConversationResponse>> {
     return await this.withResolvedConversation(worktree, true, async ({ conversationMeta, thread }) => {
-      return ok(toWorktreeConversationResponse(worktree, conversationMeta, thread));
+      const sessionMessages = await this.readSessionMessages(thread);
+      return ok(toWorktreeConversationResponse(worktree, conversationMeta, thread, sessionMessages));
     });
   }
 
@@ -608,7 +617,8 @@ export class WorktreeConversationService {
     worktree: WorktreeSnapshot,
   ): Promise<WorktreeConversationResult<AgentsUiWorktreeConversationResponse>> {
     return await this.withResolvedConversation(worktree, false, async ({ conversationMeta, thread }) => {
-      return ok(toWorktreeConversationResponse(worktree, conversationMeta, thread));
+      const sessionMessages = await this.readSessionMessages(thread);
+      return ok(toWorktreeConversationResponse(worktree, conversationMeta, thread, sessionMessages));
     });
   }
 

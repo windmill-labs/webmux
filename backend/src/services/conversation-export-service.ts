@@ -1,4 +1,9 @@
-import { AgentIdSchema, AgentsUiConversationMessageSchema, type AgentsUiConversationState } from "@webmux/api-contract";
+import {
+  AgentIdSchema,
+  AgentsUiConversationMessageKindSchema,
+  AgentsUiConversationMessageSchema,
+  type AgentsUiConversationState,
+} from "@webmux/api-contract";
 import { z } from "zod";
 import { log } from "../lib/log";
 import {
@@ -17,16 +22,32 @@ import {
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
+const WebmuxConversationAttachmentMessageSchema = AgentsUiConversationMessageSchema.extend({
+  order: z.number().int().nonnegative().optional(),
+  kind: AgentsUiConversationMessageKindSchema.optional(),
+});
+
 const WebmuxConversationAttachmentPayloadSchema = z.object({
   webmux: z.literal(1),
   branch: z.string(),
   baseBranch: z.string().nullable(),
   agent: AgentIdSchema.nullable(),
   createdAt: z.string(),
-  conversation: z.array(AgentsUiConversationMessageSchema),
+  conversation: z.array(WebmuxConversationAttachmentMessageSchema).transform((messages) =>
+    messages.map((message, order) => ({
+      ...message,
+      order: message.order ?? order,
+      kind: message.kind ?? "text",
+    }))
+  ),
 });
 
 export type WebmuxConversationAttachmentPayload = z.infer<typeof WebmuxConversationAttachmentPayloadSchema>;
+
+export function parseWebmuxConversationAttachmentPayload(raw: unknown): WebmuxConversationAttachmentPayload | null {
+  const parsed = WebmuxConversationAttachmentPayloadSchema.safeParse(raw);
+  return parsed.success ? parsed.data : null;
+}
 
 export interface ExportTargetIssue {
   kind: "issue";
@@ -347,11 +368,11 @@ export async function downloadWebmuxAttachmentDefault(url: string): Promise<
       return { ok: false, error: `Asset download failed ${res.status}` };
     }
     const text = await res.text();
-    const parsed = WebmuxConversationAttachmentPayloadSchema.safeParse(JSON.parse(text));
-    if (!parsed.success) {
+    const parsed = parseWebmuxConversationAttachmentPayload(JSON.parse(text));
+    if (!parsed) {
       return { ok: false, error: "Asset is not a webmux conversation payload" };
     }
-    return { ok: true, data: parsed.data };
+    return { ok: true, data: parsed };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return { ok: false, error: msg };

@@ -880,6 +880,89 @@ describe("WorktreeConversationService", () => {
     );
   });
 
+  it("uses JSONL session messages as the Codex snapshot transcript when available", async () => {
+    const metaStore = new Map<string, WorktreeMeta>();
+    const worktree = makeWorktree();
+    const gitDir = `${worktree.path}/.git`;
+    metaStore.set(gitDir, makeMeta());
+
+    const thread = makeThread({
+      id: "thread-jsonl",
+      cwd: worktree.path,
+      updatedAt: 250,
+      statusType: "idle",
+      source: "cli",
+      turns: [
+        makeTurn({
+          id: "turn-jsonl",
+          status: "completed",
+          startedAt: 111,
+          items: [
+            {
+              type: "userMessage",
+              id: "user-app-server",
+              content: [{ type: "text", text: "App server text only" }],
+            },
+          ],
+        }),
+      ],
+    });
+    const appServer = new FakeCodexAppServer();
+    appServer.listedThreads = [thread];
+    appServer.threads.set(thread.id, structuredClone(thread));
+
+    const service = new WorktreeConversationService({
+      appServer,
+      git: new FakeGitGateway(),
+      resolveLaunchContext: allowCodexLaunchContext,
+      readSessionMessages: async () => [
+        {
+          id: "call-1",
+          turnId: "turn-jsonl",
+          order: 0,
+          role: "assistant",
+          kind: "toolUse",
+          toolName: "exec_command",
+          toolCallId: "call-1",
+          text: "bun test",
+          command: "bun test",
+          status: "completed",
+          createdAt: "2026-05-29T10:00:00.000Z",
+        },
+        {
+          id: "call-1:result",
+          turnId: "turn-jsonl",
+          order: 1,
+          role: "user",
+          kind: "toolResult",
+          toolName: "exec_command",
+          toolCallId: "call-1",
+          text: "pass",
+          command: "bun test",
+          status: "completed",
+          createdAt: "2026-05-29T10:00:01.000Z",
+        },
+      ],
+      readMeta: async (path) => structuredClone(metaStore.get(path) ?? null),
+      writeMeta: async (path, meta) => {
+        metaStore.set(path, structuredClone(meta));
+      },
+    });
+
+    const result = await service.attachWorktreeConversation(worktree);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.data.conversation.messages.map((message) => message.id)).toEqual([
+      "call-1",
+      "call-1:result",
+    ]);
+    expect(result.data.conversation.messages.map((message) => message.text)).toEqual([
+      "bun test",
+      "pass",
+    ]);
+  });
+
   it("creates a new thread on attach when none can be resolved", async () => {
     const metaStore = new Map<string, WorktreeMeta>();
     const worktree = makeWorktree();

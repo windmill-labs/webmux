@@ -142,6 +142,7 @@ describe("WorktreeConversationPanel", () => {
           {
             id: "thinking-1",
             turnId: "turn-1",
+            order: 0,
             role: "assistant",
             kind: "thinking",
             text: "I will inspect the directory.",
@@ -151,6 +152,7 @@ describe("WorktreeConversationPanel", () => {
           {
             id: "call-1",
             turnId: "turn-1",
+            order: 1,
             role: "assistant",
             kind: "toolUse",
             toolName: "shell",
@@ -165,6 +167,7 @@ describe("WorktreeConversationPanel", () => {
           {
             id: "call-1:result",
             turnId: "turn-1",
+            order: 2,
             role: "user",
             kind: "toolResult",
             toolCallId: "call-1",
@@ -227,6 +230,7 @@ describe("WorktreeConversationPanel", () => {
           {
             id: "assistant-1",
             turnId: "turn-1",
+            order: 0,
             role: "assistant",
             kind: "text",
             text: "I am checking the files.",
@@ -252,6 +256,7 @@ describe("WorktreeConversationPanel", () => {
           {
             id: "assistant-empty",
             turnId: "turn-1",
+            order: 0,
             role: "assistant",
             kind: "text",
             text: "",
@@ -277,6 +282,7 @@ describe("WorktreeConversationPanel", () => {
           {
             id: "call-1",
             turnId: "turn-1",
+            order: 0,
             role: "assistant",
             kind: "toolUse",
             toolName: "shell",

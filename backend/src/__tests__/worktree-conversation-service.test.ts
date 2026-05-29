@@ -300,6 +300,7 @@ describe("buildConversationState", () => {
         {
           id: "user-1",
           turnId: "turn-1",
+          order: 0,
           role: "user",
           kind: "text",
           text: "Inspect the diff",
@@ -309,6 +310,7 @@ describe("buildConversationState", () => {
         {
           id: "assistant-1",
           turnId: "turn-1",
+          order: 1,
           role: "assistant",
           kind: "text",
           phase: "final_answer",
@@ -349,6 +351,7 @@ describe("buildConversationState", () => {
       {
         id: "assistant-message-field",
         turnId: "turn-message-field",
+        order: 0,
         role: "assistant",
         kind: "text",
         phase: "final_answer",
@@ -399,6 +402,7 @@ describe("buildConversationState", () => {
       {
         id: "commentary-1",
         turnId: "turn-tools",
+        order: 0,
         role: "assistant",
         kind: "text",
         phase: "commentary",
@@ -409,6 +413,7 @@ describe("buildConversationState", () => {
       {
         id: "call-1",
         turnId: "turn-tools",
+        order: 1,
         role: "assistant",
         kind: "toolUse",
         toolName: "shell",
@@ -424,6 +429,7 @@ describe("buildConversationState", () => {
       {
         id: "call-1:result",
         turnId: "turn-tools",
+        order: 2,
         role: "user",
         kind: "toolResult",
         toolName: "shell",
@@ -439,7 +445,7 @@ describe("buildConversationState", () => {
     ]);
   });
 
-  it("dedupes app-server command execution items against session-log tool calls with different ids", () => {
+  it("uses app-server command execution items as the transcript source", () => {
     const thread = makeThread({
       id: "thread-tools",
       cwd: "/tmp/worktree",
@@ -468,39 +474,11 @@ describe("buildConversationState", () => {
       ],
     });
 
-    expect(buildConversationState(thread, [
-      {
-        id: "call-log-1",
-        turnId: "turn-tools",
-        role: "assistant",
-        kind: "toolUse",
-        toolName: "exec_command",
-        toolCallId: "call-log-1",
-        text: "ls",
-        command: "ls",
-        cwd: "/tmp/worktree",
-        status: "completed",
-        createdAt: "1970-01-01T00:03:20.000Z",
-        exitCode: 0,
-      },
-      {
-        id: "call-log-1:result",
-        turnId: "turn-tools",
-        role: "user",
-        kind: "toolResult",
-        toolName: "exec_command",
-        toolCallId: "call-log-1",
-        text: "README.md",
-        command: "ls",
-        cwd: "/tmp/worktree",
-        status: "completed",
-        createdAt: "1970-01-01T00:03:20.000Z",
-        exitCode: 0,
-      },
-    ]).messages).toEqual([
+    expect(buildConversationState(thread).messages).toEqual([
       {
         id: "item-tool-1",
         turnId: "turn-tools",
+        order: 0,
         role: "assistant",
         kind: "toolUse",
         toolName: "shell",
@@ -516,6 +494,7 @@ describe("buildConversationState", () => {
       {
         id: "item-tool-1:result",
         turnId: "turn-tools",
+        order: 1,
         role: "user",
         kind: "toolResult",
         toolName: "shell",
@@ -596,6 +575,7 @@ describe("buildConversationState", () => {
         {
           id: "user-2",
           turnId: "turn-interrupted",
+          order: 0,
           role: "user",
           kind: "text",
           text: "Stop after the grep",
@@ -605,6 +585,7 @@ describe("buildConversationState", () => {
         {
           id: "assistant-2",
           turnId: "turn-interrupted",
+          order: 1,
           role: "assistant",
           kind: "text",
           phase: "final_answer",

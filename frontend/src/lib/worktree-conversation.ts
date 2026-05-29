@@ -5,15 +5,50 @@ import type {
   AgentsUiConversationState,
 } from "./types";
 
-function buildOptimisticUserMessage(turnId: string, text: string): AgentsUiConversationMessage {
+function compareMessagesByOrder(left: AgentsUiConversationMessage, right: AgentsUiConversationMessage): number {
+  return left.order - right.order;
+}
+
+function orderConversationMessages(messages: AgentsUiConversationMessage[]): AgentsUiConversationMessage[] {
+  return [...messages].sort(compareMessagesByOrder);
+}
+
+function nextMessageOrder(conversation: AgentsUiConversationState): number {
+  return conversation.messages.reduce((order, message) => Math.max(order, message.order + 1), 0);
+}
+
+function buildOptimisticUserMessage(turnId: string, text: string, order: number): AgentsUiConversationMessage {
   return {
     id: `pending-user:${turnId}`,
     turnId,
+    order,
     role: "user",
+    kind: "text",
     text,
     status: "completed",
     createdAt: new Date().toISOString(),
   };
+}
+
+function isOptimisticUserMessage(message: AgentsUiConversationMessage): boolean {
+  return message.role === "user" && message.id.startsWith("pending-user:");
+}
+
+function isServerUserForPendingTurn(
+  pendingMessage: AgentsUiConversationMessage,
+  incomingMessage: AgentsUiConversationMessage,
+): boolean {
+  return incomingMessage.role === "user"
+    && incomingMessage.kind === "text"
+    && pendingMessage.turnId === incomingMessage.turnId;
+}
+
+function replaceAt(
+  messages: AgentsUiConversationMessage[],
+  index: number,
+  message: AgentsUiConversationMessage,
+): AgentsUiConversationMessage[] {
+  return messages.map((current, currentIndex) => currentIndex === index ? message : current);
 }
 
 export function applyConversationMessageDelta(
@@ -23,137 +58,33 @@ export function applyConversationMessageDelta(
   if (!conversation || conversation.conversationId !== event.conversationId) return conversation;
 
   const existingIndex = conversation.messages.findIndex((message) => message.id === event.itemId);
-  if (existingIndex === -1) {
-    return {
-      ...conversation,
-      running: true,
-      activeTurnId: event.turnId,
-      messages: [
+  const existingMessage = existingIndex === -1 ? null : conversation.messages[existingIndex] ?? null;
+  const messages = existingMessage
+    ? replaceAt(conversation.messages, existingIndex, {
+        ...existingMessage,
+        text: `${existingMessage.text}${event.delta}`,
+        status: "inProgress",
+      })
+    : [
         ...conversation.messages,
         {
           id: event.itemId,
           turnId: event.turnId,
+          order: event.order,
           role: "assistant",
           kind: "text",
           text: event.delta,
           status: "inProgress",
           createdAt: null,
         },
-      ],
-    };
-  }
-
-  const existingMessage = conversation.messages[existingIndex];
-  if (!existingMessage) return conversation;
-  const nextMessage: AgentsUiConversationMessage = {
-    ...existingMessage,
-    text: `${existingMessage.text}${event.delta}`,
-    status: "inProgress",
-  };
+      ];
 
   return {
     ...conversation,
     running: true,
     activeTurnId: event.turnId,
-    messages: replaceConversationMessage(conversation.messages, existingIndex, nextMessage),
+    messages: orderConversationMessages(messages),
   };
-}
-
-function mergeConversationMessage(
-  _existing: AgentsUiConversationMessage,
-  incoming: AgentsUiConversationMessage,
-): AgentsUiConversationMessage {
-  return incoming;
-}
-
-function mergeConversationUpsertMessage(
-  existing: AgentsUiConversationMessage,
-  incoming: AgentsUiConversationMessage,
-): AgentsUiConversationMessage {
-  const text = incoming.text.length >= existing.text.length ? incoming.text : existing.text;
-  return {
-    ...existing,
-    ...incoming,
-    text,
-  };
-}
-
-function messageKind(message: AgentsUiConversationMessage): NonNullable<AgentsUiConversationMessage["kind"]> {
-  return message.kind ?? "text";
-}
-
-function isAssistantTextMessage(message: AgentsUiConversationMessage): boolean {
-  const kind = messageKind(message);
-  return message.role === "assistant" && (kind === "text" || kind === "thinking");
-}
-
-function shouldMoveNewlyVisibleAssistantMessage(
-  existing: AgentsUiConversationMessage,
-  incoming: AgentsUiConversationMessage,
-): boolean {
-  return isAssistantTextMessage(existing)
-    && isAssistantTextMessage(incoming)
-    && existing.text.trim().length === 0
-    && incoming.text.trim().length > 0;
-}
-
-function replaceConversationMessage(
-  messages: AgentsUiConversationMessage[],
-  index: number,
-  nextMessage: AgentsUiConversationMessage,
-): AgentsUiConversationMessage[] {
-  const existing = messages[index];
-  if (!existing) return messages;
-  if (shouldMoveNewlyVisibleAssistantMessage(existing, nextMessage)) {
-    return [
-      ...messages.slice(0, index),
-      ...messages.slice(index + 1),
-      nextMessage,
-    ];
-  }
-  return messages.map((message, messageIndex) => messageIndex === index ? nextMessage : message);
-}
-
-function normalizedMessageText(message: AgentsUiConversationMessage): string {
-  return message.text.trim();
-}
-
-function textOverlaps(left: string, right: string): boolean {
-  return left === right || left.startsWith(right) || right.startsWith(left);
-}
-
-function isSameServerUserMessage(
-  pendingMessage: AgentsUiConversationMessage,
-  incomingMessage: AgentsUiConversationMessage,
-): boolean {
-  return incomingMessage.role === "user"
-    && messageKind(incomingMessage) === "text"
-    && (
-      pendingMessage.turnId === incomingMessage.turnId
-      || normalizedMessageText(pendingMessage) === normalizedMessageText(incomingMessage)
-    );
-}
-
-function isSameLogicalConversationMessage(
-  existing: AgentsUiConversationMessage,
-  incoming: AgentsUiConversationMessage,
-): boolean {
-  if (existing.id === incoming.id) return true;
-  if (isOptimisticUserMessage(existing)) {
-    return isSameServerUserMessage(existing, incoming);
-  }
-  if (existing.role !== incoming.role) return false;
-  if (messageKind(existing) !== messageKind(incoming)) return false;
-  if (existing.toolCallId && incoming.toolCallId) return existing.toolCallId === incoming.toolCallId;
-  if (existing.turnId !== incoming.turnId) return false;
-  if (existing.phase !== incoming.phase) return false;
-
-  const kind = messageKind(existing);
-  if (kind === "text" || kind === "thinking") {
-    return textOverlaps(existing.text, incoming.text);
-  }
-
-  return false;
 }
 
 export function applyConversationMessageUpsert(
@@ -162,76 +93,63 @@ export function applyConversationMessageUpsert(
 ): AgentsUiConversationState | null {
   if (!conversation || conversation.conversationId !== event.conversationId) return conversation;
 
-  const existingIndex = conversation.messages.findIndex((message) =>
-    isSameLogicalConversationMessage(message, event.message)
-  );
-  const existingMessage = existingIndex === -1 ? null : conversation.messages[existingIndex] ?? null;
-  const messages = existingIndex === -1 || !existingMessage
+  const exactIndex = conversation.messages.findIndex((message) => message.id === event.message.id);
+  const optimisticIndex = exactIndex === -1
+    ? conversation.messages.findIndex((message) =>
+        isOptimisticUserMessage(message) && isServerUserForPendingTurn(message, event.message)
+      )
+    : -1;
+  const existingIndex = exactIndex === -1 ? optimisticIndex : exactIndex;
+  const messages = existingIndex === -1
     ? [...conversation.messages, event.message]
-    : replaceConversationMessage(
-        conversation.messages,
-        existingIndex,
-        mergeConversationUpsertMessage(existingMessage, event.message),
-      );
+    : replaceAt(conversation.messages, existingIndex, event.message);
 
   return {
     ...conversation,
     running: conversation.running || event.message.status === "inProgress",
     activeTurnId: event.message.status === "inProgress" ? event.message.turnId : conversation.activeTurnId,
-    messages,
+    messages: orderConversationMessages(messages),
   };
-}
-
-function isOptimisticUserMessage(message: AgentsUiConversationMessage): boolean {
-  return message.role === "user" && message.id.startsWith("pending-user:");
 }
 
 export function mergeConversationSnapshot(
   current: AgentsUiConversationState | null,
   incoming: AgentsUiConversationState,
 ): AgentsUiConversationState {
+  const orderedIncoming = {
+    ...incoming,
+    messages: orderConversationMessages(incoming.messages),
+  };
+
   if (!current || current.conversationId !== incoming.conversationId || current.provider !== incoming.provider) {
-    return incoming;
+    return orderedIncoming;
   }
 
-  const incomingById = new Map(incoming.messages.map((message) => [message.id, message]));
-  const currentById = new Map(current.messages.map((message) => [message.id, message]));
-  const newlyArrivedUserMessages = incoming.messages.filter((message) =>
-    message.role === "user" && !currentById.has(message.id)
-  );
-  const seen = new Set<string>();
-  const messages: AgentsUiConversationMessage[] = [];
+  const incomingUserMessages = orderedIncoming.messages.filter((message) => message.role === "user");
+  const messages = [...orderedIncoming.messages];
+  let nextOrder = messages.reduce((order, message) => Math.max(order, message.order + 1), 0);
   let preservedOptimisticTurnId: string | null = null;
 
   for (const currentMessage of current.messages) {
-    const incomingMessage = incomingById.get(currentMessage.id);
-    if (incomingMessage) {
-      messages.push(mergeConversationMessage(currentMessage, incomingMessage));
-      seen.add(currentMessage.id);
-      continue;
-    }
+    if (!isOptimisticUserMessage(currentMessage)) continue;
+    const serverMessageArrived = incomingUserMessages.some((message) =>
+      isServerUserForPendingTurn(currentMessage, message)
+    );
+    if (serverMessageArrived) continue;
 
-    if (
-      isOptimisticUserMessage(currentMessage)
-      && !newlyArrivedUserMessages.some((message) => isSameServerUserMessage(currentMessage, message))
-    ) {
-      messages.push(currentMessage);
-      preservedOptimisticTurnId = currentMessage.turnId;
-      seen.add(currentMessage.id);
-    }
-  }
-
-  for (const incomingMessage of incoming.messages) {
-    if (seen.has(incomingMessage.id)) continue;
-    const currentMessage = currentById.get(incomingMessage.id);
-    messages.push(currentMessage ? mergeConversationMessage(currentMessage, incomingMessage) : incomingMessage);
+    messages.push({
+      ...currentMessage,
+      order: nextOrder,
+    });
+    nextOrder += 1;
+    preservedOptimisticTurnId = currentMessage.turnId;
   }
 
   return {
-    ...incoming,
-    running: incoming.running || preservedOptimisticTurnId !== null,
-    activeTurnId: incoming.activeTurnId ?? preservedOptimisticTurnId,
-    messages,
+    ...orderedIncoming,
+    running: orderedIncoming.running || preservedOptimisticTurnId !== null,
+    activeTurnId: orderedIncoming.activeTurnId ?? preservedOptimisticTurnId,
+    messages: orderConversationMessages(messages),
   };
 }
 
@@ -244,25 +162,26 @@ export function markConversationTurnStarted(
 
   const nextMessages = conversation.messages.some((message) => message.turnId === turnId && message.role === "user")
     ? conversation.messages
-    : [...conversation.messages, buildOptimisticUserMessage(turnId, text)];
+    : [...conversation.messages, buildOptimisticUserMessage(turnId, text, nextMessageOrder(conversation))];
 
   return {
     ...conversation,
     running: true,
     activeTurnId: turnId,
-    messages: nextMessages,
+    messages: orderConversationMessages(nextMessages),
   };
 }
 
 export function buildConversationProgressSignature(conversation: AgentsUiConversationState | null): string | null {
   if (!conversation) return null;
 
-  const lastMessage = conversation.messages[conversation.messages.length - 1] ?? null;
+  const messages = orderConversationMessages(conversation.messages);
+  const lastMessage = messages[messages.length - 1] ?? null;
   return JSON.stringify({
     conversationId: conversation.conversationId,
     running: conversation.running,
     activeTurnId: conversation.activeTurnId,
-    messageCount: conversation.messages.length,
+    messageCount: messages.length,
     lastMessageId: lastMessage?.id ?? null,
     lastMessageStatus: lastMessage?.status ?? null,
     lastMessageTextLength: lastMessage?.text.length ?? 0,

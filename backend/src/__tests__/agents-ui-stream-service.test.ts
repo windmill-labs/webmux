@@ -74,11 +74,12 @@ describe("agents-ui-stream-service", () => {
         itemId: "item-1",
         delta: "hello",
       },
-    })).toEqual({
+    }, 7)).toEqual({
       type: "messageDelta",
       conversationId: "thread-1",
       turnId: "turn-1",
       itemId: "item-1",
+      order: 7,
       delta: "hello",
     });
   });
@@ -98,13 +99,14 @@ describe("agents-ui-stream-service", () => {
           memoryCitation: null,
         },
       },
-    })).toEqual([
+    }, 3)).toEqual([
       {
         type: "messageUpsert",
         conversationId: "thread-1",
         message: {
           id: "commentary-1",
           turnId: "turn-1",
+          order: 3,
           role: "assistant",
           kind: "text",
           phase: "commentary",
@@ -139,6 +141,16 @@ describe("agents-ui-stream-service", () => {
       params: {
         threadId: "thread-1",
         item: {
+          type: "commandExecution",
+        },
+      },
+    })).toBe(true);
+
+    expect(shouldRefreshAgentsConversationSnapshot({
+      method: "item/completed",
+      params: {
+        threadId: "thread-1",
+        item: {
           type: "reasoning",
         },
       },
@@ -164,13 +176,14 @@ describe("agents-ui-stream-service", () => {
           durationMs: 4,
         },
       },
-    })).toEqual([
+    }, 4)).toEqual([
       {
         type: "messageUpsert",
         conversationId: "thread-1",
         message: {
           id: "call-1",
           turnId: "turn-1",
+          order: 4,
           role: "assistant",
           kind: "toolUse",
           toolName: "shell",
@@ -190,6 +203,7 @@ describe("agents-ui-stream-service", () => {
         message: {
           id: "call-1:result",
           turnId: "turn-1",
+          order: 5,
           role: "user",
           kind: "toolResult",
           toolName: "shell",
@@ -207,10 +221,14 @@ describe("agents-ui-stream-service", () => {
   });
 
   it("merges live stream messages into stale snapshots on the server side", () => {
-    expect(mergeConversationSnapshotWithLiveMessages(makeSnapshot(), [
+    expect(mergeConversationSnapshotWithLiveMessages(makeSnapshot({
+      running: true,
+      activeTurnId: "turn-1",
+    }), [
       {
         id: "assistant-1",
         turnId: "turn-1",
+        order: 0,
         role: "assistant",
         kind: "text",
         text: "Streaming status",
@@ -227,6 +245,7 @@ describe("agents-ui-stream-service", () => {
         {
           id: "assistant-1",
           turnId: "turn-1",
+          order: 0,
           role: "assistant",
           kind: "text",
           text: "Streaming status",
@@ -237,12 +256,13 @@ describe("agents-ui-stream-service", () => {
     });
   });
 
-  it("does not duplicate live messages already present in snapshots under a new item id", () => {
+  it("does not reconcile different item ids by matching text", () => {
     expect(mergeConversationSnapshotWithLiveMessages(makeSnapshot({
       messages: [
         {
           id: "snapshot-assistant",
           turnId: "turn-1",
+          order: 0,
           role: "assistant",
           kind: "text",
           phase: "final_answer",
@@ -255,6 +275,7 @@ describe("agents-ui-stream-service", () => {
       {
         id: "live-assistant",
         turnId: "turn-1",
+        order: 1,
         role: "assistant",
         kind: "text",
         phase: "final_answer",
@@ -266,6 +287,7 @@ describe("agents-ui-stream-service", () => {
       {
         id: "snapshot-assistant",
         turnId: "turn-1",
+        order: 0,
         role: "assistant",
         kind: "text",
         phase: "final_answer",
@@ -276,12 +298,13 @@ describe("agents-ui-stream-service", () => {
     ]);
   });
 
-  it("does not keep running true when a completed snapshot has shorter text", () => {
+  it("trusts completed snapshot text even when live text is longer", () => {
     expect(mergeConversationSnapshotWithLiveMessages(makeSnapshot({
       messages: [
         {
           id: "assistant-1",
           turnId: "turn-1",
+          order: 0,
           role: "assistant",
           kind: "text",
           text: "Partial",
@@ -293,6 +316,7 @@ describe("agents-ui-stream-service", () => {
       {
         id: "assistant-1",
         turnId: "turn-1",
+        order: 0,
         role: "assistant",
         kind: "text",
         text: "Partial answer",
@@ -309,9 +333,10 @@ describe("agents-ui-stream-service", () => {
         {
           id: "assistant-1",
           turnId: "turn-1",
+          order: 0,
           role: "assistant",
           kind: "text",
-          text: "Partial answer",
+          text: "Partial",
           status: "completed",
           createdAt: "2026-05-28T10:50:41.194Z",
         },
@@ -319,7 +344,7 @@ describe("agents-ui-stream-service", () => {
     });
   });
 
-  it("adds revisions and includes live deltas in refresh snapshots", async () => {
+  it("adds revisions and trusts the completed refresh snapshot", async () => {
     const events: AgentsUiConversationEvent[] = [];
     const session = new AgentsConversationStreamSession({
       conversationId: "thread-1",
@@ -368,18 +393,7 @@ describe("agents-ui-stream-service", () => {
       data: makeSnapshot({
         running: false,
         activeTurnId: null,
-        messages: [
-          {
-            id: "assistant-1",
-            turnId: "turn-1",
-            role: "assistant",
-            kind: "text",
-            phase: "commentary",
-            text: "Streaming status",
-            status: "completed",
-            createdAt: "2026-05-28T10:50:41.194Z",
-          },
-        ],
+        messages: [],
       }),
     });
   });
@@ -447,17 +461,7 @@ describe("agents-ui-stream-service", () => {
       data: makeSnapshot({
         running: false,
         activeTurnId: null,
-        messages: [
-          {
-            id: "assistant-1",
-            turnId: "turn-1",
-            role: "assistant",
-            kind: "text",
-            text: "Partial answer",
-            status: "completed",
-            createdAt: null,
-          },
-        ],
+        messages: [],
       }),
     });
   });

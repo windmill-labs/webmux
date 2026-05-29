@@ -19,6 +19,7 @@ type ConversationSnapshotLoader = () => Promise<{
   ok: false;
   message: string;
 }>;
+const CODEX_ITEM_ORDER_SPAN = 2;
 
 function readNotificationParams(raw: unknown): Record<string, unknown> | null {
   return isRecord(raw) ? raw : null;
@@ -28,28 +29,9 @@ function readThreadId(raw: unknown): string | null {
   return typeof raw === "string" && raw.length > 0 ? raw : null;
 }
 
-function readNotificationTurnId(notification: CodexAppServerNotification): string | null {
-  const params = readNotificationParams(notification.params);
-  if (!params) return null;
-  return readThreadId(params.turnId);
-}
-
 function readNotificationItemType(raw: unknown): string | null {
   if (!isRecord(raw)) return null;
   return typeof raw.type === "string" ? raw.type : null;
-}
-
-function readStatusType(raw: unknown): string | null {
-  if (typeof raw === "string") return raw;
-  if (!isRecord(raw)) return null;
-  if (typeof raw.type === "string") return raw.type;
-  return null;
-}
-
-function readNotificationStatusType(notification: CodexAppServerNotification): string | null {
-  const params = readNotificationParams(notification.params);
-  if (!params) return null;
-  return readStatusType(params.status) ?? (isRecord(params.thread) ? readStatusType(params.thread.status) : null);
 }
 
 function readNumber(raw: unknown): number | null {
@@ -61,6 +43,14 @@ function toIsoTimestampMs(epochMs: number | null): string | null {
   return new Date(epochMs).toISOString();
 }
 
+function compareMessagesByOrder(left: AgentsUiConversationMessage, right: AgentsUiConversationMessage): number {
+  return left.order - right.order;
+}
+
+function sortMessages(messages: AgentsUiConversationMessage[]): AgentsUiConversationMessage[] {
+  return [...messages].sort(compareMessagesByOrder);
+}
+
 export function readAgentsNotificationThreadId(notification: CodexAppServerNotification): string | null {
   const params = readNotificationParams(notification.params);
   if (!params) return null;
@@ -69,6 +59,7 @@ export function readAgentsNotificationThreadId(notification: CodexAppServerNotif
 
 export function buildAgentsUiMessageDeltaEvent(
   notification: CodexAppServerNotification,
+  order: number,
 ): AgentsUiConversationMessageDeltaPayload | null {
   if (notification.method !== "item/agentMessage/delta") return null;
 
@@ -87,12 +78,14 @@ export function buildAgentsUiMessageDeltaEvent(
     conversationId: threadId,
     turnId,
     itemId,
+    order,
     delta,
   };
 }
 
 export function buildAgentsUiMessageUpsertEvents(
   notification: CodexAppServerNotification,
+  order: number,
 ): AgentsUiConversationMessageUpsertPayload[] {
   if (notification.method !== "item/started" && notification.method !== "item/completed") return [];
 
@@ -117,6 +110,7 @@ export function buildAgentsUiMessageUpsertEvents(
     turnId,
     turnStatus: notification.method === "item/started" ? "inProgress" : "completed",
     createdAt,
+    order,
     includeEmptyText: true,
   }).map((message) => ({
     type: "messageUpsert",
@@ -125,140 +119,38 @@ export function buildAgentsUiMessageUpsertEvents(
   }));
 }
 
-function mergeConversationMessage(
-  existing: AgentsUiConversationMessage,
-  incoming: AgentsUiConversationMessage,
-): AgentsUiConversationMessage {
-  const text = incoming.text.length >= existing.text.length ? incoming.text : existing.text;
-  return {
-    ...existing,
-    ...incoming,
-    text,
-  };
-}
-
-function messageKind(message: AgentsUiConversationMessage): NonNullable<AgentsUiConversationMessage["kind"]> {
-  return message.kind ?? "text";
-}
-
-function textOverlaps(left: string, right: string): boolean {
-  return left === right || left.startsWith(right) || right.startsWith(left);
-}
-
-function isSameLogicalConversationMessage(
-  left: AgentsUiConversationMessage,
-  right: AgentsUiConversationMessage,
-): boolean {
-  if (left.id === right.id) return true;
-  if (left.role !== right.role) return false;
-  if (messageKind(left) !== messageKind(right)) return false;
-  if (left.toolCallId && right.toolCallId) return left.toolCallId === right.toolCallId;
-  if (left.turnId !== right.turnId) return false;
-  if (left.phase !== right.phase) return false;
-
-  const kind = messageKind(left);
-  if (kind === "text" || kind === "thinking") {
-    return textOverlaps(left.text, right.text);
-  }
-
-  return false;
-}
-
-function mergeSnapshotMessageWithLiveMessage(
-  snapshotMessage: AgentsUiConversationMessage,
-  liveMessage: AgentsUiConversationMessage,
-): AgentsUiConversationMessage {
-  const liveHasNewerState = liveMessage.text.length > snapshotMessage.text.length
-    || (snapshotMessage.status === "inProgress" && liveMessage.status !== "inProgress");
-  if (!liveHasNewerState) return snapshotMessage;
-
-  const merged = mergeConversationMessage(snapshotMessage, liveMessage);
-  return {
-    ...merged,
-    status: snapshotMessage.status !== "inProgress" && liveMessage.status === "inProgress"
-      ? snapshotMessage.status
-      : merged.status,
-    createdAt: snapshotMessage.createdAt ?? liveMessage.createdAt,
-  };
-}
-
-function mergeLiveMessages(
-  messages: AgentsUiConversationMessage[],
-  liveMessages: AgentsUiConversationMessage[],
-): AgentsUiConversationMessage[] {
-  if (liveMessages.length === 0) return messages;
-
-  const merged = [...messages];
-
-  for (const liveMessage of liveMessages) {
-    const existingIndex = merged.findIndex((message) => isSameLogicalConversationMessage(message, liveMessage));
-    if (existingIndex === -1) {
-      merged.push(liveMessage);
-    } else {
-      merged[existingIndex] = mergeSnapshotMessageWithLiveMessage(merged[existingIndex], liveMessage);
-    }
-  }
-
-  return merged;
-}
-
-function findMatchingSnapshotMessage(
-  snapshot: AgentsUiWorktreeConversationResponse["conversation"],
-  liveMessage: AgentsUiConversationMessage,
-): AgentsUiConversationMessage | null {
-  return snapshot.messages.find((message) => isSameLogicalConversationMessage(message, liveMessage)) ?? null;
-}
-
-function completeLiveMessageFromSnapshot(
-  snapshot: AgentsUiWorktreeConversationResponse["conversation"],
-  liveMessage: AgentsUiConversationMessage,
-): AgentsUiConversationMessage {
-  const snapshotMessage = findMatchingSnapshotMessage(snapshot, liveMessage);
-  if (!snapshotMessage || snapshotMessage.status === "inProgress" || liveMessage.status !== "inProgress") {
-    return liveMessage;
-  }
-  return {
-    ...liveMessage,
-    status: snapshotMessage.status,
-  };
-}
-
 export function mergeConversationSnapshotWithLiveMessages(
   snapshot: AgentsUiWorktreeConversationResponse,
   liveMessages: AgentsUiConversationMessage[],
 ): AgentsUiWorktreeConversationResponse {
   if (liveMessages.length === 0) return snapshot;
 
-  const reconciledLiveMessages = liveMessages.map((message) =>
-    completeLiveMessageFromSnapshot(snapshot.conversation, message)
-  );
-  const inProgress = reconciledLiveMessages.find((message) => message.status === "inProgress") ?? null;
+  const liveById = new Map(liveMessages.map((message) => [message.id, message]));
+  const seen = new Set<string>();
+  const messages = snapshot.conversation.messages.map((snapshotMessage) => {
+    const liveMessage = liveById.get(snapshotMessage.id);
+    if (!liveMessage) return snapshotMessage;
+    seen.add(snapshotMessage.id);
+    return snapshotMessage.status === "inProgress" ? liveMessage : snapshotMessage;
+  });
+
+  if (snapshot.conversation.running) {
+    for (const liveMessage of liveMessages) {
+      if (!seen.has(liveMessage.id)) messages.push(liveMessage);
+    }
+  }
+
+  const sortedMessages = sortMessages(messages);
+  const inProgress = sortedMessages.find((message) => message.status === "inProgress") ?? null;
   return {
     ...snapshot,
     conversation: {
       ...snapshot.conversation,
       running: snapshot.conversation.running || inProgress !== null,
       activeTurnId: snapshot.conversation.activeTurnId ?? inProgress?.turnId ?? null,
-      messages: mergeLiveMessages(snapshot.conversation.messages, reconciledLiveMessages),
+      messages: sortedMessages,
     },
   };
-}
-
-function shouldKeepLiveMessage(
-  snapshot: AgentsUiWorktreeConversationResponse["conversation"],
-  liveMessage: AgentsUiConversationMessage,
-): boolean {
-  const snapshotMessage = findMatchingSnapshotMessage(snapshot, liveMessage);
-  if (!snapshotMessage) return snapshot.running || liveMessage.status !== "inProgress";
-  if (snapshotMessage.status === "inProgress") return true;
-  return snapshotMessage.text.length < liveMessage.text.length;
-}
-
-function shouldCompleteLiveMessages(notification: CodexAppServerNotification): boolean {
-  if (notification.method === "turn/completed") return true;
-  if (notification.method !== "thread/status/changed") return false;
-  const statusType = readNotificationStatusType(notification);
-  return statusType === "idle" || statusType === "completed" || statusType === "interrupted";
 }
 
 export class AgentsConversationStreamSession {
@@ -267,6 +159,7 @@ export class AgentsConversationStreamSession {
   private closed = false;
   private refreshInFlight = false;
   private refreshQueued = false;
+  private nextLiveOrder = 0;
   private readonly liveMessages = new Map<string, AgentsUiConversationMessage>();
 
   constructor(
@@ -290,16 +183,18 @@ export class AgentsConversationStreamSession {
   sendSnapshot(snapshot: AgentsUiWorktreeConversationResponse): void {
     if (this.closed) return;
     this.conversationId = snapshot.conversation.conversationId;
-    const liveMessages = [...this.liveMessages.values()];
-    for (const message of liveMessages) {
-      if (!shouldKeepLiveMessage(snapshot.conversation, message)) {
-        this.liveMessages.delete(message.id);
-      } else {
-        this.liveMessages.set(message.id, completeLiveMessageFromSnapshot(snapshot.conversation, message));
+    this.syncNextLiveOrder(snapshot.conversation.messages);
+
+    const data = mergeConversationSnapshotWithLiveMessages(snapshot, [...this.liveMessages.values()]);
+    const snapshotById = new Map(snapshot.conversation.messages.map((message) => [message.id, message]));
+    for (const [messageId, message] of this.liveMessages) {
+      const snapshotMessage = snapshotById.get(messageId);
+      const completedInSnapshot = snapshotMessage?.status !== "inProgress" && message.status !== "inProgress";
+      if (!data.conversation.running || (snapshotMessage !== undefined && completedInSnapshot)) {
+        this.liveMessages.delete(messageId);
       }
     }
-    const retainedLiveMessages = [...this.liveMessages.values()];
-    const data = mergeConversationSnapshotWithLiveMessages(snapshot, retainedLiveMessages);
+
     this.deps.send({
       type: "snapshot",
       revision: this.nextRevision(),
@@ -313,7 +208,8 @@ export class AgentsConversationStreamSession {
     const notificationThreadId = readAgentsNotificationThreadId(notification);
     if (!notificationThreadId || notificationThreadId !== this.conversationId) return;
 
-    const deltaEvent = buildAgentsUiMessageDeltaEvent(notification);
+    const deltaOrder = this.orderForDeltaNotification(notification);
+    const deltaEvent = deltaOrder === null ? null : buildAgentsUiMessageDeltaEvent(notification, deltaOrder);
     if (deltaEvent) {
       this.applyDelta(deltaEvent);
       this.deps.send({
@@ -323,17 +219,16 @@ export class AgentsConversationStreamSession {
       return;
     }
 
-    for (const upsertEvent of buildAgentsUiMessageUpsertEvents(notification)) {
-      const message = this.applyUpsert(upsertEvent.message);
-      this.deps.send({
-        ...upsertEvent,
-        message,
-        revision: this.nextRevision(),
-      });
-    }
-
-    if (shouldCompleteLiveMessages(notification)) {
-      this.completeLiveMessages(readNotificationTurnId(notification));
+    const upsertOrder = this.orderForUpsertNotification(notification);
+    if (upsertOrder !== null) {
+      for (const upsertEvent of buildAgentsUiMessageUpsertEvents(notification, upsertOrder)) {
+        const message = this.applyUpsert(upsertEvent.message);
+        this.deps.send({
+          ...upsertEvent,
+          message,
+          revision: this.nextRevision(),
+        });
+      }
     }
 
     if (shouldRefreshAgentsConversationSnapshot(notification)) {
@@ -346,11 +241,43 @@ export class AgentsConversationStreamSession {
     return this.revision;
   }
 
+  private syncNextLiveOrder(messages: AgentsUiConversationMessage[]): void {
+    for (const message of messages) {
+      this.nextLiveOrder = Math.max(this.nextLiveOrder, message.order + 1);
+    }
+  }
+
+  private reserveOrder(itemId: string, span: number): number {
+    const existing = this.liveMessages.get(itemId);
+    if (existing) return existing.order;
+
+    const order = this.nextLiveOrder;
+    this.nextLiveOrder += span;
+    return order;
+  }
+
+  private orderForDeltaNotification(notification: CodexAppServerNotification): number | null {
+    if (notification.method !== "item/agentMessage/delta") return null;
+    const params = readNotificationParams(notification.params);
+    if (!params) return null;
+    const itemId = readThreadId(params.itemId);
+    return itemId ? this.reserveOrder(itemId, 1) : null;
+  }
+
+  private orderForUpsertNotification(notification: CodexAppServerNotification): number | null {
+    if (notification.method !== "item/started" && notification.method !== "item/completed") return null;
+    const params = readNotificationParams(notification.params);
+    if (!params || !isRecord(params.item)) return null;
+    const itemId = readThreadId(params.item.id);
+    return itemId ? this.reserveOrder(itemId, CODEX_ITEM_ORDER_SPAN) : null;
+  }
+
   private applyDelta(event: AgentsUiConversationMessageDeltaPayload): void {
     const existing = this.liveMessages.get(event.itemId);
     this.liveMessages.set(event.itemId, {
       id: event.itemId,
       turnId: event.turnId,
+      order: existing?.order ?? event.order,
       role: "assistant",
       kind: existing?.kind ?? "text",
       text: `${existing?.text ?? ""}${event.delta}`,
@@ -362,20 +289,9 @@ export class AgentsConversationStreamSession {
 
   private applyUpsert(message: AgentsUiConversationMessage): AgentsUiConversationMessage {
     const existing = this.liveMessages.get(message.id);
-    const nextMessage = existing ? mergeConversationMessage(existing, message) : message;
+    const nextMessage = existing ? { ...message, order: existing.order } : message;
     this.liveMessages.set(message.id, nextMessage);
     return nextMessage;
-  }
-
-  private completeLiveMessages(turnId: string | null): void {
-    for (const [messageId, message] of this.liveMessages) {
-      if (message.status !== "inProgress") continue;
-      if (turnId && message.turnId !== turnId) continue;
-      this.liveMessages.set(messageId, {
-        ...message,
-        status: "completed",
-      });
-    }
   }
 
   private queueSnapshotRefresh(): void {
@@ -429,7 +345,7 @@ export function shouldRefreshAgentsConversationSnapshot(notification: CodexAppSe
       const params = readNotificationParams(notification.params);
       if (!params) return false;
       const itemType = readNotificationItemType(params.item);
-      return itemType === "userMessage" || itemType === "agentMessage";
+      return itemType === "userMessage" || itemType === "agentMessage" || itemType === "commandExecution";
     }
     default:
       return false;

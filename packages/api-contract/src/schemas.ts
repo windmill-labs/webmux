@@ -414,11 +414,12 @@ export const AgentsUiConversationMessageKindSchema = z.enum(["text", "thinking",
 export const AgentsUiConversationMessageSchema = z.object({
   id: z.string(),
   turnId: z.string(),
+  order: z.number().int().nonnegative(),
   role: AgentsUiConversationMessageRoleSchema,
   text: z.string(),
   status: AgentsUiConversationMessageStatusSchema,
   createdAt: z.string().nullable(),
-  kind: AgentsUiConversationMessageKindSchema.optional(),
+  kind: AgentsUiConversationMessageKindSchema,
   phase: z.string().optional(),
   toolName: z.string().optional(),
   toolCallId: z.string().optional(),
@@ -466,6 +467,7 @@ export const AgentsUiConversationMessageDeltaEventSchema = z.object({
   conversationId: z.string(),
   turnId: z.string(),
   itemId: z.string(),
+  order: z.number().int().nonnegative(),
   delta: z.string(),
 });
 

@@ -19,7 +19,9 @@ function makeConversation(): AgentsUiConversationState {
       {
         id: "user-1",
         turnId: "turn-1",
+        order: 0,
         role: "user",
+        kind: "text",
         text: "Inspect the diff",
         status: "completed",
         createdAt: "2026-04-15T10:00:00.000Z",
@@ -33,7 +35,9 @@ describe("worktree conversation helpers", () => {
     expect(markConversationTurnStarted(makeConversation(), "turn-2", "Ship it")?.messages.at(-1)).toEqual({
       id: "pending-user:turn-2",
       turnId: "turn-2",
+      order: 1,
       role: "user",
+      kind: "text",
       text: "Ship it",
       status: "completed",
       createdAt: expect.any(String),
@@ -47,6 +51,7 @@ describe("worktree conversation helpers", () => {
       conversationId: "thread-1",
       turnId: "turn-2",
       itemId: "assistant-2",
+      order: 1,
       delta: "Looking",
     });
 
@@ -56,12 +61,14 @@ describe("worktree conversation helpers", () => {
       conversationId: "thread-1",
       turnId: "turn-2",
       itemId: "assistant-2",
+      order: 1,
       delta: " good",
     });
 
     expect(updated?.messages.at(-1)).toEqual({
       id: "assistant-2",
       turnId: "turn-2",
+      order: 1,
       role: "assistant",
       kind: "text",
       text: "Looking good",
@@ -79,6 +86,7 @@ describe("worktree conversation helpers", () => {
       conversationId: "thread-1",
       turnId: "turn-2",
       itemId: "assistant-2",
+      order: 1,
       delta: "Looking",
     });
 
@@ -88,6 +96,7 @@ describe("worktree conversation helpers", () => {
       conversationId: "thread-1",
       turnId: "turn-2",
       itemId: "assistant-2",
+      order: 1,
       delta: " better",
     });
 
@@ -102,6 +111,7 @@ describe("worktree conversation helpers", () => {
       message: {
         id: "call-1",
         turnId: "turn-2",
+        order: 1,
         role: "assistant",
         kind: "toolUse",
         toolName: "shell",
@@ -119,6 +129,7 @@ describe("worktree conversation helpers", () => {
       message: {
         id: "call-1",
         turnId: "turn-2",
+        order: 1,
         role: "assistant",
         kind: "toolUse",
         toolName: "shell",
@@ -134,6 +145,7 @@ describe("worktree conversation helpers", () => {
     expect(completed?.messages.at(-1)).toEqual({
       id: "call-1",
       turnId: "turn-2",
+      order: 1,
       role: "assistant",
       kind: "toolUse",
       toolName: "shell",
@@ -146,7 +158,7 @@ describe("worktree conversation helpers", () => {
     });
   });
 
-  it("moves newly visible assistant text after intervening tool calls", () => {
+  it("keeps item order when assistant text becomes visible", () => {
     const assistantStarted = applyConversationMessageUpsert(makeConversation(), {
       type: "messageUpsert",
       revision: 1,
@@ -154,6 +166,7 @@ describe("worktree conversation helpers", () => {
       message: {
         id: "assistant-2",
         turnId: "turn-2",
+        order: 1,
         role: "assistant",
         kind: "text",
         text: "",
@@ -168,6 +181,7 @@ describe("worktree conversation helpers", () => {
       message: {
         id: "call-1",
         turnId: "turn-2",
+        order: 2,
         role: "assistant",
         kind: "toolUse",
         toolName: "shell",
@@ -184,10 +198,11 @@ describe("worktree conversation helpers", () => {
       conversationId: "thread-1",
       turnId: "turn-2",
       itemId: "assistant-2",
+      order: 1,
       delta: "Done.",
     });
 
-    expect(updated?.messages.map((message) => message.id)).toEqual(["user-1", "call-1", "assistant-2"]);
+    expect(updated?.messages.map((message) => message.id)).toEqual(["user-1", "assistant-2", "call-1"]);
   });
 
   it("replaces optimistic user messages with streamed server user messages", () => {
@@ -200,6 +215,7 @@ describe("worktree conversation helpers", () => {
       message: {
         id: "user-2",
         turnId: "turn-2",
+        order: 1,
         role: "user",
         kind: "text",
         text: "Ship it",
@@ -212,6 +228,7 @@ describe("worktree conversation helpers", () => {
       {
         id: "user-2",
         turnId: "turn-2",
+        order: 1,
         role: "user",
         kind: "text",
         text: "Ship it",
@@ -228,6 +245,7 @@ describe("worktree conversation helpers", () => {
       conversationId: "thread-1",
       turnId: "turn-2",
       itemId: "assistant-2",
+      order: 1,
       delta: "Still working",
     });
 
@@ -262,7 +280,9 @@ describe("worktree conversation helpers", () => {
         {
           id: "user-2",
           turnId: "turn-2",
+          order: 1,
           role: "user",
+          kind: "text",
           text: "Ship it",
           status: "completed",
           createdAt: "2026-05-28T13:00:00.000Z",
@@ -274,7 +294,7 @@ describe("worktree conversation helpers", () => {
     expect(merged.messages.at(-1)?.id).toBe("user-2");
   });
 
-  it("drops optimistic user messages once the same server text arrives", () => {
+  it("keeps optimistic user messages when only the same server text arrives for another turn", () => {
     const current = markConversationTurnStarted(makeConversation(), "client-turn-2", "Ship it");
 
     const merged = mergeConversationSnapshot(current, {
@@ -284,7 +304,9 @@ describe("worktree conversation helpers", () => {
         {
           id: "user-2",
           turnId: "server-turn-2",
+          order: 1,
           role: "user",
+          kind: "text",
           text: "Ship it",
           status: "completed",
           createdAt: "2026-05-28T13:00:00.000Z",
@@ -292,8 +314,8 @@ describe("worktree conversation helpers", () => {
       ],
     });
 
-    expect(merged.messages.some((message) => message.id === "pending-user:client-turn-2")).toBe(false);
-    expect(merged.messages.filter((message) => message.text === "Ship it")).toHaveLength(1);
+    expect(merged.messages.some((message) => message.id === "pending-user:client-turn-2")).toBe(true);
+    expect(merged.messages.filter((message) => message.text === "Ship it")).toHaveLength(2);
   });
 
   it("keeps a repeated optimistic prompt when only an older matching server message exists", () => {
@@ -304,7 +326,9 @@ describe("worktree conversation helpers", () => {
         {
           id: "user-ship-old",
           turnId: "turn-old",
+          order: 1,
           role: "user",
+          kind: "text",
           text: "Ship it",
           status: "completed",
           createdAt: "2026-05-28T12:00:00.000Z",
@@ -319,7 +343,9 @@ describe("worktree conversation helpers", () => {
         {
           id: "user-ship-old",
           turnId: "turn-old",
+          order: 1,
           role: "user",
+          kind: "text",
           text: "Ship it",
           status: "completed",
           createdAt: "2026-05-28T12:00:00.000Z",
@@ -331,13 +357,14 @@ describe("worktree conversation helpers", () => {
     expect(merged.messages.filter((message) => message.text === "Ship it")).toHaveLength(2);
   });
 
-  it("keeps longer streamed text when an upsert arrives with shorter text", () => {
+  it("uses completed upsert text even when it is shorter than streamed text", () => {
     const current = applyConversationMessageDelta(makeConversation(), {
       type: "messageDelta",
       revision: 1,
       conversationId: "thread-1",
       turnId: "turn-2",
       itemId: "assistant-2",
+      order: 1,
       delta: "Still working on it",
     });
 
@@ -348,6 +375,7 @@ describe("worktree conversation helpers", () => {
       message: {
         id: "assistant-2",
         turnId: "turn-2",
+        order: 1,
         role: "assistant",
         kind: "text",
         text: "Still",
@@ -359,9 +387,10 @@ describe("worktree conversation helpers", () => {
     expect(updated?.messages.at(-1)).toEqual({
       id: "assistant-2",
       turnId: "turn-2",
+      order: 1,
       role: "assistant",
       kind: "text",
-      text: "Still working on it",
+      text: "Still",
       status: "completed",
       createdAt: "2026-05-28T13:00:00.000Z",
     });
@@ -374,6 +403,7 @@ describe("worktree conversation helpers", () => {
       conversationId: "thread-1",
       turnId: "turn-2",
       itemId: "assistant-2",
+      order: 1,
       delta: "Still working on it",
     });
 
@@ -388,7 +418,9 @@ describe("worktree conversation helpers", () => {
         {
           id: "assistant-2",
           turnId: "turn-2",
+          order: 1,
           role: "assistant",
+          kind: "text",
           text: "Still",
           status: "completed",
           createdAt: "2026-05-28T13:00:00.000Z",
@@ -399,7 +431,9 @@ describe("worktree conversation helpers", () => {
     expect(merged.messages.at(-1)).toEqual({
       id: "assistant-2",
       turnId: "turn-2",
+      order: 1,
       role: "assistant",
+      kind: "text",
       text: "Still",
       status: "completed",
       createdAt: "2026-05-28T13:00:00.000Z",

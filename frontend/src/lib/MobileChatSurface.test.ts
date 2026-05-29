@@ -127,7 +127,9 @@ describe("MobileChatSurface", () => {
         {
           id: "user-1",
           turnId: "turn-1",
+          order: 0,
           role: "user",
+          kind: "text",
           text: "Ship it",
           status: "completed",
           createdAt: "2026-04-15T12:00:00.000Z",
@@ -135,7 +137,9 @@ describe("MobileChatSurface", () => {
         {
           id: "assistant-1",
           turnId: "turn-1",
+          order: 1,
           role: "assistant",
+          kind: "text",
           text: "Done.",
           status: "completed",
           createdAt: "2026-04-15T12:00:01.000Z",
@@ -240,6 +244,7 @@ describe("MobileChatSurface", () => {
       message: {
         id: "user-1",
         turnId: "turn-1",
+        order: 0,
         role: "user",
         kind: "text",
         text: "Ship it",
@@ -276,6 +281,7 @@ describe("MobileChatSurface", () => {
       conversationId: "thread-1",
       turnId: "turn-1",
       itemId: "assistant-1",
+      order: 0,
       delta: "Streaming status update",
     };
     callbacks?.onEvent(deltaEvent);
@@ -296,7 +302,7 @@ describe("MobileChatSurface", () => {
     expect(screen.queryByText("typing")).not.toBeInTheDocument();
   });
 
-  it("keeps live message order when a Codex completion snapshot arrives reordered", async () => {
+  it("uses explicit snapshot order when a Codex completion snapshot array arrives reordered", async () => {
     vi.mocked(attachWorktreeConversation).mockResolvedValue(createConversationResponse("codexAppServer"));
 
     render(MobileChatSurface, {
@@ -319,6 +325,7 @@ describe("MobileChatSurface", () => {
       conversationId: "thread-1",
       turnId: "turn-1",
       itemId: "assistant-1",
+      order: 0,
       delta: "First assistant",
     });
     callbacks?.onEvent({
@@ -328,6 +335,7 @@ describe("MobileChatSurface", () => {
       message: {
         id: "call-1",
         turnId: "turn-1",
+        order: 1,
         role: "assistant",
         kind: "toolUse",
         toolName: "shell",
@@ -343,6 +351,7 @@ describe("MobileChatSurface", () => {
       conversationId: "thread-1",
       turnId: "turn-1",
       itemId: "assistant-2",
+      order: 2,
       delta: "Second assistant",
     });
 
@@ -359,6 +368,7 @@ describe("MobileChatSurface", () => {
           {
             id: "call-1",
             turnId: "turn-1",
+            order: 1,
             role: "assistant",
             kind: "toolUse",
             toolName: "shell",
@@ -370,6 +380,7 @@ describe("MobileChatSurface", () => {
           {
             id: "assistant-1",
             turnId: "turn-1",
+            order: 0,
             role: "assistant",
             kind: "text",
             text: "First assistant finalized",
@@ -379,6 +390,7 @@ describe("MobileChatSurface", () => {
           {
             id: "assistant-2",
             turnId: "turn-1",
+            order: 2,
             role: "assistant",
             kind: "text",
             text: "Second assistant finalized",
@@ -417,7 +429,9 @@ describe("MobileChatSurface", () => {
             {
               id: "user-1",
               turnId: "turn-1",
+              order: 0,
               role: "user",
+              kind: "text",
               text: "Ship it",
               status: "completed",
               createdAt: "2026-04-15T12:00:00.000Z",
@@ -425,7 +439,9 @@ describe("MobileChatSurface", () => {
             {
               id: "assistant-1",
               turnId: "turn-1",
+              order: 1,
               role: "assistant",
+              kind: "text",
               text: "Done.",
               status: "completed",
               createdAt: "2026-04-15T12:03:01.000Z",

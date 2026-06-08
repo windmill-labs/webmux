@@ -85,6 +85,24 @@
   let rowPositions = $state<Map<string, RowPosition>>(new Map());
   let cycleCursor = $state<Record<string, string>>({});
 
+  // Measure the rendered bars (each sits `top-2`/`bottom-2` = 8px off the list edge)
+  // so the observer's margins occlude exactly the band each bar covers — no magic number.
+  const BAR_OFFSET = 8;
+  let topBarEl = $state<HTMLElement | null>(null);
+  let bottomBarEl = $state<HTMLElement | null>(null);
+  let topBarHeight = $state(0);
+  let bottomBarHeight = $state(0);
+  $effect(() => {
+    topBarHeight = topBarEl?.offsetHeight ?? 0;
+  });
+  $effect(() => {
+    bottomBarHeight = bottomBarEl?.offsetHeight ?? 0;
+  });
+  let rootMargin = $derived(
+    `-${topBarHeight ? topBarHeight + BAR_OFFSET : 0}px 0px ` +
+      `-${bottomBarHeight ? bottomBarHeight + BAR_OFFSET : 0}px 0px`,
+  );
+
   // The identity of the rows present, independent of per-row status churn — changes
   // only when worktrees are added or removed, not on every agent-status poll.
   let branchKey = $derived(rows.map((row) => row.worktree.branch).join("\n"));
@@ -95,6 +113,7 @@
     const root = listEl;
     if (!root) return;
     branchKey; // re-observe only when rows are added/removed
+    const margin = rootMargin; // and when the measured bar band changes
 
     // Drop tracking for branches that have left the list (untracked so scroll
     // updates to rowPositions don't re-run this effect and rebuild the observer).
@@ -122,7 +141,7 @@
         rowPositions = next;
       },
       // Negative top/bottom margins keep rows tucked behind the floating bars counted as hidden.
-      { root, rootMargin: "-40px 0px -40px 0px", threshold: 0 },
+      { root, rootMargin: margin, threshold: 0 },
     );
     for (const li of root.querySelectorAll("[data-branch]")) {
       observer.observe(li);
@@ -387,12 +406,18 @@
     {/each}
   </ul>
   {#if hasAbove}
-    <div class="pointer-events-none absolute inset-x-0 top-2 flex justify-center">
+    <div
+      bind:this={topBarEl}
+      class="pointer-events-none absolute inset-x-0 top-2 flex justify-center"
+    >
       {@render statusBar(aboveCounts, "above")}
     </div>
   {/if}
   {#if hasBelow}
-    <div class="pointer-events-none absolute inset-x-0 bottom-2 flex justify-center">
+    <div
+      bind:this={bottomBarEl}
+      class="pointer-events-none absolute inset-x-0 bottom-2 flex justify-center"
+    >
       {@render statusBar(belowCounts, "below")}
     </div>
   {/if}

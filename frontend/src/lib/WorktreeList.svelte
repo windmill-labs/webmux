@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import type { WorktreeListRow } from "./types";
   import PrBadge from "./PrBadge.svelte";
   import LinearBadge from "./LinearBadge.svelte";
@@ -84,12 +85,25 @@
   let rowPositions = $state<Map<string, RowPosition>>(new Map());
   let cycleCursor = $state<Record<string, string>>({});
 
+  // The identity of the rows present, independent of per-row status churn — changes
+  // only when worktrees are added or removed, not on every agent-status poll.
+  let branchKey = $derived(rows.map((row) => row.worktree.branch).join("\n"));
+
   // Track whether each row is scrolled above, into, or below the viewport so the
   // top/bottom floating bars can summarise the agent statuses hidden in each direction.
   $effect(() => {
     const root = listEl;
     if (!root) return;
-    rows; // re-observe when the row set changes
+    branchKey; // re-observe only when rows are added/removed
+
+    // Drop tracking for branches that have left the list (untracked so scroll
+    // updates to rowPositions don't re-run this effect and rebuild the observer).
+    untrack(() => {
+      const present = new Set(rows.map((row) => row.worktree.branch));
+      const pruned = new Map([...rowPositions].filter(([branch]) => present.has(branch)));
+      if (pruned.size !== rowPositions.size) rowPositions = pruned;
+    });
+
     const observer = new IntersectionObserver(
       (entries) => {
         const next = new Map(rowPositions);
@@ -144,6 +158,9 @@
       direction === "above" ? aboveBranches : belowBranches,
       notifiedBranches,
     );
+    // Cycle nearest-to-the-fold first: below rows are already in that order, above
+    // rows need reversing so the first click lands on the row just above the fold.
+    if (direction === "above") branches.reverse();
     if (branches.length === 0 || !listEl) return;
     const key = `${direction}:${status}`;
     // Advance from the last branch we scrolled to; if it has since scrolled into

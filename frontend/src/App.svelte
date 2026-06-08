@@ -238,7 +238,9 @@
 
   function handleNotification(n: AppNotification): void {
     notifications = [...notifications, n];
-    notifiedBranches = new Set([...notifiedBranches, n.branch]);
+    if (n.branch !== selectedBranch) {
+      notifiedBranches = new Set([...notifiedBranches, n.branch]);
+    }
     notificationHistory = [n, ...notificationHistory].slice(0, MAX_HISTORY);
     unreadCount++;
     // Auto-dismiss after timeout

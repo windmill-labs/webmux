@@ -3,7 +3,7 @@
   import type { WorktreeListRow } from "./types";
   import PrBadge from "./PrBadge.svelte";
   import LinearBadge from "./LinearBadge.svelte";
-  import AgentStatusIcon from "./AgentStatusIcon.svelte";
+  import AgentStatusIcon, { agentIconVisible } from "./AgentStatusIcon.svelte";
   import { worktreeCreationPhaseLabel } from "./utils";
   import {
     OVERFLOW_STATUS_BAR_STATUSES,
@@ -239,7 +239,7 @@
                     <span class="text-[10px] leading-tight text-muted truncate">{wt.branch}</span>
                   {/if}
                 </span>
-                {#if !isCreating && !isInitializing && !isClosed}
+                {#if !isCreating && !isInitializing && !isClosed && agentIconVisible(wt.agent, notifiedBranches.has(wt.branch))}
                   <span class="shrink-0"
                     ><AgentStatusIcon
                       status={wt.agent}

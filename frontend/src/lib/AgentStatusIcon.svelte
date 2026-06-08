@@ -1,3 +1,17 @@
+<script module lang="ts">
+  // Whether the icon renders a visible mark for this status — kept beside the
+  // template below so callers can avoid laying out an empty slot. Mirrors the
+  // {#if} branches in the icon snippet.
+  export function agentIconVisible(status: string, unread: boolean): boolean {
+    return (
+      status === "working" ||
+      status === "waiting" ||
+      status === "error" ||
+      (status === "done" && unread)
+    );
+  }
+</script>
+
 <script lang="ts">
   let {
     status,

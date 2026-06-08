@@ -115,10 +115,13 @@
                 {/if}
               </span>
               {#if !isCreating && !isInitializing && !isClosed}
-                <span class="shrink-0"><AgentStatusIcon status={wt.agent} size={14} /></span>
-              {/if}
-              {#if notifiedBranches.has(wt.branch)}
-                <span class="shrink-0 w-2 h-2 rounded-full bg-accent"></span>
+                <span class="shrink-0"
+                  ><AgentStatusIcon
+                    status={wt.agent}
+                    size={14}
+                    unread={notifiedBranches.has(wt.branch)}
+                  /></span
+                >
               {/if}
             </span>
             {#if hasBadgeRow}

@@ -82,7 +82,7 @@
 
   let listEl = $state<HTMLUListElement | null>(null);
   let rowPositions = $state<Map<string, RowPosition>>(new Map());
-  let cycleIndex = $state<Record<string, number>>({});
+  let cycleCursor = $state<Record<string, string>>({});
 
   // Track whether each row is scrolled above, into, or below the viewport so the
   // top/bottom floating bars can summarise the agent statuses hidden in each direction.
@@ -94,7 +94,9 @@
       (entries) => {
         const next = new Map(rowPositions);
         for (const entry of entries) {
-          const branch = (entry.target as HTMLElement).dataset.branch;
+          const target = entry.target;
+          if (!(target instanceof HTMLElement)) continue;
+          const branch = target.dataset.branch;
           if (!branch) continue;
           if (entry.isIntersecting) {
             next.set(branch, "visible");
@@ -144,10 +146,13 @@
     );
     if (branches.length === 0 || !listEl) return;
     const key = `${direction}:${status}`;
-    const nextIndex = ((cycleIndex[key] ?? -1) + 1) % branches.length;
-    cycleIndex = { ...cycleIndex, [key]: nextIndex };
+    // Advance from the last branch we scrolled to; if it has since scrolled into
+    // view (no longer in the list), indexOf is -1 and we restart from the first.
+    const nextIndex = (branches.indexOf(cycleCursor[key] ?? "") + 1) % branches.length;
+    const nextBranch = branches[nextIndex];
+    cycleCursor = { ...cycleCursor, [key]: nextBranch };
     const target = Array.from(listEl.querySelectorAll<HTMLElement>("[data-branch]")).find(
-      (el) => el.dataset.branch === branches[nextIndex],
+      (el) => el.dataset.branch === nextBranch,
     );
     target?.scrollIntoView({ behavior: "smooth", block: "center" });
   }

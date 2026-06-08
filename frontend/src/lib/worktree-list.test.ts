@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { buildWorktreeListRows, countArchivedMatches, filterWorktrees } from "./worktree-list";
-import type { WorktreeInfo } from "./types";
+import {
+  branchesWithAgentStatus,
+  buildWorktreeListRows,
+  countAgentStatusesIn,
+  countArchivedMatches,
+  filterWorktrees,
+} from "./worktree-list";
+import type { WorktreeInfo, WorktreeListRow } from "./types";
 
 function createWorktree(branch: string, overrides: Partial<WorktreeInfo> = {}): WorktreeInfo {
   return {
@@ -92,5 +98,85 @@ describe("buildWorktreeListRows", () => {
     ], "beta");
 
     expect(count).toBe(1);
+  });
+});
+
+function createRow(branch: string, overrides: Partial<WorktreeInfo> = {}): WorktreeListRow {
+  return { worktree: createWorktree(branch, { mux: "✓", ...overrides }), depth: 0 };
+}
+
+describe("countAgentStatusesIn", () => {
+  const rows = [
+    createRow("a", { agent: "waiting" }),
+    createRow("b", { agent: "error" }),
+    createRow("c", { agent: "waiting" }),
+    createRow("d", { agent: "working" }),
+    createRow("e", { agent: "idle" }),
+  ];
+
+  it("counts waiting and error rows within the given branch set", () => {
+    expect(countAgentStatusesIn(rows, new Set(["b", "c"]))).toEqual({
+      waiting: 1,
+      error: 1,
+      "done-unread": 0,
+    });
+  });
+
+  it("returns zero counts for an empty set", () => {
+    expect(countAgentStatusesIn(rows, new Set())).toEqual({ waiting: 0, error: 0, "done-unread": 0 });
+  });
+
+  it("ignores working and idle rows even when in the set", () => {
+    expect(countAgentStatusesIn(rows, new Set(["d", "e"]))).toEqual({
+      waiting: 0,
+      error: 0,
+      "done-unread": 0,
+    });
+  });
+
+  it("does not count rows whose agent icon would be hidden (closed or creating)", () => {
+    const closedRows = [
+      createRow("closed", { agent: "waiting", mux: "" }),
+      createRow("creating", { agent: "error", creating: true }),
+      createRow("live", { agent: "waiting" }),
+    ];
+    expect(countAgentStatusesIn(closedRows, new Set(["closed", "creating", "live"]))).toEqual({
+      waiting: 1,
+      error: 0,
+      "done-unread": 0,
+    });
+  });
+
+  it("counts done rows only when they are unread", () => {
+    const doneRows = [
+      createRow("seen", { agent: "done" }),
+      createRow("unseen-a", { agent: "done" }),
+      createRow("unseen-b", { agent: "done" }),
+    ];
+    const branches = new Set(["seen", "unseen-a", "unseen-b"]);
+    const notified = new Set(["unseen-a", "unseen-b"]);
+    expect(countAgentStatusesIn(doneRows, branches, notified)).toEqual({
+      waiting: 0,
+      error: 0,
+      "done-unread": 2,
+    });
+  });
+});
+
+describe("branchesWithAgentStatus", () => {
+  const rows = [
+    createRow("first", { agent: "waiting" }),
+    createRow("closed", { agent: "waiting", mux: "" }),
+    createRow("err", { agent: "error" }),
+    createRow("second", { agent: "waiting" }),
+  ];
+
+  it("returns matching branches in list order, skipping hidden-icon rows", () => {
+    expect(branchesWithAgentStatus(rows, "waiting")).toEqual(["first", "second"]);
+    expect(branchesWithAgentStatus(rows, "error")).toEqual(["err"]);
+  });
+
+  it("restricts matches to the given branch set when provided", () => {
+    expect(branchesWithAgentStatus(rows, "waiting", new Set(["second"]))).toEqual(["second"]);
   });
 });

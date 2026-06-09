@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.37.0](https://github.com/windmill-labs/webmux/compare/v0.36.0...v0.37.0) (2026-06-09)
+
+
+### Features
+
+* clearer worktree status indicators ([#265](https://github.com/windmill-labs/webmux/issues/265)) ([4b528a7](https://github.com/windmill-labs/webmux/commit/4b528a7aa2fdad404fd869979b053e89607ced95))
+
 ## [0.36.0](https://github.com/windmill-labs/webmux/compare/v0.35.0...v0.36.0) (2026-06-01)
 
 

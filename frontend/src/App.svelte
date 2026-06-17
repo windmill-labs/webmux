@@ -623,7 +623,11 @@
     includeRemoteBranches = false;
     assignIssue = null;
     lockedBaseBranch = parentBranch;
-    subworktreeBranchSuggestion = suggestSubworktreeBranchName(parentBranch);
+    const existingBranches = [
+      ...worktrees.map((worktree) => worktree.branch),
+      ...(baseBranchCache ?? []).map((branch) => branch.name),
+    ];
+    subworktreeBranchSuggestion = suggestSubworktreeBranchName(parentBranch, existingBranches);
     showCreateDialog = true;
   }
 
@@ -656,6 +660,7 @@
     showCreateDialog = false;
     assignIssue = null;
     lockedBaseBranch = null;
+    subworktreeBranchSuggestion = "";
 
     try {
       const createPromise = api.createWorktree({ body: finalRequest });
@@ -1432,7 +1437,7 @@
     linearCreateTicketOption={config.linearCreateTicketOption}
     openedFromLinearIssue={assignIssue !== null}
     oncreate={handleCreate}
-    oncancel={() => { showCreateDialog = false; assignIssue = null; lockedBaseBranch = null; }}
+    oncancel={() => { showCreateDialog = false; assignIssue = null; lockedBaseBranch = null; subworktreeBranchSuggestion = ""; }}
   />
 {/if}
 

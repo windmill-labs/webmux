@@ -119,7 +119,7 @@
     {disabled}
     class="flex w-full items-center justify-between gap-3 rounded-md border border-edge bg-surface px-2.5 py-1.5 text-left text-[13px] text-primary outline-none transition-colors hover:bg-hover focus:border-accent disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-surface"
     aria-label={label}
-    aria-expanded={selectorOpen}
+    aria-expanded={disabled ? undefined : selectorOpen}
     onclick={toggleSelector}
   >
     <span class={selected ? "font-mono" : "text-muted/50"}>

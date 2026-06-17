@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { join, resolve } from "node:path";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
+import type { BunRequest, Server, ServerWebSocket, WebSocketHandler } from "bun";
 import { networkInterfaces } from "node:os";
 import pkg from "../../package.json";
 import {
@@ -47,6 +48,7 @@ import {
   persistLocalCustomAgent,
   persistLocalGitHubConfig,
   persistLocalLinearConfig,
+  projectRoot,
   removeLocalCustomAgent,
   type ProjectConfig,
 } from "./adapters/config";
@@ -98,16 +100,72 @@ import { parseRuntimeEvent } from "./domain/events";
 import type { AgentsUiConversationEvent, AgentsUiWorktreeConversationResponse } from "./domain/agents-ui";
 import type { OneshotMeta, ProjectSnapshot, WorktreeSnapshot } from "./domain/model";
 import { deriveInstancePrefix, isValidBranchName, isValidInstancePrefix, isValidWorktreeName } from "./domain/policies";
-import { createWebmuxRuntime } from "./runtime";
-import { createInstanceRegistry, type InstanceEntry } from "./adapters/instance-registry";
+import { createWebmuxRuntime, type WebmuxRuntime } from "./runtime";
+import { createInstanceRegistry, type InstanceEntry, type InstanceRegistry } from "./adapters/instance-registry";
 import { resolvePeerRedirect } from "./domain/peer-routing";
+import { createProjectsRegistry } from "./adapters/projects-registry";
+import { ProjectManager, type ManagedProject, type ProjectLoopController } from "./services/project-manager";
 
 const PORT = parseInt(Bun.env.PORT || "5111", 10);
 const STATIC_DIR = Bun.env.WEBMUX_STATIC_DIR || "";
-const runtime = createWebmuxRuntime({
-  port: PORT,
-  projectDir: Bun.env.WEBMUX_PROJECT_DIR || process.cwd(),
-});
+/** Strict check: is `dir` itself inside a git work tree? Unlike
+ *  git.resolveRepoRoot it never scans child directories, so a non-repo path is
+ *  rejected rather than silently resolving to an unrelated nested repo. */
+function isGitRepo(dir: string): boolean {
+  try {
+    const result = Bun.spawnSync(["git", "rev-parse", "--is-inside-work-tree"], { cwd: dir, stdout: "pipe", stderr: "pipe" });
+    return result.exitCode === 0;
+  } catch {
+    return false;
+  }
+}
+
+// --- WebSocket protocol data (module-level: the global WS dispatcher routes
+//     each connection to its project by `prefix`) ---
+interface TerminalWsData {
+  kind: "terminal";
+  prefix: string;
+  branch: string;
+  worktreeId: string | null;
+  attachId: string | null;
+  attached: boolean;
+}
+
+interface AgentsWsData {
+  kind: "agents";
+  prefix: string;
+  branch: string;
+  conversationId: string | null;
+  unsubscribe: (() => void) | null;
+}
+
+type WsData = TerminalWsData | AgentsWsData;
+
+// --- Per-project route + WebSocket handler types (module-level: the single
+//     global server routes HTTP by URL prefix and WS by `ws.data.prefix`) ---
+type RouteHandler = (req: BunRequest, server: Server<WsData>) => Response | Promise<Response | undefined> | undefined;
+type RouteEntry = RouteHandler | { [method: string]: RouteHandler };
+type ProjectRoutes = Record<string, RouteEntry>;
+
+interface WsHandlers {
+  open(ws: ServerWebSocket<WsData>): void;
+  message(ws: ServerWebSocket<WsData>, message: string | Buffer): void | Promise<void>;
+  close(ws: ServerWebSocket<WsData>, code: number, reason: string): void | Promise<void>;
+}
+
+/** Everything a single project exposes: its (unprefixed) route map, WebSocket
+ *  handlers, and the light background-loop controls. Built by `createProjectApp`
+ *  and bound to exactly one `WebmuxRuntime`. The global server prefixes each
+ *  route key with `/${prefix}` and dispatches WS by `ws.data.prefix`. */
+interface ProjectApp {
+  prefix: string;
+  routes: ProjectRoutes;
+  wsHandlers: WsHandlers;
+  startLight(): void;
+  stopLight(): void;
+}
+
+function createProjectApp(runtime: WebmuxRuntime, instancePrefix: string): ProjectApp {
 const PROJECT_DIR = runtime.projectDir;
 const config: ProjectConfig = runtime.config;
 const git = runtime.git;
@@ -135,6 +193,9 @@ const lifecycleService = runtime.lifecycleService;
 let linearAutoCreateEnabled = config.integrations.linear.autoCreateWorktrees;
 let stopLinearAutoCreate: (() => void) | null = null;
 let autoRemoveOnMergeEnabled = config.integrations.github.autoRemoveOnMerge;
+let stopPrMonitor: (() => void) | null = null;
+let stopOneshotWatcher: (() => void) | null = null;
+let stopAutoPullMonitor: (() => void) | null = null;
 
 /** Create a worktree in oneshot mode for the given Linear issue and arm the
  *  server-side watcher to post results back + close the session when done. Returns
@@ -298,24 +359,6 @@ function getFrontendConfig(): {
   };
 }
 
-// --- WebSocket protocol types ---
-
-interface TerminalWsData {
-  kind: "terminal";
-  branch: string;
-  worktreeId: string | null;
-  attachId: string | null;
-  attached: boolean;
-}
-
-interface AgentsWsData {
-  kind: "agents";
-  branch: string;
-  conversationId: string | null;
-  unsubscribe: (() => void) | null;
-}
-
-type WsData = TerminalWsData | AgentsWsData;
 type ParamsRequest = Request & { params: Record<string, string> };
 
 type WsInboundMessage =
@@ -1526,15 +1569,10 @@ function parseAgentIdParam(params: Record<string, string>):
 
 // --- Server ---
 
-function startServer(port: number): ReturnType<typeof Bun.serve> {
-  return Bun.serve({
-  port,
-  idleTimeout: 255, // seconds; worktree removal can take >10s
-
-  routes: {
+  const routes: ProjectRoutes = {
     [apiPaths.streamAgentsWorktreeConversation]: (req, server) => {
       const branch = decodeURIComponent(req.params.name);
-      return server.upgrade(req, { data: { kind: "agents", branch, conversationId: null, unsubscribe: null } })
+      return server.upgrade(req, { data: { kind: "agents", prefix: instancePrefix, branch, conversationId: null, unsubscribe: null } })
         ? undefined
         : new Response("WebSocket upgrade failed", { status: 400 });
     },
@@ -1542,7 +1580,7 @@ function startServer(port: number): ReturnType<typeof Bun.serve> {
     "/ws/:worktree": (req, server) => {
       const branch = decodeURIComponent(req.params.worktree);
       return server.upgrade(req, {
-        data: { kind: "terminal", branch, worktreeId: null, attachId: null, attached: false },
+        data: { kind: "terminal", prefix: instancePrefix, branch, worktreeId: null, attachId: null, attached: false },
       })
         ? undefined
         : new Response("WebSocket upgrade failed", { status: 400 });
@@ -1783,58 +1821,9 @@ function startServer(port: number): ReturnType<typeof Bun.serve> {
       },
     },
 
-    [apiPaths.fetchInstances]: {
-      GET: () => jsonResponse({
-        instances: instanceRegistry.listLive()
-          .filter((entry) => entry.port !== BOUND_PORT)
-          .map((entry) => ({
-            prefix: entry.prefix,
-            port: entry.port,
-            projectDir: entry.projectDir,
-            startedAt: entry.startedAt,
-          })),
-      }),
-    },
-  },
+  };
 
-  async fetch(req) {
-    const url = new URL(req.url);
-
-    const peerRedirect = resolvePeerRedirect(url, instanceRegistry.listLive(), BOUND_PORT);
-    if (peerRedirect) return peerRedirect;
-
-    // Static frontend files in production mode (fallback for unmatched routes)
-    if (STATIC_DIR) {
-      const rawPath = url.pathname === "/" ? "index.html" : url.pathname;
-      const filePath = join(STATIC_DIR, rawPath);
-      const staticRoot = resolve(STATIC_DIR);
-      // Path traversal protection: resolved path must stay within STATIC_DIR
-      if (!resolve(filePath).startsWith(staticRoot + "/")) {
-        return new Response("Forbidden", { status: 403 });
-      }
-      const file = Bun.file(filePath);
-      if (await file.exists()) {
-        // Vite-hashed assets are immutable — cache forever
-        const headers: HeadersInit = rawPath.startsWith("/assets/")
-          ? { "Cache-Control": "public, max-age=31536000, immutable" }
-          : {};
-        return new Response(file, { headers });
-      }
-      // SPA fallback: serve index.html (never cache so new deploys take effect)
-      return new Response(Bun.file(join(STATIC_DIR, "index.html")), {
-        headers: { "Cache-Control": "no-cache" },
-      });
-    }
-    return new Response("Not Found", { status: 404 });
-  },
-
-  websocket: {
-    // WebSocket-specific timeout; keepalive pings prevent idle tab disconnects.
-    idleTimeout: 255,
-    sendPings: true,
-    // Type ws.data via the data property (Bun.serve<T> generic is deprecated)
-    data: {} as WsData,
-
+  const wsHandlers: WsHandlers = {
     open(ws) {
       const data = ws.data;
       if (data.kind === "terminal") {
@@ -1953,30 +1942,220 @@ function startServer(port: number): ReturnType<typeof Bun.serve> {
         await detach(data.attachId);
       }
     },
-  },
-  });
+  };
+
+  // Light-tier loops run for every known project (PR/CI poll, Linear
+  // auto-create, oneshot watcher, auto-pull). Heavy work (reconciliation,
+  // terminal attach) is on-demand and therefore already active-only.
+  function startLight(): void {
+    stopPrMonitor = startPrMonitor(getWorktreeGitDirs, config.integrations.github.linkedRepos, PROJECT_DIR, undefined, hasRecentDashboardActivity, async () => {
+      if (autoRemoveOnMergeEnabled) {
+        await runAutoRemove(autoRemoveDeps);
+      }
+    });
+    if (linearAutoCreateEnabled) {
+      startLinearAutoCreate();
+    }
+    stopOneshotWatcher = startOneshotWatcher({
+      projectRuntime,
+      lifecycleService,
+      postToLinear: async (branch, target) => {
+        const outcome = await postWorktreeConversationToLinear(branch, target);
+        if (!outcome.ok) throw new Error(outcome.error);
+      },
+    });
+    if (config.workspace.autoPull.enabled) {
+      stopAutoPullMonitor = startAutoPullMonitor(
+        { git, projectRoot: PROJECT_DIR, mainBranch: config.workspace.mainBranch },
+        config.workspace.autoPull.intervalSeconds * 1000,
+      );
+    }
+  }
+
+  function stopLight(): void {
+    stopPrMonitor?.();
+    stopPrMonitor = null;
+    stopLinearAutoCreateMonitor();
+    stopOneshotWatcher?.();
+    stopOneshotWatcher = null;
+    stopAutoPullMonitor?.();
+    stopAutoPullMonitor = null;
+  }
+
+  return { prefix: instancePrefix, routes, wsHandlers, startLight, stopLight };
 }
 
-function actualPort(server: ReturnType<typeof Bun.serve>, requested: number): number {
+function actualPort(server: Server<WsData>, requested: number): number {
   return server.port ?? requested;
 }
 
 const MAX_INCREMENTAL_BIND_ATTEMPTS = 100;
 const PORT_STRICT = Bun.env.WEBMUX_PORT_STRICT === "1";
 
+// ── Global multi-project server ─────────────────────────────────────────────
+// One process, one port. Every known project gets its own runtime + app; the
+// shared HTTP server prefixes each project's routes with `/${prefix}` and the
+// shared WebSocket handler dispatches by `ws.data.prefix`. Local projects are
+// served in-process (never cross-port redirects). The peer-routing redirect in
+// `globalFetch` survives only for genuinely remote, separately-run instances.
+
+const apps = new Map<string, ProjectApp>();
+const instanceRegistry = createInstanceRegistry();
+let manager: ProjectManager;
+let server: Server<WsData>;
+let BOUND_PORT = 0;
+
+async function catchingRoute(label: string, fn: () => Promise<Response>): Promise<Response> {
+  try {
+    return await fn();
+  } catch (err: unknown) {
+    log.error(`[api] ${label} failed: ${err instanceof Error ? err.message : String(err)}`);
+    return errorResponse("Internal error", 500);
+  }
+}
+
+function apiListProjects(): Response {
+  return jsonResponse({
+    projects: manager.list().map((p) => ({
+      prefix: p.prefix,
+      name: p.entry.name,
+      path: p.entry.path,
+      active: p.active,
+    })),
+  });
+}
+
+async function apiAddProject(req: BunRequest): Promise<Response> {
+  const body: unknown = await req.json().catch(() => null);
+  if (!isRecord(body) || typeof body.path !== "string" || body.path.trim() === "") {
+    return errorResponse("Request body must be { path: string }", 400);
+  }
+  const inputPath = body.path.trim();
+  if (!isGitRepo(inputPath)) return errorResponse(`Not a git repository: ${inputPath}`, 400);
+  const project = manager.add(projectRoot(inputPath));
+  reloadRoutes();
+  return jsonResponse({
+    prefix: project.prefix,
+    name: project.entry.name,
+    path: project.entry.path,
+    active: project.active,
+  });
+}
+
+async function apiRemoveProject(prefix: string): Promise<Response> {
+  if (!apps.has(prefix)) return errorResponse("Project not found", 404);
+  manager.remove(prefix);
+  reloadRoutes();
+  return jsonResponse({ ok: true });
+}
+
+function apiListInstances(): Response {
+  return jsonResponse({
+    instances: instanceRegistry.listLive()
+      .filter((entry) => entry.port !== BOUND_PORT)
+      .map((entry) => ({
+        prefix: entry.prefix,
+        port: entry.port,
+        projectDir: entry.projectDir,
+        startedAt: entry.startedAt,
+      })),
+  });
+}
+
+/** Build the full route map: global hub endpoints plus every project's routes
+ *  re-keyed under its `/${prefix}` segment. Rebuilt (via `server.reload`) on
+ *  every add/remove so newly known projects are served immediately. */
+function buildServeRoutes(): ProjectRoutes {
+  const routes: ProjectRoutes = {
+    "/api/projects": {
+      GET: () => apiListProjects(),
+      POST: (req) => catchingRoute("POST /api/projects", () => apiAddProject(req)),
+    },
+    "/api/projects/:prefix": {
+      DELETE: (req) => catchingRoute("DELETE /api/projects/:prefix", () => apiRemoveProject(decodeURIComponent(req.params.prefix))),
+    },
+    "/api/instances": {
+      GET: () => apiListInstances(),
+    },
+  };
+  for (const app of apps.values()) {
+    for (const [pattern, entry] of Object.entries(app.routes)) {
+      routes[`/${app.prefix}${pattern}`] = entry;
+    }
+  }
+  return routes;
+}
+
+async function globalFetch(req: Request): Promise<Response> {
+  const url = new URL(req.url);
+
+  // Only genuinely remote peers (other processes/ports) reach here — local
+  // project prefixes are matched by the route map above.
+  const peerRedirect = resolvePeerRedirect(url, instanceRegistry.listLive(), BOUND_PORT);
+  if (peerRedirect) return peerRedirect;
+
+  // Static frontend files in production mode (fallback for unmatched routes)
+  if (STATIC_DIR) {
+    const rawPath = url.pathname === "/" ? "index.html" : url.pathname;
+    const filePath = join(STATIC_DIR, rawPath);
+    const staticRoot = resolve(STATIC_DIR);
+    // Path traversal protection: resolved path must stay within STATIC_DIR
+    if (!resolve(filePath).startsWith(staticRoot + "/")) {
+      return new Response("Forbidden", { status: 403 });
+    }
+    const file = Bun.file(filePath);
+    if (await file.exists()) {
+      // Vite-hashed assets are immutable — cache forever
+      const headers: HeadersInit = rawPath.startsWith("/assets/")
+        ? { "Cache-Control": "public, max-age=31536000, immutable" }
+        : {};
+      return new Response(file, { headers });
+    }
+    // SPA fallback: serve index.html (never cache so new deploys take effect)
+    return new Response(Bun.file(join(STATIC_DIR, "index.html")), {
+      headers: { "Cache-Control": "no-cache" },
+    });
+  }
+  return new Response("Not Found", { status: 404 });
+}
+
+const globalWebsocket: WebSocketHandler<WsData> = {
+  // WebSocket-specific timeout; keepalive pings prevent idle tab disconnects.
+  idleTimeout: 255,
+  sendPings: true,
+  open(ws): void {
+    apps.get(ws.data.prefix)?.wsHandlers.open(ws);
+  },
+  message(ws, message): void | Promise<void> {
+    return apps.get(ws.data.prefix)?.wsHandlers.message(ws, message);
+  },
+  close(ws, code, reason): void | Promise<void> {
+    return apps.get(ws.data.prefix)?.wsHandlers.close(ws, code, reason);
+  },
+};
+
+function startServer(port: number, routes: ProjectRoutes): Server<WsData> {
+  return Bun.serve({
+    port,
+    idleTimeout: 255, // seconds; worktree removal can take >10s
+    routes,
+    fetch: globalFetch,
+    websocket: globalWebsocket,
+  });
+}
+
 /** Bind the HTTP server.
  *  - In strict mode (`WEBMUX_PORT_STRICT=1`, set by the CLI when `--port` or
  *    `PORT` was supplied explicitly): bind exactly `PORT` and fail loudly on
  *    `EADDRINUSE` — the user pinned that port, surfacing the conflict beats
  *    silently landing somewhere else.
- *  - Otherwise (default 5111): walk PORT, PORT+1, … up to a sane cap. Nearby
- *    ports match the install-time picker and stay easy to spot in `lsof`. If
- *    the whole window is taken, fall back to an OS-picked ephemeral port so
- *    the process never crashes on startup. */
-function bindServer(): number {
+ *  - Otherwise (default 5111): walk PORT, PORT+1, … up to a sane cap. If the
+ *    whole window is taken, fall back to an OS-picked ephemeral port so the
+ *    process never crashes on startup. */
+function bindServer(routes: ProjectRoutes): Server<WsData> {
   if (PORT_STRICT) {
     try {
-      return actualPort(startServer(PORT), PORT);
+      return startServer(PORT, routes);
     } catch (err: unknown) {
       const code = (err as { code?: string } | null)?.code;
       if (code === "EADDRINUSE") {
@@ -1989,9 +2168,9 @@ function bindServer(): number {
   let candidate = PORT;
   for (let attempt = 0; attempt < MAX_INCREMENTAL_BIND_ATTEMPTS; attempt++) {
     try {
-      const server = startServer(candidate);
-      if (attempt > 0) log.info(`[serve] port ${PORT} in use; bound to ${actualPort(server, candidate)}`);
-      return actualPort(server, candidate);
+      const bound = startServer(candidate, routes);
+      if (attempt > 0) log.info(`[serve] port ${PORT} in use; bound to ${actualPort(bound, candidate)}`);
+      return bound;
     } catch (err: unknown) {
       const code = (err as { code?: string } | null)?.code;
       if (code !== "EADDRINUSE") throw err;
@@ -1999,28 +2178,84 @@ function bindServer(): number {
     }
   }
   log.info(`[serve] ports ${PORT}..${PORT + MAX_INCREMENTAL_BIND_ATTEMPTS - 1} all in use; falling back to an OS-picked port`);
-  return actualPort(startServer(0), 0);
+  return startServer(0, routes);
 }
 
-const BOUND_PORT = bindServer();
+function reloadRoutes(): void {
+  server.reload({ routes: buildServeRoutes(), fetch: globalFetch, websocket: globalWebsocket });
+}
 
-const instanceRegistry = createInstanceRegistry();
+/** Add the current repo as a project when it is a webmux project (has a config
+ *  file). Lets `webmux serve` inside a repo behave like today with zero setup. */
+function autoAddCwd(): void {
+  const cwd = Bun.env.WEBMUX_PROJECT_DIR ?? process.cwd();
+  if (!isGitRepo(cwd)) return;
+  const repoRoot = projectRoot(cwd);
+  if (!existsSync(join(repoRoot, ".webmux.yaml")) && !existsSync(join(repoRoot, ".webmux.local.yaml"))) return;
+  try {
+    manager.add(repoRoot);
+  } catch (err: unknown) {
+    log.error(`[serve] failed to auto-add project ${repoRoot}: ${String(err)}`);
+  }
+}
+
+// Bind first with just the hub routes (no projects materialized yet), then load
+// projects and publish their routes via reloadRoutes().
+server = bindServer(buildServeRoutes());
+BOUND_PORT = actualPort(server, PORT);
+
+manager = new ProjectManager({
+  registry: createProjectsRegistry(),
+  port: BOUND_PORT,
+  createRuntime: ({ projectDir, port }) => createWebmuxRuntime({ projectDir, port }),
+  createLoops: (project): ProjectLoopController => {
+    const app = createProjectApp(project.runtime, project.prefix);
+    apps.set(project.prefix, app);
+    return {
+      startLight: (): void => app.startLight(),
+      stopLight: (): void => {
+        app.stopLight();
+        apps.delete(project.prefix);
+      },
+      startHeavy: (): void => {},
+      stopHeavy: (): void => {},
+    };
+  },
+});
+
+// Ensure tmux server is running (needs at least one session to persist)
+const tmuxCheck = Bun.spawnSync(["tmux", "list-sessions"], { stdout: "pipe", stderr: "pipe" });
+if (tmuxCheck.exitCode !== 0) {
+  Bun.spawnSync(["tmux", "new-session", "-d", "-s", "0"]);
+  log.info("Started tmux session");
+}
+cleanupStaleSessions();
+
+manager.loadPersisted();
+autoAddCwd();
+reloadRoutes();
+
+// Register this server in the peer registry under its primary project's prefix
+// so separately-run `webmux serve` peers can redirect to us.
+const primaryCwd = Bun.env.WEBMUX_PROJECT_DIR ?? process.cwd();
+const primaryRoot = isGitRepo(primaryCwd) ? projectRoot(primaryCwd) : null;
+let primary: ManagedProject | null = primaryRoot ? manager.getByPath(primaryRoot) : null;
+if (!primary) primary = manager.list()[0] ?? null;
 const explicitPrefix = Bun.env.WEBMUX_PREFIX?.trim();
-const livePeers = instanceRegistry.listLive();
-const takenPrefixes = livePeers.map((peer) => peer.prefix);
+const takenPrefixes = instanceRegistry.listLive().map((peer) => peer.prefix);
 const INSTANCE_PREFIX = explicitPrefix && isValidInstancePrefix(explicitPrefix)
   ? explicitPrefix
-  : deriveInstancePrefix(PROJECT_DIR, takenPrefixes);
+  : (primary?.prefix ?? deriveInstancePrefix(primaryRoot ?? process.cwd(), takenPrefixes));
 
 const selfEntry: InstanceEntry = {
   prefix: INSTANCE_PREFIX,
   port: BOUND_PORT,
-  projectDir: PROJECT_DIR,
+  projectDir: primary?.entry.path ?? primaryRoot ?? process.cwd(),
   pid: process.pid,
   startedAt: Date.now(),
 };
 instanceRegistry.register(selfEntry);
-log.info(`[serve] registered instance prefix=${INSTANCE_PREFIX} port=${BOUND_PORT}`);
+log.info(`[serve] registered instance prefix=${INSTANCE_PREFIX} port=${BOUND_PORT} projects=${manager.list().length}`);
 
 function deregisterSelf(): void {
   try {
@@ -2032,38 +2267,6 @@ function deregisterSelf(): void {
 process.on("SIGINT", () => { deregisterSelf(); process.exit(0); });
 process.on("SIGTERM", () => { deregisterSelf(); process.exit(0); });
 process.on("exit", deregisterSelf);
-
-
-// Ensure tmux server is running (needs at least one session to persist)
-const tmuxCheck = Bun.spawnSync(["tmux", "list-sessions"], { stdout: "pipe", stderr: "pipe" });
-if (tmuxCheck.exitCode !== 0) {
-  Bun.spawnSync(["tmux", "new-session", "-d", "-s", "0"]);
-  log.info("Started tmux session");
-}
-
-cleanupStaleSessions();
-startPrMonitor(getWorktreeGitDirs, config.integrations.github.linkedRepos, PROJECT_DIR, undefined, hasRecentDashboardActivity, async () => {
-  if (autoRemoveOnMergeEnabled) {
-    await runAutoRemove(autoRemoveDeps);
-  }
-});
-if (linearAutoCreateEnabled) {
-  startLinearAutoCreate();
-}
-startOneshotWatcher({
-  projectRuntime,
-  lifecycleService,
-  postToLinear: async (branch, target) => {
-    const outcome = await postWorktreeConversationToLinear(branch, target);
-    if (!outcome.ok) throw new Error(outcome.error);
-  },
-});
-if (config.workspace.autoPull.enabled) {
-  startAutoPullMonitor(
-    { git, projectRoot: PROJECT_DIR, mainBranch: config.workspace.mainBranch },
-    config.workspace.autoPull.intervalSeconds * 1000,
-  );
-}
 
 log.info(`Dev Dashboard API running at http://localhost:${BOUND_PORT}`);
 const nets = networkInterfaces();

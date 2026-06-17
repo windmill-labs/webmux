@@ -134,6 +134,7 @@ _webmux() {
     'send:Send a prompt to a running worktree agent'
     'prune:Remove all worktrees in the current project'
     'linear:Post a worktree conversation to a Linear issue/team'
+    'project:List, add, or remove projects served by the dashboard'
     'completion:Generate shell completion script'
   )
 
@@ -163,6 +164,13 @@ _webmux() {
         if (( \${#branches} )); then
           _describe 'worktree' branches
         fi
+      fi
+      ;;
+    project)
+      if (( CURRENT == 3 )); then
+        local -a subs
+        subs=('ls:List projects' 'add:Add a project' 'rm:Remove a project by prefix')
+        _describe 'project subcommand' subs
       fi
       ;;
     completion)
@@ -196,7 +204,7 @@ const BASH_SCRIPT = `_webmux() {
   prev="\${COMP_WORDS[COMP_CWORD-1]}"
 
   if [[ \${COMP_CWORD} -eq 1 ]]; then
-    COMPREPLY=($(compgen -W "serve init service update add oneshot list open close archive unarchive label remove merge send prune linear completion" -- "\${cur}"))
+    COMPREPLY=($(compgen -W "serve init service update add oneshot list open close archive unarchive label remove merge send prune linear project completion" -- "\${cur}"))
     return
   fi
 
@@ -215,6 +223,11 @@ const BASH_SCRIPT = `_webmux() {
         local branches
         branches=$(webmux --completions send 2>/dev/null)
         COMPREPLY=($(compgen -W "\${branches}" -- "\${cur}"))
+      fi
+      ;;
+    project)
+      if [[ \${COMP_CWORD} -eq 2 ]]; then
+        COMPREPLY=($(compgen -W "ls add rm" -- "\${cur}"))
       fi
       ;;
     completion)

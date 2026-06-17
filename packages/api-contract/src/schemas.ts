@@ -541,6 +541,29 @@ export const InstancesResponseSchema = z.object({
 export type InstanceSummary = z.infer<typeof InstanceSummarySchema>;
 export type InstancesResponse = z.infer<typeof InstancesResponseSchema>;
 
+export const ProjectSummarySchema = z.object({
+  prefix: z.string(),
+  name: z.string(),
+  path: z.string(),
+  active: z.boolean(),
+});
+
+export const ProjectsResponseSchema = z.object({
+  projects: z.array(ProjectSummarySchema),
+});
+
+export const AddProjectRequestSchema = z.object({
+  path: z.string().min(1),
+});
+
+export const ProjectPrefixParamsSchema = z.object({
+  prefix: z.string(),
+});
+
+export type ProjectSummary = z.infer<typeof ProjectSummarySchema>;
+export type ProjectsResponse = z.infer<typeof ProjectsResponseSchema>;
+export type AddProjectRequest = z.infer<typeof AddProjectRequestSchema>;
+
 export type BuiltInAgentId = z.infer<typeof BuiltInAgentIdSchema>;
 export type AgentId = z.infer<typeof AgentIdSchema>;
 export type AgentKind = z.infer<typeof AgentKindSchema>;

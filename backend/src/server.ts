@@ -2067,14 +2067,14 @@ function apiListInstances(): Response {
  *  every add/remove so newly known projects are served immediately. */
 function buildServeRoutes(): ProjectRoutes {
   const routes: ProjectRoutes = {
-    "/api/projects": {
+    [apiPaths.fetchProjects]: {
       GET: () => apiListProjects(),
       POST: (req) => catchingRoute("POST /api/projects", () => apiAddProject(req)),
     },
-    "/api/projects/:prefix": {
+    [apiPaths.removeProject]: {
       DELETE: (req) => catchingRoute("DELETE /api/projects/:prefix", () => apiRemoveProject(decodeURIComponent(req.params.prefix))),
     },
-    "/api/instances": {
+    [apiPaths.fetchInstances]: {
       GET: () => apiListInstances(),
     },
   };

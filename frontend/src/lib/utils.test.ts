@@ -7,7 +7,15 @@ import {
   resolveSelectedBranch,
   saveSelectedWorktree,
   saveUseWebChatUi,
+  suggestSubworktreeBranchName,
 } from "./utils";
+
+describe("suggestSubworktreeBranchName", () => {
+  it("prefixes the parent branch and appends a nice word", () => {
+    const suggestion = suggestSubworktreeBranchName("feature/auth");
+    expect(suggestion).toMatch(/^feature\/auth-[a-z]+$/);
+  });
+});
 
 describe("worktree selection persistence", () => {
   beforeEach(() => {

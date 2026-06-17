@@ -136,6 +136,19 @@ export function worktreeCreationPhaseLabel(phase: WorktreeCreationPhase | null):
   }
 }
 
+const NICE_WORDS = [
+  "amber", "brisk", "cobalt", "dawn", "ember", "fern", "glint", "harbor",
+  "indigo", "jade", "kelp", "lumen", "maple", "nimbus", "onyx", "pebble",
+  "quartz", "ripple", "saffron", "tide", "umber", "verve", "willow", "zephyr",
+  "aspen", "breeze", "cedar", "drift", "echo", "flint", "grove", "hazel",
+  "iris", "juniper", "lark", "meadow", "nectar", "opal", "pine", "quill",
+];
+
+export function suggestSubworktreeBranchName(parentBranch: string): string {
+  const word = NICE_WORDS[Math.floor(Math.random() * NICE_WORDS.length)];
+  return `${parentBranch}-${word}`;
+}
+
 export function resolveSelectedBranch(
   selectedBranch: string | null,
   selectedWorktree: Pick<WorktreeInfo, "branch"> | undefined,

@@ -29,6 +29,7 @@
     baseBranches = [],
     baseBranchesLoading = false,
     baseBranchesError = null,
+    lockedBaseBranch = null,
     includeRemoteBranches = $bindable(false),
     startupEnvs = {},
     linearCreateTicketOption = false,
@@ -49,6 +50,7 @@
     baseBranches?: AvailableBranch[];
     baseBranchesLoading?: boolean;
     baseBranchesError?: string | null;
+    lockedBaseBranch?: string | null;
     includeRemoteBranches: boolean;
     startupEnvs?: Record<string, string | boolean>;
     linearCreateTicketOption?: boolean;
@@ -122,7 +124,8 @@
   // svelte-ignore state_referenced_locally
   let prompt = $state(initialPrompt);
   let selectedExistingBranch = $state("");
-  let selectedBaseBranch = $state("");
+  // svelte-ignore state_referenced_locally
+  let selectedBaseBranch = $state(lockedBaseBranch ?? "");
   let multiAgentMode = $state(savedMultiAgentMode);
   let selectedAgentIds = $state<AgentId[]>(savedAgentIds);
   let profile = $state(savedProfile ?? "");
@@ -275,7 +278,7 @@
       });
     }}
   >
-    <h2 class="text-base mb-4">New Worktree</h2>
+    <h2 class="text-base mb-4">{lockedBaseBranch !== null ? "New Sub-Worktree" : "New Worktree"}</h2>
     <div class="mb-4">
       <label class="block text-xs text-muted mb-1.5" for="wt-prompt"
         >Prompt <span class="opacity-60">({promptRequired ? "required" : "optional"})</span></label
@@ -374,9 +377,14 @@
           loading={baseBranchesLoading}
           error={baseBranchesError}
           placeholder="Project main branch (default)"
+          disabled={lockedBaseBranch !== null}
           onselect={(branch) => (selectedBaseBranch = branch)}
         />
-        {#if selectedBaseBranch}
+        {#if lockedBaseBranch !== null}
+          <p class="mt-2 text-[11px] text-muted">
+            Creating a sub-worktree based on <span class="font-mono">{lockedBaseBranch}</span>.
+          </p>
+        {:else if selectedBaseBranch}
           <button
             type="button"
             class="mt-2 text-[11px] text-accent hover:underline"

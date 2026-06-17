@@ -63,6 +63,7 @@ describe("WorktreeList", () => {
         onclose: vi.fn(),
         onarchive: vi.fn(),
         onmerge: vi.fn(),
+        oncreatesubworktree: vi.fn(),
         onremove,
       },
     });
@@ -88,6 +89,7 @@ describe("WorktreeList", () => {
         onclose: vi.fn(),
         onarchive: vi.fn(),
         onmerge: vi.fn(),
+        oncreatesubworktree: vi.fn(),
         onremove: vi.fn(),
       },
     });
@@ -112,6 +114,7 @@ describe("WorktreeList", () => {
         onclose: vi.fn(),
         onarchive,
         onmerge: vi.fn(),
+        oncreatesubworktree: vi.fn(),
         onremove: vi.fn(),
       },
     });
@@ -125,6 +128,33 @@ describe("WorktreeList", () => {
 
     await fireEvent.click(screen.getByRole("button", { name: "Archive" }));
     expect(onarchive).toHaveBeenCalledWith("feature/menu-actions");
+  });
+
+  it("calls oncreatesubworktree with the row branch from the menu", async () => {
+    const oncreatesubworktree = vi.fn();
+
+    render(WorktreeList, {
+      props: {
+        rows: [createRow(createWorktree("feature/sub-base"))],
+        selected: null,
+        removing: new Set<string>(),
+        initializing: new Set<string>(),
+        archiving: new Set<string>(),
+        postingLinear: new Set<string>(),
+        notifiedBranches: new Set<string>(),
+        onselect: vi.fn(),
+        onclose: vi.fn(),
+        onarchive: vi.fn(),
+        onmerge: vi.fn(),
+        oncreatesubworktree,
+        onremove: vi.fn(),
+      },
+    });
+
+    await fireEvent.click(screen.getByRole("button", { name: /actions for feature\/sub-base/i }));
+    await fireEvent.click(screen.getByRole("button", { name: "Create sub-worktree" }));
+
+    expect(oncreatesubworktree).toHaveBeenCalledWith("feature/sub-base");
   });
 
   it("renders labels as the primary row name with the branch below", () => {
@@ -141,6 +171,7 @@ describe("WorktreeList", () => {
         onclose: vi.fn(),
         onarchive: vi.fn(),
         onmerge: vi.fn(),
+        oncreatesubworktree: vi.fn(),
         onremove: vi.fn(),
       },
     });
@@ -169,6 +200,7 @@ describe("WorktreeList", () => {
         onclose: vi.fn(),
         onarchive: vi.fn(),
         onmerge: vi.fn(),
+        oncreatesubworktree: vi.fn(),
         onremove: vi.fn(),
       },
     });
@@ -202,6 +234,7 @@ describe("WorktreeList", () => {
         onclose: vi.fn(),
         onarchive: vi.fn(),
         onmerge: vi.fn(),
+        oncreatesubworktree: vi.fn(),
         onremove: vi.fn(),
       },
     });

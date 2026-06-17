@@ -41,6 +41,7 @@
     loadSavedSelectedWorktree,
     saveSelectedWorktree,
     resolveSelectedBranch,
+    suggestSubworktreeBranchName,
     applyTheme,
     loadSavedSidebarWidth,
     saveSidebarWidth,
@@ -138,6 +139,8 @@
   let baseBranches = $state<AvailableBranch[]>([]);
   let baseBranchesLoading = $state(false);
   let baseBranchesError = $state<string | null>(null);
+  let lockedBaseBranch = $state<string | null>(null);
+  let subworktreeBranchSuggestion = $state("");
   let includeRemoteBranches = $state(false);
   let searchQuery = $state("");
   let worktreeSearchInput = $state<HTMLInputElement | null>(null);
@@ -611,6 +614,16 @@
   function openCreateDialog(issue: LinearIssue | null = null): void {
     includeRemoteBranches = false;
     assignIssue = issue;
+    lockedBaseBranch = null;
+    subworktreeBranchSuggestion = "";
+    showCreateDialog = true;
+  }
+
+  function openSubworktreeDialog(parentBranch: string): void {
+    includeRemoteBranches = false;
+    assignIssue = null;
+    lockedBaseBranch = parentBranch;
+    subworktreeBranchSuggestion = suggestSubworktreeBranchName(parentBranch);
     showCreateDialog = true;
   }
 
@@ -642,6 +655,7 @@
       : request;
     showCreateDialog = false;
     assignIssue = null;
+    lockedBaseBranch = null;
 
     try {
       const createPromise = api.createWorktree({ body: finalRequest });
@@ -1216,6 +1230,7 @@
           mergeBranch = branch;
         }}
         onremove={(b) => (removeBranch = b)}
+        oncreatesubworktree={openSubworktreeDialog}
         onposttolinear={handlePostToLinear}
       />
       {#if config.projectDir}
@@ -1403,7 +1418,7 @@
     defaultProfileName={config.defaultProfileName}
     defaultAgentId={config.defaultAgentId}
     autoNameEnabled={config.autoName}
-    initialBranch={assignIssue?.branchName ?? ""}
+    initialBranch={assignIssue?.branchName ?? subworktreeBranchSuggestion}
     initialPrompt={assignIssue ? `${assignIssue.title}${assignIssue.description ? '\n\n' + assignIssue.description : ''}` : ""}
     bind:includeRemoteBranches
     {availableBranches}
@@ -1412,11 +1427,12 @@
     {baseBranches}
     {baseBranchesLoading}
     {baseBranchesError}
+    {lockedBaseBranch}
     startupEnvs={config.startupEnvs ?? {}}
     linearCreateTicketOption={config.linearCreateTicketOption}
     openedFromLinearIssue={assignIssue !== null}
     oncreate={handleCreate}
-    oncancel={() => { showCreateDialog = false; assignIssue = null; }}
+    oncancel={() => { showCreateDialog = false; assignIssue = null; lockedBaseBranch = null; }}
   />
 {/if}
 

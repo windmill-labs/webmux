@@ -11,6 +11,7 @@
     error = null,
     placeholder = "Select a branch",
     initialOpen = false,
+    disabled = false,
     inlineToggleLabel,
     inlineToggleAriaLabel,
     inlineToggleChecked = false,
@@ -24,6 +25,7 @@
     error?: string | null;
     placeholder?: string;
     initialOpen?: boolean;
+    disabled?: boolean;
     inlineToggleLabel?: string;
     inlineToggleAriaLabel?: string;
     inlineToggleChecked?: boolean;
@@ -114,7 +116,8 @@
   <span class="block text-xs text-muted mb-1.5">{label}</span>
   <button
     type="button"
-    class="flex w-full items-center justify-between gap-3 rounded-md border border-edge bg-surface px-2.5 py-1.5 text-left text-[13px] text-primary outline-none transition-colors hover:bg-hover focus:border-accent"
+    {disabled}
+    class="flex w-full items-center justify-between gap-3 rounded-md border border-edge bg-surface px-2.5 py-1.5 text-left text-[13px] text-primary outline-none transition-colors hover:bg-hover focus:border-accent disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-surface"
     aria-label={label}
     aria-expanded={selectorOpen}
     onclick={toggleSelector}
@@ -122,9 +125,11 @@
     <span class={selected ? "font-mono" : "text-muted/50"}>
       {selected || placeholder}
     </span>
-    <span class="text-[11px] text-muted">{selectorOpen ? "▴" : "▾"}</span>
+    {#if !disabled}
+      <span class="text-[11px] text-muted">{selectorOpen ? "▴" : "▾"}</span>
+    {/if}
   </button>
-  {#if selectorOpen}
+  {#if selectorOpen && !disabled}
     <div class="mt-2 rounded-lg border border-edge bg-surface/60">
       <div class="border-b border-edge p-2">
         <input

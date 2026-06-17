@@ -2089,10 +2089,15 @@ function buildServeRoutes(): ProjectRoutes {
 async function globalFetch(req: Request): Promise<Response> {
   const url = new URL(req.url);
 
-  // Only genuinely remote peers (other processes/ports) reach here — local
-  // project prefixes are matched by the route map above.
-  const peerRedirect = resolvePeerRedirect(url, instanceRegistry.listLive(), BOUND_PORT);
-  if (peerRedirect) return peerRedirect;
+  // A local project owns its `/<prefix>` namespace: its /api + /ws routes were
+  // already matched, and a bare `/<prefix>/...` is a client-side SPA route. Only
+  // a prefix we do NOT serve locally may redirect to a remote peer — otherwise a
+  // peer that happens to share the prefix would shadow our own project.
+  const firstSegment = url.pathname.split("/")[1] ?? "";
+  if (!apps.has(firstSegment)) {
+    const peerRedirect = resolvePeerRedirect(url, instanceRegistry.listLive(), BOUND_PORT);
+    if (peerRedirect) return peerRedirect;
+  }
 
   // Static frontend files in production mode (fallback for unmatched routes)
   if (STATIC_DIR) {

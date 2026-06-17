@@ -24,6 +24,12 @@ vi.mock("./lib/api", () => ({
   setWorktreeLabel: vi.fn(),
   postWorktreeToLinear: vi.fn(),
   subscribeNotifications: vi.fn(),
+  activePrefix: "",
+  apiBase: "",
+  fetchProjects: vi.fn(async () => []),
+  fetchInstances: vi.fn(async () => []),
+  addProject: vi.fn(),
+  removeProject: vi.fn(),
 }));
 
 import App from "./App.svelte";

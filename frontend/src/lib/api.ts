@@ -12,13 +12,27 @@ import type {
   InstanceSummary,
   PostWorktreeToLinearResponse,
   PostWorktreeToLinearTarget,
+  ProjectSummary,
   ProjectWorktreeSnapshot,
   UpsertCustomAgentRequest,
   ValidateCustomAgentResponse,
   WorktreeInfo,
 } from "./types";
 
-export const api = createApi("");
+/** The active project's URL prefix, taken from the first path segment (the
+ *  server serves each project under `/<prefix>/...` on the shared port). Empty
+ *  when at the root before the bootstrap redirect picks a project. */
+export const activePrefix: string = window.location.pathname.split("/")[1] ?? "";
+
+/** Base path for the active project's API + WebSocket calls. */
+export const apiBase: string = activePrefix ? `/${activePrefix}` : "";
+
+/** Per-project client — every worktree/agent/config call is scoped to the
+ *  active project. */
+export const api = createApi(apiBase);
+
+/** Hub client — project list/add/remove + peer instances are global (no prefix). */
+const hubApi = createApi("");
 
 function mapAgentStatus(status: string): string {
   switch (status) {
@@ -129,7 +143,7 @@ export function connectWorktreeConversationStream(
   },
 ): () => void {
   const socket = new WebSocket(
-    `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}${
+    `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}${apiBase}${
       withWorktreeName(apiPaths.streamAgentsWorktreeConversation, branch)
     }`,
   );
@@ -181,8 +195,34 @@ export function validateAgent(body: UpsertCustomAgentRequest): Promise<ValidateC
 }
 
 export async function fetchInstances(): Promise<InstanceSummary[]> {
-  const response = await api.fetchInstances();
+  const response = await hubApi.fetchInstances();
   return response.instances;
+}
+
+export async function fetchProjects(): Promise<ProjectSummary[]> {
+  const response = await hubApi.fetchProjects();
+  return response.projects;
+}
+
+export async function addProject(path: string): Promise<ProjectSummary> {
+  return hubApi.addProject({ body: { path } });
+}
+
+export async function removeProject(prefix: string): Promise<void> {
+  await hubApi.removeProject({ params: { prefix } });
+}
+
+/** Ensure the URL points at a valid project before the app mounts. Returns
+ *  `true` when it is safe to mount (a valid prefix, or no projects to pick).
+ *  Returns `false` when a redirect to the first project is in flight — the
+ *  caller must not mount, as the page is reloading with the correct prefix. */
+export async function ensureProjectPrefix(): Promise<boolean> {
+  const projects = await fetchProjects().catch((): ProjectSummary[] => []);
+  if (projects.some((project) => project.prefix === activePrefix)) return true;
+  const target = projects[0]?.prefix;
+  if (!target) return true;
+  window.location.replace(`/${target}/`);
+  return false;
 }
 
 export function subscribeNotifications(

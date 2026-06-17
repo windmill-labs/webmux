@@ -16,7 +16,7 @@
   import MobileChatSurface from "./lib/MobileChatSurface.svelte";
   import WorktreeLabelDialog from "./lib/WorktreeLabelDialog.svelte";
   import SidebarRepoRow from "./lib/SidebarRepoRow.svelte";
-  import InstanceSwitcher from "./lib/InstanceSwitcher.svelte";
+  import ProjectSwitcher from "./lib/ProjectSwitcher.svelte";
   import Toggle from "./lib/Toggle.svelte";
   import type {
     AvailableBranch,
@@ -54,7 +54,7 @@
   import { getTheme } from "./lib/themes";
   import type { ThemeKey } from "./lib/themes";
   import { setToastController } from "./lib/toast-context";
-  import { api, fetchWorktrees, postWorktreeToLinear, setWorktreeLabel, subscribeNotifications } from "./lib/api";
+  import { activePrefix, api, fetchWorktrees, postWorktreeToLinear, setWorktreeLabel, subscribeNotifications } from "./lib/api";
 
   function createDefaultConfig(): AppConfig {
     return {
@@ -1035,7 +1035,7 @@
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-1 min-w-0">
             <h1 class="text-base font-semibold truncate">{config.name ?? "Dashboard"}</h1>
-            <InstanceSwitcher selfName={config.name ?? "Dashboard"} />
+            <ProjectSwitcher current={activePrefix} />
           </div>
           <div class="flex items-center gap-2">
             <button

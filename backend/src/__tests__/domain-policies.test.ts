@@ -62,14 +62,14 @@ describe("sanitizeInstancePrefix", () => {
 });
 
 describe("isValidInstancePrefix", () => {
-  it("accepts lowercase alphanumeric and hyphens", () => {
+  it("accepts alphanumeric (any case) and hyphens", () => {
     expect(isValidInstancePrefix("webmux")).toBe(true);
     expect(isValidInstancePrefix("webmux-2")).toBe(true);
     expect(isValidInstancePrefix("ab12-cd")).toBe(true);
+    expect(isValidInstancePrefix("Webmux")).toBe(true);
   });
 
-  it("rejects uppercase, leading hyphen, or invalid chars", () => {
-    expect(isValidInstancePrefix("Webmux")).toBe(false);
+  it("rejects leading hyphen, spaces, or empty", () => {
     expect(isValidInstancePrefix("-bad")).toBe(false);
     expect(isValidInstancePrefix("has space")).toBe(false);
     expect(isValidInstancePrefix("")).toBe(false);

@@ -19,6 +19,7 @@ function createWorktree(branch: string): WorktreeInfo {
     profile: null,
     agentName: null,
     agentLabel: null,
+    agentTerminalStale: false,
     services: [],
     paneCount: 1,
     prs: [],
@@ -35,6 +36,8 @@ function createWorktree(branch: string): WorktreeInfo {
     creationPhase: null,
     source: "ui",
     oneshot: null,
+    tabs: [],
+    activeTabId: null,
   };
 }
 

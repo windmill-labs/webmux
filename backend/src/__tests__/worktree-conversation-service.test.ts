@@ -13,11 +13,15 @@ import type {
   CodexAppServerTurnStartParams,
   CodexAppServerTurnStartResponse,
 } from "../adapters/codex-app-server";
+import type { ProfileConfig } from "../domain/config";
 import type { WorktreeMeta, WorktreeSnapshot } from "../domain/model";
 import {
   WorktreeConversationService,
   buildConversationState,
+  resolveCodexAppServerLaunchContext,
+  type CodexAppServerLaunchContext,
 } from "../services/worktree-conversation-service";
+import { ok, type WorktreeConversationResult } from "../services/worktree-conversation-result";
 
 class FakeGitGateway {
   resolveWorktreeGitDir(cwd: string): string {
@@ -27,6 +31,9 @@ class FakeGitGateway {
 
 class FakeCodexAppServer implements CodexAppServerGateway {
   readonly calls: string[] = [];
+  readonly threadResumeParams: CodexAppServerThreadResumeParams[] = [];
+  readonly threadStartParams: CodexAppServerThreadStartParams[] = [];
+  readonly turnStartParams: CodexAppServerTurnStartParams[] = [];
   listedThreads: CodexAppServerThread[] = [];
   readonly threads = new Map<string, CodexAppServerThread>();
   nextStartedThreadId = "thread-created";
@@ -57,6 +64,7 @@ class FakeCodexAppServer implements CodexAppServerGateway {
 
   async threadResume(params: CodexAppServerThreadResumeParams): Promise<CodexAppServerThreadContext> {
     this.calls.push(`threadResume:${params.threadId}`);
+    this.threadResumeParams.push(structuredClone(params));
     const thread = this.requireThread(params.threadId);
     thread.status = { type: "idle" };
     return this.buildContext(thread);
@@ -64,6 +72,7 @@ class FakeCodexAppServer implements CodexAppServerGateway {
 
   async threadStart(params: CodexAppServerThreadStartParams): Promise<CodexAppServerThreadContext> {
     this.calls.push(`threadStart:${params.cwd}`);
+    this.threadStartParams.push(structuredClone(params));
     const thread = makeThread({
       id: this.nextStartedThreadId,
       cwd: params.cwd,
@@ -80,6 +89,7 @@ class FakeCodexAppServer implements CodexAppServerGateway {
   async turnStart(params: CodexAppServerTurnStartParams): Promise<CodexAppServerTurnStartResponse> {
     const text = params.input[0]?.text ?? "";
     this.calls.push(`turnStart:${params.threadId}:${text}`);
+    this.turnStartParams.push(structuredClone(params));
     const thread = this.requireThread(params.threadId);
     const turn = makeTurn({
       id: this.nextStartedTurnId,
@@ -149,6 +159,14 @@ function makeMeta(): WorktreeMeta {
   };
 }
 
+function allowCodexLaunchContext(): WorktreeConversationResult<CodexAppServerLaunchContext> {
+  return ok({
+    approvalPolicy: "never",
+    personality: "pragmatic",
+    sandbox: "danger-full-access",
+  });
+}
+
 function makeCodexConversationMeta(threadId: string, cwd: string, lastSeenAt = "2026-04-14T11:00:00.000Z") {
   return {
     provider: "codexAppServer" as const,
@@ -169,6 +187,7 @@ function makeWorktree(): WorktreeSnapshot {
     profile: "default",
     agentName: "codex",
     agentLabel: "Codex",
+    agentTerminalStale: false,
     mux: true,
     dirty: false,
     unpushed: false,
@@ -181,12 +200,24 @@ function makeWorktree(): WorktreeSnapshot {
     creation: null,
     source: "ui",
     oneshot: null,
+    tabs: [],
+    activeTabId: null,
+  };
+}
+
+function makeProfile(overrides: Partial<ProfileConfig> = {}): ProfileConfig {
+  return {
+    runtime: "host",
+    envPassthrough: [],
+    yolo: true,
+    panes: [{ id: "agent", kind: "agent", focus: true }],
+    ...overrides,
   };
 }
 
 function makeTurn(input: {
   id: string;
-  status: string;
+  status: CodexAppServerTurn["status"];
   startedAt: number | null;
   items: CodexAppServerTurn["items"];
 }): CodexAppServerTurn {
@@ -271,7 +302,9 @@ describe("buildConversationState", () => {
         {
           id: "user-1",
           turnId: "turn-1",
+          order: 0,
           role: "user",
+          kind: "text",
           text: "Inspect the diff",
           status: "completed",
           createdAt: "1970-01-01T00:01:51.000Z",
@@ -279,13 +312,388 @@ describe("buildConversationState", () => {
         {
           id: "assistant-1",
           turnId: "turn-1",
+          order: 1,
           role: "assistant",
+          kind: "text",
+          phase: "final_answer",
           text: "I inspected it.",
           status: "completed",
           createdAt: "1970-01-01T00:03:20.000Z",
         },
       ],
     });
+  });
+
+  it("maps app-server assistant message fields into transcript messages", () => {
+    const thread = makeThread({
+      id: "thread-message-field",
+      cwd: "/tmp/worktree",
+      updatedAt: 120,
+      statusType: "idle",
+      source: "cli",
+      turns: [
+        makeTurn({
+          id: "turn-message-field",
+          status: "completed",
+          startedAt: 111,
+          items: [
+            {
+              type: "agentMessage",
+              id: "assistant-message-field",
+              message: "The newer app server uses message here.",
+              phase: "final_answer",
+              memoryCitation: null,
+            },
+          ],
+        }),
+      ],
+    });
+
+    expect(buildConversationState(thread).messages).toEqual([
+      {
+        id: "assistant-message-field",
+        turnId: "turn-message-field",
+        order: 0,
+        role: "assistant",
+        kind: "text",
+        phase: "final_answer",
+        text: "The newer app server uses message here.",
+        status: "completed",
+        createdAt: "1970-01-01T00:03:20.000Z",
+      },
+    ]);
+  });
+
+  it("maps commentary as assistant text and command execution items as tool messages", () => {
+    const thread = makeThread({
+      id: "thread-tools",
+      cwd: "/tmp/worktree",
+      updatedAt: 120,
+      statusType: "idle",
+      source: "cli",
+      turns: [
+        makeTurn({
+          id: "turn-tools",
+          status: "completed",
+          startedAt: 111,
+          items: [
+            {
+              type: "agentMessage",
+              id: "commentary-1",
+              text: "I will inspect the directory.",
+              phase: "commentary",
+              memoryCitation: null,
+            },
+            {
+              type: "commandExecution",
+              id: "call-1",
+              command: "/bin/zsh -lc ls",
+              cwd: "/tmp/worktree",
+              status: "completed",
+              commandActions: [{ type: "listFiles", command: "ls", path: null }],
+              aggregatedOutput: "README.md\n",
+              exitCode: 0,
+              durationMs: 12,
+            },
+          ],
+        }),
+      ],
+    });
+
+    expect(buildConversationState(thread).messages).toEqual([
+      {
+        id: "commentary-1",
+        turnId: "turn-tools",
+        order: 0,
+        role: "assistant",
+        kind: "text",
+        phase: "commentary",
+        text: "I will inspect the directory.",
+        status: "completed",
+        createdAt: "1970-01-01T00:03:20.000Z",
+      },
+      {
+        id: "call-1",
+        turnId: "turn-tools",
+        order: 1,
+        role: "assistant",
+        kind: "toolUse",
+        toolName: "shell",
+        toolCallId: "call-1",
+        text: "ls",
+        command: "/bin/zsh -lc ls",
+        cwd: "/tmp/worktree",
+        status: "completed",
+        createdAt: "1970-01-01T00:03:20.000Z",
+        exitCode: 0,
+        durationMs: 12,
+      },
+      {
+        id: "call-1:result",
+        turnId: "turn-tools",
+        order: 2,
+        role: "user",
+        kind: "toolResult",
+        toolName: "shell",
+        toolCallId: "call-1",
+        text: "README.md",
+        command: "/bin/zsh -lc ls",
+        cwd: "/tmp/worktree",
+        status: "completed",
+        createdAt: "1970-01-01T00:03:20.000Z",
+        exitCode: 0,
+        durationMs: 12,
+      },
+    ]);
+  });
+
+  it("uses app-server command execution items as the transcript source", () => {
+    const thread = makeThread({
+      id: "thread-tools",
+      cwd: "/tmp/worktree",
+      updatedAt: 120,
+      statusType: "idle",
+      source: "cli",
+      turns: [
+        makeTurn({
+          id: "turn-tools",
+          status: "completed",
+          startedAt: 111,
+          items: [
+            {
+              type: "commandExecution",
+              id: "item-tool-1",
+              command: "/bin/zsh -lc ls",
+              cwd: "/tmp/worktree",
+              status: "completed",
+              commandActions: [{ type: "listFiles", command: "ls", path: null }],
+              aggregatedOutput: "README.md\n",
+              exitCode: 0,
+              durationMs: 12,
+            },
+          ],
+        }),
+      ],
+    });
+
+    expect(buildConversationState(thread).messages).toEqual([
+      {
+        id: "item-tool-1",
+        turnId: "turn-tools",
+        order: 0,
+        role: "assistant",
+        kind: "toolUse",
+        toolName: "shell",
+        toolCallId: "item-tool-1",
+        text: "ls",
+        command: "/bin/zsh -lc ls",
+        cwd: "/tmp/worktree",
+        status: "completed",
+        createdAt: "1970-01-01T00:03:20.000Z",
+        exitCode: 0,
+        durationMs: 12,
+      },
+      {
+        id: "item-tool-1:result",
+        turnId: "turn-tools",
+        order: 1,
+        role: "user",
+        kind: "toolResult",
+        toolName: "shell",
+        toolCallId: "item-tool-1",
+        text: "README.md",
+        command: "/bin/zsh -lc ls",
+        cwd: "/tmp/worktree",
+        status: "completed",
+        createdAt: "1970-01-01T00:03:20.000Z",
+        exitCode: 0,
+        durationMs: 12,
+      },
+    ]);
+  });
+
+  it("maps app-server tool items into initial transcript tool blocks", () => {
+    const thread = makeThread({
+      id: "thread-tool-items",
+      cwd: "/tmp/worktree",
+      updatedAt: 120,
+      statusType: "idle",
+      source: "cli",
+      turns: [
+        makeTurn({
+          id: "turn-tool-items",
+          status: "completed",
+          startedAt: 111,
+          items: [
+            {
+              type: "mcpToolCall",
+              id: "mcp-1",
+              server: "linear",
+              tool: "get_issue",
+              status: "completed",
+              arguments: { issueId: "ENG-123" },
+              pluginId: null,
+              result: {
+                content: [{ type: "text", text: "Issue title" }],
+                structuredContent: { status: "Todo" },
+                _meta: null,
+              },
+              error: null,
+              durationMs: 25,
+            },
+            {
+              type: "fileChange",
+              id: "patch-1",
+              status: "completed",
+              changes: [
+                {
+                  path: "README.md",
+                  kind: { type: "update", move_path: null },
+                  diff: "--- a/README.md\n+++ b/README.md\n",
+                },
+              ],
+            },
+            {
+              type: "dynamicToolCall",
+              id: "dynamic-1",
+              namespace: "workspace",
+              tool: "lookup",
+              arguments: { query: "status" },
+              status: "completed",
+              contentItems: [{ type: "inputText", text: "ok" }],
+              success: true,
+              durationMs: 10,
+            },
+            {
+              type: "webSearch",
+              id: "search-1",
+              query: "codex app server",
+              action: {
+                type: "search",
+                query: null,
+                queries: ["codex app server"],
+              },
+            },
+          ],
+        }),
+      ],
+    });
+
+    expect(buildConversationState(thread).messages).toEqual([
+      {
+        id: "mcp-1",
+        turnId: "turn-tool-items",
+        order: 0,
+        role: "assistant",
+        kind: "toolUse",
+        toolName: "linear.get_issue",
+        toolCallId: "mcp-1",
+        text: "{\n  \"issueId\": \"ENG-123\"\n}",
+        status: "completed",
+        createdAt: "1970-01-01T00:03:20.000Z",
+        durationMs: 25,
+      },
+      {
+        id: "mcp-1:result",
+        turnId: "turn-tool-items",
+        order: 1,
+        role: "user",
+        kind: "toolResult",
+        toolName: "linear.get_issue",
+        toolCallId: "mcp-1",
+        text: "Issue title\n\n{\n  \"status\": \"Todo\"\n}",
+        status: "completed",
+        createdAt: "1970-01-01T00:03:20.000Z",
+        durationMs: 25,
+      },
+      {
+        id: "patch-1",
+        turnId: "turn-tool-items",
+        order: 2,
+        role: "assistant",
+        kind: "toolUse",
+        toolName: "file change",
+        toolCallId: "patch-1",
+        text: "update README.md",
+        status: "completed",
+        createdAt: "1970-01-01T00:03:20.000Z",
+      },
+      {
+        id: "patch-1:result",
+        turnId: "turn-tool-items",
+        order: 3,
+        role: "user",
+        kind: "toolResult",
+        toolName: "file change",
+        toolCallId: "patch-1",
+        text: "--- a/README.md\n+++ b/README.md",
+        status: "completed",
+        createdAt: "1970-01-01T00:03:20.000Z",
+      },
+      {
+        id: "dynamic-1",
+        turnId: "turn-tool-items",
+        order: 4,
+        role: "assistant",
+        kind: "toolUse",
+        toolName: "workspace.lookup",
+        toolCallId: "dynamic-1",
+        text: "{\n  \"query\": \"status\"\n}",
+        status: "completed",
+        createdAt: "1970-01-01T00:03:20.000Z",
+        durationMs: 10,
+      },
+      {
+        id: "dynamic-1:result",
+        turnId: "turn-tool-items",
+        order: 5,
+        role: "user",
+        kind: "toolResult",
+        toolName: "workspace.lookup",
+        toolCallId: "dynamic-1",
+        text: "ok",
+        status: "completed",
+        createdAt: "1970-01-01T00:03:20.000Z",
+        durationMs: 10,
+      },
+      {
+        id: "search-1",
+        turnId: "turn-tool-items",
+        order: 6,
+        role: "assistant",
+        kind: "toolUse",
+        toolName: "web search",
+        toolCallId: "search-1",
+        text: "codex app server",
+        status: "completed",
+        createdAt: "1970-01-01T00:03:20.000Z",
+      },
+    ]);
+  });
+
+  it("ignores assistant-looking items without message text", () => {
+    const thread = makeThread({
+      id: "thread-generic-agent",
+      cwd: "/tmp/worktree",
+      updatedAt: 120,
+      statusType: "idle",
+      source: "cli",
+      turns: [
+        makeTurn({
+          id: "turn-generic-agent",
+          status: "completed",
+          startedAt: 111,
+          items: [
+            {
+              type: "agentMessage",
+              id: "assistant-generic",
+            },
+          ],
+        }),
+      ],
+    });
+
+    expect(buildConversationState(thread).messages).toEqual([]);
   });
 
   it("does not mark interrupted turns as running", () => {
@@ -328,7 +736,9 @@ describe("buildConversationState", () => {
         {
           id: "user-2",
           turnId: "turn-interrupted",
+          order: 0,
           role: "user",
+          kind: "text",
           text: "Stop after the grep",
           status: "completed",
           createdAt: "1970-01-01T00:03:42.000Z",
@@ -336,12 +746,54 @@ describe("buildConversationState", () => {
         {
           id: "assistant-2",
           turnId: "turn-interrupted",
+          order: 1,
           role: "assistant",
+          kind: "text",
+          phase: "final_answer",
           text: "Interrupted after the grep step.",
           status: "completed",
           createdAt: "1970-01-01T00:03:42.000Z",
         },
       ],
+    });
+  });
+});
+
+describe("resolveCodexAppServerLaunchContext", () => {
+  it("allows host yolo Codex worktrees and maps them to app-server launch params", () => {
+    expect(resolveCodexAppServerLaunchContext({
+      worktree: makeWorktree(),
+      meta: makeMeta(),
+      profile: makeProfile(),
+    })).toEqual({
+      ok: true,
+      data: {
+        approvalPolicy: "never",
+        personality: "pragmatic",
+        sandbox: "danger-full-access",
+      },
+    });
+  });
+
+  it("rejects Docker and non-yolo worktrees instead of changing execution context", () => {
+    expect(resolveCodexAppServerLaunchContext({
+      worktree: makeWorktree(),
+      meta: { ...makeMeta(), runtime: "docker" },
+      profile: makeProfile({ runtime: "docker", image: "node:22" }),
+    })).toEqual({
+      ok: false,
+      status: 409,
+      error: "Codex web chat is only available for host-runtime worktrees. Use the terminal for Docker worktrees.",
+    });
+
+    expect(resolveCodexAppServerLaunchContext({
+      worktree: makeWorktree(),
+      meta: makeMeta(),
+      profile: makeProfile({ yolo: false }),
+    })).toEqual({
+      ok: false,
+      status: 409,
+      error: "Codex web chat requires a yolo profile to preserve the Codex approval policy. Use the terminal for this worktree.",
     });
   });
 });
@@ -397,6 +849,7 @@ describe("WorktreeConversationService", () => {
     const service = new WorktreeConversationService({
       appServer,
       git: new FakeGitGateway(),
+      resolveLaunchContext: allowCodexLaunchContext,
       now: () => new Date("2026-04-14T12:00:00.000Z"),
       readMeta: async (path) => structuredClone(metaStore.get(path) ?? null),
       writeMeta: async (path, meta) => {
@@ -416,10 +869,100 @@ describe("WorktreeConversationService", () => {
       "threadResume:thread-new",
       "threadRead:thread-new:true",
     ]);
+    expect(appServer.threadResumeParams[0]).toEqual({
+      threadId: "thread-new",
+      cwd: worktree.path,
+      approvalPolicy: "never",
+      personality: "pragmatic",
+      sandbox: "danger-full-access",
+    });
 
     expect(metaStore.get(gitDir)?.conversation).toEqual(
       makeCodexConversationMeta("thread-new", worktree.path, "2026-04-14T12:00:00.000Z"),
     );
+  });
+
+  it("uses JSONL session messages as the Codex snapshot transcript when available", async () => {
+    const metaStore = new Map<string, WorktreeMeta>();
+    const worktree = makeWorktree();
+    const gitDir = `${worktree.path}/.git`;
+    metaStore.set(gitDir, makeMeta());
+
+    const thread = makeThread({
+      id: "thread-jsonl",
+      cwd: worktree.path,
+      updatedAt: 250,
+      statusType: "idle",
+      source: "cli",
+      turns: [
+        makeTurn({
+          id: "turn-jsonl",
+          status: "completed",
+          startedAt: 111,
+          items: [
+            {
+              type: "userMessage",
+              id: "user-app-server",
+              content: [{ type: "text", text: "App server text only" }],
+            },
+          ],
+        }),
+      ],
+    });
+    const appServer = new FakeCodexAppServer();
+    appServer.listedThreads = [thread];
+    appServer.threads.set(thread.id, structuredClone(thread));
+
+    const service = new WorktreeConversationService({
+      appServer,
+      git: new FakeGitGateway(),
+      resolveLaunchContext: allowCodexLaunchContext,
+      readSessionMessages: async () => [
+        {
+          id: "call-1",
+          turnId: "turn-jsonl",
+          order: 0,
+          role: "assistant",
+          kind: "toolUse",
+          toolName: "exec_command",
+          toolCallId: "call-1",
+          text: "bun test",
+          command: "bun test",
+          status: "completed",
+          createdAt: "2026-05-29T10:00:00.000Z",
+        },
+        {
+          id: "call-1:result",
+          turnId: "turn-jsonl",
+          order: 1,
+          role: "user",
+          kind: "toolResult",
+          toolName: "exec_command",
+          toolCallId: "call-1",
+          text: "pass",
+          command: "bun test",
+          status: "completed",
+          createdAt: "2026-05-29T10:00:01.000Z",
+        },
+      ],
+      readMeta: async (path) => structuredClone(metaStore.get(path) ?? null),
+      writeMeta: async (path, meta) => {
+        metaStore.set(path, structuredClone(meta));
+      },
+    });
+
+    const result = await service.attachWorktreeConversation(worktree);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.data.conversation.messages.map((message) => message.id)).toEqual([
+      "call-1",
+      "call-1:result",
+    ]);
+    expect(result.data.conversation.messages.map((message) => message.text)).toEqual([
+      "bun test",
+      "pass",
+    ]);
   });
 
   it("creates a new thread on attach when none can be resolved", async () => {
@@ -432,6 +975,7 @@ describe("WorktreeConversationService", () => {
     const service = new WorktreeConversationService({
       appServer,
       git: new FakeGitGateway(),
+      resolveLaunchContext: allowCodexLaunchContext,
       now: () => new Date("2026-04-14T12:10:00.000Z"),
       readMeta: async (path) => structuredClone(metaStore.get(path) ?? null),
       writeMeta: async (path, meta) => {
@@ -448,12 +992,160 @@ describe("WorktreeConversationService", () => {
       "threadList",
       "threadStart:/tmp/worktrees/codex-feature",
     ]);
+    expect(appServer.threadStartParams[0]).toEqual({
+      cwd: worktree.path,
+      approvalPolicy: "never",
+      personality: "pragmatic",
+      sandbox: "danger-full-access",
+    });
     expect(metaStore.get(gitDir)?.conversation).toEqual(
       makeCodexConversationMeta("thread-created", worktree.path, "2026-04-14T12:10:00.000Z"),
     );
   });
 
-  it("switches to the newest discovered thread when saved metadata points to an older thread", async () => {
+  it("starts a Codex turn through the app server", async () => {
+    const metaStore = new Map<string, WorktreeMeta>();
+    const worktree = makeWorktree();
+    const gitDir = `${worktree.path}/.git`;
+    metaStore.set(gitDir, {
+      ...makeMeta(),
+      conversation: makeCodexConversationMeta("thread-existing", worktree.path),
+    });
+
+    const thread = makeThread({
+      id: "thread-existing",
+      cwd: worktree.path,
+      updatedAt: 250,
+      statusType: "idle",
+      source: "cli",
+      turns: [],
+    });
+    const appServer = new FakeCodexAppServer();
+    appServer.threads.set(thread.id, structuredClone(thread));
+
+    const service = new WorktreeConversationService({
+      appServer,
+      git: new FakeGitGateway(),
+      resolveLaunchContext: allowCodexLaunchContext,
+      readMeta: async (path) => structuredClone(metaStore.get(path) ?? null),
+      writeMeta: async (path, meta) => {
+        metaStore.set(path, structuredClone(meta));
+      },
+    });
+
+    const result = await service.sendWorktreeConversationMessage(worktree, "Ship it");
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        conversationId: "thread-existing",
+        turnId: "turn-created",
+        running: true,
+      },
+    });
+    expect(appServer.calls).toEqual([
+      "threadRead:thread-existing:false",
+      "threadRead:thread-existing:true",
+      "turnStart:thread-existing:Ship it",
+    ]);
+    expect(appServer.turnStartParams[0]).toEqual({
+      threadId: "thread-existing",
+      cwd: worktree.path,
+      approvalPolicy: "never",
+      input: [{ type: "text", text: "Ship it" }],
+    });
+  });
+
+  it("rejects Codex turns before app-server calls when launch context is unsupported", async () => {
+    const metaStore = new Map<string, WorktreeMeta>();
+    const worktree = makeWorktree();
+    const gitDir = `${worktree.path}/.git`;
+    metaStore.set(gitDir, {
+      ...makeMeta(),
+      runtime: "docker",
+      conversation: makeCodexConversationMeta("thread-existing", worktree.path),
+    });
+
+    const appServer = new FakeCodexAppServer();
+    const service = new WorktreeConversationService({
+      appServer,
+      git: new FakeGitGateway(),
+      resolveLaunchContext: ({ worktree: resolvedWorktree, meta }) =>
+        resolveCodexAppServerLaunchContext({
+          worktree: resolvedWorktree,
+          meta,
+          profile: makeProfile({ runtime: "docker", image: "node:22" }),
+        }),
+      readMeta: async (path) => structuredClone(metaStore.get(path) ?? null),
+      writeMeta: async (path, meta) => {
+        metaStore.set(path, structuredClone(meta));
+      },
+    });
+
+    const result = await service.sendWorktreeConversationMessage(worktree, "Ship it");
+    expect(result).toEqual({
+      ok: false,
+      status: 409,
+      error: "Codex web chat is only available for host-runtime worktrees. Use the terminal for Docker worktrees.",
+    });
+    expect(appServer.calls).toEqual([]);
+  });
+
+  it("interrupts the active Codex app-server turn", async () => {
+    const metaStore = new Map<string, WorktreeMeta>();
+    const worktree = makeWorktree();
+    const gitDir = `${worktree.path}/.git`;
+    metaStore.set(gitDir, {
+      ...makeMeta(),
+      conversation: makeCodexConversationMeta("thread-active", worktree.path),
+    });
+
+    const thread = makeThread({
+      id: "thread-active",
+      cwd: worktree.path,
+      updatedAt: 250,
+      statusType: "active",
+      source: "cli",
+      turns: [
+        makeTurn({
+          id: "turn-active",
+          status: "inProgress",
+          startedAt: 111,
+          items: [
+            {
+              type: "userMessage",
+              id: "user-active",
+              content: [{ type: "text", text: "Run checks" }],
+            },
+          ],
+        }),
+      ],
+    });
+    const appServer = new FakeCodexAppServer();
+    appServer.threads.set(thread.id, structuredClone(thread));
+
+    const service = new WorktreeConversationService({
+      appServer,
+      git: new FakeGitGateway(),
+      resolveLaunchContext: allowCodexLaunchContext,
+      readMeta: async (path) => structuredClone(metaStore.get(path) ?? null),
+      writeMeta: async (path, meta) => {
+        metaStore.set(path, structuredClone(meta));
+      },
+    });
+
+    const result = await service.interruptWorktreeConversation(worktree);
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        conversationId: "thread-active",
+        turnId: "turn-active",
+        interrupted: true,
+      },
+    });
+    expect(appServer.calls.at(-1)).toBe("turnInterrupt:thread-active:turn-active");
+  });
+
+  it("keeps the saved thread when cwd discovery contains a newer unrelated thread", async () => {
     const metaStore = new Map<string, WorktreeMeta>();
     const worktree = makeWorktree();
     const gitDir = `${worktree.path}/.git`;
@@ -526,6 +1218,7 @@ describe("WorktreeConversationService", () => {
     const service = new WorktreeConversationService({
       appServer,
       git: new FakeGitGateway(),
+      resolveLaunchContext: allowCodexLaunchContext,
       now: () => new Date("2026-04-16T09:00:00.000Z"),
       readMeta: async (path) => structuredClone(metaStore.get(path) ?? null),
       writeMeta: async (path, meta) => {
@@ -537,15 +1230,14 @@ describe("WorktreeConversationService", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
 
-    expect(result.data.worktree.conversation?.conversationId).toBe("thread-new");
-    expect(result.data.conversation.messages.at(-1)?.text).toBe("Latest reply");
+    expect(result.data.worktree.conversation?.conversationId).toBe("thread-old");
+    expect(result.data.conversation.messages.at(-1)?.text).toBe("Old reply");
     expect(appServer.calls).toEqual([
-      "threadList",
-      "threadRead:thread-new:false",
-      "threadRead:thread-new:true",
+      "threadRead:thread-old:false",
+      "threadRead:thread-old:true",
     ]);
     expect(metaStore.get(gitDir)?.conversation).toEqual(
-      makeCodexConversationMeta("thread-new", worktree.path, "2026-04-16T09:00:00.000Z"),
+      makeCodexConversationMeta("thread-old", worktree.path, "2026-04-14T11:00:00.000Z"),
     );
   });
 
@@ -559,6 +1251,7 @@ describe("WorktreeConversationService", () => {
     const service = new WorktreeConversationService({
       appServer,
       git: new FakeGitGateway(),
+      resolveLaunchContext: allowCodexLaunchContext,
       readMeta: async (path) => structuredClone(metaStore.get(path) ?? null),
       writeMeta: async (path, meta) => {
         metaStore.set(path, structuredClone(meta));

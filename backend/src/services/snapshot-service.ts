@@ -54,6 +54,7 @@ function mapWorktreeSnapshot(
     profile: state.profile,
     agentName: state.agentName,
     agentLabel: findAgentLabel ? findAgentLabel(state.agentName) : state.agentName,
+    agentTerminalStale: state.agentTerminalStale,
     mux: state.session.exists,
     dirty: state.git.dirty,
     unpushed: state.git.aheadCount > 0,
@@ -66,6 +67,8 @@ function mapWorktreeSnapshot(
     creation: mapCreationSnapshot(creating),
     source: state.source,
     oneshot: state.oneshot,
+    tabs: state.tabs.map((tab) => ({ ...tab })),
+    activeTabId: state.activeTabId,
   };
 }
 
@@ -85,6 +88,7 @@ function mapCreatingWorktreeSnapshot(
     profile: creating.profile,
     agentName: creating.agentName,
     agentLabel: findAgentLabel ? findAgentLabel(creating.agentName) : creating.agentName,
+    agentTerminalStale: false,
     mux: false,
     dirty: false,
     unpushed: false,
@@ -97,6 +101,8 @@ function mapCreatingWorktreeSnapshot(
     creation: mapCreationSnapshot(creating),
     source: creating.source,
     oneshot: null,
+    tabs: [],
+    activeTabId: null,
   };
 }
 

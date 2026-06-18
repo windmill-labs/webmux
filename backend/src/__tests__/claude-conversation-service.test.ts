@@ -53,6 +53,7 @@ function makeWorktree(): WorktreeSnapshot {
     profile: "default",
     agentName: "claude",
     agentLabel: "Claude",
+    agentTerminalStale: false,
     mux: true,
     dirty: false,
     unpushed: false,
@@ -65,6 +66,8 @@ function makeWorktree(): WorktreeSnapshot {
     creation: null,
     source: "ui",
     oneshot: null,
+    tabs: [],
+    activeTabId: null,
   };
 }
 

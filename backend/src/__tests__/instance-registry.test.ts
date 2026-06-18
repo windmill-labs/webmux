@@ -96,10 +96,10 @@ describe("instance-registry", () => {
 
   it("deregister with a mismatched expectedPid leaves the entry alone", async () => {
     const { registry } = await freshRegistry();
-    registry.register(makeEntry({ port: 5111, pid: 1234 }));
+    registry.register(makeEntry({ port: 5111, pid: process.pid }));
     registry.deregister(5111, 9999);
     expect(registry.listLive()).toHaveLength(1);
-    registry.deregister(5111, 1234);
+    registry.deregister(5111, process.pid);
     expect(registry.listLive()).toEqual([]);
   });
 

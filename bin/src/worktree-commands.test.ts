@@ -10,6 +10,7 @@ import {
   parseLabelCommandArgs,
   parseListCommandArgs,
   parseSendCommandArgs,
+  parseTabCommandArgs,
   runWorktreeCommand,
   type ParsedAddCommand,
   type ParsedSendCommand,
@@ -36,6 +37,10 @@ function stubLifecycleService(calls: Array<{ method: string; value: unknown }>) 
     },
     async closeWorktree(branch: string): Promise<void> {
       calls.push({ method: "closeWorktree", value: branch });
+    },
+    async refreshAgentTerminal(branch: string): Promise<{ branch: string; worktreeId: string }> {
+      calls.push({ method: "refreshAgentTerminal", value: branch });
+      return { branch, worktreeId: "wt-3" };
     },
     async setWorktreeArchived(branch: string, archived: boolean): Promise<void> {
       calls.push({ method: "setWorktreeArchived", value: { branch, archived } });
@@ -205,6 +210,35 @@ describe("parseBranchCommandArgs", () => {
 
   it("rejects invalid worktree names", () => {
     expect(() => parseBranchCommandArgs(["feature..search"])).toThrow("Invalid worktree name");
+  });
+});
+
+describe("parseTabCommandArgs", () => {
+  it("defaults to the list action", () => {
+    expect(parseTabCommandArgs(["feature"])).toEqual({ branch: "feature", action: "list" });
+  });
+
+  it("parses the new action", () => {
+    expect(parseTabCommandArgs(["feature", "new"])).toEqual({ branch: "feature", action: "new" });
+  });
+
+  it("parses switch and close with a tab id", () => {
+    expect(parseTabCommandArgs(["feature", "switch", "fork-2"])).toEqual({ branch: "feature", action: "switch", tabId: "fork-2" });
+    expect(parseTabCommandArgs(["feature", "close", "fork-2"])).toEqual({ branch: "feature", action: "close", tabId: "fork-2" });
+  });
+
+  it("requires a tab id for switch and close", () => {
+    expect(() => parseTabCommandArgs(["feature", "switch"])).toThrow("requires a <tabId>");
+    expect(() => parseTabCommandArgs(["feature", "close"])).toThrow("requires a <tabId>");
+  });
+
+  it("rejects unknown actions and missing branch", () => {
+    expect(() => parseTabCommandArgs(["feature", "bogus"])).toThrow("Unknown tab action");
+    expect(() => parseTabCommandArgs([])).toThrow("Missing required argument");
+  });
+
+  it("returns null for help", () => {
+    expect(parseTabCommandArgs(["--help"])).toBeNull();
   });
 });
 
@@ -458,6 +492,28 @@ describe("runWorktreeCommand", () => {
     expect(calls).toEqual([{ method: "openWorktree", value: "feature/search" }]);
     expect(stdout).toEqual(["Opened worktree feature/search"]);
     expect(switchCalls).toEqual([{ projectDir: "/repo", branch: "feature/search" }]);
+  });
+
+  it("dispatches refresh through the lifecycle service", async () => {
+    const { runtime, calls } = makeRuntime();
+    const stdout: string[] = [];
+
+    const exitCode = await runWorktreeCommand(
+      {
+        command: "refresh",
+        args: ["feature/search"],
+        projectDir: "/repo",
+        port: 5111,
+      },
+      {
+        createRuntime: () => runtime,
+        stdout: (message) => stdout.push(message),
+      },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(calls).toEqual([{ method: "refreshAgentTerminal", value: "feature/search" }]);
+    expect(stdout).toEqual(["Refreshed agent terminal for feature/search"]);
   });
 
   it("dispatches archive through the lifecycle service", async () => {

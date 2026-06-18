@@ -7,12 +7,15 @@ import type {
   ServiceStatus,
   WorktreeCreationPhase,
   WorktreeSource,
+  WorktreeTab,
 } from "@webmux/api-contract";
 
 export type {
   AgentsUiConversationEvent,
   AgentsUiConversationMessage,
   AgentsUiConversationMessageDeltaEvent,
+  AgentsUiConversationMessageUpsertEvent,
+  AgentsUiConversationStatusEvent,
   AgentsUiConversationState,
   AgentsUiInterruptResponse,
   AgentsUiSendMessageResponse,
@@ -68,6 +71,7 @@ export type {
   WorktreeDiffResponse,
   WorktreeListResponse,
   WorktreeSource,
+  WorktreeTab,
 } from "@webmux/api-contract";
 export type { AgentsSendMessageRequest as AgentsUiSendMessageRequest } from "@webmux/api-contract";
 
@@ -97,6 +101,7 @@ export interface WorktreeInfo {
   profile: string | null;
   agentName: AgentId | null;
   agentLabel: string | null;
+  agentTerminalStale: boolean;
   services: ServiceStatus[];
   paneCount: number;
   prs: PrEntry[];
@@ -105,6 +110,8 @@ export interface WorktreeInfo {
   creationPhase: WorktreeCreationPhase | null;
   source: WorktreeSource;
   oneshot: OneshotConfig | null;
+  tabs: WorktreeTab[];
+  activeTabId: string | null;
 }
 
 export interface WorktreeListRow {

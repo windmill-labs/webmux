@@ -303,6 +303,17 @@ export const LinearIssuesResponseSchema = z.object({
   issues: z.array(LinearIssueSchema),
 });
 
+export const AutoNameProviderSchema = z.enum(["claude", "codex"]);
+
+export const AutoNameConfigResponseSchema = z.object({
+  autoName: z.object({
+    provider: AutoNameProviderSchema,
+    model: z.string().optional(),
+    systemPrompt: z.string().optional(),
+  }).nullable(),
+  linearAvailability: LinearIssueAvailabilitySchema,
+});
+
 export const WorktreeCreationStateSchema = z.object({
   phase: WorktreeCreationPhaseSchema,
 });
@@ -316,6 +327,16 @@ export const AppNotificationSchema = z.object({
   timestamp: z.number(),
 });
 
+export const WorktreeTabSchema = z.object({
+  tabId: z.string(),
+  kind: z.enum(["root", "fork"]),
+  label: z.string(),
+  seq: z.number().nullable(),
+  sessionId: z.string().nullable(),
+  paneId: z.string().optional(),
+  createdAt: z.string(),
+});
+
 export const ProjectWorktreeSnapshotSchema = z.object({
   branch: z.string(),
   label: z.string().nullable(),
@@ -326,6 +347,7 @@ export const ProjectWorktreeSnapshotSchema = z.object({
   profile: z.string().nullable(),
   agentName: AgentIdSchema.nullable(),
   agentLabel: z.string().nullable(),
+  agentTerminalStale: z.boolean(),
   mux: z.boolean(),
   dirty: z.boolean(),
   unpushed: z.boolean(),
@@ -341,6 +363,9 @@ export const ProjectWorktreeSnapshotSchema = z.object({
    *  Cleared by `disarmOneshot` on the first browser-originated interaction.
    *  CLI clients read this to detect "user took over" mid-run. */
   oneshot: OneshotConfigSchema.nullable(),
+  /** Agent-pane tabs (`tabs[0]` is the root). Default keeps older servers valid. */
+  tabs: z.array(WorktreeTabSchema).default([]),
+  activeTabId: z.string().nullable().default(null),
 });
 
 export const ProjectSnapshotSchema = z.object({
@@ -383,6 +408,7 @@ export const AgentsUiWorktreeSummarySchema = z.object({
   profile: z.string().nullable(),
   agentName: AgentIdSchema.nullable(),
   agentLabel: z.string().nullable(),
+  agentTerminalStale: z.boolean(),
   mux: z.boolean(),
   status: z.string(),
   dirty: z.boolean(),
@@ -395,18 +421,25 @@ export const AgentsUiWorktreeSummarySchema = z.object({
 });
 
 export const AgentsUiConversationMessageRoleSchema = z.enum(["user", "assistant"]);
-export const AgentsUiConversationMessageStatusSchema = z.enum(["completed", "inProgress"]);
-export const AgentsUiConversationMessageKindSchema = z.enum(["text", "toolUse", "toolResult"]);
+export const AgentsUiConversationMessageStatusSchema = z.enum(["completed", "inProgress", "failed"]);
+export const AgentsUiConversationMessageKindSchema = z.enum(["text", "thinking", "toolUse", "toolResult"]);
 
 export const AgentsUiConversationMessageSchema = z.object({
   id: z.string(),
   turnId: z.string(),
+  order: z.number().int().nonnegative(),
   role: AgentsUiConversationMessageRoleSchema,
   text: z.string(),
   status: AgentsUiConversationMessageStatusSchema,
   createdAt: z.string().nullable(),
-  kind: AgentsUiConversationMessageKindSchema.optional(),
+  kind: AgentsUiConversationMessageKindSchema,
+  phase: z.string().optional(),
   toolName: z.string().optional(),
+  toolCallId: z.string().optional(),
+  command: z.string().optional(),
+  cwd: z.string().optional(),
+  exitCode: z.number().nullable().optional(),
+  durationMs: z.number().nullable().optional(),
 });
 
 export const AgentsUiConversationStateSchema = z.object({
@@ -435,17 +468,29 @@ export const AgentsUiInterruptResponseSchema = z.object({
   interrupted: z.literal(true),
 });
 
-export const AgentsUiConversationSnapshotEventSchema = z.object({
-  type: z.literal("snapshot"),
-  data: AgentsUiWorktreeConversationResponseSchema,
-});
-
 export const AgentsUiConversationMessageDeltaEventSchema = z.object({
   type: z.literal("messageDelta"),
+  revision: z.number().int().nonnegative(),
   conversationId: z.string(),
   turnId: z.string(),
   itemId: z.string(),
+  order: z.number().int().nonnegative(),
   delta: z.string(),
+});
+
+export const AgentsUiConversationMessageUpsertEventSchema = z.object({
+  type: z.literal("messageUpsert"),
+  revision: z.number().int().nonnegative(),
+  conversationId: z.string(),
+  message: AgentsUiConversationMessageSchema,
+});
+
+export const AgentsUiConversationStatusEventSchema = z.object({
+  type: z.literal("conversationStatus"),
+  revision: z.number().int().nonnegative(),
+  conversationId: z.string(),
+  running: z.boolean(),
+  activeTurnId: z.string().nullable(),
 });
 
 export const AgentsUiConversationErrorEventSchema = z.object({
@@ -454,8 +499,9 @@ export const AgentsUiConversationErrorEventSchema = z.object({
 });
 
 export const AgentsUiConversationEventSchema = z.discriminatedUnion("type", [
-  AgentsUiConversationSnapshotEventSchema,
   AgentsUiConversationMessageDeltaEventSchema,
+  AgentsUiConversationMessageUpsertEventSchema,
+  AgentsUiConversationStatusEventSchema,
   AgentsUiConversationErrorEventSchema,
 ]);
 
@@ -513,6 +559,15 @@ export const CiLogsResponseSchema = z.object({
 
 export const WorktreeNameParamsSchema = z.object({
   name: z.string(),
+});
+
+export const WorktreeTabParamsSchema = z.object({
+  name: z.string(),
+  tabId: z.string(),
+});
+
+export const CreateTabResponseSchema = z.object({
+  tab: WorktreeTabSchema,
 });
 
 export const NotificationIdParamsSchema = z.object({
@@ -610,9 +665,13 @@ export type LinkedLinearIssue = z.infer<typeof LinkedLinearIssueSchema>;
 export type LinearIssue = z.infer<typeof LinearIssueSchema>;
 export type LinearIssueAvailability = z.infer<typeof LinearIssueAvailabilitySchema>;
 export type LinearIssuesResponse = z.infer<typeof LinearIssuesResponseSchema>;
+export type AutoNameConfigResponse = z.infer<typeof AutoNameConfigResponseSchema>;
 export type WorktreeCreationState = z.infer<typeof WorktreeCreationStateSchema>;
 export type AppNotification = z.infer<typeof AppNotificationSchema>;
 export type ProjectWorktreeSnapshot = z.infer<typeof ProjectWorktreeSnapshotSchema>;
+export type WorktreeTab = z.infer<typeof WorktreeTabSchema>;
+export type WorktreeTabParams = z.infer<typeof WorktreeTabParamsSchema>;
+export type CreateTabResponse = z.infer<typeof CreateTabResponseSchema>;
 export type ProjectSnapshot = z.infer<typeof ProjectSnapshotSchema>;
 export type WorktreeConversationProvider = z.infer<typeof WorktreeConversationProviderSchema>;
 export type CodexWorktreeConversationRef = z.infer<typeof CodexWorktreeConversationRefSchema>;
@@ -627,8 +686,9 @@ export type AgentsUiConversationState = z.infer<typeof AgentsUiConversationState
 export type AgentsUiWorktreeConversationResponse = z.infer<typeof AgentsUiWorktreeConversationResponseSchema>;
 export type AgentsUiSendMessageResponse = z.infer<typeof AgentsUiSendMessageResponseSchema>;
 export type AgentsUiInterruptResponse = z.infer<typeof AgentsUiInterruptResponseSchema>;
-export type AgentsUiConversationSnapshotEvent = z.infer<typeof AgentsUiConversationSnapshotEventSchema>;
 export type AgentsUiConversationMessageDeltaEvent = z.infer<typeof AgentsUiConversationMessageDeltaEventSchema>;
+export type AgentsUiConversationMessageUpsertEvent = z.infer<typeof AgentsUiConversationMessageUpsertEventSchema>;
+export type AgentsUiConversationStatusEvent = z.infer<typeof AgentsUiConversationStatusEventSchema>;
 export type AgentsUiConversationErrorEvent = z.infer<typeof AgentsUiConversationErrorEventSchema>;
 export type AgentsUiConversationEvent = z.infer<typeof AgentsUiConversationEventSchema>;
 export type WorktreeListResponse = z.infer<typeof WorktreeListResponseSchema>;

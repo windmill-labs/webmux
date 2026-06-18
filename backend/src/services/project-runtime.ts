@@ -9,6 +9,7 @@ import type {
   PrEntry,
   ServiceRuntimeState,
   WorktreeSource,
+  WorktreeTab,
 } from "../domain/model";
 import { buildWorktreeWindowName } from "../adapters/tmux";
 
@@ -24,9 +25,12 @@ function makeDefaultState(input: {
   path: string;
   profile?: string | null;
   agentName?: AgentId | null;
+  agentTerminalStale?: boolean;
   runtime?: RuntimeKind;
   source?: WorktreeSource;
   oneshot?: OneshotMeta | null;
+  tabs?: WorktreeTab[];
+  activeTabId?: string | null;
 }): ManagedWorktreeRuntimeState {
   return {
     worktreeId: input.worktreeId,
@@ -38,6 +42,9 @@ function makeDefaultState(input: {
     agentName: input.agentName ?? null,
     source: input.source ?? "ui",
     oneshot: input.oneshot ?? null,
+    tabs: input.tabs ?? [],
+    activeTabId: input.activeTabId ?? null,
+    agentTerminalStale: input.agentTerminalStale === true,
     git: {
       exists: true,
       branch: input.branch,
@@ -83,9 +90,12 @@ export class ProjectRuntime {
     path: string;
     profile?: string | null;
     agentName?: AgentId | null;
+    agentTerminalStale?: boolean;
     runtime?: RuntimeKind;
     source?: WorktreeSource;
     oneshot?: OneshotMeta | null;
+    tabs?: WorktreeTab[];
+    activeTabId?: string | null;
   }): ManagedWorktreeRuntimeState {
     const existing = this.worktrees.get(input.worktreeId);
     if (existing) {
@@ -96,9 +106,12 @@ export class ProjectRuntime {
       if (input.baseBranch !== undefined) existing.baseBranch = input.baseBranch;
       existing.profile = input.profile ?? existing.profile;
       existing.agentName = input.agentName ?? existing.agentName;
+      if (input.agentTerminalStale !== undefined) existing.agentTerminalStale = input.agentTerminalStale;
       if (input.runtime) existing.agent.runtime = input.runtime;
       if (input.source !== undefined) existing.source = input.source;
       if (input.oneshot !== undefined) existing.oneshot = input.oneshot;
+      if (input.tabs !== undefined) existing.tabs = input.tabs;
+      if (input.activeTabId !== undefined) existing.activeTabId = input.activeTabId;
       existing.git.exists = true;
       existing.git.branch = input.branch;
       existing.session.windowName = buildWorktreeWindowName(input.branch);
@@ -170,6 +183,12 @@ export class ProjectRuntime {
   setPrs(worktreeId: string, prs: PrEntry[]): ManagedWorktreeRuntimeState {
     const state = this.requireWorktree(worktreeId);
     state.prs = prs.map((pr) => clonePrEntry(pr));
+    return state;
+  }
+
+  setAgentTerminalStale(worktreeId: string, stale: boolean): ManagedWorktreeRuntimeState {
+    const state = this.requireWorktree(worktreeId);
+    state.agentTerminalStale = stale;
     return state;
   }
 

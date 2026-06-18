@@ -63,8 +63,10 @@ function sameConversationMeta(left: WorktreeConversationMeta | null | undefined,
 }
 
 function normalizeSessionMessages(messages: ClaudeCliConversationMessage[]): AgentsUiConversationMessage[] {
-  return messages.map((message) => ({
+  return messages.map((message, order) => ({
     ...message,
+    order,
+    kind: message.kind ?? "text",
     status: "completed",
   }));
 }

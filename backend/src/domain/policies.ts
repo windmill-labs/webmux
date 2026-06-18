@@ -2,9 +2,9 @@ import type { ServiceSpec } from "./config";
 import type { WorktreeMeta } from "./model";
 
 const INVALID_BRANCH_CHARS_RE = /[~^:?*\[\]\\]+/g;
-const UNSAFE_ENV_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
-const VALID_WORKTREE_NAME_RE = /^[a-z0-9][a-z0-9\-_./]*$/;
-const VALID_INSTANCE_PREFIX_RE = /^[a-z0-9][a-z0-9\-]*$/;
+const UNSAFE_ENV_KEY_RE = /^[a-z_][a-z0-9_]*$/i;
+const VALID_WORKTREE_NAME_RE = /^[a-z0-9][a-z0-9\-_./]*$/i;
+const VALID_INSTANCE_PREFIX_RE = /^[a-z0-9][a-z0-9\-]*$/i;
 
 export function sanitizeBranchName(raw: string): string {
   return raw

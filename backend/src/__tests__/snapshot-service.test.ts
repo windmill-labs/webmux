@@ -110,6 +110,7 @@ describe("buildProjectSnapshot", () => {
         profile: "default",
         agentName: "claude",
         agentLabel: "Claude",
+        agentTerminalStale: false,
         mux: true,
         dirty: true,
         unpushed: true,
@@ -159,6 +160,8 @@ describe("buildProjectSnapshot", () => {
         },
         source: "ui",
         oneshot: null,
+        tabs: [],
+        activeTabId: null,
       },
     ]);
     expect(snapshot.notifications).toHaveLength(1);
@@ -233,6 +236,7 @@ describe("buildProjectSnapshot", () => {
         profile: "default",
         agentName: "codex",
         agentLabel: "Codex",
+        agentTerminalStale: false,
         mux: false,
         dirty: false,
         unpushed: false,
@@ -255,6 +259,8 @@ describe("buildProjectSnapshot", () => {
         },
         source: "ui",
         oneshot: null,
+        tabs: [],
+        activeTabId: null,
       },
     ]);
   });

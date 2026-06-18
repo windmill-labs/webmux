@@ -26,9 +26,123 @@ export interface CodexAppServerUserMessageItem {
 export interface CodexAppServerAgentMessageItem {
   type: "agentMessage";
   id: string;
-  text: string;
-  phase: string;
-  memoryCitation: unknown;
+  text?: string;
+  message?: string;
+  phase?: string | null;
+  memoryCitation?: unknown;
+}
+
+export interface CodexAppServerCommandAction {
+  type: string;
+  command?: string;
+  path?: string | null;
+}
+
+export type CodexAppServerCommandExecutionStatus = "inProgress" | "completed" | "failed" | "declined";
+
+export interface CodexAppServerCommandExecutionItem {
+  type: "commandExecution";
+  id: string;
+  command: string;
+  cwd: string | null;
+  status: CodexAppServerCommandExecutionStatus;
+  commandActions: CodexAppServerCommandAction[];
+  aggregatedOutput: string | null;
+  exitCode: number | null;
+  durationMs: number | null;
+}
+
+export type CodexAppServerPatchChangeKind =
+  | { type: "add" }
+  | { type: "delete" }
+  | { type: "update"; move_path: string | null };
+
+export type CodexAppServerPatchApplyStatus = "inProgress" | "completed" | "failed" | "declined";
+
+export interface CodexAppServerFileUpdateChange {
+  path: string;
+  kind: CodexAppServerPatchChangeKind;
+  diff: string;
+}
+
+export interface CodexAppServerFileChangeItem {
+  type: "fileChange";
+  id: string;
+  changes: CodexAppServerFileUpdateChange[];
+  status: CodexAppServerPatchApplyStatus;
+}
+
+export type CodexAppServerMcpToolCallStatus = "inProgress" | "completed" | "failed";
+
+export interface CodexAppServerMcpToolCallResult {
+  content: unknown[];
+  structuredContent: unknown;
+  _meta: unknown;
+}
+
+export interface CodexAppServerMcpToolCallError {
+  message: string;
+}
+
+export interface CodexAppServerMcpToolCallItem {
+  type: "mcpToolCall";
+  id: string;
+  server: string;
+  tool: string;
+  status: CodexAppServerMcpToolCallStatus;
+  arguments: unknown;
+  mcpAppResourceUri?: string;
+  pluginId: string | null;
+  result: CodexAppServerMcpToolCallResult | null;
+  error: CodexAppServerMcpToolCallError | null;
+  durationMs: number | null;
+}
+
+export type CodexAppServerDynamicToolCallStatus = "inProgress" | "completed" | "failed";
+
+export type CodexAppServerDynamicToolCallContentItem =
+  | { type: "inputText"; text: string }
+  | { type: "inputImage"; imageUrl: string };
+
+export interface CodexAppServerDynamicToolCallItem {
+  type: "dynamicToolCall";
+  id: string;
+  namespace: string | null;
+  tool: string;
+  arguments: unknown;
+  status: CodexAppServerDynamicToolCallStatus;
+  contentItems: CodexAppServerDynamicToolCallContentItem[] | null;
+  success: boolean | null;
+  durationMs: number | null;
+}
+
+export type CodexAppServerWebSearchAction =
+  | { type: "search"; query: string | null; queries: string[] | null }
+  | { type: "openPage"; url: string | null }
+  | { type: "findInPage"; url: string | null; pattern: string | null }
+  | { type: "other" };
+
+export interface CodexAppServerWebSearchItem {
+  type: "webSearch";
+  id: string;
+  query: string;
+  action: CodexAppServerWebSearchAction | null;
+}
+
+export type CodexAppServerIgnoredItemType =
+  | "hookPrompt"
+  | "plan"
+  | "reasoning"
+  | "collabAgentToolCall"
+  | "imageView"
+  | "imageGeneration"
+  | "enteredReviewMode"
+  | "exitedReviewMode"
+  | "contextCompaction";
+
+export interface CodexAppServerIgnoredItem {
+  type: CodexAppServerIgnoredItemType;
+  id: string;
 }
 
 export interface CodexAppServerGenericItem {
@@ -36,15 +150,23 @@ export interface CodexAppServerGenericItem {
   id: string;
 }
 
+export type CodexAppServerTurnStatus = string;
+
 export type CodexAppServerThreadItem =
   | CodexAppServerUserMessageItem
   | CodexAppServerAgentMessageItem
+  | CodexAppServerCommandExecutionItem
+  | CodexAppServerFileChangeItem
+  | CodexAppServerMcpToolCallItem
+  | CodexAppServerDynamicToolCallItem
+  | CodexAppServerWebSearchItem
+  | CodexAppServerIgnoredItem
   | CodexAppServerGenericItem;
 
 export interface CodexAppServerTurn {
   id: string;
   items: CodexAppServerThreadItem[];
-  status: string;
+  status: CodexAppServerTurnStatus;
   error: unknown;
   startedAt: number | null;
   completedAt: number | null;
@@ -172,6 +294,14 @@ type PipedCodexAppServerProcess = Bun.Subprocess<"pipe", "pipe", "pipe">;
 
 const CodexAppServerApprovalPolicySchema = z.enum(["untrusted", "on-failure", "on-request", "never"]);
 const UnknownValueSchema = z.custom<unknown>(() => true);
+const JsonValueSchema = z.union([
+  z.string(),
+  z.number(),
+  z.boolean(),
+  z.null(),
+  z.array(UnknownValueSchema),
+  z.record(UnknownValueSchema),
+]);
 const CodexAppServerContentItemSchema: z.ZodType<CodexAppServerContentItem, z.ZodTypeDef, unknown> = z.object({
   type: z.string(),
   text: z.string().optional(),
@@ -184,16 +314,105 @@ const CodexAppServerUserMessageItemSchema: z.ZodType<CodexAppServerUserMessageIt
 const CodexAppServerAgentMessageItemSchema: z.ZodType<CodexAppServerAgentMessageItem, z.ZodTypeDef, unknown> = z.object({
   type: z.literal("agentMessage"),
   id: z.string(),
-  text: z.string(),
-  phase: z.string(),
-  memoryCitation: UnknownValueSchema,
-}).transform((value) => ({
-  type: value.type,
-  id: value.id,
-  text: value.text,
-  phase: value.phase,
-  memoryCitation: value.memoryCitation,
-}));
+  text: z.string().optional(),
+  message: z.string().optional(),
+  phase: z.string().nullable().optional(),
+  memoryCitation: UnknownValueSchema.optional(),
+});
+const CodexAppServerCommandActionSchema: z.ZodType<CodexAppServerCommandAction, z.ZodTypeDef, unknown> = z.object({
+  type: z.string(),
+  command: z.string().optional(),
+  path: z.string().nullable().optional(),
+});
+const CodexAppServerCommandExecutionItemSchema: z.ZodType<CodexAppServerCommandExecutionItem, z.ZodTypeDef, unknown> = z.object({
+  type: z.literal("commandExecution"),
+  id: z.string(),
+  command: z.string(),
+  cwd: z.string().nullable(),
+  status: z.enum(["inProgress", "completed", "failed", "declined"]),
+  commandActions: z.array(CodexAppServerCommandActionSchema).default([]),
+  aggregatedOutput: z.string().nullable(),
+  exitCode: z.number().nullable(),
+  durationMs: z.number().nullable(),
+});
+const CodexAppServerPatchChangeKindSchema: z.ZodType<CodexAppServerPatchChangeKind, z.ZodTypeDef, unknown> = z.union([
+  z.object({ type: z.literal("add") }),
+  z.object({ type: z.literal("delete") }),
+  z.object({ type: z.literal("update"), move_path: z.string().nullable() }),
+]);
+const CodexAppServerFileUpdateChangeSchema: z.ZodType<CodexAppServerFileUpdateChange, z.ZodTypeDef, unknown> = z.object({
+  path: z.string(),
+  kind: CodexAppServerPatchChangeKindSchema,
+  diff: z.string(),
+});
+const CodexAppServerFileChangeItemSchema: z.ZodType<CodexAppServerFileChangeItem, z.ZodTypeDef, unknown> = z.object({
+  type: z.literal("fileChange"),
+  id: z.string(),
+  changes: z.array(CodexAppServerFileUpdateChangeSchema),
+  status: z.enum(["inProgress", "completed", "failed", "declined"]),
+});
+const CodexAppServerMcpToolCallResultSchema: z.ZodType<CodexAppServerMcpToolCallResult, z.ZodTypeDef, unknown> = z.object({
+  content: z.array(JsonValueSchema),
+  structuredContent: JsonValueSchema,
+  _meta: JsonValueSchema,
+});
+const CodexAppServerMcpToolCallErrorSchema: z.ZodType<CodexAppServerMcpToolCallError, z.ZodTypeDef, unknown> = z.object({
+  message: z.string(),
+});
+const CodexAppServerMcpToolCallItemSchema: z.ZodType<CodexAppServerMcpToolCallItem, z.ZodTypeDef, unknown> = z.object({
+  type: z.literal("mcpToolCall"),
+  id: z.string(),
+  server: z.string(),
+  tool: z.string(),
+  status: z.enum(["inProgress", "completed", "failed"]),
+  arguments: JsonValueSchema,
+  mcpAppResourceUri: z.string().optional(),
+  pluginId: z.string().nullable(),
+  result: CodexAppServerMcpToolCallResultSchema.nullable(),
+  error: CodexAppServerMcpToolCallErrorSchema.nullable(),
+  durationMs: z.number().nullable(),
+});
+const CodexAppServerDynamicToolCallContentItemSchema: z.ZodType<CodexAppServerDynamicToolCallContentItem, z.ZodTypeDef, unknown> = z.union([
+  z.object({ type: z.literal("inputText"), text: z.string() }),
+  z.object({ type: z.literal("inputImage"), imageUrl: z.string() }),
+]);
+const CodexAppServerDynamicToolCallItemSchema: z.ZodType<CodexAppServerDynamicToolCallItem, z.ZodTypeDef, unknown> = z.object({
+  type: z.literal("dynamicToolCall"),
+  id: z.string(),
+  namespace: z.string().nullable(),
+  tool: z.string(),
+  arguments: JsonValueSchema,
+  status: z.enum(["inProgress", "completed", "failed"]),
+  contentItems: z.array(CodexAppServerDynamicToolCallContentItemSchema).nullable(),
+  success: z.boolean().nullable(),
+  durationMs: z.number().nullable(),
+});
+const CodexAppServerWebSearchActionSchema: z.ZodType<CodexAppServerWebSearchAction, z.ZodTypeDef, unknown> = z.union([
+  z.object({ type: z.literal("search"), query: z.string().nullable(), queries: z.array(z.string()).nullable() }),
+  z.object({ type: z.literal("openPage"), url: z.string().nullable() }),
+  z.object({ type: z.literal("findInPage"), url: z.string().nullable(), pattern: z.string().nullable() }),
+  z.object({ type: z.literal("other") }),
+]);
+const CodexAppServerWebSearchItemSchema: z.ZodType<CodexAppServerWebSearchItem, z.ZodTypeDef, unknown> = z.object({
+  type: z.literal("webSearch"),
+  id: z.string(),
+  query: z.string(),
+  action: CodexAppServerWebSearchActionSchema.nullable(),
+});
+const CodexAppServerIgnoredItemSchema: z.ZodType<CodexAppServerIgnoredItem, z.ZodTypeDef, unknown> = z.object({
+  type: z.enum([
+    "hookPrompt",
+    "plan",
+    "reasoning",
+    "collabAgentToolCall",
+    "imageView",
+    "imageGeneration",
+    "enteredReviewMode",
+    "exitedReviewMode",
+    "contextCompaction",
+  ]),
+  id: z.string(),
+});
 const CodexAppServerGenericItemSchema: z.ZodType<CodexAppServerGenericItem, z.ZodTypeDef, unknown> = z.object({
   type: z.string(),
   id: z.string(),
@@ -201,6 +420,12 @@ const CodexAppServerGenericItemSchema: z.ZodType<CodexAppServerGenericItem, z.Zo
 const CodexAppServerThreadItemSchema: z.ZodType<CodexAppServerThreadItem, z.ZodTypeDef, unknown> = z.union([
   CodexAppServerUserMessageItemSchema,
   CodexAppServerAgentMessageItemSchema,
+  CodexAppServerCommandExecutionItemSchema,
+  CodexAppServerFileChangeItemSchema,
+  CodexAppServerMcpToolCallItemSchema,
+  CodexAppServerDynamicToolCallItemSchema,
+  CodexAppServerWebSearchItemSchema,
+  CodexAppServerIgnoredItemSchema,
   CodexAppServerGenericItemSchema,
 ]);
 const CodexAppServerTurnSchema: z.ZodType<CodexAppServerTurn, z.ZodTypeDef, unknown> = z.object({
@@ -291,6 +516,46 @@ const CodexAppServerInitializeResponseSchema = z.object({
   platformOs: z.string(),
 });
 
+export function readCodexAppServerStdoutLines(input: {
+  decoder: TextDecoder;
+  buffer: string;
+  chunk?: Uint8Array;
+}): {
+  buffer: string;
+  lines: string[];
+} {
+  let buffer = input.buffer + (
+    input.chunk ? input.decoder.decode(input.chunk, { stream: true }) : input.decoder.decode()
+  );
+  const lines: string[] = [];
+
+  while (true) {
+    const newlineIndex = buffer.indexOf("\n");
+    if (newlineIndex === -1) break;
+    const line = buffer.slice(0, newlineIndex).trim();
+    buffer = buffer.slice(newlineIndex + 1);
+    if (line.length > 0) lines.push(line);
+  }
+
+  if (!input.chunk) {
+    const finalLine = buffer.trim();
+    buffer = "";
+    if (finalLine.length > 0) lines.push(finalLine);
+  }
+
+  return { buffer, lines };
+}
+
+export function parseCodexAppServerThreadItem(raw: unknown): CodexAppServerThreadItem | null {
+  const parsed = CodexAppServerThreadItemSchema.safeParse(raw);
+  return parsed.success ? parsed.data : null;
+}
+
+export function parseCodexAppServerThreadReadResponse(raw: unknown): CodexAppServerThreadReadResponse | null {
+  const parsed = CodexAppServerThreadReadResponseSchema.safeParse(raw);
+  return parsed.success ? parsed.data : null;
+}
+
 export class CodexAppServerRequestError extends Error {
   constructor(
     message: string,
@@ -303,7 +568,6 @@ export class CodexAppServerRequestError extends Error {
 
 export class CodexAppServerClient implements CodexAppServerGateway {
   private readonly encoder = new TextEncoder();
-  private readonly decoder = new TextDecoder();
   private readonly listeners = new Set<(notification: CodexAppServerNotification) => void>();
   private readonly pending = new Map<number, PendingRequest>();
   private nextId = 1;
@@ -408,22 +672,31 @@ export class CodexAppServerClient implements CodexAppServerGateway {
   private startStdoutLoop(proc: PipedCodexAppServerProcess): void {
     (async () => {
       const reader = proc.stdout.getReader();
+      const decoder = new TextDecoder();
       let buffer = "";
 
       try {
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-          buffer += this.decoder.decode(value);
 
-          while (true) {
-            const newlineIndex = buffer.indexOf("\n");
-            if (newlineIndex === -1) break;
-            const line = buffer.slice(0, newlineIndex).trim();
-            buffer = buffer.slice(newlineIndex + 1);
-            if (line.length === 0) continue;
+          const decoded = readCodexAppServerStdoutLines({
+            decoder,
+            buffer,
+            chunk: value,
+          });
+          buffer = decoded.buffer;
+          for (const line of decoded.lines) {
             this.handleStdoutLine(line);
           }
+        }
+
+        const decoded = readCodexAppServerStdoutLines({
+          decoder,
+          buffer,
+        });
+        for (const line of decoded.lines) {
+          this.handleStdoutLine(line);
         }
       } catch (error) {
         if (this.proc === proc) {
@@ -436,11 +709,12 @@ export class CodexAppServerClient implements CodexAppServerGateway {
   private startStderrLoop(proc: PipedCodexAppServerProcess): void {
     (async () => {
       const reader = proc.stderr.getReader();
+      const decoder = new TextDecoder();
       try {
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-          const chunk = this.decoder.decode(value).trim();
+          const chunk = decoder.decode(value, { stream: true }).trim();
           if (chunk.length > 0) {
             log.debug(`[agents] codex app-server stderr: ${chunk}`);
           }

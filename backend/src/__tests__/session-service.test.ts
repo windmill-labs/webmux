@@ -6,6 +6,18 @@ class FakeTmuxGateway implements TmuxGateway {
   calls: string[] = [];
   existingWindows = new Set<string>();
 
+  getPaneId(_target: string): string {
+    return "%0";
+  }
+
+  createParkedPane(_opts: { sessionName: string; parkingWindow: string; cwd: string; command: string }): string {
+    return "%99";
+  }
+
+  swapPanes(_source: string, _destination: string): void {}
+
+  killPane(_target: string): void {}
+
   ensureServer(): void {
     this.calls.push("ensureServer");
   }

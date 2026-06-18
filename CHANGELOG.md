@@ -1,5 +1,54 @@
 # Changelog
 
+## [0.37.0](https://github.com/windmill-labs/webmux/compare/v0.36.0...v0.37.0) (2026-06-09)
+
+
+### Features
+
+* clearer worktree status indicators ([#265](https://github.com/windmill-labs/webmux/issues/265)) ([4b528a7](https://github.com/windmill-labs/webmux/commit/4b528a7aa2fdad404fd869979b053e89607ced95))
+
+## [0.36.0](https://github.com/windmill-labs/webmux/compare/v0.35.0...v0.36.0) (2026-06-01)
+
+
+### Features
+
+* improve codex web chat feedback ([#258](https://github.com/windmill-labs/webmux/issues/258)) ([8adbdef](https://github.com/windmill-labs/webmux/commit/8adbdef5019cdeccfad55f8dab51661a4af7691c))
+
+
+### Bug Fixes
+
+* recognize Bun's connection-refused message in formatServerError ([a7d78f7](https://github.com/windmill-labs/webmux/commit/a7d78f7d7ea32a9b195315812681949140f3f017))
+* recognize Bun's connection-refused message in formatServerError ([3a67ffb](https://github.com/windmill-labs/webmux/commit/3a67ffb12ef5185a09fa4efaf7d99785e4067c48))
+* refine agent chat ui ([#260](https://github.com/windmill-labs/webmux/issues/260)) ([632c504](https://github.com/windmill-labs/webmux/commit/632c504ef775e5758f9f830c1611f206d4921560))
+* target the live server port for server-backed CLI commands ([3b0a82f](https://github.com/windmill-labs/webmux/commit/3b0a82fbbb674da79521f067ae3eb11b2996d9a5))
+* target the live server port for server-backed CLI commands ([9c82449](https://github.com/windmill-labs/webmux/commit/9c824495eff3902fe3f614329c888d42793c56e9))
+
+## [0.35.0](https://github.com/windmill-labs/webmux/compare/v0.34.0...v0.35.0) (2026-05-27)
+
+
+### Features
+
+* add web chat ui setting ([#252](https://github.com/windmill-labs/webmux/issues/252)) ([4126a4c](https://github.com/windmill-labs/webmux/commit/4126a4c336e355dd0117f4fe1f9dae361eea9f87))
+* bake env vars into webmux service unit via --env and auto-pickup ([b790a50](https://github.com/windmill-labs/webmux/commit/b790a50230b1aa137e04ed4efaeea34cd62cd58c))
+* bake env vars into webmux service unit via --env and auto-pickup ([88e111d](https://github.com/windmill-labs/webmux/commit/88e111db9cd3c7ba6376d76368f63d6dba9eb250))
+* polish Linear issue title and detect duplicates on --linear &lt;TEAM&gt; ([d2538d8](https://github.com/windmill-labs/webmux/commit/d2538d80632a79fad27146c6f472c19579d746f9))
+* polish Linear issue title and detect duplicates on --linear &lt;TEAM&gt; ([88f0af6](https://github.com/windmill-labs/webmux/commit/88f0af6e681843f95eda688ad2368e013822a02c))
+* post Linear comment when auto-create picks up an issue ([9c0bc35](https://github.com/windmill-labs/webmux/commit/9c0bc35a51011bc56d2a8d41451d12f7a43fa358))
+* post Linear comment when auto-create picks up an issue ([6d91151](https://github.com/windmill-labs/webmux/commit/6d91151f51ba0fae724dde85dacdc13de7e9f556))
+* stream codex chat and refresh stale terminals ([#254](https://github.com/windmill-labs/webmux/issues/254)) ([6fcd2c6](https://github.com/windmill-labs/webmux/commit/6fcd2c6ec06458ef76fb138db325411a56565971))
+
+
+### Bug Fixes
+
+* address review nits on Linear title polish + dedup ([70bd58c](https://github.com/windmill-labs/webmux/commit/70bd58c5f4569ba561d34a6f8ae04e7ba497e068))
+* don't close dialog when drag-selecting text out of modal ([dc41a31](https://github.com/windmill-labs/webmux/commit/dc41a313945a768b1e0743224132085d1e65759b))
+* don't close dialog when drag-selecting text out of modal ([92a611a](https://github.com/windmill-labs/webmux/commit/92a611ad7d0987c0b42624a93686a480cd77cd62))
+* handle codex assistant message fields ([#256](https://github.com/windmill-labs/webmux/issues/256)) ([e834209](https://github.com/windmill-labs/webmux/commit/e8342096d9d79a9582034ca8674971fc1f8b7471))
+* report the resolved working branch in oneshot pickup comments ([31c9f55](https://github.com/windmill-labs/webmux/commit/31c9f5553daa8217453ffa83454004febae6982e))
+* revert \$teamId to ID! — Linear rejects String! in this filter ([18b3653](https://github.com/windmill-labs/webmux/commit/18b36533a6782f882573f1d945404915d8882914))
+* scope stale terminal banner to terminal pane ([#255](https://github.com/windmill-labs/webmux/issues/255)) ([e06682f](https://github.com/windmill-labs/webmux/commit/e06682f2c5a73af7a248792ace42e2df7e84dfd9))
+* stop polish from running the prompt as a task ([ccd87b7](https://github.com/windmill-labs/webmux/commit/ccd87b73b928ec747c1afc315f37a268177693cc))
+
 ## [0.34.0](https://github.com/windmill-labs/webmux/compare/v0.33.0...v0.34.0) (2026-05-19)
 
 

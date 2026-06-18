@@ -1,6 +1,6 @@
 import type { AgentDefinition } from "./agent-registry";
 
-export type AgentLaunchMode = "fresh" | "resume";
+export type AgentLaunchMode = "fresh" | "resume" | "fork";
 
 const DOCKER_PATH_FALLBACK = "/root/.local/bin:/usr/local/bin:/root/.bun/bin:/root/.cargo/bin";
 
@@ -31,16 +31,26 @@ function buildBuiltInAgentInvocation(input: {
   systemPrompt?: string;
   prompt?: string;
   launchMode?: AgentLaunchMode;
+  resumeConversationId?: string;
+  /** Session to fork from (launchMode "fork"): claude `--fork-session`, codex `fork`. */
+  forkFromSessionId?: string;
+  /** Claude-only: pin the forked child to a session id we generated, so we know it without disk discovery. */
+  pinSessionId?: string;
 }): string {
   const promptSuffix = input.prompt ? ` -- ${quoteShell(input.prompt)}` : "";
 
   if (input.agent === "codex") {
     const hooksFlag = " --enable hooks";
     const yoloFlag = input.yolo ? " --yolo" : "";
+    if (input.launchMode === "fork" && input.forkFromSessionId) {
+      // `codex fork <id>` branches the session into a fresh one with inherited history.
+      return `codex${hooksFlag}${yoloFlag} fork ${quoteShell(input.forkFromSessionId)}${promptSuffix}`;
+    }
     if (input.launchMode === "resume") {
       // `codex resume --last` takes the prompt after `--`, so a follow-up is
       // processed before the TUI starts — no paste/Enter race.
-      return `codex${hooksFlag}${yoloFlag} resume --last${promptSuffix}`;
+      const resumeTarget = input.resumeConversationId ? ` ${quoteShell(input.resumeConversationId)}` : " --last";
+      return `codex${hooksFlag}${yoloFlag} resume${resumeTarget}${promptSuffix}`;
     }
     if (input.systemPrompt) {
       return `codex${hooksFlag}${yoloFlag} -c ${quoteShell(`developer_instructions=${input.systemPrompt}`)}${promptSuffix}`;
@@ -49,11 +59,20 @@ function buildBuiltInAgentInvocation(input: {
   }
 
   const yoloFlag = input.yolo ? " --dangerously-skip-permissions" : "";
+  if (input.launchMode === "fork" && input.forkFromSessionId) {
+    // Fork the parent into a NEW session, pinning the child id when provided so
+    // the tab service can track it deterministically.
+    const pin = input.pinSessionId ? ` --session-id ${quoteShell(input.pinSessionId)}` : "";
+    return `claude${yoloFlag} --resume ${quoteShell(input.forkFromSessionId)} --fork-session${pin}${promptSuffix}`;
+  }
   if (input.launchMode === "resume") {
-    // `claude --continue <prompt>` resumes the session AND submits the prompt
-    // as the first new turn, avoiding the tmux paste/Enter race that hits
-    // Claude's TUI before its input loop is ready.
-    return `claude${yoloFlag} --continue${promptSuffix}`;
+    // `--resume <id>` restores a specific session (e.g. a fork on reopen); `--continue`
+    // resumes the most recent. Either way the prompt is submitted as the first new turn,
+    // avoiding the tmux paste/Enter race that hits Claude's TUI before its input loop is ready.
+    const resumeTarget = input.resumeConversationId
+      ? ` --resume ${quoteShell(input.resumeConversationId)}`
+      : " --continue";
+    return `claude${yoloFlag}${resumeTarget}${promptSuffix}`;
   }
   if (input.systemPrompt) {
     return `claude${yoloFlag} --append-system-prompt ${quoteShell(input.systemPrompt)}${promptSuffix}`;
@@ -121,6 +140,9 @@ function buildAgentInvocation(input: {
   repoRoot: string;
   branch: string;
   profileName: string;
+  resumeConversationId?: string;
+  forkFromSessionId?: string;
+  pinSessionId?: string;
 }): string {
   if (input.agent.kind === "builtin") {
     return buildBuiltInAgentInvocation({
@@ -129,6 +151,9 @@ function buildAgentInvocation(input: {
       systemPrompt: input.systemPrompt,
       prompt: input.prompt,
       launchMode: input.launchMode,
+      resumeConversationId: input.resumeConversationId,
+      forkFromSessionId: input.forkFromSessionId,
+      pinSessionId: input.pinSessionId,
     });
   }
 
@@ -155,6 +180,9 @@ function buildAgentCommand(input: {
   systemPrompt?: string;
   prompt?: string;
   launchMode?: AgentLaunchMode;
+  resumeConversationId?: string;
+  forkFromSessionId?: string;
+  pinSessionId?: string;
 }, bootstrap = buildRuntimeBootstrap): string {
   return `${bootstrap(input.runtimeEnvPath)}; ${buildAgentInvocation(input)}`;
 }
@@ -185,6 +213,9 @@ export function buildAgentPaneCommand(input: {
   systemPrompt?: string;
   prompt?: string;
   launchMode?: AgentLaunchMode;
+  resumeConversationId?: string;
+  forkFromSessionId?: string;
+  pinSessionId?: string;
 }): string {
   return buildAgentCommand(input);
 }
@@ -213,6 +244,9 @@ export function buildDockerAgentPaneCommand(input: {
   systemPrompt?: string;
   prompt?: string;
   launchMode?: AgentLaunchMode;
+  resumeConversationId?: string;
+  forkFromSessionId?: string;
+  pinSessionId?: string;
 }): string {
   return buildAgentCommand(input, buildDockerRuntimeBootstrap);
 }

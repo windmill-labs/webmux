@@ -9,8 +9,11 @@
   } from "./api";
   import {
     applyConversationMessageDelta,
+    applyConversationMessageUpsert,
+    applyConversationStatus,
     buildConversationProgressSignature,
     markConversationTurnStarted,
+    mergeConversationSnapshot,
   } from "./worktree-conversation";
   import type {
     AgentsUiConversationEvent,
@@ -22,9 +25,13 @@
 
   interface Props {
     worktree: WorktreeInfo;
+    onConversationMessageSent?: () => void;
   }
 
-  const { worktree }: Props = $props();
+  const {
+    worktree,
+    onConversationMessageSent = () => {},
+  }: Props = $props();
 
   let conversation = $state<AgentsUiConversationState | null>(null);
   let conversationError = $state<string | null>(null);
@@ -43,6 +50,7 @@
     disconnect: () => void;
   } | null = null;
   let nextRefreshPollingToken = 1;
+  let lastStreamRevision = 0;
 
   const REFRESH_POLL_INTERVAL_MS = 1000;
   const REFRESH_POLL_SETTLE_TICKS = 3;
@@ -50,6 +58,7 @@
   function closeConversationStream(): void {
     streamConnection?.disconnect();
     streamConnection = null;
+    lastStreamRevision = 0;
   }
 
   function supportsStreaming(nextConversation: AgentsUiConversationState | null): boolean {
@@ -61,7 +70,7 @@
   }
 
   function applyConversationResponse(response: AgentsUiWorktreeConversationResponse): void {
-    conversation = response.conversation;
+    conversation = mergeConversationSnapshot(conversation, response.conversation);
     conversationError = null;
     syncConversationStream();
   }
@@ -76,13 +85,21 @@
 
   function handleConversationStreamEvent(conversationId: string, event: AgentsUiConversationEvent): void {
     if (!hasActiveConversationStream(conversationId)) return;
+    if (event.type !== "error") {
+      if (event.revision <= lastStreamRevision) return;
+      lastStreamRevision = event.revision;
+    }
 
     switch (event.type) {
-      case "snapshot":
-        applyConversationResponse(event.data);
-        break;
       case "messageDelta":
         conversation = applyConversationMessageDelta(conversation, event);
+        break;
+      case "messageUpsert":
+        conversation = applyConversationMessageUpsert(conversation, event);
+        break;
+      case "conversationStatus":
+        conversation = applyConversationStatus(conversation, event);
+        syncConversationStream();
         break;
       case "error":
         conversationError = event.message;
@@ -90,7 +107,7 @@
     }
   }
 
-  function syncConversationStream(): void {
+  function syncConversationStream(force = false): void {
     if (!supportsStreaming(conversation)) {
       closeConversationStream();
       return;
@@ -102,11 +119,17 @@
       return;
     }
 
+    if (!force && conversation?.running !== true) {
+      closeConversationStream();
+      return;
+    }
+
     if (hasActiveConversationStream(conversationId)) {
       return;
     }
 
     closeConversationStream();
+    lastStreamRevision = 0;
     const disconnect = connectWorktreeConversationStream(worktree.branch, {
       onEvent: (event) => {
         handleConversationStreamEvent(conversationId, event);
@@ -190,6 +213,7 @@
     isSending = true;
     conversationError = null;
     try {
+      syncConversationStream(true);
       const response = await sendWorktreeConversationMessage(worktree.branch, { text });
       composerText = "";
       if (conversation.conversationId !== response.conversationId) {
@@ -200,7 +224,10 @@
       }
       conversation = markConversationTurnStarted(conversation, response.turnId, text);
       syncConversationStream();
-      startRefreshPolling(baselineConversation);
+      if (!supportsStreaming(conversation)) {
+        startRefreshPolling(baselineConversation);
+      }
+      onConversationMessageSent();
     } catch (error) {
       conversationError = error instanceof Error ? error.message : String(error);
     } finally {
@@ -213,7 +240,9 @@
     conversationError = null;
     try {
       await interruptWorktreeConversation(worktree.branch);
-      startRefreshPolling(baselineConversation);
+      if (!supportsStreaming(conversation)) {
+        startRefreshPolling(baselineConversation);
+      }
     } catch (error) {
       conversationError = error instanceof Error ? error.message : String(error);
     }
@@ -233,8 +262,8 @@
     const token = pollingState.token;
     let requestInFlight = false;
 
-    // Codex websocket deltas help when app-server notifications arrive, but tmux-sent turns can
-    // still miss them, so history polling stays active until the conversation snapshot settles.
+    // Codex websocket deltas are primary, and history polling keeps the transcript settled if
+    // app-server notifications arrive late or are missed while the socket reconnects.
     const interval = window.setInterval(() => {
       if (!refreshPollingState || refreshPollingState.token !== token || requestInFlight) return;
       requestInFlight = true;

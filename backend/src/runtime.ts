@@ -5,6 +5,7 @@ import { BunGitGateway } from "./adapters/git";
 import { BunLifecycleHookRunner } from "./adapters/hooks";
 import { BunPortProbe } from "./adapters/port-probe";
 import { BunTmuxGateway } from "./adapters/tmux";
+import { FileSessionDiscovery } from "./adapters/session-discovery";
 import { AutoNameService } from "./services/auto-name-service";
 import { ArchiveStateService } from "./services/archive-state-service";
 import { LifecycleService, type CreateWorktreeProgress } from "./services/lifecycle-service";
@@ -66,6 +67,7 @@ export function createWebmuxRuntime(options: WebmuxRuntimeOptions = {}): WebmuxR
     archiveState: archiveStateService,
     git,
     tmux,
+    sessionDiscovery: new FileSessionDiscovery(),
     docker,
     reconciliation: reconciliationService,
     hooks,

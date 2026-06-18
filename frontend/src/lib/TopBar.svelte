@@ -109,11 +109,12 @@
   );
 </script>
 
-<div class="flex items-stretch bg-topbar border-b border-edge min-h-12">
-  <!-- Left + middle: rows of repo groups -->
-  <div class="flex-1 min-w-0 flex flex-col justify-center px-4 py-2.5 gap-1.5">
-    <!-- Main row: branch name + worktree-level badges + main repo PR badges -->
-    <div class="topbar-main-row flex items-start gap-3 min-w-0">
+<div class="bg-topbar border-b border-edge">
+  <div class="flex items-stretch min-h-12">
+    <!-- Left + middle: rows of repo groups -->
+    <div class="flex-1 min-w-0 flex flex-col justify-center px-4 py-2.5 gap-1.5">
+      <!-- Main row: branch name + worktree-level badges + main repo PR badges -->
+      <div class="topbar-main-row flex items-start gap-3 min-w-0">
       <div class="topbar-main-meta flex items-center gap-3 min-w-0">
         {#if isMobile && ontogglesidebar}
           <button
@@ -370,6 +371,7 @@
         <circle cx="12" cy="12" r="3" />
       </svg>
     </button>
+    </div>
   </div>
 </div>
 

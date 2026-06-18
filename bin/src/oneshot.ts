@@ -1,6 +1,8 @@
+import * as p from "@clack/prompts";
 import { apiPaths, AgentsUiConversationEventSchema, createApi, parseLinearTarget, type AgentsUiConversationMessage, type AgentsUiConversationEvent, type AgentsUiWorktreeConversationResponse, type CreateWorktreeRequest, type PostWorktreeToLinearTarget, type ProjectWorktreeSnapshot } from "@webmux/api-contract";
-import { createLinearIssue, fetchTeamByKey } from "../../backend/src/services/linear-service";
+import { createLinearIssue, fetchTeamByKey, type LinearIssue } from "../../backend/src/services/linear-service";
 import { buildSeedFromLinear, defaultSeedFromLinearDeps } from "../../backend/src/services/conversation-export-service";
+import { findDuplicateLinearIssue, polishLinearIssueTitle } from "../../backend/src/services/linear-title-service";
 import { CommandUsageError, formatServerError } from "./shared";
 
 export interface ParsedOneshotCommand {
@@ -40,7 +42,9 @@ export function getOneshotUsage(): string {
     "  --keep-open              Don't auto-close the worktree session when the agent finishes",
     "  --linear ID|TEAM         Tie this oneshot to Linear:",
     "                             ENG-123  — load the issue body as context, post results back",
-    "                             ENG      — create a new issue in that team when done",
+    "                             ENG      — create a new issue in that team when done.",
+    "                                        When autoName is configured, the title is polished",
+    "                                        and likely duplicates are surfaced before creation.",
     "  --branch <name>          Override the branch when --linear resolves to one",
     "  --help                   Show this help message",
   ].join("\n");
@@ -217,6 +221,7 @@ interface ConversationPrintState {
   printedMessageIds: Set<string>;
   streamingItemId: string | null;
   streamingNeedsHeader: boolean;
+  lastStreamRevision: number;
 }
 
 function timestamp(): string {
@@ -343,10 +348,14 @@ function handleConversationEvent(
   stderr: (line: string) => void,
 ): void {
   if (event.type === "snapshot") {
+    if (event.revision <= state.lastStreamRevision) return;
+    state.lastStreamRevision = event.revision;
     printNewMessages(state, event.data.conversation.messages);
     return;
   }
   if (event.type === "messageDelta") {
+    if (event.revision <= state.lastStreamRevision) return;
+    state.lastStreamRevision = event.revision;
     if (state.streamingItemId !== event.itemId) {
       flushStreamingLine(state);
       state.streamingItemId = event.itemId;
@@ -357,6 +366,12 @@ function handleConversationEvent(
       state.streamingNeedsHeader = false;
     }
     process.stdout.write(event.delta);
+    return;
+  }
+  if (event.type === "messageUpsert") {
+    if (event.revision <= state.lastStreamRevision) return;
+    state.lastStreamRevision = event.revision;
+    printNewMessages(state, [event.message]);
     return;
   }
   if (event.type === "error") {
@@ -394,6 +409,7 @@ function streamConversation(
     socket = ws;
     ws.addEventListener("open", () => {
       consecutiveFailures = 0;
+      state.lastStreamRevision = 0;
     });
     ws.addEventListener("message", (event) => {
       if (typeof event.data !== "string") return;
@@ -652,14 +668,45 @@ function pollConversationHistory(
   };
 }
 
-function deriveOneshotIssueTitle(prompt: string | null): string | null {
-  if (!prompt) return null;
-  const firstLine = prompt
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .find((line) => line.length > 0);
-  if (!firstLine) return null;
-  return firstLine.length > 100 ? `${firstLine.slice(0, 97)}…` : firstLine;
+type DuplicateChoice = "use_existing" | "create_new" | "cancel";
+
+async function promptDuplicateChoice(
+  candidate: LinearIssue,
+  polishedTitle: string,
+): Promise<DuplicateChoice> {
+  if (!process.stdin.isTTY) {
+    process.stderr.write(
+      `[${timestamp()}] [warn] non-interactive shell; ignoring possible duplicate ${candidate.identifier}: "${candidate.title}" (${candidate.url})\n`,
+    );
+    return "create_new";
+  }
+  p.note(
+    `${candidate.identifier}: ${candidate.title}\n${candidate.url}`,
+    "Possible existing match",
+  );
+  const choice = await p.select<DuplicateChoice>({
+    message: "Found a possible existing match. What should webmux do?",
+    initialValue: "use_existing",
+    options: [
+      {
+        value: "use_existing",
+        label: `Use existing (${candidate.identifier})`,
+        hint: "Treat this oneshot as resuming the existing issue",
+      },
+      {
+        value: "create_new",
+        label: "Create new issue",
+        hint: `Title: "${polishedTitle}"`,
+      },
+      {
+        value: "cancel",
+        label: "Cancel",
+        hint: "Don't start the oneshot",
+      },
+    ],
+  });
+  if (p.isCancel(choice)) return "cancel";
+  return choice;
 }
 
 export async function runOneshot(parsed: ParsedOneshotCommand, port: number): Promise<number> {
@@ -679,17 +726,21 @@ export async function runOneshot(parsed: ParsedOneshotCommand, port: number): Pr
   try {
     // Preflight: the final `postWorktreeToLinear` call runs on the server, so
     // the server's LINEAR_API_KEY must be set. Without this check, the user
-    // could run for hours before discovering the post-back will fail.
+    // could run for hours before discovering the post-back will fail. We fold
+    // this availability check into the autoName fetch since both gate the same
+    // --linear flow and the combined endpoint avoids a second round-trip.
+    let autoName: Awaited<ReturnType<typeof api.fetchAutoNameConfig>>["autoName"] = null;
     if (postToLinearTarget) {
-      const availability = await api.fetchLinearIssues();
-      if (availability.availability === "missing_api_key") {
+      const projectAutoName = await api.fetchAutoNameConfig();
+      if (projectAutoName.linearAvailability === "missing_api_key") {
         stderr(`[${timestamp()}] [error] server has no LINEAR_API_KEY — the post-back to Linear at the end of the run will fail. Set the env var on the webmux server and restart it.`);
         return 1;
       }
-      if (availability.availability === "disabled") {
+      if (projectAutoName.linearAvailability === "disabled") {
         stderr(`[${timestamp()}] [error] Linear integration is disabled on the webmux server.`);
         return 1;
       }
+      autoName = projectAutoName.autoName;
     }
 
     // Resolve Linear in-process (using LINEAR_API_KEY from the CLI shell's env)
@@ -697,11 +748,20 @@ export async function runOneshot(parsed: ParsedOneshotCommand, port: number): Pr
     // accepts a `fromLinear.issueId` payload — it just doesn't need to re-fetch
     // because we pass the resolved branch + conversationContext explicitly.
     if (postToLinearTarget?.kind === "team") {
-      const title = deriveOneshotIssueTitle(parsed.prompt);
-      if (!title) {
+      if (!parsed.prompt) {
         stderr(`[${timestamp()}] [error] --linear ${postToLinearTarget.teamKey} requires --prompt to derive an issue title`);
         return 1;
       }
+
+      const polished = await polishLinearIssueTitle({ prompt: parsed.prompt, autoName });
+      if (!polished) {
+        stderr(`[${timestamp()}] [error] could not derive a title from --prompt`);
+        return 1;
+      }
+      if (polished.source === "llm") {
+        stdout(`[${timestamp()}] [event] polished title: "${polished.title}"`);
+      }
+
       if (parsed.resume) {
         // The resumed worktree has no Linear issue of its own (we'd have routed
         // through the issue-id path otherwise), so we're tracking this run as a
@@ -709,24 +769,56 @@ export async function runOneshot(parsed: ParsedOneshotCommand, port: number): Pr
         // from whatever the resumed session was originally about.
         stdout(`[${timestamp()}] [event] no Linear issue for this resume; creating a fresh ${postToLinearTarget.teamKey}-N for the post-back`);
       }
-      stdout(`[${timestamp()}] [event] creating Linear issue in team ${postToLinearTarget.teamKey}...`);
+
       const team = await fetchTeamByKey(postToLinearTarget.teamKey);
       if (!team.ok) {
         stderr(`[${timestamp()}] [error] Linear team lookup failed: ${team.error}`);
         return 1;
       }
-      const created = await createLinearIssue({
-        teamId: team.data.id,
-        title,
-        description: "",
-      });
-      if (!created.ok) {
-        stderr(`[${timestamp()}] [error] Linear issue creation failed: ${created.error}`);
-        return 1;
+
+      // Dedup check: only meaningful when an autoName LLM is available — the
+      // LLM is what filters keyword candidates down to actual semantic matches.
+      let duplicate: LinearIssue | null = null;
+      if (autoName) {
+        duplicate = await findDuplicateLinearIssue({
+          polishedTitle: polished.title,
+          prompt: parsed.prompt,
+          teamId: team.data.id,
+          autoName,
+        });
       }
-      stdout(`[${timestamp()}] [event] created Linear issue ${created.data.identifier} → ${created.data.url}`);
-      fromLinearIssueId = created.data.identifier;
-      postToLinearTarget = { kind: "issue", issueId: created.data.identifier };
+
+      if (duplicate) {
+        const choice = await promptDuplicateChoice(duplicate, polished.title);
+        if (choice === "cancel") {
+          stdout(`[${timestamp()}] [event] cancelled by user`);
+          return 0;
+        }
+        if (choice === "use_existing") {
+          stdout(`[${timestamp()}] [event] using existing Linear issue ${duplicate.identifier} → ${duplicate.url}`);
+          fromLinearIssueId = duplicate.identifier;
+          postToLinearTarget = { kind: "issue", issueId: duplicate.identifier };
+        } else {
+          stdout(`[${timestamp()}] [event] user chose to create a new issue despite candidate ${duplicate.identifier}`);
+        }
+      }
+
+      // If we didn't switch to an existing issue, create a new one.
+      if (postToLinearTarget.kind === "team") {
+        stdout(`[${timestamp()}] [event] creating Linear issue in team ${postToLinearTarget.teamKey}...`);
+        const created = await createLinearIssue({
+          teamId: team.data.id,
+          title: polished.title,
+          description: "",
+        });
+        if (!created.ok) {
+          stderr(`[${timestamp()}] [error] Linear issue creation failed: ${created.error}`);
+          return 1;
+        }
+        stdout(`[${timestamp()}] [event] created Linear issue ${created.data.identifier} → ${created.data.url}`);
+        fromLinearIssueId = created.data.identifier;
+        postToLinearTarget = { kind: "issue", issueId: created.data.identifier };
+      }
     }
 
     if (fromLinearIssueId) {
@@ -815,6 +907,7 @@ export async function runOneshot(parsed: ParsedOneshotCommand, port: number): Pr
     printedMessageIds: new Set(),
     streamingItemId: null,
     streamingNeedsHeader: false,
+    lastStreamRevision: 0,
   };
 
   // Print initial history once before opening the WS so the user sees their prompt right away.

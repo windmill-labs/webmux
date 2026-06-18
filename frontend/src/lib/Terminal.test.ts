@@ -1,4 +1,4 @@
-import { cleanup, render } from "@testing-library/svelte";
+import { cleanup, fireEvent, render, screen } from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getTheme } from "./themes";
 
@@ -208,5 +208,23 @@ describe("Terminal reconnect", () => {
     });
 
     expect(terminal.options.theme).toBe(nextTheme);
+  });
+
+  it("renders stale terminal refresh controls inside the terminal surface", async () => {
+    const onrefreshagentterminal = vi.fn();
+    render(Terminal, {
+      props: {
+        worktree: "feature/stale",
+        terminalTheme: getTheme("github-dark").terminal,
+        agentTerminalStale: true,
+        onrefreshagentterminal,
+      },
+    });
+
+    expect(screen.getByText("Terminal stale")).toBeInTheDocument();
+
+    await fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+
+    expect(onrefreshagentterminal).toHaveBeenCalledTimes(1);
   });
 });

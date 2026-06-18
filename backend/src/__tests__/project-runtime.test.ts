@@ -20,6 +20,7 @@ describe("ProjectRuntime", () => {
     expect(state.baseBranch).toBe("main");
     expect(state.profile).toBe("default");
     expect(state.agentName).toBe("claude");
+    expect(state.agentTerminalStale).toBe(false);
     expect(state.session.windowName).toBe("wm-feature/search");
     expect(state.agent.lifecycle).toBe("closed");
     expect(state.prs).toEqual([]);
@@ -131,5 +132,20 @@ describe("ProjectRuntime", () => {
 
     expect(state.label).toBe("Search ranking");
     expect(runtime.getWorktreeByBranch("feature/search")?.label).toBe("Search ranking");
+  });
+
+  it("tracks whether the agent terminal needs a conversation refresh", () => {
+    const runtime = new ProjectRuntime();
+    runtime.upsertWorktree({
+      worktreeId: "wt_search",
+      branch: "feature/search",
+      path: "/repo/__worktrees/feature-search",
+      runtime: "host",
+      agentTerminalStale: true,
+    });
+
+    expect(runtime.getWorktree("wt_search")?.agentTerminalStale).toBe(true);
+    runtime.setAgentTerminalStale("wt_search", false);
+    expect(runtime.getWorktree("wt_search")?.agentTerminalStale).toBe(false);
   });
 });

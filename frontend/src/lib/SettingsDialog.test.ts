@@ -78,9 +78,11 @@ function createConfig(overrides: Partial<AppConfig> = {}): AppConfig {
 function renderDialog() {
   return render(SettingsDialog, {
     currentTheme: "github-dark",
+    useWebChatUi: false,
     linearAutoCreate: false,
     autoRemoveOnMerge: false,
     onthemechange: vi.fn(),
+    onwebchatuichange: vi.fn(),
     onlinearautocreatechange: vi.fn(),
     onautoremovechange: vi.fn(),
     onagentschange: vi.fn(),
@@ -125,6 +127,29 @@ describe("SettingsDialog agent management", () => {
     expect(screen.getByText('gemini --prompt "${PROMPT}"')).toBeInTheDocument();
   });
 
+  it("reports web chat UI preference changes", async () => {
+    const onwebchatuichange = vi.fn();
+    vi.mocked(fetchAgents).mockResolvedValue([]);
+
+    render(SettingsDialog, {
+      currentTheme: "github-dark",
+      useWebChatUi: false,
+      linearAutoCreate: false,
+      autoRemoveOnMerge: false,
+      onthemechange: vi.fn(),
+      onwebchatuichange,
+      onlinearautocreatechange: vi.fn(),
+      onautoremovechange: vi.fn(),
+      onagentschange: vi.fn(),
+      onsave: vi.fn(),
+      onclose: vi.fn(),
+    });
+
+    await fireEvent.click(screen.getByRole("switch", { name: "Use web chat UI" }));
+
+    expect(onwebchatuichange).toHaveBeenCalledWith(true);
+  });
+
   it("shows an empty state when no custom agents are configured", async () => {
     vi.mocked(fetchAgents).mockResolvedValue([
       createAgentDetails({ id: "claude", label: "Claude", kind: "builtin", startCommand: null, resumeCommand: null, capabilities: {
@@ -157,9 +182,11 @@ describe("SettingsDialog agent management", () => {
 
     render(SettingsDialog, {
       currentTheme: "github-dark",
+      useWebChatUi: false,
       linearAutoCreate: false,
       autoRemoveOnMerge: false,
       onthemechange: vi.fn(),
+      onwebchatuichange: vi.fn(),
       onlinearautocreatechange: vi.fn(),
       onautoremovechange: vi.fn(),
       onagentschange,

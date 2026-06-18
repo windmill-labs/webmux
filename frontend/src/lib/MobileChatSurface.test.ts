@@ -1,6 +1,8 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/svelte";
+import { tick } from "svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
+  AgentsUiConversationEvent,
   AgentsUiSendMessageResponse,
   AgentsUiWorktreeConversationResponse,
   WorktreeInfo,
@@ -38,6 +40,7 @@ function createWorktree(overrides: Partial<WorktreeInfo> = {}): WorktreeInfo {
     profile: null,
     agentName: "claude",
     agentLabel: "Claude",
+    agentTerminalStale: false,
     services: [],
     paneCount: 1,
     prs: [],
@@ -46,6 +49,8 @@ function createWorktree(overrides: Partial<WorktreeInfo> = {}): WorktreeInfo {
     creationPhase: null,
     source: "ui",
     oneshot: null,
+    tabs: [],
+    activeTabId: null,
     ...overrides,
   };
 }
@@ -68,6 +73,7 @@ function createConversationResponse(
       creationPhase: null,
       agentName: provider === "claudeCode" ? "claude" : "codex",
       agentLabel: provider === "claudeCode" ? "Claude" : "Codex",
+      agentTerminalStale: false,
       profile: null,
       mux: true,
       conversation: provider === "claudeCode"
@@ -123,7 +129,9 @@ describe("MobileChatSurface", () => {
         {
           id: "user-1",
           turnId: "turn-1",
+          order: 0,
           role: "user",
+          kind: "text",
           text: "Ship it",
           status: "completed",
           createdAt: "2026-04-15T12:00:00.000Z",
@@ -131,7 +139,9 @@ describe("MobileChatSurface", () => {
         {
           id: "assistant-1",
           turnId: "turn-1",
+          order: 1,
           role: "assistant",
+          kind: "text",
           text: "Done.",
           status: "completed",
           createdAt: "2026-04-15T12:00:01.000Z",
@@ -166,36 +176,82 @@ describe("MobileChatSurface", () => {
     await screen.findByText("Done.");
   });
 
-  it("keeps polling Codex history when the first refresh is still stale", async () => {
+  it("does not poll Codex history after sending when the websocket stream is active", async () => {
     vi.mocked(attachWorktreeConversation).mockResolvedValue(createConversationResponse("codexAppServer"));
     vi.mocked(sendWorktreeConversationMessage).mockResolvedValue({
       conversationId: "thread-1",
       turnId: "turn-1",
       running: true,
     } satisfies AgentsUiSendMessageResponse);
-    vi.mocked(fetchWorktreeConversationHistory)
-      .mockResolvedValueOnce(createConversationResponse("codexAppServer"))
-      .mockResolvedValueOnce(createConversationResponse("codexAppServer", {
-        running: false,
-        messages: [
-          {
-            id: "user-1",
-            turnId: "turn-1",
-            role: "user",
-            text: "Ship it",
-            status: "completed",
-            createdAt: "2026-04-15T12:00:00.000Z",
-          },
-          {
-            id: "assistant-1",
-            turnId: "turn-1",
-            role: "assistant",
-            text: "Done.",
-            status: "completed",
-            createdAt: "2026-04-15T12:00:01.000Z",
-          },
-        ],
-      }));
+    vi.mocked(fetchWorktreeConversationHistory).mockResolvedValue(createConversationResponse("codexAppServer"));
+
+    render(MobileChatSurface, {
+      props: {
+        worktree: createWorktree({ agentName: "codex" }),
+      },
+    });
+
+    await screen.findByText("No messages yet. Send the first prompt to start this chat.");
+    expect(connectWorktreeConversationStream).not.toHaveBeenCalled();
+
+    await fireEvent.input(screen.getByLabelText("Message"), {
+      target: { value: "Ship it" },
+    });
+    await fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() => {
+      expect(connectWorktreeConversationStream).toHaveBeenCalledWith(
+        "feature/mobile-chat",
+        expect.any(Object),
+      );
+    });
+
+    await screen.findByText("Ship it");
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(fetchWorktreeConversationHistory).not.toHaveBeenCalled();
+  });
+
+  it("does not open an idle Codex stream after loading the snapshot", async () => {
+    vi.mocked(attachWorktreeConversation).mockResolvedValue(createConversationResponse("codexAppServer"));
+
+    render(MobileChatSurface, {
+      props: {
+        worktree: createWorktree({ agentName: "codex" }),
+      },
+    });
+
+    await screen.findByText("No messages yet. Send the first prompt to start this chat.");
+
+    expect(connectWorktreeConversationStream).not.toHaveBeenCalled();
+  });
+
+  it("opens a Codex stream immediately when the snapshot is already running", async () => {
+    vi.mocked(attachWorktreeConversation).mockResolvedValue(createConversationResponse("codexAppServer", {
+      running: true,
+      activeTurnId: "turn-1",
+    }));
+
+    render(MobileChatSurface, {
+      props: {
+        worktree: createWorktree({ agentName: "codex" }),
+      },
+    });
+
+    await waitFor(() => {
+      expect(connectWorktreeConversationStream).toHaveBeenCalledWith(
+        "feature/mobile-chat",
+        expect.any(Object),
+      );
+    });
+  });
+
+  it("does not duplicate optimistic Codex user messages when the stream upserts the real user item", async () => {
+    vi.mocked(attachWorktreeConversation).mockResolvedValue(createConversationResponse("codexAppServer"));
+    vi.mocked(sendWorktreeConversationMessage).mockResolvedValue({
+      conversationId: "thread-1",
+      turnId: "turn-1",
+      running: true,
+    } satisfies AgentsUiSendMessageResponse);
 
     render(MobileChatSurface, {
       props: {
@@ -217,16 +273,142 @@ describe("MobileChatSurface", () => {
       );
     });
 
-    await vi.advanceTimersByTimeAsync(1000);
-    await waitFor(() => {
-      expect(fetchWorktreeConversationHistory).toHaveBeenCalledTimes(1);
+    const callbacks = vi.mocked(connectWorktreeConversationStream).mock.calls[0]?.[1];
+    callbacks?.onEvent({
+      type: "messageUpsert",
+      revision: 1,
+      conversationId: "thread-1",
+      message: {
+        id: "user-1",
+        turnId: "turn-1",
+        order: 0,
+        role: "user",
+        kind: "text",
+        text: "Ship it",
+        status: "completed",
+        createdAt: "2026-05-28T10:00:00.000Z",
+      },
     });
 
-    await vi.advanceTimersByTimeAsync(1000);
     await waitFor(() => {
-      expect(fetchWorktreeConversationHistory).toHaveBeenCalledTimes(2);
+      expect(screen.getAllByText("Ship it")).toHaveLength(1);
     });
-    await screen.findByText("Done.");
+  });
+
+  it("ignores stale Codex stream revisions", async () => {
+    vi.mocked(attachWorktreeConversation).mockResolvedValue(createConversationResponse("codexAppServer", {
+      running: true,
+      activeTurnId: "turn-1",
+    }));
+
+    render(MobileChatSurface, {
+      props: {
+        worktree: createWorktree({ agentName: "codex", agentLabel: "Codex" }),
+      },
+    });
+
+    await waitFor(() => {
+      expect(connectWorktreeConversationStream).toHaveBeenCalledWith(
+        "feature/mobile-chat",
+        expect.any(Object),
+      );
+    });
+
+    const callbacks = vi.mocked(connectWorktreeConversationStream).mock.calls[0]?.[1];
+    const deltaEvent: AgentsUiConversationEvent = {
+      type: "messageDelta",
+      revision: 1,
+      conversationId: "thread-1",
+      turnId: "turn-1",
+      itemId: "assistant-1",
+      order: 0,
+      delta: "Streaming status update",
+    };
+    callbacks?.onEvent(deltaEvent);
+    await screen.findByText("Streaming status update");
+
+    const staleDeltaEvent: AgentsUiConversationEvent = {
+      type: "messageDelta",
+      revision: 1,
+      conversationId: "thread-1",
+      turnId: "turn-1",
+      itemId: "assistant-1",
+      order: 0,
+      delta: " stale",
+    };
+    callbacks?.onEvent(staleDeltaEvent);
+
+    await screen.findByText("Streaming status update");
+    await tick();
+    expect(document.body.textContent).not.toContain("stale");
+  });
+
+  it("renders Codex stream events in their explicit order", async () => {
+    vi.mocked(attachWorktreeConversation).mockResolvedValue(createConversationResponse("codexAppServer", {
+      running: true,
+      activeTurnId: "turn-1",
+    }));
+
+    render(MobileChatSurface, {
+      props: {
+        worktree: createWorktree({ agentName: "codex", agentLabel: "Codex" }),
+      },
+    });
+
+    await waitFor(() => {
+      expect(connectWorktreeConversationStream).toHaveBeenCalledWith(
+        "feature/mobile-chat",
+        expect.any(Object),
+      );
+    });
+
+    const callbacks = vi.mocked(connectWorktreeConversationStream).mock.calls[0]?.[1];
+    callbacks?.onEvent({
+      type: "messageDelta",
+      revision: 1,
+      conversationId: "thread-1",
+      turnId: "turn-1",
+      itemId: "assistant-1",
+      order: 0,
+      delta: "First assistant",
+    });
+    callbacks?.onEvent({
+      type: "messageUpsert",
+      revision: 2,
+      conversationId: "thread-1",
+      message: {
+        id: "call-1",
+        turnId: "turn-1",
+        order: 1,
+        role: "assistant",
+        kind: "toolUse",
+        toolName: "shell",
+        toolCallId: "call-1",
+        text: "pwd",
+        status: "completed",
+        createdAt: "2026-05-28T10:00:01.000Z",
+      },
+    });
+    callbacks?.onEvent({
+      type: "messageDelta",
+      revision: 3,
+      conversationId: "thread-1",
+      turnId: "turn-1",
+      itemId: "assistant-2",
+      order: 2,
+      delta: "Second assistant",
+    });
+
+    await screen.findByText("First assistant");
+    await screen.findByText("Second assistant");
+
+    await tick();
+
+    expect(screen.getByText("First assistant")).toBeInTheDocument();
+    expect(screen.getByText("Second assistant")).toBeInTheDocument();
+    const text = document.body.textContent ?? "";
+    expect(text.indexOf("First assistant")).toBeLessThan(text.indexOf("Completed shell"));
+    expect(text.indexOf("Completed shell")).toBeLessThan(text.indexOf("Second assistant"));
   });
 
   it("keeps polling beyond two minutes until a quiet conversation finally changes", async () => {
@@ -248,7 +430,9 @@ describe("MobileChatSurface", () => {
             {
               id: "user-1",
               turnId: "turn-1",
+              order: 0,
               role: "user",
+              kind: "text",
               text: "Ship it",
               status: "completed",
               createdAt: "2026-04-15T12:00:00.000Z",
@@ -256,7 +440,9 @@ describe("MobileChatSurface", () => {
             {
               id: "assistant-1",
               turnId: "turn-1",
+              order: 1,
               role: "assistant",
+              kind: "text",
               text: "Done.",
               status: "completed",
               createdAt: "2026-04-15T12:03:01.000Z",

@@ -22,6 +22,7 @@ function createWorktree(
     profile: null,
     agentName: null,
     agentLabel: null,
+    agentTerminalStale: false,
     services: [],
     paneCount: 1,
     prs: [],
@@ -30,6 +31,8 @@ function createWorktree(
     creationPhase: null,
     source: "ui",
     oneshot: null,
+    tabs: [],
+    activeTabId: null,
     ...overrides,
   };
 }
@@ -125,6 +128,30 @@ describe("TopBar", () => {
       "href",
       linearIssue.url,
     );
+  });
+
+  it("does not render stale terminal state in the web top bar", () => {
+    const branch = "feature/stale-terminal";
+
+    render(TopBar, {
+      props: {
+        name: branch,
+        worktree: createWorktree(branch, { agentTerminalStale: true }),
+        sshHost: "",
+        linkedRepos: [],
+        notificationHistory: [],
+        unreadCount: 0,
+        onclose: vi.fn(),
+        onarchive: vi.fn(),
+        onmerge: vi.fn(),
+        onremove: vi.fn(),
+        onsettings: vi.fn(),
+        onCiClick: vi.fn(),
+        onReviewsClick: vi.fn(),
+      },
+    });
+
+    expect(screen.queryByText("Terminal stale")).not.toBeInTheDocument();
   });
 
   it("keeps desktop PR badges inside a wrapping header container", () => {

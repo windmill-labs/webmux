@@ -588,6 +588,86 @@ const TEAM_BY_KEY_QUERY = `
   }
 `;
 
+const TEAM_ISSUES_BY_KEYWORDS_QUERY = `
+  query TeamIssuesByKeywords($teamId: ID!, $titleFilters: [IssueFilter!]!, $first: Int!) {
+    issues(
+      filter: {
+        team: { id: { eq: $teamId } }
+        state: { type: { in: ["triage", "backlog", "unstarted", "started"] } }
+        or: $titleFilters
+      }
+      orderBy: updatedAt
+      first: $first
+    ) {
+      nodes {
+        id
+        identifier
+        title
+        description
+        priority
+        priorityLabel
+        url
+        branchName
+        dueDate
+        updatedAt
+        state { name color type }
+        team { name key }
+        labels { nodes { name color } }
+        project { name }
+      }
+    }
+  }
+`;
+
+interface TeamIssuesByKeywordsQueryData {
+  issues: {
+    nodes: GqlIssueNode[];
+  };
+}
+
+export type SearchTeamIssuesResult =
+  | { ok: true; data: LinearIssue[] }
+  | { ok: false; error: string };
+
+export async function searchTeamIssuesByKeywords(input: {
+  teamId: string;
+  keywords: string[];
+  limit?: number;
+}): Promise<SearchTeamIssuesResult> {
+  const keywords = input.keywords.map((k) => k.trim()).filter((k) => k.length > 0);
+  if (keywords.length === 0) {
+    return { ok: true, data: [] };
+  }
+  const titleFilters = keywords.map((keyword) => ({ title: { containsIgnoreCase: keyword } }));
+  const response = await postLinearGraphql<TeamIssuesByKeywordsQueryData>(
+    TEAM_ISSUES_BY_KEYWORDS_QUERY,
+    { teamId: input.teamId, titleFilters, first: input.limit ?? 10 },
+  );
+  if (!response.ok) return { ok: false, error: response.error };
+  const error = gqlErrorMessage(response.data);
+  if (error) return { ok: false, error };
+  const nodes = response.data.data?.issues.nodes ?? [];
+  return {
+    ok: true,
+    data: nodes.map((node) => ({
+      id: node.id,
+      identifier: node.identifier,
+      title: node.title,
+      description: node.description,
+      priority: node.priority,
+      priorityLabel: node.priorityLabel,
+      url: node.url,
+      branchName: node.branchName,
+      dueDate: node.dueDate,
+      updatedAt: node.updatedAt,
+      state: node.state,
+      team: node.team,
+      labels: node.labels.nodes,
+      project: node.project?.name ?? null,
+    })),
+  };
+}
+
 const FILE_UPLOAD_MUTATION = `
   mutation FileUpload($contentType: String!, $filename: String!, $size: Int!) {
     fileUpload(contentType: $contentType, filename: $filename, size: $size) {

@@ -6,6 +6,7 @@ export const SSH_STORAGE_KEY = "wt-ssh-host";
 export const THEME_STORAGE_KEY = "wt-theme";
 export const LAST_SELECTED_WORKTREE_STORAGE_KEY = "wt-last-selected-worktree";
 export const SIDEBAR_WIDTH_STORAGE_KEY = "wt-sidebar-width";
+export const WEB_CHAT_UI_STORAGE_KEY = "wt-use-web-chat-ui";
 const DEFAULT_SIDEBAR_WIDTH = 220;
 
 export function prLabel(pr: Pick<PrEntry, "repo" | "number">): string {
@@ -103,6 +104,19 @@ export function loadSavedSidebarWidth(): number {
 
 export function saveSidebarWidth(width: number): void {
   localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(Math.round(width)));
+}
+
+export function loadUseWebChatUi(): boolean {
+  return localStorage.getItem(WEB_CHAT_UI_STORAGE_KEY) === "true";
+}
+
+export function saveUseWebChatUi(enabled: boolean): void {
+  if (enabled) {
+    localStorage.setItem(WEB_CHAT_UI_STORAGE_KEY, "true");
+    return;
+  }
+
+  localStorage.removeItem(WEB_CHAT_UI_STORAGE_KEY);
 }
 
 export function worktreeCreationPhaseLabel(phase: WorktreeCreationPhase | null): string {

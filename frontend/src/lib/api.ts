@@ -17,6 +17,7 @@ import type {
   UpsertCustomAgentRequest,
   ValidateCustomAgentResponse,
   WorktreeInfo,
+  WorktreeTab,
 } from "./types";
 
 /** The active project's URL prefix, taken from the first path segment (the
@@ -68,6 +69,7 @@ function mapWorktree(snapshot: ProjectWorktreeSnapshot): WorktreeInfo {
     profile: snapshot.profile,
     agentName: snapshot.agentName,
     agentLabel: snapshot.agentLabel,
+    agentTerminalStale: snapshot.agentTerminalStale,
     services: snapshot.services,
     paneCount: snapshot.paneCount,
     prs: snapshot.prs,
@@ -76,7 +78,22 @@ function mapWorktree(snapshot: ProjectWorktreeSnapshot): WorktreeInfo {
     creationPhase: snapshot.creation?.phase ?? null,
     source: snapshot.source,
     oneshot: snapshot.oneshot,
+    tabs: snapshot.tabs,
+    activeTabId: snapshot.activeTabId,
   };
+}
+
+export async function createWorktreeTab(branch: string): Promise<WorktreeTab> {
+  const response = await api.createWorktreeTab({ params: { name: branch } });
+  return response.tab;
+}
+
+export function selectWorktreeTab(branch: string, tabId: string): Promise<void> {
+  return api.selectWorktreeTab({ params: { name: branch, tabId } }).then(() => undefined);
+}
+
+export function deleteWorktreeTab(branch: string, tabId: string): Promise<void> {
+  return api.deleteWorktreeTab({ params: { name: branch, tabId } }).then(() => undefined);
 }
 
 export function postWorktreeToLinear(
@@ -128,6 +145,12 @@ export function interruptWorktreeConversation(branch: string): Promise<AgentsUiI
   return api.interruptAgentsWorktreeConversation({
     params: { name: branch },
   });
+}
+
+export function refreshWorktreeAgentTerminal(branch: string): Promise<void> {
+  return api.refreshWorktreeAgentTerminal({
+    params: { name: branch },
+  }).then(() => undefined);
 }
 
 function withWorktreeName(path: string, branch: string): string {

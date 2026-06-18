@@ -13,6 +13,7 @@ describe("buildAgentsUiWorktreeSummary", () => {
       profile: "default",
       agentName: "codex",
       agentLabel: "Codex",
+      agentTerminalStale: true,
       mux: true,
       dirty: true,
       unpushed: false,
@@ -40,6 +41,8 @@ describe("buildAgentsUiWorktreeSummary", () => {
       },
       source: "ui",
       oneshot: null,
+      tabs: [],
+      activeTabId: null,
     }, {
       provider: "codexAppServer",
       conversationId: "thr_123",
@@ -56,6 +59,7 @@ describe("buildAgentsUiWorktreeSummary", () => {
       profile: "default",
       agentName: "codex",
       agentLabel: "Codex",
+      agentTerminalStale: true,
       mux: true,
       status: "running",
       dirty: true,
@@ -97,6 +101,7 @@ describe("buildAgentsUiWorktreeSummary", () => {
       profile: null,
       agentName: null,
       agentLabel: null,
+      agentTerminalStale: false,
       mux: false,
       dirty: false,
       unpushed: false,
@@ -109,6 +114,8 @@ describe("buildAgentsUiWorktreeSummary", () => {
       creation: null,
       source: "ui",
       oneshot: null,
+      tabs: [],
+      activeTabId: null,
     }, null);
 
     expect(summary.conversation).toBeNull();

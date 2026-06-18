@@ -41,8 +41,9 @@ import {
   type TerminalAttachTarget,
 } from "./adapters/terminal";
 import { loadControlToken } from "./adapters/control-token";
+import { readWorktreeMeta, writeWorktreeMeta } from "./adapters/fs";
 import { ClaudeCliClient } from "./adapters/claude-cli";
-import { CodexAppServerClient } from "./adapters/codex-app-server";
+import { CodexAppServerClient, type CodexAppServerNotification } from "./adapters/codex-app-server";
 import {
   getDefaultProfileName,
   persistLocalCustomAgent,
@@ -88,16 +89,22 @@ import { startOneshotWatcher } from "./services/oneshot-watcher-service";
 import { runAutoRemove, type AutoRemoveDependencies } from "./services/auto-remove-service";
 import { pullMainBranch, forcePullMainBranch, startAutoPullMonitor } from "./services/auto-pull-service";
 import {
-  buildAgentsUiMessageDeltaEvent,
+  AgentsConversationStreamSession,
   readAgentsNotificationThreadId,
-  shouldRefreshAgentsConversationSnapshot,
 } from "./services/agents-ui-stream-service";
 import { classifyAgentsTerminalWorktreeError } from "./services/agents-ui-action-service";
 import { buildProjectSnapshot } from "./services/snapshot-service";
 import { ClaudeConversationService } from "./services/claude-conversation-service";
-import { WorktreeConversationService } from "./services/worktree-conversation-service";
+import {
+  WorktreeConversationService,
+  resolveCodexAppServerLaunchContext,
+} from "./services/worktree-conversation-service";
 import { parseRuntimeEvent } from "./domain/events";
-import type { AgentsUiConversationEvent, AgentsUiWorktreeConversationResponse } from "./domain/agents-ui";
+import type {
+  AgentsUiConversationEvent,
+  AgentsUiConversationMessage,
+  AgentsUiWorktreeConversationResponse,
+} from "./domain/agents-ui";
 import type { OneshotMeta, ProjectSnapshot, WorktreeSnapshot } from "./domain/model";
 import { deriveInstancePrefix, isValidBranchName, isValidInstancePrefix, isValidWorktreeName } from "./domain/policies";
 import { createWebmuxRuntime, type WebmuxRuntime } from "./runtime";
@@ -183,12 +190,19 @@ const claudeCliClient = new ClaudeCliClient();
 const worktreeConversationService = new WorktreeConversationService({
   appServer: codexAppServerClient,
   git,
+  resolveLaunchContext: ({ worktree, meta }) =>
+    resolveCodexAppServerLaunchContext({
+      worktree,
+      meta,
+      profile: config.profiles[meta.profile],
+    }),
 });
 const claudeConversationService = new ClaudeConversationService({
   claude: claudeCliClient,
   git,
 });
 const removingBranches = new Set<string>();
+const mutatingTabBranches = new Set<string>();
 const lifecycleService = runtime.lifecycleService;
 let linearAutoCreateEnabled = config.integrations.linear.autoCreateWorktrees;
 let stopLinearAutoCreate: (() => void) | null = null;
@@ -453,9 +467,16 @@ function ensureBranchNotCreating(branch: string): void {
   }
 }
 
+function ensureBranchNotMutatingTab(branch: string): void {
+  if (mutatingTabBranches.has(branch)) {
+    throw new LifecycleError(`Worktree tabs are being updated: ${branch}`, 409);
+  }
+}
+
 function ensureBranchNotBusy(branch: string): void {
   ensureBranchNotRemoving(branch);
   ensureBranchNotCreating(branch);
+  ensureBranchNotMutatingTab(branch);
 }
 
 async function withRemovingBranch<T>(branch: string, fn: () => Promise<T>): Promise<T> {
@@ -465,6 +486,20 @@ async function withRemovingBranch<T>(branch: string, fn: () => Promise<T>): Prom
     return await fn();
   } finally {
     removingBranches.delete(branch);
+  }
+}
+
+// Tab create/select/delete each read-modify-write the worktree meta. Open and
+// agent-terminal refresh also rewrite the whole tabs array (via restoreWorktreeTabs).
+// Serialize them all per branch (and mutually exclude with remove/create) so concurrent
+// requests from the CLI or multiple clients can't clobber each other's tab bookkeeping.
+async function withMutatingTab<T>(branch: string, fn: () => Promise<T>): Promise<T> {
+  ensureBranchNotBusy(branch);
+  mutatingTabBranches.add(branch);
+  try {
+    return await fn();
+  } finally {
+    mutatingTabBranches.delete(branch);
   }
 }
 
@@ -671,6 +706,20 @@ function resolveWorktreeTerminalSubmitDelayMs(agentName: WorktreeSnapshot["agent
   });
 }
 
+async function setAgentTerminalStale(worktree: WorktreeSnapshot, stale: boolean): Promise<void> {
+  const gitDir = git.resolveWorktreeGitDir(worktree.path);
+  const meta = await readWorktreeMeta(gitDir);
+  if (!meta) return;
+
+  await writeWorktreeMeta(gitDir, {
+    ...meta,
+    agentTerminalStale: stale,
+  });
+  if (projectRuntime.getWorktree(meta.worktreeId)) {
+    projectRuntime.setAgentTerminalStale(meta.worktreeId, stale);
+  }
+}
+
 async function apiAttachAgentsWorktree(branch: string): Promise<Response> {
   touchDashboardActivity();
   const resolved = await resolveAgentsWorktree(branch);
@@ -724,13 +773,22 @@ async function apiSendAgentsWorktreeMessage(branch: string, req: Request): Promi
     return errorResponse(chatSupport.error, chatSupport.status);
   }
 
-  const conversationResult = chatSupport.data.provider === "claude"
-    ? await claudeConversationService.readWorktreeConversation(resolved.worktree)
-    : await worktreeConversationService.readWorktreeConversation(resolved.worktree);
+  if (chatSupport.data.provider === "codex") {
+    const sendResult = await worktreeConversationService.sendWorktreeConversationMessage(
+      resolved.worktree,
+      parsed.data.text,
+    );
+    if (!sendResult.ok) {
+      return errorResponse(sendResult.error, sendResult.status);
+    }
+    await setAgentTerminalStale(resolved.worktree, true);
+    return jsonResponse(sendResult.data);
+  }
+
+  const conversationResult = await claudeConversationService.readWorktreeConversation(resolved.worktree);
   if (!conversationResult.ok) {
     return errorResponse(conversationResult.error, conversationResult.status);
   }
-
   const terminalWorktree = await resolveAgentsTerminalWorktree(branch);
   if (!terminalWorktree.ok) return terminalWorktree.response;
   const sendResult = await sendTerminalPrompt(
@@ -767,13 +825,19 @@ async function apiInterruptAgentsWorktree(branch: string): Promise<Response> {
     return errorResponse(chatSupport.error, chatSupport.status);
   }
 
-  const conversationResult = chatSupport.data.provider === "claude"
-    ? await claudeConversationService.readWorktreeConversation(resolved.worktree)
-    : await worktreeConversationService.readWorktreeConversation(resolved.worktree);
+  if (chatSupport.data.provider === "codex") {
+    const interruptResult = await worktreeConversationService.interruptWorktreeConversation(resolved.worktree);
+    if (!interruptResult.ok) {
+      return errorResponse(interruptResult.error, interruptResult.status);
+    }
+    await setAgentTerminalStale(resolved.worktree, true);
+    return jsonResponse(interruptResult.data);
+  }
+
+  const conversationResult = await claudeConversationService.readWorktreeConversation(resolved.worktree);
   if (!conversationResult.ok) {
     return errorResponse(conversationResult.error, conversationResult.status);
   }
-
   const terminalWorktree = await resolveAgentsTerminalWorktree(branch);
   if (!terminalWorktree.ok) return terminalWorktree.response;
   const interruptResult = await interruptPrompt(terminalWorktree.data.attachTarget, 0);
@@ -788,7 +852,15 @@ async function apiInterruptAgentsWorktree(branch: string): Promise<Response> {
   });
 }
 
-async function loadAgentsConversationSnapshot(
+async function apiRefreshWorktreeAgentTerminal(branch: string): Promise<Response> {
+  touchDashboardActivity();
+  return withMutatingTab(branch, async () => {
+    await lifecycleService.refreshAgentTerminal(branch);
+    return jsonResponse({ ok: true });
+  });
+}
+
+async function loadAgentsConversationInitialState(
   branch: string,
 ): Promise<{
   ok: true;
@@ -838,53 +910,62 @@ async function readErrorMessage(response: Response): Promise<string> {
   return text.length > 0 ? text : `HTTP ${response.status}`;
 }
 
+function nextConversationMessageOrder(messages: AgentsUiConversationMessage[]): number {
+  return messages.reduce((order, message) => Math.max(order, message.order + 1), 0);
+}
+
 async function openAgentsSocket(
   ws: { readyState: number; send: (data: string) => void; close: (code?: number, reason?: string) => void },
   data: AgentsWsData,
 ): Promise<void> {
-  const snapshot = await loadAgentsConversationSnapshot(data.branch);
-  if (!snapshot.ok) {
-    sendAgentsWs(ws, { type: "error", message: snapshot.message });
-    ws.close(1011, snapshot.message.slice(0, 123));
-    return;
-  }
-
-  data.conversationId = snapshot.data.conversation.conversationId;
-  sendAgentsWs(ws, {
-    type: "snapshot",
-    data: snapshot.data,
-  });
-
-  if (snapshot.data.conversation.provider !== "codexAppServer") {
-    return;
-  }
-
-  data.unsubscribe = codexAppServerClient.onNotification((notification) => {
-    const notificationThreadId = readAgentsNotificationThreadId(notification);
-    if (!notificationThreadId || notificationThreadId !== data.conversationId) return;
-
-    const deltaEvent = buildAgentsUiMessageDeltaEvent(notification);
-    if (deltaEvent) {
-      sendAgentsWs(ws, deltaEvent);
+  let bufferingNotifications = true;
+  let socketClosed = false;
+  let streamSession: AgentsConversationStreamSession | null = null;
+  const bufferedNotifications: CodexAppServerNotification[] = [];
+  const unsubscribeNotifications = codexAppServerClient.onNotification((notification) => {
+    if (bufferingNotifications || !streamSession) {
+      bufferedNotifications.push(notification);
       return;
     }
 
-    if (!shouldRefreshAgentsConversationSnapshot(notification)) return;
-
-    void (async () => {
-      const nextSnapshot = await loadAgentsConversationSnapshot(data.branch);
-      if (!nextSnapshot.ok) {
-        sendAgentsWs(ws, { type: "error", message: nextSnapshot.message });
-        return;
-      }
-
-      data.conversationId = nextSnapshot.data.conversation.conversationId;
-      sendAgentsWs(ws, {
-        type: "snapshot",
-        data: nextSnapshot.data,
-      });
-    })();
+    const notificationThreadId = readAgentsNotificationThreadId(notification);
+    if (!notificationThreadId || notificationThreadId !== data.conversationId) return;
+    streamSession.handleNotification(notification);
+    data.conversationId = streamSession.currentConversationId();
   });
+  data.unsubscribe = () => {
+    socketClosed = true;
+    streamSession?.close();
+    unsubscribeNotifications();
+  };
+
+  const initialState = await loadAgentsConversationInitialState(data.branch);
+  if (socketClosed) return;
+  if (!initialState.ok) {
+    unsubscribeNotifications();
+    sendAgentsWs(ws, { type: "error", message: initialState.message });
+    ws.close(1011, initialState.message.slice(0, 123));
+    return;
+  }
+
+  streamSession = new AgentsConversationStreamSession({
+    conversationId: initialState.data.conversation.conversationId,
+    nextOrder: nextConversationMessageOrder(initialState.data.conversation.messages),
+    send: (event) => sendAgentsWs(ws, event),
+  });
+  data.conversationId = streamSession.currentConversationId();
+  if (initialState.data.conversation.provider !== "codexAppServer") {
+    unsubscribeNotifications();
+    data.unsubscribe = null;
+    return;
+  }
+
+  bufferingNotifications = false;
+
+  for (const notification of bufferedNotifications) {
+    streamSession.handleNotification(notification);
+    data.conversationId = streamSession.currentConversationId();
+  }
 }
 
 async function apiRuntimeEvent(req: Request): Promise<Response> {
@@ -1116,9 +1197,11 @@ async function apiOpenWorktree(name: string, req: Request): Promise<Response> {
   // Intentionally NOT disarming here: opening a closed session is "let me peek
   // at the agent's progress", not "I'm taking over". The actual interaction
   // (terminal input, chat send, upload, etc.) is what fires disarm.
-  const result = await lifecycleService.openWorktree(name, { prompt, ...(oneshot ? { oneshot } : {}) });
-  log.debug(`[worktree:open] done name=${name} worktreeId=${result.worktreeId}`);
-  return jsonResponse({ ok: true });
+  return withMutatingTab(name, async () => {
+    const result = await lifecycleService.openWorktree(name, { prompt, ...(oneshot ? { oneshot } : {}) });
+    log.debug(`[worktree:open] done name=${name} worktreeId=${result.worktreeId}`);
+    return jsonResponse({ ok: true });
+  });
 }
 
 async function apiCloseWorktree(name: string): Promise<Response> {
@@ -1141,6 +1224,30 @@ async function apiSetWorktreeArchived(name: string, req: Request): Promise<Respo
   await lifecycleService.setWorktreeArchived(name, body.archived);
   log.debug(`[worktree:archive] done name=${name} archived=${body.archived}`);
   return jsonResponse({ ok: true, archived: body.archived });
+}
+
+async function apiCreateWorktreeTab(name: string): Promise<Response> {
+  return withMutatingTab(name, async () => {
+    log.info(`[worktree:tab:create] name=${name}`);
+    const result = await lifecycleService.createWorktreeTab(name);
+    return jsonResponse({ tab: result.tab }, 201);
+  });
+}
+
+async function apiSelectWorktreeTab(name: string, tabId: string): Promise<Response> {
+  return withMutatingTab(name, async () => {
+    log.info(`[worktree:tab:select] name=${name} tab=${tabId}`);
+    await lifecycleService.selectWorktreeTab(name, tabId);
+    return jsonResponse({ ok: true });
+  });
+}
+
+async function apiDeleteWorktreeTab(name: string, tabId: string): Promise<Response> {
+  return withMutatingTab(name, async () => {
+    log.info(`[worktree:tab:delete] name=${name} tab=${tabId}`);
+    await lifecycleService.deleteWorktreeTab(name, tabId);
+    return jsonResponse({ ok: true });
+  });
 }
 
 async function apiSetWorktreeLabel(name: string, req: Request): Promise<Response> {
@@ -1420,6 +1527,16 @@ async function apiGetLinearIssues(): Promise<Response> {
   });
   if (!result.ok) return errorResponse(result.error, 502);
   return jsonResponse(result.data);
+}
+
+function apiGetAutoNameConfig(): Response {
+  const apiKey = Bun.env.LINEAR_API_KEY;
+  const linearAvailability = !config.integrations.linear.enabled
+    ? "disabled"
+    : !apiKey?.trim()
+      ? "missing_api_key"
+      : "ready";
+  return jsonResponse({ autoName: config.autoName, linearAvailability });
 }
 
 const MAX_DIFF_BYTES = 200 * 1024;
@@ -1711,6 +1828,15 @@ function parseAgentIdParam(params: Record<string, string>):
       },
     },
 
+    [apiPaths.refreshWorktreeAgentTerminal]: {
+      POST: (req) => {
+        const parsed = parseWorktreeNameParam(req.params);
+        if (!parsed.ok) return parsed.response;
+        const name = parsed.data;
+        return catching(`POST /api/worktrees/${name}/agent-terminal/refresh`, () => apiRefreshWorktreeAgentTerminal(name));
+      },
+    },
+
     [apiPaths.setWorktreeArchived]: {
       PUT: (req) => {
         const parsed = parseWorktreeNameParam(req.params);
@@ -1765,6 +1891,35 @@ function parseAgentIdParam(params: Record<string, string>):
       },
     },
 
+    [apiPaths.createWorktreeTab]: {
+      POST: (req) => {
+        const parsed = parseWorktreeNameParam(req.params);
+        if (!parsed.ok) return parsed.response;
+        const name = parsed.data;
+        return catching(`POST /api/worktrees/${name}/tabs`, () => apiCreateWorktreeTab(name));
+      },
+    },
+
+    [apiPaths.selectWorktreeTab]: {
+      POST: (req) => {
+        const parsed = parseWorktreeNameParam(req.params);
+        if (!parsed.ok) return parsed.response;
+        const name = parsed.data;
+        const tabId = decodeURIComponent(req.params.tabId ?? "");
+        return catching(`POST /api/worktrees/${name}/tabs/${tabId}/select`, () => apiSelectWorktreeTab(name, tabId));
+      },
+    },
+
+    [apiPaths.deleteWorktreeTab]: {
+      DELETE: (req) => {
+        const parsed = parseWorktreeNameParam(req.params);
+        if (!parsed.ok) return parsed.response;
+        const name = parsed.data;
+        const tabId = decodeURIComponent(req.params.tabId ?? "");
+        return catching(`DELETE /api/worktrees/${name}/tabs/${tabId}`, () => apiDeleteWorktreeTab(name, tabId));
+      },
+    },
+
     [apiPaths.mergeWorktree]: {
       POST: (req) => {
         const parsed = parseWorktreeNameParam(req.params);
@@ -1785,6 +1940,10 @@ function parseAgentIdParam(params: Record<string, string>):
 
     [apiPaths.fetchLinearIssues]: {
       GET: () => catching("GET /api/linear/issues", () => apiGetLinearIssues()),
+    },
+
+    [apiPaths.fetchAutoNameConfig]: {
+      GET: () => catching("GET /api/project/auto-name", async () => apiGetAutoNameConfig()),
     },
 
     [apiPaths.setLinearAutoCreate]: {

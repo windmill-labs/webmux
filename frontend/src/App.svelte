@@ -44,6 +44,8 @@
     applyTheme,
     loadSavedSidebarWidth,
     saveSidebarWidth,
+    loadUseWebChatUi,
+    saveUseWebChatUi,
   } from "./lib/utils";
   import {
     buildWorktreeListRows,
@@ -54,7 +56,19 @@
   import { getTheme } from "./lib/themes";
   import type { ThemeKey } from "./lib/themes";
   import { setToastController } from "./lib/toast-context";
-  import { activePrefix, api, fetchWorktrees, postWorktreeToLinear, setWorktreeLabel, subscribeNotifications } from "./lib/api";
+  import {
+    activePrefix,
+    api,
+    createWorktreeTab,
+    deleteWorktreeTab,
+    fetchWorktrees,
+    postWorktreeToLinear,
+    refreshWorktreeAgentTerminal,
+    selectWorktreeTab,
+    setWorktreeLabel,
+    subscribeNotifications,
+  } from "./lib/api";
+  import TabBar from "./lib/TabBar.svelte";
 
   function createDefaultConfig(): AppConfig {
     return {
@@ -115,6 +129,7 @@
   let nextBaseBranchFetchId = 0;
   let sshHost = $state(localStorage.getItem(SSH_STORAGE_KEY) ?? "");
   let currentTheme = $state<ThemeKey>(loadSavedTheme());
+  let useWebChatUi = $state(loadUseWebChatUi());
   let terminalTheme = $derived(getTheme(currentTheme).terminal);
   let applyPollInterval: ((intervalMs: number) => void) | null = null;
   let pendingCreateBranchHint = $state<string | null>(null);
@@ -228,7 +243,12 @@
 
   function handleNotification(n: AppNotification): void {
     notifications = [...notifications, n];
-    notifiedBranches = new Set([...notifiedBranches, n.branch]);
+    // Only suppress the unread dot when the user is actually looking at this branch
+    // (selected and tab visible); otherwise a finished run should still surface.
+    const viewingThisBranch = n.branch === selectedBranch && !document.hidden;
+    if (!viewingThisBranch) {
+      notifiedBranches = new Set([...notifiedBranches, n.branch]);
+    }
     notificationHistory = [n, ...notificationHistory].slice(0, MAX_HISTORY);
     unreadCount++;
     // Auto-dismiss after timeout
@@ -371,6 +391,7 @@
   let isMobile = $state(false);
   let sidebarOpen = $state(false);
   let activePane = $state(0);
+  let tabBusy = $state(false);
   let terminalRef:
     | {
         sendSelectPane: (pane: number) => void;
@@ -379,6 +400,8 @@
 
   let openingBranches = $state<Set<string>>(new Set());
   let archivingBranches = $state<Set<string>>(new Set());
+  let refreshingAgentTerminalBranches = $state<Set<string>>(new Set());
+  let terminalSessionRevisions = $state<Record<string, number>>({});
   let trimmedWorktreeSearch = $derived(searchQuery.trim());
   let archivedWorktreeCount = $derived(worktrees.filter((w) => w.archived).length);
   let hiddenArchivedMatchCount = $derived(
@@ -415,9 +438,21 @@
     labelBranch ? worktrees.find((w) => w.branch === labelBranch) : undefined,
   );
   let canConnect = $derived(!!selectedBranch && selectedWorktree?.mux === "✓" && !selectedWorktree?.creating);
-  let showMobileChat = $derived(isMobile && canConnect && supportsWorktreeChat(selectedWorktree));
+  let showWebChat = $derived(useWebChatUi && canConnect && supportsWorktreeChat(selectedWorktree));
+  // Tabs are only meaningful for the built-in terminal agents that have a forkable session.
+  let showTabBar = $derived(
+    canConnect
+    && !showWebChat
+    && (selectedWorktree?.agentName === "claude" || selectedWorktree?.agentName === "codex"),
+  );
   let isSelectedOpening = $derived(selectedBranch ? openingBranches.has(selectedBranch) : false);
   let isSelectedArchiving = $derived(selectedBranch ? archivingBranches.has(selectedBranch) : false);
+  let isSelectedAgentTerminalRefreshing = $derived(
+    selectedBranch ? refreshingAgentTerminalBranches.has(selectedBranch) : false,
+  );
+  let selectedTerminalKey = $derived(
+    selectedBranch ? `${selectedBranch}:${terminalSessionRevisions[selectedBranch] ?? 0}` : "",
+  );
   let pollIntervalMs = $derived(
     hasCreatingWorktrees ? ACTIVE_CREATE_POLL_INTERVAL_MS : DEFAULT_POLL_INTERVAL_MS,
   );
@@ -441,6 +476,14 @@
     );
     if (nextSelectedBranch !== selectedBranch) {
       selectedBranch = nextSelectedBranch;
+    }
+  });
+
+  $effect(() => {
+    const branches = new Set(worktrees.map((worktree) => worktree.branch));
+    const nextEntries = Object.entries(terminalSessionRevisions).filter(([branch]) => branches.has(branch));
+    if (nextEntries.length !== Object.keys(terminalSessionRevisions).length) {
+      terminalSessionRevisions = Object.fromEntries(nextEntries);
     }
   });
 
@@ -544,7 +587,7 @@
       label: String(i + 1),
     }));
   });
-  let showPaneBar = $derived(isMobile && canConnect && !showMobileChat && paneBarPanes.length > 0);
+  let showPaneBar = $derived(isMobile && canConnect && !showWebChat && paneBarPanes.length > 0);
 
   function refreshLinear(): void {
     const now = Date.now();
@@ -859,6 +902,68 @@
       postingLinearBranches = new Set(
         [...postingLinearBranches].filter((b) => b !== branch),
       );
+    }
+  }
+
+  async function handleRefreshAgentTerminal(branch: string): Promise<void> {
+    if (refreshingAgentTerminalBranches.has(branch)) return;
+    refreshingAgentTerminalBranches = new Set([...refreshingAgentTerminalBranches, branch]);
+    try {
+      await refreshWorktreeAgentTerminal(branch);
+      await refresh();
+      terminalSessionRevisions = {
+        ...terminalSessionRevisions,
+        [branch]: (terminalSessionRevisions[branch] ?? 0) + 1,
+      };
+      showToast({ tone: "success", message: "Agent terminal refreshed" });
+    } catch (err) {
+      showToast({ tone: "error", message: `Failed to refresh terminal: ${errorMessage(err)}` });
+    } finally {
+      refreshingAgentTerminalBranches = new Set(
+        [...refreshingAgentTerminalBranches].filter((candidate) => candidate !== branch),
+      );
+    }
+  }
+
+  async function handleCreateTab(): Promise<void> {
+    const branch = selectedBranch;
+    if (!branch || tabBusy) return;
+    tabBusy = true;
+    try {
+      await createWorktreeTab(branch);
+      await refresh();
+    } catch (err) {
+      showToast({ tone: "error", message: `Failed to create tab: ${errorMessage(err)}` });
+    } finally {
+      tabBusy = false;
+    }
+  }
+
+  async function handleSelectTab(tabId: string): Promise<void> {
+    const branch = selectedBranch;
+    if (!branch || tabBusy) return;
+    tabBusy = true;
+    try {
+      await selectWorktreeTab(branch, tabId);
+      await refresh();
+    } catch (err) {
+      showToast({ tone: "error", message: `Failed to switch tab: ${errorMessage(err)}` });
+    } finally {
+      tabBusy = false;
+    }
+  }
+
+  async function handleDeleteTab(tabId: string): Promise<void> {
+    const branch = selectedBranch;
+    if (!branch || tabBusy) return;
+    tabBusy = true;
+    try {
+      await deleteWorktreeTab(branch, tabId);
+      await refresh();
+    } catch (err) {
+      showToast({ tone: "error", message: `Failed to delete tab: ${errorMessage(err)}` });
+    } finally {
+      tabBusy = false;
     }
   }
 
@@ -1201,17 +1306,35 @@
       archiving={isSelectedArchiving}
     />
 
-    {#if showMobileChat}
+    {#if showWebChat}
       {#key selectedBranch}
-        <MobileChatSurface worktree={selectedWorktree!} />
+        <MobileChatSurface
+          worktree={selectedWorktree!}
+          onConversationMessageSent={() => void refresh()}
+        />
       {/key}
     {:else if canConnect}
-      {#key selectedBranch}
+      {#if showTabBar && selectedWorktree}
+        <TabBar
+          tabs={selectedWorktree.tabs}
+          activeTabId={selectedWorktree.activeTabId}
+          busy={tabBusy}
+          oncreate={handleCreateTab}
+          onselect={handleSelectTab}
+          ondelete={handleDeleteTab}
+        />
+      {/if}
+      {#key selectedTerminalKey}
         <Terminal
           worktree={selectedBranch!}
           {isMobile}
           initialPane={isMobile ? activePane : undefined}
           {terminalTheme}
+          agentTerminalStale={selectedWorktree?.agentTerminalStale ?? false}
+          refreshingAgentTerminal={isSelectedAgentTerminalRefreshing}
+          onrefreshagentterminal={() => {
+            if (selectedBranch) void handleRefreshAgentTerminal(selectedBranch);
+          }}
           bind:this={terminalRef}
         />
       {/key}
@@ -1362,9 +1485,14 @@
 {#if showSettingsDialog}
   <SettingsDialog
     {currentTheme}
+    {useWebChatUi}
     linearAutoCreate={config.linearAutoCreateWorktrees ?? false}
     autoRemoveOnMerge={config.autoRemoveOnMerge ?? false}
     onthemechange={(key) => (currentTheme = key)}
+    onwebchatuichange={(enabled) => {
+      useWebChatUi = enabled;
+      saveUseWebChatUi(enabled);
+    }}
     onlinearautocreatechange={(enabled) => { config.linearAutoCreateWorktrees = enabled; }}
     onautoremovechange={(enabled) => { config.autoRemoveOnMerge = enabled; }}
     onagentschange={(agents) => { config.agents = agents; }}

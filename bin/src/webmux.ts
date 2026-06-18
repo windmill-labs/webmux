@@ -403,10 +403,9 @@ async function main(args: string[] = process.argv.slice(2)): Promise<void> {
     process.exit(0);
   }
 
-  if (!existsSync(resolve(process.cwd(), ".webmux.yaml"))) {
-    console.error("No .webmux.yaml found in this directory.\nRun `webmux init` to set up your project.");
-    process.exit(1);
-  }
+  // No `.webmux.yaml` requirement here: the server serves every known project
+  // (from ~/.webmux/projects.json) on one port and auto-adds the cwd repo when
+  // it is a webmux project. Running from a fresh dir just shows the empty state.
 
   const baseEnv = {
     ...process.env,

@@ -3,7 +3,18 @@ import { apiPaths, AgentsUiConversationEventSchema, createApi, parseLinearTarget
 import { createLinearIssue, fetchTeamByKey, type LinearIssue } from "../../backend/src/services/linear-service";
 import { buildSeedFromLinear, defaultSeedFromLinearDeps } from "../../backend/src/services/conversation-export-service";
 import { findDuplicateLinearIssue, polishLinearIssueTitle } from "../../backend/src/services/linear-title-service";
-import { CommandUsageError, formatServerError } from "./shared";
+import { CommandUsageError, formatServerError, resolveProjectBaseUrl } from "./shared";
+
+// The server serves each project under `/<prefix>`. `runOneshot` resolves the
+// scoped base once and stashes it here so every helper (api calls + the agents
+// WebSocket) targets the right project. Null → unscoped fallback (port only).
+let oneshotBaseUrl: string | null = null;
+function oneshotApi(port: number): ReturnType<typeof createApi> {
+  return createApi(oneshotBaseUrl ?? `http://localhost:${port}`);
+}
+function oneshotPathPrefix(): string {
+  return oneshotBaseUrl ? new URL(oneshotBaseUrl).pathname.replace(/\/$/, "") : "";
+}
 
 export interface ParsedOneshotCommand {
   branch: string | null;
@@ -404,7 +415,7 @@ function streamConversation(
 
   const connect = (): void => {
     if (closed) return;
-    const url = `ws://localhost:${port}${apiPaths.streamAgentsWorktreeConversation.replace(":name", encodeURIComponent(branch))}`;
+    const url = `ws://localhost:${port}${oneshotPathPrefix()}${apiPaths.streamAgentsWorktreeConversation.replace(":name", encodeURIComponent(branch))}`;
     const ws = new WebSocket(url);
     socket = ws;
     ws.addEventListener("open", () => {
@@ -499,7 +510,7 @@ function pollProjectState(
   },
   stderr: (line: string) => void,
 ): { stop: () => void } {
-  const api = createApi(`http://localhost:${port}`);
+  const api = oneshotApi(port);
   let stopped = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
 
@@ -597,7 +608,7 @@ async function ensureWorktreeReady(
   port: number,
   stderr: (line: string) => void,
 ): Promise<{ ready: true; worktree: ProjectWorktreeSnapshot } | { ready: false }> {
-  const api = createApi(`http://localhost:${port}`);
+  const api = oneshotApi(port);
   const deadline = Date.now() + 60_000;
   while (Date.now() < deadline) {
     try {
@@ -643,7 +654,7 @@ function pollConversationHistory(
   port: number,
   state: ConversationPrintState,
 ): { stop: () => void } {
-  const api = createApi(`http://localhost:${port}`);
+  const api = oneshotApi(port);
   let stopped = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
 
@@ -717,7 +728,13 @@ export async function runOneshot(parsed: ParsedOneshotCommand, port: number): Pr
     process.stderr.write(`${line}\n`);
   };
 
-  const api = createApi(`http://localhost:${port}`);
+  try {
+    oneshotBaseUrl = await resolveProjectBaseUrl(port);
+  } catch (error) {
+    stderr(`[${timestamp()}] [error] ${formatServerError(error, port)}`);
+    return 1;
+  }
+  const api = oneshotApi(port);
   let branch = parsed.branch;
   const body: CreateWorktreeRequest = { ...parsed.body };
   let fromLinearIssueId = parsed.fromLinearIssueId;

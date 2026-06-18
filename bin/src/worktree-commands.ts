@@ -2,7 +2,7 @@ import * as p from "@clack/prompts";
 import { createApi } from "@webmux/api-contract";
 import { basename, resolve } from "node:path";
 import { buildSeedFromLinear, defaultSeedFromLinearDeps } from "../../backend/src/services/conversation-export-service";
-import { CommandUsageError, withServerConnection } from "./shared";
+import { CommandUsageError, resolveProjectBaseUrl, withServerConnection } from "./shared";
 import { readWorktreeArchiveState, readWorktreeMeta } from "../../backend/src/adapters/fs";
 import { buildProjectSessionName, buildWorktreeWindowName } from "../../backend/src/adapters/tmux";
 import type { AgentId } from "../../backend/src/domain/config";
@@ -851,7 +851,7 @@ export async function runWorktreeCommand(
         return 0;
       }
 
-      const api = createApi(`http://localhost:${context.port}`);
+      const api = createApi(await withServerConnection(context.port, () => resolveProjectBaseUrl(context.port, context.projectDir)));
       await withServerConnection(context.port, () =>
         api.sendWorktreePrompt({
           params: { name: parsed.branch },
@@ -873,7 +873,7 @@ export async function runWorktreeCommand(
         return 0;
       }
 
-      const api = createApi(`http://localhost:${context.port}`);
+      const api = createApi(await withServerConnection(context.port, () => resolveProjectBaseUrl(context.port, context.projectDir)));
       await withServerConnection(context.port, async () => {
         if (parsed.action === "new") {
           const { tab } = await api.createWorktreeTab({ params: { name: parsed.branch } });

@@ -600,6 +600,8 @@ export const ProjectSummarySchema = z.object({
   prefix: z.string(),
   name: z.string(),
   path: z.string(),
+  /** True while at least one client has a terminal/agent WebSocket open on this
+   *  project (i.e. it is currently being viewed). */
   active: z.boolean(),
 });
 

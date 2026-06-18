@@ -235,17 +235,22 @@ export async function removeProject(prefix: string): Promise<void> {
   await hubApi.removeProject({ params: { prefix } });
 }
 
-/** Ensure the URL points at a valid project before the app mounts. Returns
- *  `true` when it is safe to mount (a valid prefix, or no projects to pick).
- *  Returns `false` when a redirect to the first project is in flight — the
- *  caller must not mount, as the page is reloading with the correct prefix. */
-export async function ensureProjectPrefix(): Promise<boolean> {
+export type ProjectBootstrap = "ready" | "redirecting" | "no-projects";
+
+/** Decide what to mount before the app loads, based on the URL prefix and the
+ *  known projects:
+ *  - `ready`        — the URL points at a real project; mount the dashboard.
+ *  - `redirecting`  — the URL has no/unknown prefix but projects exist; a
+ *                     redirect to the first project is in flight, mount nothing.
+ *  - `no-projects`  — nothing is registered; mount the empty state so the
+ *                     dashboard doesn't boot into 404-ing per-project calls. */
+export async function ensureProjectPrefix(): Promise<ProjectBootstrap> {
   const projects = await fetchProjects().catch((): ProjectSummary[] => []);
-  if (projects.some((project) => project.prefix === activePrefix)) return true;
+  if (projects.some((project) => project.prefix === activePrefix)) return "ready";
   const target = projects[0]?.prefix;
-  if (!target) return true;
+  if (!target) return "no-projects";
   window.location.replace(`/${target}/`);
-  return false;
+  return "redirecting";
 }
 
 export function subscribeNotifications(

@@ -2159,6 +2159,9 @@ const PORT_STRICT = Bun.env.WEBMUX_PORT_STRICT === "1";
 // `globalFetch` survives only for genuinely remote, separately-run instances.
 
 const apps = new Map<string, ProjectApp>();
+// Open WebSockets per project, so we can run their cleanup when a project is
+// removed and track whether a project is currently being viewed (`active`).
+const openSockets = new Map<string, Set<ServerWebSocket<WsData>>>();
 const instanceRegistry = createInstanceRegistry();
 let manager: ProjectManager;
 let server: Server<WsData>;
@@ -2191,7 +2194,7 @@ async function apiAddProject(req: BunRequest): Promise<Response> {
   }
   const inputPath = body.path.trim();
   if (!isGitRepo(inputPath)) return errorResponse(`Not a git repository: ${inputPath}`, 400);
-  const project = manager.add(projectRoot(inputPath));
+  const project = manager.add(inputPath);
   reloadRoutes();
   return jsonResponse({
     prefix: project.prefix,
@@ -2201,8 +2204,27 @@ async function apiAddProject(req: BunRequest): Promise<Response> {
   });
 }
 
+/** Run each open socket's per-project cleanup (tmux detach, agents unsubscribe)
+ *  and close it. Must run BEFORE the app is removed — once `apps.delete` has
+ *  happened the global close handler can no longer find the project's cleanup. */
+function closeProjectSockets(prefix: string): void {
+  const sockets = openSockets.get(prefix);
+  if (!sockets) return;
+  const app = apps.get(prefix);
+  for (const ws of sockets) {
+    void app?.wsHandlers.close(ws, 1001, "project removed");
+    try {
+      ws.close(1001, "project removed");
+    } catch {
+      // already closing — cleanup above already ran
+    }
+  }
+  openSockets.delete(prefix);
+}
+
 async function apiRemoveProject(prefix: string): Promise<Response> {
   if (!apps.has(prefix)) return errorResponse("Project not found", 404);
+  closeProjectSockets(prefix);
   manager.remove(prefix);
   reloadRoutes();
   return jsonResponse({ ok: true });
@@ -2283,17 +2305,42 @@ async function globalFetch(req: Request): Promise<Response> {
   return new Response("Not Found", { status: 404 });
 }
 
+function trackSocket(ws: ServerWebSocket<WsData>): void {
+  const prefix = ws.data.prefix;
+  let sockets = openSockets.get(prefix);
+  if (!sockets) {
+    sockets = new Set();
+    openSockets.set(prefix, sockets);
+  }
+  sockets.add(ws);
+  // First socket for this project → it's being viewed.
+  if (sockets.size === 1) manager.setActive(prefix, true);
+}
+
+function untrackSocket(ws: ServerWebSocket<WsData>): void {
+  const prefix = ws.data.prefix;
+  const sockets = openSockets.get(prefix);
+  if (!sockets) return;
+  sockets.delete(ws);
+  if (sockets.size === 0) {
+    openSockets.delete(prefix);
+    manager.setActive(prefix, false);
+  }
+}
+
 const globalWebsocket: WebSocketHandler<WsData> = {
   // WebSocket-specific timeout; keepalive pings prevent idle tab disconnects.
   idleTimeout: 255,
   sendPings: true,
   open(ws): void {
+    trackSocket(ws);
     apps.get(ws.data.prefix)?.wsHandlers.open(ws);
   },
   message(ws, message): void | Promise<void> {
     return apps.get(ws.data.prefix)?.wsHandlers.message(ws, message);
   },
   close(ws, code, reason): void | Promise<void> {
+    untrackSocket(ws);
     return apps.get(ws.data.prefix)?.wsHandlers.close(ws, code, reason);
   },
 };

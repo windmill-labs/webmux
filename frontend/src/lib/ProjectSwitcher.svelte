@@ -182,7 +182,7 @@
         Other instances
       </div>
       {#each peers as peer (peer.port)}
-        <a href={`/${peer.prefix}`} class="block px-3 py-2 text-[12px] hover:bg-hover border-t border-edge" role="menuitem">
+        <a href={`/${peer.prefix}/`} class="block px-3 py-2 text-[12px] hover:bg-hover border-t border-edge" role="menuitem">
           <div class="text-primary font-medium truncate">{peer.prefix}</div>
           <div class="text-muted text-[11px] truncate">{peer.projectDir}</div>
         </a>

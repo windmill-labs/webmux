@@ -75,9 +75,9 @@ describe("instance-registry", () => {
   it("rejects entries whose prefix is not a valid instance prefix", async () => {
     const { dir, registry } = await freshRegistry();
     registry.register(makeEntry({ port: 5111, prefix: "good" }));
-    // Forge an entry with a bad prefix (uppercase, reserved, etc.)
+    // Forge an entry with a bad prefix (leading hyphen, reserved, etc.)
     writeFileSync(join(dir, "5112.json"), JSON.stringify({
-      prefix: "BadPrefix",
+      prefix: "-bad",
       port: 5112,
       projectDir: "/x",
       pid: process.pid,

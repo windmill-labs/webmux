@@ -118,7 +118,7 @@ describe("agent-service command builders", () => {
     expect(command).toContain("claude --dangerously-skip-permissions --continue -- 'fix the tests'");
   });
 
-  it("uses an explicit Claude session id when refreshing a terminal", () => {
+  it("resumes a specific claude session by id when one is provided", () => {
     const command = buildAgentPaneCommand({
       agent: builtInAgent("claude"),
       runtimeEnvPath: "/tmp/gitdir/webmux/runtime.env",
@@ -128,11 +128,59 @@ describe("agent-service command builders", () => {
       profileName: "default",
       yolo: true,
       launchMode: "resume",
-      resumeConversationId: "session-123",
+      resumeConversationId: "sess-123",
     });
 
-    expect(command).toContain("claude --dangerously-skip-permissions --resume 'session-123'");
+    expect(command).toContain("claude --dangerously-skip-permissions --resume 'sess-123'");
     expect(command).not.toContain("--continue");
+  });
+
+  it("forks a claude session and pins the child session id", () => {
+    const command = buildAgentPaneCommand({
+      agent: builtInAgent("claude"),
+      runtimeEnvPath: "/tmp/gitdir/webmux/runtime.env",
+      repoRoot: "/repo",
+      worktreePath: "/repo/__worktrees/feature",
+      branch: "feature",
+      profileName: "default",
+      yolo: true,
+      launchMode: "fork",
+      forkFromSessionId: "root-abc",
+      pinSessionId: "child-xyz",
+    });
+
+    expect(command).toContain("claude --dangerously-skip-permissions --resume 'root-abc' --fork-session --session-id 'child-xyz'");
+  });
+
+  it("forks a codex session via the fork subcommand", () => {
+    const command = buildAgentPaneCommand({
+      agent: builtInAgent("codex"),
+      runtimeEnvPath: "/tmp/gitdir/webmux/runtime.env",
+      repoRoot: "/repo",
+      worktreePath: "/repo/__worktrees/feature",
+      branch: "feature",
+      profileName: "default",
+      launchMode: "fork",
+      forkFromSessionId: "root-abc",
+    });
+
+    expect(command).toContain("codex --enable hooks fork 'root-abc'");
+    expect(command).not.toContain("--session-id");
+  });
+
+  it("resumes a specific codex session by id", () => {
+    const command = buildAgentPaneCommand({
+      agent: builtInAgent("codex"),
+      runtimeEnvPath: "/tmp/gitdir/webmux/runtime.env",
+      repoRoot: "/repo",
+      worktreePath: "/repo/__worktrees/feature",
+      branch: "feature",
+      profileName: "default",
+      launchMode: "resume",
+      resumeConversationId: "thread-9",
+    });
+
+    expect(command).toContain("codex --enable hooks resume 'thread-9'");
   });
 
   it("builds docker commands that exec inside the container", () => {

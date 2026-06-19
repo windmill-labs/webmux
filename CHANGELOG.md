@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.37.0](https://github.com/windmill-labs/webmux/compare/v0.36.0...v0.37.0) (2026-06-09)
+
+
+### Features
+
+* clearer worktree status indicators ([#265](https://github.com/windmill-labs/webmux/issues/265)) ([4b528a7](https://github.com/windmill-labs/webmux/commit/4b528a7aa2fdad404fd869979b053e89607ced95))
+
+## [0.36.0](https://github.com/windmill-labs/webmux/compare/v0.35.0...v0.36.0) (2026-06-01)
+
+
+### Features
+
+* improve codex web chat feedback ([#258](https://github.com/windmill-labs/webmux/issues/258)) ([8adbdef](https://github.com/windmill-labs/webmux/commit/8adbdef5019cdeccfad55f8dab51661a4af7691c))
+
+
+### Bug Fixes
+
+* recognize Bun's connection-refused message in formatServerError ([a7d78f7](https://github.com/windmill-labs/webmux/commit/a7d78f7d7ea32a9b195315812681949140f3f017))
+* recognize Bun's connection-refused message in formatServerError ([3a67ffb](https://github.com/windmill-labs/webmux/commit/3a67ffb12ef5185a09fa4efaf7d99785e4067c48))
+* refine agent chat ui ([#260](https://github.com/windmill-labs/webmux/issues/260)) ([632c504](https://github.com/windmill-labs/webmux/commit/632c504ef775e5758f9f830c1611f206d4921560))
+* target the live server port for server-backed CLI commands ([3b0a82f](https://github.com/windmill-labs/webmux/commit/3b0a82fbbb674da79521f067ae3eb11b2996d9a5))
+* target the live server port for server-backed CLI commands ([9c82449](https://github.com/windmill-labs/webmux/commit/9c824495eff3902fe3f614329c888d42793c56e9))
+
 ## [0.35.0](https://github.com/windmill-labs/webmux/compare/v0.34.0...v0.35.0) (2026-05-27)
 
 

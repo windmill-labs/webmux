@@ -36,6 +36,8 @@ function createWorktree(branch: string): WorktreeInfo {
     creationPhase: null,
     source: "ui",
     oneshot: null,
+    tabs: [],
+    activeTabId: null,
   };
 }
 

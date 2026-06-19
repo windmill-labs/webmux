@@ -6,9 +6,10 @@ import type { ProjectConfig } from "../domain/config";
 import { BunGitGateway, type GitGateway } from "../adapters/git";
 import type { LifecycleHookRunner, RunLifecycleHookInput } from "../adapters/hooks";
 import type { PortProbe } from "../adapters/port-probe";
-import { buildProjectSessionName, buildWorktreeWindowName, type TmuxGateway, type TmuxWindowSummary } from "../adapters/tmux";
+import { buildProjectSessionName, buildWorktreeParkingWindowName, buildWorktreeWindowName, type TmuxGateway, type TmuxWindowSummary } from "../adapters/tmux";
 import { getWorktreeStoragePaths, readWorktreeArchiveState, readWorktreeMeta, writeWorktreeMeta } from "../adapters/fs";
 import type { DockerGateway, LaunchContainerOpts } from "../adapters/docker";
+import type { SessionDiscoveryGateway } from "../adapters/session-discovery";
 import type { AutoNameConfig } from "../domain/config";
 import { ProjectRuntime } from "../services/project-runtime";
 import { ArchiveStateService } from "../services/archive-state-service";
@@ -39,6 +40,37 @@ class FakeTmuxGateway implements TmuxGateway {
   private readonly windows = new Map<string, TmuxWindowSummary>();
   readonly createdWindows: Array<{ sessionName: string; windowName: string; cwd: string; command?: string }> = [];
   readonly commands: Array<{ target: string; command: string }> = [];
+  readonly swaps: Array<{ source: string; destination: string }> = [];
+  readonly killedPanes: string[] = [];
+  private paneCounter = 0;
+
+  // Each resolution yields a fresh id so a code path that reads the same slot twice gets two
+  // different values — surfacing any double-read where a single captured id is expected.
+  getPaneId(_target: string): string {
+    return `%pane-${this.paneCounter++}`;
+  }
+
+  createParkedPane(opts: { sessionName: string; parkingWindow: string; cwd: string; command: string }): string {
+    const window = this.windows.get(this.key(opts.sessionName, opts.parkingWindow));
+    if (window) {
+      window.paneCount += 1;
+    } else {
+      this.windows.set(this.key(opts.sessionName, opts.parkingWindow), {
+        sessionName: opts.sessionName,
+        windowName: opts.parkingWindow,
+        paneCount: 1,
+      });
+    }
+    return `%parked-${this.paneCounter++}`;
+  }
+
+  swapPanes(source: string, destination: string): void {
+    this.swaps.push({ source, destination });
+  }
+
+  killPane(target: string): void {
+    this.killedPanes.push(target);
+  }
 
   ensureServer(): void {}
 
@@ -251,6 +283,7 @@ function makeLifecycleService(
     onProgress?: (progress: CreateWorktreeProgress) => void | Promise<void>;
     onFinished?: (branch: string) => void | Promise<void>;
   } = {},
+  sessionDiscovery: SessionDiscoveryGateway = { listSessionIds: async () => [] },
 ): LifecycleService {
   const reconciliation = new ReconciliationService({
     config,
@@ -268,6 +301,7 @@ function makeLifecycleService(
     archiveState: new ArchiveStateService(git.resolveWorktreeGitDir(repoRoot)),
     git,
     tmux,
+    sessionDiscovery,
     docker,
     reconciliation,
     hooks,
@@ -1850,5 +1884,261 @@ describe("LifecycleService", () => {
 
     // Idempotent: a second call returns false because there is nothing to clear.
     expect(await lifecycle.disarmOneshot("feature/disarm")).toBe(false);
+  });
+
+  function makeTabLifecycle(
+    repoRoot: string,
+    tmux: FakeTmuxGateway,
+    runtime: ProjectRuntime,
+    rootSessionIds: string[] = ["root-session"],
+  ): LifecycleService {
+    return makeLifecycleService(
+      repoRoot,
+      tmux,
+      runtime,
+      new FakeDockerGateway(),
+      new FakeHookRunner(),
+      TEST_CONFIG,
+      new BunGitGateway(),
+      new FakeAutoNameService(),
+      {},
+      { listSessionIds: async () => rootSessionIds },
+    );
+  }
+
+  it("forks a tab into a parked pane and swaps it into the visible agent slot", async () => {
+    const repoRoot = await initRepo();
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const lifecycle = makeTabLifecycle(repoRoot, tmux, runtime);
+
+    await lifecycle.createWorktree({ branch: "feature-fork" });
+    const { tab } = await lifecycle.createWorktreeTab("feature-fork");
+
+    expect(tab.kind).toBe("fork");
+    expect(tab.tabId).toBe("fork-1");
+    expect(tab.label).toBe("Fork 1");
+    expect(tab.sessionId).not.toBeNull();
+    if (!tab.paneId) throw new Error("expected fork pane id");
+
+    const session = buildProjectSessionName(repoRoot);
+    expect(tmux.hasWindow(session, buildWorktreeParkingWindowName("feature-fork"))).toBe(true);
+
+    // The new fork is brought on-screen by swapping its parked pane into the visible slot.
+    expect(tmux.swaps).toHaveLength(1);
+    expect(tmux.swaps[0]?.source).toBe(tab.paneId);
+
+    const gitDir = new BunGitGateway().resolveWorktreeGitDir(join(repoRoot, "__worktrees", "feature-fork"));
+    const meta = await readWorktreeMeta(gitDir);
+    expect(meta?.tabs?.map((entry) => entry.tabId)).toEqual(["root", "fork-1"]);
+    expect(meta?.activeTabId).toBe("fork-1");
+    // The outgoing root tab records the pane it was parked into, and its discovered session id.
+    const rootEntry = meta?.tabs?.find((entry) => entry.tabId === "root");
+    expect(rootEntry?.paneId).toBeTruthy();
+    expect(rootEntry?.sessionId).toBe("root-session");
+  });
+
+  it("selects another tab by swapping its parked pane back into the visible slot", async () => {
+    const repoRoot = await initRepo();
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const lifecycle = makeTabLifecycle(repoRoot, tmux, runtime);
+
+    await lifecycle.createWorktree({ branch: "feature-select" });
+    await lifecycle.createWorktreeTab("feature-select");
+
+    const gitDir = new BunGitGateway().resolveWorktreeGitDir(join(repoRoot, "__worktrees", "feature-select"));
+    const beforeRootPaneId = (await readWorktreeMeta(gitDir))?.tabs?.find((entry) => entry.tabId === "root")?.paneId;
+    if (!beforeRootPaneId) throw new Error("expected root pane id after fork");
+
+    tmux.swaps.length = 0;
+    await lifecycle.selectWorktreeTab("feature-select", "root");
+
+    expect(tmux.swaps).toHaveLength(1);
+    expect(tmux.swaps[0]?.source).toBe(beforeRootPaneId);
+
+    const meta = await readWorktreeMeta(gitDir);
+    expect(meta?.activeTabId).toBe("root");
+  });
+
+  it("deletes a fork tab, swapping the root back on-screen and killing the fork pane", async () => {
+    const repoRoot = await initRepo();
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const lifecycle = makeTabLifecycle(repoRoot, tmux, runtime);
+
+    await lifecycle.createWorktree({ branch: "feature-del" });
+    const { tab } = await lifecycle.createWorktreeTab("feature-del");
+    if (!tab.paneId) throw new Error("expected fork pane id");
+
+    const gitDir = new BunGitGateway().resolveWorktreeGitDir(join(repoRoot, "__worktrees", "feature-del"));
+    const rootPaneId = (await readWorktreeMeta(gitDir))?.tabs?.find((entry) => entry.tabId === "root")?.paneId;
+    if (!rootPaneId) throw new Error("expected root pane id after fork");
+
+    tmux.swaps.length = 0;
+    await lifecycle.deleteWorktreeTab("feature-del", "fork-1");
+
+    // The deleted fork was active/on-screen, so the root is swapped back before its pane is killed.
+    expect(tmux.swaps).toHaveLength(1);
+    expect(tmux.swaps[0]?.source).toBe(rootPaneId);
+    expect(tmux.killedPanes).toContain(tab.paneId);
+
+    const meta = await readWorktreeMeta(gitDir);
+    expect(meta?.tabs?.map((entry) => entry.tabId)).toEqual(["root"]);
+    expect(meta?.activeTabId).toBe("root");
+  });
+
+  it("rejects deleting the root tab", async () => {
+    const repoRoot = await initRepo();
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const lifecycle = makeTabLifecycle(repoRoot, tmux, runtime);
+
+    await lifecycle.createWorktree({ branch: "feature-root-del" });
+
+    await expect(lifecycle.deleteWorktreeTab("feature-root-del", "root")).rejects.toMatchObject({
+      status: 400,
+      message: "The root tab cannot be deleted",
+    });
+  });
+
+  it("rebuilds parked fork panes and re-activates the previous tab on reopen", async () => {
+    const repoRoot = await initRepo();
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const lifecycle = makeTabLifecycle(repoRoot, tmux, runtime);
+
+    await lifecycle.createWorktree({ branch: "feature-restore" });
+    await lifecycle.createWorktreeTab("feature-restore");
+
+    const session = buildProjectSessionName(repoRoot);
+    const parkingWindow = buildWorktreeParkingWindowName("feature-restore");
+
+    await lifecycle.closeWorktree("feature-restore");
+    // Closing must tear down the parking window, not just the main agent window.
+    expect(tmux.hasWindow(session, parkingWindow)).toBe(false);
+
+    tmux.swaps.length = 0;
+    await lifecycle.openWorktree("feature-restore");
+
+    // The parking window is rebuilt and the previously active fork is restored on-screen.
+    expect(tmux.hasWindow(session, parkingWindow)).toBe(true);
+    const gitDir = new BunGitGateway().resolveWorktreeGitDir(join(repoRoot, "__worktrees", "feature-restore"));
+    const meta = await readWorktreeMeta(gitDir);
+    expect(meta?.activeTabId).toBe("fork-1");
+
+    // The restore captures the visible-slot pane id once: the root tab's stored pane and the
+    // swap destination must be the same value (a regression guard against a double read).
+    expect(tmux.swaps).toHaveLength(1);
+    const restoredRootPaneId = meta?.tabs?.find((entry) => entry.tabId === "root")?.paneId;
+    if (!restoredRootPaneId) throw new Error("expected restored root pane id");
+    expect(tmux.swaps[0]?.destination).toBe(restoredRootPaneId);
+  });
+
+  it("rebuilds parked fork panes when the codex agent terminal is refreshed", async () => {
+    const repoRoot = await initRepo();
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    // ensureRootSessionId + the pre-fork snapshot (calls 1-2) see only the root session;
+    // once the fork pane is launched its session id becomes discoverable (call 3+), so a
+    // Codex fork captures a non-null id and survives the restore on refresh.
+    let listCalls = 0;
+    const lifecycle = makeLifecycleService(
+      repoRoot,
+      tmux,
+      runtime,
+      new FakeDockerGateway(),
+      new FakeHookRunner(),
+      {
+        ...TEST_CONFIG,
+        workspace: { ...TEST_CONFIG.workspace, defaultAgent: "codex" },
+        profiles: {
+          ...TEST_CONFIG.profiles,
+          default: { ...TEST_CONFIG.profiles.default, yolo: true },
+        },
+      },
+      new BunGitGateway(),
+      new FakeAutoNameService(),
+      {},
+      {
+        listSessionIds: async () => {
+          listCalls += 1;
+          return listCalls <= 2 ? ["root-session"] : ["fork-session-1", "root-session"];
+        },
+      },
+    );
+
+    await lifecycle.createWorktree({ branch: "feature-codex-tab-refresh" });
+    await lifecycle.createWorktreeTab("feature-codex-tab-refresh");
+
+    const session = buildProjectSessionName(repoRoot);
+    const parkingWindow = buildWorktreeParkingWindowName("feature-codex-tab-refresh");
+    const gitDir = new BunGitGateway().resolveWorktreeGitDir(
+      join(repoRoot, "__worktrees", "feature-codex-tab-refresh"),
+    );
+
+    const beforeMeta = await readWorktreeMeta(gitDir);
+    if (!beforeMeta) throw new Error("expected worktree metadata");
+    const rootPaneBefore = beforeMeta.tabs?.find((entry) => entry.tabId === "root")?.paneId;
+    const forkPaneBefore = beforeMeta.tabs?.find((entry) => entry.tabId === "fork-1")?.paneId;
+    if (!rootPaneBefore || !forkPaneBefore) throw new Error("expected pane ids after fork");
+
+    await writeWorktreeMeta(gitDir, {
+      ...beforeMeta,
+      agentTerminalStale: true,
+      conversation: {
+        provider: "codexAppServer",
+        conversationId: "thread-refresh",
+        threadId: "thread-refresh",
+        cwd: join(repoRoot, "__worktrees", "feature-codex-tab-refresh"),
+        lastSeenAt: "2026-04-15T10:00:00.000Z",
+      },
+    });
+
+    tmux.swaps.length = 0;
+    tmux.commands.length = 0;
+    await lifecycle.refreshAgentTerminal("feature-codex-tab-refresh");
+
+    // The parking window is rebuilt from a clean slate — exactly one fork pane, not a
+    // duplicate stacked on top of the pre-refresh pane.
+    const parking = tmux.listWindows().find((window) => window.windowName === parkingWindow);
+    expect(parking?.paneCount).toBe(1);
+    // The fork's codex session is resumed into the rebuilt parked pane.
+    expect(tmux.commands.some((entry) => entry.command.includes("resume 'fork-session-1'"))).toBe(true);
+
+    const meta = await readWorktreeMeta(gitDir);
+    expect(meta?.activeTabId).toBe("fork-1");
+    const rootAfter = meta?.tabs?.find((entry) => entry.tabId === "root");
+    const forkAfter = meta?.tabs?.find((entry) => entry.tabId === "fork-1");
+    // Pane ids are recaptured: the window was recreated, so the stale pre-refresh ids in
+    // meta would otherwise make a later swap target a dead pane.
+    expect(rootAfter?.paneId).not.toBe(rootPaneBefore);
+    expect(forkAfter?.paneId).not.toBe(forkPaneBefore);
+    expect(forkAfter?.sessionId).toBe("fork-session-1");
+
+    // The previously active fork is brought back on-screen, and a subsequent select against
+    // the refreshed (live) pane ids resolves instead of throwing on a stale pane.
+    expect(tmux.swaps.length).toBeGreaterThan(0);
+    await lifecycle.selectWorktreeTab("feature-codex-tab-refresh", "root");
+    expect((await readWorktreeMeta(gitDir))?.activeTabId).toBe("root");
+  });
+
+  it("kills the parking window when removing a worktree with fork tabs", async () => {
+    const repoRoot = await initRepo();
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const lifecycle = makeTabLifecycle(repoRoot, tmux, runtime);
+
+    await lifecycle.createWorktree({ branch: "feature-remove" });
+    await lifecycle.createWorktreeTab("feature-remove");
+
+    const session = buildProjectSessionName(repoRoot);
+    expect(tmux.hasWindow(session, buildWorktreeParkingWindowName("feature-remove"))).toBe(true);
+
+    await lifecycle.removeWorktree("feature-remove");
+
+    // Both the main agent window and the parking window must be gone — no orphaned panes left
+    // running against the deleted worktree directory.
+    expect(tmux.listWindows()).toEqual([]);
   });
 });

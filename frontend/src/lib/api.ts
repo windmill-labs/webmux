@@ -16,6 +16,7 @@ import type {
   UpsertCustomAgentRequest,
   ValidateCustomAgentResponse,
   WorktreeInfo,
+  WorktreeTab,
 } from "./types";
 
 export const api = createApi("");
@@ -63,7 +64,22 @@ function mapWorktree(snapshot: ProjectWorktreeSnapshot): WorktreeInfo {
     creationPhase: snapshot.creation?.phase ?? null,
     source: snapshot.source,
     oneshot: snapshot.oneshot,
+    tabs: snapshot.tabs,
+    activeTabId: snapshot.activeTabId,
   };
+}
+
+export async function createWorktreeTab(branch: string): Promise<WorktreeTab> {
+  const response = await api.createWorktreeTab({ params: { name: branch } });
+  return response.tab;
+}
+
+export function selectWorktreeTab(branch: string, tabId: string): Promise<void> {
+  return api.selectWorktreeTab({ params: { name: branch, tabId } }).then(() => undefined);
+}
+
+export function deleteWorktreeTab(branch: string, tabId: string): Promise<void> {
+  return api.deleteWorktreeTab({ params: { name: branch, tabId } }).then(() => undefined);
 }
 
 export function postWorktreeToLinear(

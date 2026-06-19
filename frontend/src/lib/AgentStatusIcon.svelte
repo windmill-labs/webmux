@@ -1,9 +1,25 @@
+<script module lang="ts">
+  // Whether the icon renders a visible mark for this status — kept beside the
+  // template below so callers can avoid laying out an empty slot. Mirrors the
+  // {#if} branches in the icon snippet.
+  export function agentIconVisible(status: string, unread: boolean): boolean {
+    return (
+      status === "working" ||
+      status === "waiting" ||
+      status === "error" ||
+      (status === "done" && unread)
+    );
+  }
+</script>
+
 <script lang="ts">
   let {
     status,
     size = 10,
     pill = false,
-  }: { status: string; size?: number; pill?: boolean } = $props();
+    unread = false,
+  }: { status: string; size?: number; pill?: boolean; unread?: boolean } =
+    $props();
 
   function pillClass(s: string): string {
     if (s === "working") return "bg-success/15 text-success";
@@ -17,14 +33,14 @@
 {#snippet icon()}
   {#if status === "working"}
     <svg
-      class="text-success"
+      class="text-success working-dots"
       xmlns="http://www.w3.org/2000/svg"
       width={size}
       height={size}
       viewBox="0 0 24 24"
       fill="currentColor"
       stroke="none"
-      ><circle cx="5" cy="12" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="19" cy="12" r="1.5" /></svg
+      ><circle cx="3" cy="12" r="2.5" /><circle cx="12" cy="12" r="2.5" /><circle cx="21" cy="12" r="2.5" /></svg
     >
   {:else if status === "waiting"}
     <svg
@@ -43,19 +59,18 @@
       /><path d="M12 7v2" /><path d="M12 13h.01" /></svg
     >
   {:else if status === "done"}
-    <svg
-      class="text-success"
-      xmlns="http://www.w3.org/2000/svg"
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="3"
-      stroke-linecap="round"
-      stroke-linejoin="round"
-      ><polyline points="20 6 9 17 4 12" /></svg
-    >
+    {#if unread}
+      <svg
+        class="text-accent"
+        xmlns="http://www.w3.org/2000/svg"
+        width={size}
+        height={size}
+        viewBox="0 0 24 24"
+        fill="currentColor"
+        stroke="none"
+        ><circle cx="12" cy="12" r="6" /></svg
+      >
+    {/if}
   {:else if status === "error"}
     <svg
       class="text-danger"
@@ -77,6 +92,42 @@
     >
   {/if}
 {/snippet}
+
+<style>
+  .working-dots circle {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: dot-wave 1.1s ease-in-out infinite;
+  }
+  .working-dots circle:nth-child(1) {
+    animation-delay: 0s;
+  }
+  .working-dots circle:nth-child(2) {
+    animation-delay: 0.18s;
+  }
+  .working-dots circle:nth-child(3) {
+    animation-delay: 0.36s;
+  }
+  @keyframes dot-wave {
+    0%,
+    70%,
+    100% {
+      opacity: 0.25;
+      transform: scale(0.8);
+    }
+    35% {
+      opacity: 1;
+      transform: scale(1.15);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .working-dots circle {
+      animation: none;
+      opacity: 1;
+      transform: none;
+    }
+  }
+</style>
 
 {#if pill}
   <span

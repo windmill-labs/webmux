@@ -20,7 +20,7 @@ const PHASE_LABELS: Record<WorktreeCreationPhase, string> = {
   reconciling: "Reconciling",
 };
 
-export type WorktreeSubcommand = "add" | "list" | "open" | "close" | "refresh" | "remove" | "merge" | "send" | "prune" | "archive" | "unarchive" | "label";
+export type WorktreeSubcommand = "add" | "list" | "open" | "close" | "refresh" | "remove" | "merge" | "send" | "prune" | "archive" | "unarchive" | "label" | "tab";
 
 type WorktreeListMode = "active" | "all" | "archived";
 
@@ -140,6 +140,17 @@ export function getWorktreeCommandUsage(command: WorktreeSubcommand): string {
       ].join("\n");
     case "prune":
       return "Usage:\n  webmux prune";
+    case "tab":
+      return [
+        "Usage:",
+        "  webmux tab <branch>                 List the agent tabs (★ marks the active one)",
+        "  webmux tab <branch> new             Create a new forked tab",
+        "  webmux tab <branch> switch <tabId>  Switch the visible agent pane to a tab",
+        "  webmux tab <branch> close <tabId>   Delete a forked tab",
+        "",
+        "Options:",
+        "  --help                   Show this help message",
+      ].join("\n");
   }
 }
 
@@ -294,6 +305,36 @@ export function parseAddCommandArgs(args: string[]): ParsedAddCommand | null {
   }
 
   return { input, detach, fromLinearIssueId, branchExplicit };
+}
+
+export type TabAction = "list" | "new" | "switch" | "close";
+
+export interface ParsedTabCommand {
+  branch: string;
+  action: TabAction;
+  tabId?: string;
+}
+
+export function parseTabCommandArgs(args: string[]): ParsedTabCommand | null {
+  const positional: string[] = [];
+  for (const arg of args) {
+    if (arg === "--help" || arg === "-h") return null;
+    if (arg.startsWith("-")) throw new CommandUsageError(`Unknown option: ${arg}`);
+    positional.push(arg);
+  }
+
+  const [branch, rawAction = "list", tabId, ...rest] = positional;
+  if (!branch) throw new CommandUsageError("Missing required argument: <branch>");
+  if (!isValidWorktreeName(branch)) throw new CommandUsageError("Invalid worktree name");
+  if (rawAction !== "list" && rawAction !== "new" && rawAction !== "switch" && rawAction !== "close") {
+    throw new CommandUsageError(`Unknown tab action: ${rawAction}`);
+  }
+  if ((rawAction === "switch" || rawAction === "close") && !tabId) {
+    throw new CommandUsageError(`The "${rawAction}" action requires a <tabId>`);
+  }
+  if (rest.length > 0) throw new CommandUsageError(`Unexpected argument: ${rest[0]}`);
+
+  return { branch, action: rawAction, ...(tabId ? { tabId } : {}) };
 }
 
 export function parseBranchCommandArgs(args: string[]): string | null {
@@ -825,6 +866,46 @@ export async function runWorktreeCommand(
       return 0;
     }
 
+    if (context.command === "tab") {
+      const parsed = parseTabCommandArgs(context.args);
+      if (!parsed) {
+        stdout(getWorktreeCommandUsage("tab"));
+        return 0;
+      }
+
+      const api = createApi(`http://localhost:${context.port}`);
+      await withServerConnection(context.port, async () => {
+        if (parsed.action === "new") {
+          const { tab } = await api.createWorktreeTab({ params: { name: parsed.branch } });
+          stdout(`Created ${tab.label} (${tab.tabId}) in ${parsed.branch}`);
+          return;
+        }
+        if (parsed.action === "switch" || parsed.action === "close") {
+          const tabId = parsed.tabId;
+          if (!tabId) throw new CommandUsageError(`The "${parsed.action}" action requires a <tabId>`);
+          if (parsed.action === "switch") {
+            await api.selectWorktreeTab({ params: { name: parsed.branch, tabId } });
+            stdout(`Switched ${parsed.branch} to tab ${tabId}`);
+          } else {
+            await api.deleteWorktreeTab({ params: { name: parsed.branch, tabId } });
+            stdout(`Closed tab ${tabId} in ${parsed.branch}`);
+          }
+          return;
+        }
+        const { worktrees } = await api.fetchWorktrees();
+        const worktree = worktrees.find((candidate) => candidate.branch === parsed.branch);
+        if (!worktree) {
+          stdout(`Worktree not found: ${parsed.branch}`);
+          return;
+        }
+        for (const tab of worktree.tabs) {
+          const marker = tab.tabId === worktree.activeTabId ? "★" : " ";
+          stdout(`${marker} ${tab.label.padEnd(10)} ${tab.tabId}`);
+        }
+      });
+      return 0;
+    }
+
     if (context.command === "label") {
       const parsed = parseLabelCommandArgs(context.args);
       if (!parsed) {
@@ -843,7 +924,7 @@ export async function runWorktreeCommand(
       return 0;
     }
 
-    const command: Exclude<WorktreeSubcommand, "add" | "list" | "send" | "prune" | "label"> = context.command;
+    const command: Exclude<WorktreeSubcommand, "add" | "list" | "send" | "prune" | "label" | "tab"> = context.command;
     const branch = parseBranchCommandArgs(context.args);
     if (!branch) {
       stdout(getWorktreeCommandUsage(command));

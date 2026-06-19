@@ -66,12 +66,12 @@ import {
   buildLinearPickupMarkdown,
   createIssueComment,
   createLinearIssue,
-  deriveLinearIssueTitle,
   fetchAssignedIssues,
   fetchIssueWithAttachments,
   fetchTeamByKey,
   uploadAttachmentFile,
 } from "./services/linear-service";
+import { resolveLinearTicketTitle } from "./services/linear-title-service";
 import {
   buildSeedFromLinear,
   defaultSeedFromLinearDeps,
@@ -155,6 +155,7 @@ const claudeConversationStreamService = new ClaudeConversationStreamService({
   claude: claudeCliClient,
 });
 const removingBranches = new Set<string>();
+const mutatingTabBranches = new Set<string>();
 const lifecycleService = runtime.lifecycleService;
 let linearAutoCreateEnabled = config.integrations.linear.autoCreateWorktrees;
 let stopLinearAutoCreate: (() => void) | null = null;
@@ -434,9 +435,16 @@ function ensureBranchNotCreating(branch: string): void {
   }
 }
 
+function ensureBranchNotMutatingTab(branch: string): void {
+  if (mutatingTabBranches.has(branch)) {
+    throw new LifecycleError(`Worktree tabs are being updated: ${branch}`, 409);
+  }
+}
+
 function ensureBranchNotBusy(branch: string): void {
   ensureBranchNotRemoving(branch);
   ensureBranchNotCreating(branch);
+  ensureBranchNotMutatingTab(branch);
 }
 
 async function withRemovingBranch<T>(branch: string, fn: () => Promise<T>): Promise<T> {
@@ -446,6 +454,20 @@ async function withRemovingBranch<T>(branch: string, fn: () => Promise<T>): Prom
     return await fn();
   } finally {
     removingBranches.delete(branch);
+  }
+}
+
+// Tab create/select/delete each read-modify-write the worktree meta. Open and
+// agent-terminal refresh also rewrite the whole tabs array (via restoreWorktreeTabs).
+// Serialize them all per branch (and mutually exclude with remove/create) so concurrent
+// requests from the CLI or multiple clients can't clobber each other's tab bookkeeping.
+async function withMutatingTab<T>(branch: string, fn: () => Promise<T>): Promise<T> {
+  ensureBranchNotBusy(branch);
+  mutatingTabBranches.add(branch);
+  try {
+    return await fn();
+  } finally {
+    mutatingTabBranches.delete(branch);
   }
 }
 
@@ -925,9 +947,10 @@ async function apiInterruptAgentsWorktree(branch: string): Promise<Response> {
 
 async function apiRefreshWorktreeAgentTerminal(branch: string): Promise<Response> {
   touchDashboardActivity();
-  ensureBranchNotBusy(branch);
-  await lifecycleService.refreshAgentTerminal(branch);
-  return jsonResponse({ ok: true });
+  return withMutatingTab(branch, async () => {
+    await lifecycleService.refreshAgentTerminal(branch);
+    return jsonResponse({ ok: true });
+  });
 }
 
 async function loadAgentsConversationInitialState(
@@ -1194,8 +1217,12 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
   }
 
   if (createLinearTicket) {
-    const title = deriveLinearIssueTitle(linearTitle, prompt);
-    if (!title) {
+    const resolvedTitle = await resolveLinearTicketTitle({
+      explicitTitle: linearTitle,
+      prompt: prompt ?? "",
+      autoName: config.autoName,
+    });
+    if (!resolvedTitle) {
       return errorResponse("Linear ticket title could not be derived from the prompt", 400);
     }
 
@@ -1212,7 +1239,7 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
     }
 
     const linearResult = await createLinearIssue({
-      title,
+      title: resolvedTitle.title,
       description: resolvedPrompt ?? "",
       teamId: teamResult.data.id,
     });
@@ -1222,7 +1249,7 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
 
     resolvedBranch = linearResult.data.branchName;
     log.info(
-      `[linear] created ticket ${linearResult.data.identifier} branch=${linearResult.data.branchName} title="${linearResult.data.title.slice(0, 80)}"`,
+      `[linear] created ticket ${linearResult.data.identifier} branch=${linearResult.data.branchName} title="${linearResult.data.title.slice(0, 80)}" titleSource=${resolvedTitle.source}`,
     );
   }
 
@@ -1278,9 +1305,11 @@ async function apiOpenWorktree(name: string, req: Request): Promise<Response> {
   // Intentionally NOT disarming here: opening a closed session is "let me peek
   // at the agent's progress", not "I'm taking over". The actual interaction
   // (terminal input, chat send, upload, etc.) is what fires disarm.
-  const result = await lifecycleService.openWorktree(name, { prompt, ...(oneshot ? { oneshot } : {}) });
-  log.debug(`[worktree:open] done name=${name} worktreeId=${result.worktreeId}`);
-  return jsonResponse({ ok: true });
+  return withMutatingTab(name, async () => {
+    const result = await lifecycleService.openWorktree(name, { prompt, ...(oneshot ? { oneshot } : {}) });
+    log.debug(`[worktree:open] done name=${name} worktreeId=${result.worktreeId}`);
+    return jsonResponse({ ok: true });
+  });
 }
 
 async function apiCloseWorktree(name: string): Promise<Response> {
@@ -1303,6 +1332,30 @@ async function apiSetWorktreeArchived(name: string, req: Request): Promise<Respo
   await lifecycleService.setWorktreeArchived(name, body.archived);
   log.debug(`[worktree:archive] done name=${name} archived=${body.archived}`);
   return jsonResponse({ ok: true, archived: body.archived });
+}
+
+async function apiCreateWorktreeTab(name: string): Promise<Response> {
+  return withMutatingTab(name, async () => {
+    log.info(`[worktree:tab:create] name=${name}`);
+    const result = await lifecycleService.createWorktreeTab(name);
+    return jsonResponse({ tab: result.tab }, 201);
+  });
+}
+
+async function apiSelectWorktreeTab(name: string, tabId: string): Promise<Response> {
+  return withMutatingTab(name, async () => {
+    log.info(`[worktree:tab:select] name=${name} tab=${tabId}`);
+    await lifecycleService.selectWorktreeTab(name, tabId);
+    return jsonResponse({ ok: true });
+  });
+}
+
+async function apiDeleteWorktreeTab(name: string, tabId: string): Promise<Response> {
+  return withMutatingTab(name, async () => {
+    log.info(`[worktree:tab:delete] name=${name} tab=${tabId}`);
+    await lifecycleService.deleteWorktreeTab(name, tabId);
+    return jsonResponse({ ok: true });
+  });
 }
 
 async function apiSetWorktreeLabel(name: string, req: Request): Promise<Response> {
@@ -1948,6 +2001,35 @@ function startServer(port: number): ReturnType<typeof Bun.serve> {
         if (!parsed.ok) return parsed.response;
         const name = parsed.data;
         return catching(`POST /api/worktrees/${name}/upload`, () => apiUploadFiles(name, req));
+      },
+    },
+
+    [apiPaths.createWorktreeTab]: {
+      POST: (req) => {
+        const parsed = parseWorktreeNameParam(req.params);
+        if (!parsed.ok) return parsed.response;
+        const name = parsed.data;
+        return catching(`POST /api/worktrees/${name}/tabs`, () => apiCreateWorktreeTab(name));
+      },
+    },
+
+    [apiPaths.selectWorktreeTab]: {
+      POST: (req) => {
+        const parsed = parseWorktreeNameParam(req.params);
+        if (!parsed.ok) return parsed.response;
+        const name = parsed.data;
+        const tabId = decodeURIComponent(req.params.tabId ?? "");
+        return catching(`POST /api/worktrees/${name}/tabs/${tabId}/select`, () => apiSelectWorktreeTab(name, tabId));
+      },
+    },
+
+    [apiPaths.deleteWorktreeTab]: {
+      DELETE: (req) => {
+        const parsed = parseWorktreeNameParam(req.params);
+        if (!parsed.ok) return parsed.response;
+        const name = parsed.data;
+        const tabId = decodeURIComponent(req.params.tabId ?? "");
+        return catching(`DELETE /api/worktrees/${name}/tabs/${tabId}`, () => apiDeleteWorktreeTab(name, tabId));
       },
     },
 

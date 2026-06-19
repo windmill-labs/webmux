@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { ensureAgentRuntimeArtifacts } from "../adapters/agent-runtime";
@@ -15,9 +16,23 @@ import {
 } from "../adapters/fs";
 import { expandTemplate, getDefaultProfileName, isDockerProfile, type DockerProfileConfig } from "../adapters/config";
 import { type DockerGateway } from "../adapters/docker";
-import { buildProjectSessionName, buildWorktreeWindowName, type TmuxGateway } from "../adapters/tmux";
+import { buildProjectSessionName, buildWorktreeParkingWindowName, buildWorktreeWindowName, type TmuxGateway } from "../adapters/tmux";
+import { captureNewSessionId, type SessionDiscoveryGateway } from "../adapters/session-discovery";
 import type { AgentId, ProfileConfig, ProjectConfig, RuntimeKind } from "../domain/config";
-import type { OneshotMeta, WorktreeCreationPhase, WorktreeMeta, WorktreeSource } from "../domain/model";
+import { ROOT_TAB_ID, type OneshotMeta, type WorktreeCreationPhase, type WorktreeMeta, type WorktreeSource, type WorktreeTab } from "../domain/model";
+import {
+  activeTabId as readActiveTabId,
+  appendTab,
+  buildForkTab,
+  findTab,
+  listTabs,
+  nextForkSeq,
+  removeTab,
+  rootTab,
+  setActiveTab,
+  updateTab,
+  withTabs,
+} from "./tab-logic";
 import { allocateServicePorts, isValidBranchName, isValidEnvKey } from "../domain/policies";
 import type { AutoNameGenerator } from "./auto-name-service";
 import {
@@ -147,6 +162,7 @@ export interface LifecycleServiceDependencies {
   archiveState: ArchiveStateService;
   git: GitGateway;
   tmux: TmuxGateway;
+  sessionDiscovery: SessionDiscoveryGateway;
   docker: DockerGateway;
   reconciliation: ReconciliationService;
   hooks: LifecycleHookRunner;
@@ -302,6 +318,15 @@ export class LifecycleService {
           agentTerminalStale: false,
         });
       }
+      await this.restoreWorktreeTabs({
+        branch,
+        gitDir: resolved.gitDir,
+        worktreePath: resolved.entry.path,
+        profile,
+        profileName,
+        agent,
+        runtimeEnvPath: initialized.paths.runtimeEnvPath,
+      });
       await this.deps.reconciliation.reconcile(this.deps.projectRoot, { force: true });
 
       return {
@@ -367,6 +392,18 @@ export class LifecycleService {
         ...initialized.meta,
         agentTerminalStale: false,
       });
+      // Rebuilding the agent pane recreated the worktree window, so any parked fork
+      // panes (and the root.paneId stored in meta) are now stale. Rebuild parked tabs
+      // and restore the active tab on-screen, same as the open path.
+      await this.restoreWorktreeTabs({
+        branch,
+        gitDir: resolved.gitDir,
+        worktreePath: resolved.entry.path,
+        profile,
+        profileName,
+        agent,
+        runtimeEnvPath: initialized.paths.runtimeEnvPath,
+      });
       await this.deps.reconciliation.reconcile(this.deps.projectRoot, { force: true });
 
       return {
@@ -376,6 +413,243 @@ export class LifecycleService {
     } catch (error) {
       throw this.wrapOperationError(error);
     }
+  }
+
+  async createWorktreeTab(branch: string): Promise<{ tab: WorktreeTab }> {
+    try {
+      const ctx = await this.prepareTabContext(branch);
+      const rootSessionId = await this.ensureRootSessionId(ctx);
+      if (!rootSessionId) {
+        throw new LifecycleError(
+          "The root session hasn't started yet — interact with it once before forking a tab",
+          409,
+        );
+      }
+      // ensureRootSessionId may have persisted root.sessionId; re-read for a fresh base.
+      const meta = await this.readMetaOrThrow(ctx.resolved.gitDir);
+      const seq = nextForkSeq(meta);
+      // Claude can pin the forked child id (deterministic); Codex self-assigns, so we capture it.
+      const pinSessionId = ctx.agentKind === "claude" ? randomUUID() : undefined;
+      const agentCommand = buildAgentPaneCommand({
+        agent: ctx.agent,
+        runtimeEnvPath: ctx.initialized.paths.runtimeEnvPath,
+        repoRoot: this.deps.projectRoot,
+        worktreePath: ctx.worktreePath,
+        branch,
+        profileName: ctx.profileName,
+        yolo: ctx.profile.yolo === true,
+        launchMode: "fork",
+        forkFromSessionId: rootSessionId,
+        pinSessionId,
+      });
+
+      const visibleSlot = `${ctx.sessionName}:${ctx.windowName}.0`;
+      // Record the currently-visible (active) tab's pane id before it gets parked by the swap.
+      const outgoingActiveId = readActiveTabId(meta);
+      const outgoingPaneId = this.deps.tmux.getPaneId(visibleSlot);
+
+      const before = await this.deps.sessionDiscovery.listSessionIds(ctx.agentKind, ctx.worktreePath);
+      const paneId = this.deps.tmux.createParkedPane({
+        sessionName: ctx.sessionName,
+        parkingWindow: ctx.parkingWindow,
+        cwd: ctx.worktreePath,
+        command: buildManagedShellCommand(ctx.initialized.paths.runtimeEnvPath),
+      });
+      this.deps.tmux.runCommand(paneId, agentCommand);
+      const sessionId = pinSessionId
+        ?? await captureNewSessionId(this.deps.sessionDiscovery, ctx.agentKind, ctx.worktreePath, before);
+
+      const tab = buildForkTab({ seq, sessionId, paneId, createdAt: new Date().toISOString() });
+      let nextMeta = appendTab(meta, tab); // makes the fork active
+      nextMeta = updateTab(nextMeta, outgoingActiveId, { paneId: outgoingPaneId });
+      await writeWorktreeMeta(ctx.resolved.gitDir, nextMeta);
+      // A new fork becomes the active tab — bring it into the visible agent slot.
+      this.deps.tmux.swapPanes(paneId, visibleSlot);
+      await this.deps.reconciliation.reconcile(this.deps.projectRoot, { force: true });
+      return { tab };
+    } catch (error) {
+      throw this.wrapOperationError(error);
+    }
+  }
+
+  async selectWorktreeTab(branch: string, tabId: string): Promise<void> {
+    try {
+      const ctx = await this.prepareTabContext(branch);
+      const target = findTab(ctx.meta, tabId);
+      if (!target) throw new LifecycleError(`Tab not found: ${tabId}`, 404);
+      const outgoingActiveId = readActiveTabId(ctx.meta);
+      if (outgoingActiveId === tabId) return;
+      if (!target.paneId) throw new LifecycleError(`Tab ${tabId} has no live pane to show`, 409);
+      const visibleSlot = `${ctx.sessionName}:${ctx.windowName}.0`;
+      const outgoingPaneId = this.deps.tmux.getPaneId(visibleSlot);
+      this.deps.tmux.swapPanes(target.paneId, visibleSlot);
+      let nextMeta = updateTab(ctx.meta, outgoingActiveId, { paneId: outgoingPaneId });
+      nextMeta = setActiveTab(nextMeta, tabId);
+      await writeWorktreeMeta(ctx.resolved.gitDir, nextMeta);
+      await this.deps.reconciliation.reconcile(this.deps.projectRoot, { force: true });
+    } catch (error) {
+      throw this.wrapOperationError(error);
+    }
+  }
+
+  async deleteWorktreeTab(branch: string, tabId: string): Promise<void> {
+    try {
+      const ctx = await this.prepareTabContext(branch);
+      const target = findTab(ctx.meta, tabId);
+      if (!target) throw new LifecycleError(`Tab not found: ${tabId}`, 404);
+      if (target.kind === "root") throw new LifecycleError("The root tab cannot be deleted", 400);
+
+      const root = rootTab(ctx.meta);
+      // If the deleted tab is on-screen, bring the root back into the visible slot first.
+      // No need to recapture/persist root.paneId (unlike select/create): tmux swap-pane
+      // moves pane *content* between slots while pane ids stay attached to their content,
+      // so root.paneId remains valid after the swap.
+      if (readActiveTabId(ctx.meta) === tabId && root?.paneId) {
+        this.deps.tmux.swapPanes(root.paneId, `${ctx.sessionName}:${ctx.windowName}.0`);
+      }
+      if (target.paneId) this.deps.tmux.killPane(target.paneId);
+      await writeWorktreeMeta(ctx.resolved.gitDir, removeTab(ctx.meta, tabId));
+      await this.deps.reconciliation.reconcile(this.deps.projectRoot, { force: true });
+    } catch (error) {
+      throw this.wrapOperationError(error);
+    }
+  }
+
+  private async readMetaOrThrow(gitDir: string): Promise<WorktreeMeta> {
+    const meta = await readWorktreeMeta(gitDir);
+    if (!meta) throw new LifecycleError("Worktree metadata is missing", 409);
+    return meta;
+  }
+
+  private async prepareTabContext(branch: string): Promise<{
+    resolved: ResolvedLifecycleWorktree;
+    initialized: InitializeManagedWorktreeResult;
+    meta: WorktreeMeta;
+    worktreePath: string;
+    agent: AgentDefinition;
+    agentKind: "claude" | "codex";
+    profile: ProfileConfig;
+    profileName: string;
+    sessionName: string;
+    windowName: string;
+    parkingWindow: string;
+  }> {
+    const resolved = await this.resolveExistingWorktree(branch);
+    if (!resolved.meta) throw new LifecycleError(`Worktree ${branch} has no managed metadata`, 409);
+
+    const sessionName = buildProjectSessionName(this.deps.projectRoot);
+    const windowName = buildWorktreeWindowName(branch);
+    if (!this.deps.tmux.hasWindow(sessionName, windowName)) {
+      throw new LifecycleError(`Worktree ${branch} is not open`, 409);
+    }
+
+    const { profileName, profile } = this.resolveProfile(resolved.meta.profile);
+    if (profile.runtime === "docker") {
+      throw new LifecycleError("Tabs are not supported for Docker worktrees", 409);
+    }
+    const agent = this.resolveAgentDefinition(resolved.meta.agent);
+    if (agent.kind !== "builtin") {
+      throw new LifecycleError("Tabs are only available for the built-in Claude and Codex agents", 409);
+    }
+
+    const initialized = await this.refreshManagedArtifacts(resolved);
+    return {
+      resolved,
+      initialized,
+      meta: initialized.meta,
+      worktreePath: resolved.entry.path,
+      agent,
+      agentKind: agent.implementation.agent,
+      profile,
+      profileName,
+      sessionName,
+      windowName,
+      parkingWindow: buildWorktreeParkingWindowName(branch),
+    };
+  }
+
+  /** Resolve the root tab's session id, discovering and persisting it on first use.
+   *  Safe because at first fork the root is the only (or newest) session for the cwd. */
+  private async ensureRootSessionId(ctx: {
+    meta: WorktreeMeta;
+    agentKind: "claude" | "codex";
+    worktreePath: string;
+    resolved: ResolvedLifecycleWorktree;
+  }): Promise<string | null> {
+    const root = rootTab(ctx.meta);
+    if (root?.sessionId) return root.sessionId;
+    const discovered = (await this.deps.sessionDiscovery.listSessionIds(ctx.agentKind, ctx.worktreePath))[0] ?? null;
+    if (discovered && root) {
+      await writeWorktreeMeta(ctx.resolved.gitDir, updateTab(ctx.meta, root.tabId, { sessionId: discovered }));
+    }
+    return discovered;
+  }
+
+  /** Rebuild parked panes for persisted fork tabs after a worktree's window is recreated,
+   *  recapture the (ephemeral) pane ids, and restore the previously active tab on-screen. */
+  private async restoreWorktreeTabs(input: {
+    branch: string;
+    gitDir: string;
+    worktreePath: string;
+    profile: ProfileConfig;
+    profileName: string;
+    agent: AgentDefinition;
+    runtimeEnvPath: string;
+  }): Promise<void> {
+    if (input.profile.runtime === "docker") return;
+    if (input.agent.kind !== "builtin") return;
+    const meta = await readWorktreeMeta(input.gitDir);
+    const root = meta ? rootTab(meta) : undefined;
+    if (!meta || !root) return;
+    // Nothing to rebuild for the common (root-only) case — leave the open path untouched.
+    if (!listTabs(meta).some((tab) => tab.kind === "fork")) return;
+
+    const sessionName = buildProjectSessionName(this.deps.projectRoot);
+    const windowName = buildWorktreeWindowName(input.branch);
+    const parkingWindow = buildWorktreeParkingWindowName(input.branch);
+    // A parking window may still exist (e.g. the agent terminal was refreshed without a
+    // full close/reopen): tear it down so we rebuild parked panes from a clean slate
+    // instead of duplicating them. killWindow tolerates an absent window.
+    this.deps.tmux.killWindow(sessionName, parkingWindow);
+    const visibleSlot = `${sessionName}:${windowName}.0`;
+    // Capture the visible slot's pane id once: it is the root's on-screen pane and,
+    // if a fork is restored on top, the swap target. Two reads could diverge.
+    const visibleSlotPaneId = this.deps.tmux.getPaneId(visibleSlot);
+
+    const restored: WorktreeTab[] = [{ ...root, paneId: visibleSlotPaneId }];
+    for (const fork of listTabs(meta).filter((tab) => tab.kind === "fork")) {
+      if (!fork.sessionId) continue; // cannot resume an unknown session — drop it
+      const command = buildAgentPaneCommand({
+        agent: input.agent,
+        runtimeEnvPath: input.runtimeEnvPath,
+        repoRoot: this.deps.projectRoot,
+        worktreePath: input.worktreePath,
+        branch: input.branch,
+        profileName: input.profileName,
+        yolo: input.profile.yolo === true,
+        launchMode: "resume",
+        resumeConversationId: fork.sessionId,
+      });
+      const paneId = this.deps.tmux.createParkedPane({
+        sessionName,
+        parkingWindow,
+        cwd: input.worktreePath,
+        command: buildManagedShellCommand(input.runtimeEnvPath),
+      });
+      this.deps.tmux.runCommand(paneId, command);
+      restored.push({ ...fork, paneId });
+    }
+
+    let nextMeta = withTabs(meta, restored);
+    const wantActive = readActiveTabId(meta);
+    const activeTab = restored.find((tab) => tab.tabId === wantActive && tab.kind === "fork" && tab.paneId);
+    if (activeTab?.paneId) {
+      this.deps.tmux.swapPanes(activeTab.paneId, visibleSlotPaneId);
+      nextMeta = setActiveTab(nextMeta, activeTab.tabId);
+    } else {
+      nextMeta = setActiveTab(nextMeta, ROOT_TAB_ID);
+    }
+    await writeWorktreeMeta(input.gitDir, nextMeta);
   }
 
   /** Clears the oneshot watch state from a worktree's persisted meta, if present.
@@ -758,11 +1032,17 @@ export class LifecycleService {
     return nextMeta;
   }
 
+  /** Tear down a worktree's tmux windows: the main agent window and the hidden
+   *  parking window that holds its forked tab panes. killWindow tolerates a missing
+   *  window, so this is safe for root-only worktrees that never created a parking window. */
+  private killWorktreeWindows(branch: string): void {
+    const sessionName = buildProjectSessionName(this.deps.projectRoot);
+    this.deps.tmux.killWindow(sessionName, buildWorktreeWindowName(branch));
+    this.deps.tmux.killWindow(sessionName, buildWorktreeParkingWindowName(branch));
+  }
+
   private async closeBranchWindow(branch: string): Promise<void> {
-    this.deps.tmux.killWindow(
-      buildProjectSessionName(this.deps.projectRoot),
-      buildWorktreeWindowName(branch),
-    );
+    this.killWorktreeWindows(branch);
     await this.deps.reconciliation.reconcile(this.deps.projectRoot, { force: true });
   }
 
@@ -926,10 +1206,7 @@ export class LifecycleService {
     }
 
     try {
-      this.deps.tmux.killWindow(
-        buildProjectSessionName(this.deps.projectRoot),
-        buildWorktreeWindowName(branch),
-      );
+      this.killWorktreeWindows(branch);
     } catch (error) {
       cleanupErrors.push(`tmux cleanup failed: ${toErrorMessage(error)}`);
     }
@@ -979,10 +1256,7 @@ export class LifecycleService {
       await this.deps.docker.removeContainer(branch);
     }
 
-    this.deps.tmux.killWindow(
-      buildProjectSessionName(this.deps.projectRoot),
-      buildWorktreeWindowName(branch),
-    );
+    this.killWorktreeWindows(branch);
     removeManagedWorktree(
       {
         repoRoot: this.deps.projectRoot,

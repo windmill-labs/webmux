@@ -7,6 +7,7 @@ import type {
   ServiceStatus,
   WorktreeCreationPhase,
   WorktreeSource,
+  WorktreeTab,
 } from "@webmux/api-contract";
 
 export type {
@@ -69,6 +70,7 @@ export type {
   WorktreeDiffResponse,
   WorktreeListResponse,
   WorktreeSource,
+  WorktreeTab,
 } from "@webmux/api-contract";
 export type { AgentsSendMessageRequest as AgentsUiSendMessageRequest } from "@webmux/api-contract";
 
@@ -107,6 +109,8 @@ export interface WorktreeInfo {
   creationPhase: WorktreeCreationPhase | null;
   source: WorktreeSource;
   oneshot: OneshotConfig | null;
+  tabs: WorktreeTab[];
+  activeTabId: string | null;
 }
 
 export interface WorktreeListRow {

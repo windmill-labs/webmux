@@ -12,8 +12,9 @@ import type {
   WorktreeArchiveState,
   WorktreeMeta,
   WorktreeStoragePaths,
+  WorktreeTab,
 } from "../domain/model";
-import { WORKTREE_ARCHIVE_STATE_VERSION } from "../domain/model";
+import { conversationSessionId, ROOT_TAB_ID, WORKTREE_ARCHIVE_STATE_VERSION } from "../domain/model";
 
 const SAFE_ENV_VALUE_RE = /^[A-Za-z0-9_./:@%+=,-]+$/;
 const DOTENV_LINE_RE = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)/;
@@ -222,10 +223,30 @@ function normalizeOptionalString(raw: unknown): string | undefined {
   return typeof raw === "string" && raw.trim() ? raw.trim() : undefined;
 }
 
+/** Backfill a single root tab for worktrees created before tabs existed. Returns
+ *  null when the meta already carries tabs so normalization can no-op. */
+function backfillTabs(meta: WorktreeMeta): Pick<WorktreeMeta, "tabs" | "activeTabId" | "forkCounter"> | null {
+  if (meta.tabs && meta.tabs.length > 0) return null;
+  const rootTab: WorktreeTab = {
+    tabId: ROOT_TAB_ID,
+    kind: "root",
+    label: "Root",
+    seq: null,
+    sessionId: conversationSessionId(meta.conversation),
+    createdAt: meta.createdAt,
+  };
+  return {
+    tabs: [rootTab],
+    activeTabId: ROOT_TAB_ID,
+    forkCounter: meta.forkCounter ?? 0,
+  };
+}
+
 function normalizeWorktreeMeta(meta: WorktreeMeta): WorktreeMeta {
   const conversation = normalizeConversationMeta(meta.conversation);
   const normalizedLabel = normalizeOptionalString(meta.label);
-  if (conversation === meta.conversation && normalizedLabel === meta.label) {
+  const tabBackfill = backfillTabs(meta);
+  if (conversation === meta.conversation && normalizedLabel === meta.label && tabBackfill === null) {
     return meta;
   }
 
@@ -236,6 +257,7 @@ function normalizeWorktreeMeta(meta: WorktreeMeta): WorktreeMeta {
     ...rest,
     ...(normalizedLabel ? { label: normalizedLabel } : {}),
     ...(conversation !== undefined ? { conversation } : {}),
+    ...(tabBackfill ?? {}),
   };
 }
 

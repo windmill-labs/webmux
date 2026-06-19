@@ -26,6 +26,22 @@ export type WorktreeConversationMeta =
   | CodexWorktreeConversationMeta
   | ClaudeWorktreeConversationMeta;
 
+export type WorktreeTabKind = "root" | "fork";
+
+/** A claude/codex session shown as a tab above the agent terminal pane. The
+ *  root tab is the original session; forks are `--fork-session` children of it.
+ *  `paneId` is the live tmux pane id (`%N`) and is ephemeral — it is recaptured
+ *  whenever the session is rematerialized. `sessionId`/`tabId`/`seq` are durable. */
+export interface WorktreeTab {
+  tabId: string;
+  kind: WorktreeTabKind;
+  label: string;
+  seq: number | null;
+  sessionId: string | null;
+  paneId?: string;
+  createdAt: string;
+}
+
 export type WorktreeSource = "ui" | "oneshot";
 
 /** Linear post-back target embedded in oneshot meta. Re-exported from the
@@ -56,6 +72,21 @@ export interface WorktreeMeta {
   oneshot?: OneshotMeta;
   conversation?: WorktreeConversationMeta | null;
   agentTerminalStale?: boolean;
+  /** Agent-pane tabs. `tabs[0]` is always the root. Absent on worktrees created
+   *  before tabs existed — `normalizeWorktreeMeta` backfills a single root tab. */
+  tabs?: WorktreeTab[];
+  activeTabId?: string;
+  /** Monotonic fork numbering, never reused: deleting Fork 2 still yields Fork 4 next. */
+  forkCounter?: number;
+}
+
+export const ROOT_TAB_ID = "root";
+
+/** The session id a tab should treat as the active conversation, regardless of
+ *  agent (claude stores `sessionId`, codex stores `threadId`). */
+export function conversationSessionId(conversation: WorktreeConversationMeta | null | undefined): string | null {
+  if (!conversation) return null;
+  return conversation.provider === "codexAppServer" ? conversation.threadId : conversation.sessionId;
 }
 
 export interface ArchivedWorktreeEntry {
@@ -189,6 +220,8 @@ export interface ManagedWorktreeRuntimeState {
   source: WorktreeSource;
   oneshot: OneshotMeta | null;
   agentTerminalStale: boolean;
+  tabs: WorktreeTab[];
+  activeTabId: string | null;
   git: GitWorktreeRuntimeState;
   session: SessionRuntimeState;
   agent: AgentRuntimeState;
@@ -228,6 +261,8 @@ export interface WorktreeSnapshot {
   creation: WorktreeCreationSnapshot | null;
   source: WorktreeSource;
   oneshot: OneshotMeta | null;
+  tabs: WorktreeTab[];
+  activeTabId: string | null;
 }
 
 export interface ProjectSnapshot {

@@ -160,6 +160,8 @@ describe("buildProjectSnapshot", () => {
         },
         source: "ui",
         oneshot: null,
+        tabs: [],
+        activeTabId: null,
       },
     ]);
     expect(snapshot.notifications).toHaveLength(1);
@@ -257,6 +259,8 @@ describe("buildProjectSnapshot", () => {
         },
         source: "ui",
         oneshot: null,
+        tabs: [],
+        activeTabId: null,
       },
     ]);
   });

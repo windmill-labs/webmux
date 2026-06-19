@@ -41,6 +41,8 @@ describe("buildAgentsUiWorktreeSummary", () => {
       },
       source: "ui",
       oneshot: null,
+      tabs: [],
+      activeTabId: null,
     }, {
       provider: "codexAppServer",
       conversationId: "thr_123",
@@ -112,6 +114,8 @@ describe("buildAgentsUiWorktreeSummary", () => {
       creation: null,
       source: "ui",
       oneshot: null,
+      tabs: [],
+      activeTabId: null,
     }, null);
 
     expect(summary.conversation).toBeNull();

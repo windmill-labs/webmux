@@ -67,6 +67,8 @@ function mapWorktreeSnapshot(
     creation: mapCreationSnapshot(creating),
     source: state.source,
     oneshot: state.oneshot,
+    tabs: state.tabs.map((tab) => ({ ...tab })),
+    activeTabId: state.activeTabId,
   };
 }
 
@@ -99,6 +101,8 @@ function mapCreatingWorktreeSnapshot(
     creation: mapCreationSnapshot(creating),
     source: creating.source,
     oneshot: null,
+    tabs: [],
+    activeTabId: null,
   };
 }
 

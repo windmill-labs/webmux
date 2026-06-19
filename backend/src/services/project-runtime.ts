@@ -9,6 +9,7 @@ import type {
   PrEntry,
   ServiceRuntimeState,
   WorktreeSource,
+  WorktreeTab,
 } from "../domain/model";
 import { buildWorktreeWindowName } from "../adapters/tmux";
 
@@ -28,6 +29,8 @@ function makeDefaultState(input: {
   runtime?: RuntimeKind;
   source?: WorktreeSource;
   oneshot?: OneshotMeta | null;
+  tabs?: WorktreeTab[];
+  activeTabId?: string | null;
 }): ManagedWorktreeRuntimeState {
   return {
     worktreeId: input.worktreeId,
@@ -39,6 +42,8 @@ function makeDefaultState(input: {
     agentName: input.agentName ?? null,
     source: input.source ?? "ui",
     oneshot: input.oneshot ?? null,
+    tabs: input.tabs ?? [],
+    activeTabId: input.activeTabId ?? null,
     agentTerminalStale: input.agentTerminalStale === true,
     git: {
       exists: true,
@@ -89,6 +94,8 @@ export class ProjectRuntime {
     runtime?: RuntimeKind;
     source?: WorktreeSource;
     oneshot?: OneshotMeta | null;
+    tabs?: WorktreeTab[];
+    activeTabId?: string | null;
   }): ManagedWorktreeRuntimeState {
     const existing = this.worktrees.get(input.worktreeId);
     if (existing) {
@@ -103,6 +110,8 @@ export class ProjectRuntime {
       if (input.runtime) existing.agent.runtime = input.runtime;
       if (input.source !== undefined) existing.source = input.source;
       if (input.oneshot !== undefined) existing.oneshot = input.oneshot;
+      if (input.tabs !== undefined) existing.tabs = input.tabs;
+      if (input.activeTabId !== undefined) existing.activeTabId = input.activeTabId;
       existing.git.exists = true;
       existing.git.branch = input.branch;
       existing.session.windowName = buildWorktreeWindowName(input.branch);

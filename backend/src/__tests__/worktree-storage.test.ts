@@ -132,6 +132,18 @@ class FakeTmuxGateway implements TmuxGateway {
 
   constructor(private readonly calls: string[]) {}
 
+  getPaneId(_target: string): string {
+    return "%0";
+  }
+
+  createParkedPane(_opts: { sessionName: string; parkingWindow: string; cwd: string; command: string }): string {
+    return "%99";
+  }
+
+  swapPanes(_source: string, _destination: string): void {}
+
+  killPane(_target: string): void {}
+
   ensureServer(): void {
     this.calls.push("ensureServer");
   }
@@ -400,6 +412,18 @@ describe("initializeManagedWorktree", () => {
         cwd: "/repo/__worktrees/feature-search",
         lastSeenAt: "2026-04-14T10:00:00.000Z",
       },
+      tabs: [
+        {
+          tabId: "root",
+          kind: "root",
+          label: "Root",
+          seq: null,
+          sessionId: "thread-legacy",
+          createdAt: "2026-03-06T00:00:00.000Z",
+        },
+      ],
+      activeTabId: "root",
+      forkCounter: 0,
     });
   });
 

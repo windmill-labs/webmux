@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import {
   buildLinearIssuesResponse,
   createLinearIssue,
-  deriveLinearIssueTitle,
   fetchAssignedIssues,
   parseIssueCreateResponse,
   resetLinearCaches,
@@ -170,20 +169,6 @@ describe("buildLinearIssuesResponse", () => {
       ok: false,
       error: "Linear API 401: Unauthorized",
     });
-  });
-});
-
-describe("deriveLinearIssueTitle", () => {
-  it("prefers the explicit title when present", () => {
-    expect(deriveLinearIssueTitle("Manual title", "Prompt line")).toBe("Manual title");
-  });
-
-  it("falls back to the first non-empty prompt line", () => {
-    expect(deriveLinearIssueTitle(undefined, "\n  First useful line\nSecond line")).toBe("First useful line");
-  });
-
-  it("returns null when no title can be derived", () => {
-    expect(deriveLinearIssueTitle("   ", "\n \n")).toBeNull();
   });
 });
 

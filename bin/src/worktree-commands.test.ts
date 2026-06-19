@@ -10,6 +10,7 @@ import {
   parseLabelCommandArgs,
   parseListCommandArgs,
   parseSendCommandArgs,
+  parseTabCommandArgs,
   runWorktreeCommand,
   type ParsedAddCommand,
   type ParsedSendCommand,
@@ -209,6 +210,35 @@ describe("parseBranchCommandArgs", () => {
 
   it("rejects invalid worktree names", () => {
     expect(() => parseBranchCommandArgs(["feature..search"])).toThrow("Invalid worktree name");
+  });
+});
+
+describe("parseTabCommandArgs", () => {
+  it("defaults to the list action", () => {
+    expect(parseTabCommandArgs(["feature"])).toEqual({ branch: "feature", action: "list" });
+  });
+
+  it("parses the new action", () => {
+    expect(parseTabCommandArgs(["feature", "new"])).toEqual({ branch: "feature", action: "new" });
+  });
+
+  it("parses switch and close with a tab id", () => {
+    expect(parseTabCommandArgs(["feature", "switch", "fork-2"])).toEqual({ branch: "feature", action: "switch", tabId: "fork-2" });
+    expect(parseTabCommandArgs(["feature", "close", "fork-2"])).toEqual({ branch: "feature", action: "close", tabId: "fork-2" });
+  });
+
+  it("requires a tab id for switch and close", () => {
+    expect(() => parseTabCommandArgs(["feature", "switch"])).toThrow("requires a <tabId>");
+    expect(() => parseTabCommandArgs(["feature", "close"])).toThrow("requires a <tabId>");
+  });
+
+  it("rejects unknown actions and missing branch", () => {
+    expect(() => parseTabCommandArgs(["feature", "bogus"])).toThrow("Unknown tab action");
+    expect(() => parseTabCommandArgs([])).toThrow("Missing required argument");
+  });
+
+  it("returns null for help", () => {
+    expect(parseTabCommandArgs(["--help"])).toBeNull();
   });
 });
 

@@ -327,6 +327,16 @@ export const AppNotificationSchema = z.object({
   timestamp: z.number(),
 });
 
+export const WorktreeTabSchema = z.object({
+  tabId: z.string(),
+  kind: z.enum(["root", "fork"]),
+  label: z.string(),
+  seq: z.number().nullable(),
+  sessionId: z.string().nullable(),
+  paneId: z.string().optional(),
+  createdAt: z.string(),
+});
+
 export const ProjectWorktreeSnapshotSchema = z.object({
   branch: z.string(),
   label: z.string().nullable(),
@@ -353,6 +363,9 @@ export const ProjectWorktreeSnapshotSchema = z.object({
    *  Cleared by `disarmOneshot` on the first browser-originated interaction.
    *  CLI clients read this to detect "user took over" mid-run. */
   oneshot: OneshotConfigSchema.nullable(),
+  /** Agent-pane tabs (`tabs[0]` is the root). Default keeps older servers valid. */
+  tabs: z.array(WorktreeTabSchema).default([]),
+  activeTabId: z.string().nullable().default(null),
 });
 
 export const ProjectSnapshotSchema = z.object({
@@ -550,6 +563,15 @@ export const WorktreeNameParamsSchema = z.object({
   name: z.string(),
 });
 
+export const WorktreeTabParamsSchema = z.object({
+  name: z.string(),
+  tabId: z.string(),
+});
+
+export const CreateTabResponseSchema = z.object({
+  tab: WorktreeTabSchema,
+});
+
 export const NotificationIdParamsSchema = z.object({
   id: NumberLikePathParamSchema,
 });
@@ -626,6 +648,9 @@ export type AutoNameConfigResponse = z.infer<typeof AutoNameConfigResponseSchema
 export type WorktreeCreationState = z.infer<typeof WorktreeCreationStateSchema>;
 export type AppNotification = z.infer<typeof AppNotificationSchema>;
 export type ProjectWorktreeSnapshot = z.infer<typeof ProjectWorktreeSnapshotSchema>;
+export type WorktreeTab = z.infer<typeof WorktreeTabSchema>;
+export type WorktreeTabParams = z.infer<typeof WorktreeTabParamsSchema>;
+export type CreateTabResponse = z.infer<typeof CreateTabResponseSchema>;
 export type ProjectSnapshot = z.infer<typeof ProjectSnapshotSchema>;
 export type WorktreeConversationProvider = z.infer<typeof WorktreeConversationProviderSchema>;
 export type CodexWorktreeConversationRef = z.infer<typeof CodexWorktreeConversationRefSchema>;

@@ -30,6 +30,15 @@ export interface TmuxGateway {
   runCommand(target: string, command: string): void;
   selectPane(target: string): void;
   listWindows(): TmuxWindowSummary[];
+  /** Resolve the tmux pane id (`%N`) currently occupying a target (e.g. a pane index). */
+  getPaneId(target: string): string;
+  /** Create a detached "parked" pane that holds a tab's session off-screen, returning its pane id.
+   *  Creates the parking window on first use, then splits it for subsequent panes. */
+  createParkedPane(opts: { sessionName: string; parkingWindow: string; cwd: string; command: string }): string;
+  /** Exchange the contents of two panes in place (used to bring a tab into the visible agent slot). */
+  swapPanes(source: string, destination: string): void;
+  /** Remove a pane (used when deleting a tab). Tolerates an already-gone pane. */
+  killPane(target: string): void;
 }
 
 function runTmux(args: string[]): { stdout: string; stderr: string; exitCode: number } {
@@ -79,6 +88,11 @@ export function buildProjectSessionName(projectRoot: string): string {
 
 export function buildWorktreeWindowName(branch: string): string {
   return `wm-${branch}`;
+}
+
+/** Hidden window that holds a worktree's parked (inactive) tab panes. */
+export function buildWorktreeParkingWindowName(branch: string): string {
+  return `wm-${branch}-tabs`;
 }
 
 export function parseWindowSummaries(output: string): TmuxWindowSummary[] {
@@ -177,5 +191,36 @@ export class BunTmuxGateway implements TmuxGateway {
       "list tmux windows",
     );
     return parseWindowSummaries(output);
+  }
+
+  getPaneId(target: string): string {
+    return assertTmuxOk(
+      ["display-message", "-p", "-t", target, "#{pane_id}"],
+      `resolve tmux pane id for ${target}`,
+    );
+  }
+
+  createParkedPane(opts: { sessionName: string; parkingWindow: string; cwd: string; command: string }): string {
+    if (!this.hasWindow(opts.sessionName, opts.parkingWindow)) {
+      return assertTmuxOk(
+        ["new-window", "-d", "-P", "-F", "#{pane_id}", "-t", opts.sessionName, "-n", opts.parkingWindow, "-c", opts.cwd, opts.command],
+        `create parking window ${opts.sessionName}:${opts.parkingWindow}`,
+      );
+    }
+    return assertTmuxOk(
+      ["split-window", "-d", "-P", "-F", "#{pane_id}", "-t", `${opts.sessionName}:${opts.parkingWindow}`, "-c", opts.cwd, opts.command],
+      `create parked pane in ${opts.sessionName}:${opts.parkingWindow}`,
+    );
+  }
+
+  swapPanes(source: string, destination: string): void {
+    assertTmuxOk(["swap-pane", "-s", source, "-t", destination], `swap tmux panes ${source} <-> ${destination}`);
+  }
+
+  killPane(target: string): void {
+    const result = runTmux(["kill-pane", "-t", target]);
+    if (result.exitCode !== 0 && !result.stderr.includes("can't find pane") && !isIgnorableKillWindowError(result.stderr)) {
+      throw new Error(`kill tmux pane ${target} failed: ${result.stderr}`);
+    }
   }
 }

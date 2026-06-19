@@ -3,6 +3,7 @@ import {
   extractKeywords,
   findDuplicateLinearIssue,
   polishLinearIssueTitle,
+  resolveLinearTicketTitle,
 } from "../services/linear-title-service";
 import type { RunLlmResult } from "../services/llm-spawn";
 import type { LinearIssue, SearchTeamIssuesResult } from "../services/linear-service";
@@ -110,6 +111,59 @@ describe("polishLinearIssueTitle", () => {
       runLlm: async () => okLlm("   \n   "),
     });
     expect(result).toEqual({ title: "Fix the search bar", source: "heuristic_fallback" });
+  });
+});
+
+describe("resolveLinearTicketTitle", () => {
+  it("uses the explicit title verbatim without calling the LLM", async () => {
+    let called = false;
+    const result = await resolveLinearTicketTitle({
+      explicitTitle: "  Manual title  ",
+      prompt: "fix the thing",
+      autoName: { provider: "claude" },
+      runLlm: async () => {
+        called = true;
+        return okLlm("AI title");
+      },
+    });
+    expect(result).toEqual({ title: "Manual title", source: "explicit" });
+    expect(called).toBe(false);
+  });
+
+  it("AI-polishes the prompt when no explicit title is given", async () => {
+    const result = await resolveLinearTicketTitle({
+      prompt: "we get logged out on token refresh\nmore detail",
+      autoName: { provider: "claude" },
+      runLlm: async () => okLlm("Fix logout on token refresh"),
+    });
+    expect(result).toEqual({ title: "Fix logout on token refresh", source: "llm" });
+  });
+
+  it("falls back to the heuristic title when the LLM fails", async () => {
+    const result = await resolveLinearTicketTitle({
+      prompt: "Fix the search bar",
+      autoName: { provider: "claude" },
+      runLlm: async () => failLlm("timeout"),
+    });
+    expect(result).toEqual({ title: "Fix the search bar", source: "heuristic_fallback" });
+  });
+
+  it("treats a blank explicit title as absent and polishes instead", async () => {
+    const result = await resolveLinearTicketTitle({
+      explicitTitle: "   ",
+      prompt: "rename the export button",
+      autoName: { provider: "claude" },
+      runLlm: async () => okLlm("Rename the export button"),
+    });
+    expect(result).toEqual({ title: "Rename the export button", source: "llm" });
+  });
+
+  it("returns null when there is no title to derive", async () => {
+    const result = await resolveLinearTicketTitle({
+      prompt: "   \n  ",
+      autoName: null,
+    });
+    expect(result).toBeNull();
   });
 });
 

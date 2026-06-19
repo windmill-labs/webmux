@@ -22,6 +22,7 @@ export default defineConfig({
   },
   server: {
     host: "0.0.0.0",
+    allowedHosts: ['diego-devbox'],
     port,
     proxy: {
       "/api": backendUrl,

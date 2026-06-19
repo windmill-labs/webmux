@@ -106,6 +106,18 @@ class FakeGitGateway implements GitGateway {
 class FakeTmuxGateway implements TmuxGateway {
   constructor(private readonly windows: TmuxWindowSummary[]) {}
 
+  getPaneId(_target: string): string {
+    return "%0";
+  }
+
+  createParkedPane(_opts: { sessionName: string; parkingWindow: string; cwd: string; command: string }): string {
+    return "%99";
+  }
+
+  swapPanes(_source: string, _destination: string): void {}
+
+  killPane(_target: string): void {}
+
   ensureServer(): void {
     throw new Error("not implemented");
   }

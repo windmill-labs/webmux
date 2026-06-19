@@ -200,6 +200,8 @@ function makeWorktree(): WorktreeSnapshot {
     creation: null,
     source: "ui",
     oneshot: null,
+    tabs: [],
+    activeTabId: null,
   };
 }
 

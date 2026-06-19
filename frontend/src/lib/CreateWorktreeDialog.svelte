@@ -501,7 +501,7 @@
               id="wt-linear-title"
               type="text"
               class="w-full px-2.5 py-1.5 rounded-md border border-edge bg-surface text-primary text-[13px] placeholder:text-muted/50 outline-none focus:border-accent"
-              placeholder="Defaults to the first non-empty line of the prompt"
+              placeholder="Auto-generated from the prompt when left blank"
               bind:value={linearTitle}
             />
           </div>

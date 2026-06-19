@@ -36,6 +36,8 @@ function makeState(overrides: Partial<ManagedWorktreeRuntimeState> = {}): Manage
     },
     services: [],
     prs: [],
+    tabs: [],
+    activeTabId: null,
     ...overrides,
   };
 }

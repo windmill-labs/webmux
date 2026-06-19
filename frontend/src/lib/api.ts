@@ -258,7 +258,7 @@ export function subscribeNotifications(
   onDismiss: (id: number) => void,
   onInitial?: (n: AppNotification) => void,
 ): () => void {
-  const es = new EventSource("/api/notifications/stream");
+  const es = new EventSource(`${apiBase}/api/notifications/stream`);
 
   es.addEventListener("initial", (e: MessageEvent) => {
     try {
@@ -289,7 +289,7 @@ export async function uploadFiles(worktree: string, files: File[]): Promise<File
   for (const file of files) {
     form.append("files", file);
   }
-  const res = await fetch(`/api/worktrees/${encodeURIComponent(worktree)}/upload`, {
+  const res = await fetch(`${apiBase}/api/worktrees/${encodeURIComponent(worktree)}/upload`, {
     method: "POST",
     body: form,
   });

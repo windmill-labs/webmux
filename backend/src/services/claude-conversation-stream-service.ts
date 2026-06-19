@@ -27,7 +27,6 @@ interface ActiveClaudeRun {
   turnId: string;
   handle: ClaudeCliRunHandle | null;
   liveMessages: Map<string, AgentsUiConversationMessageDraft>;
-  nextBlockOrdinal: number;
   completed: boolean;
   pruneTimer: ReturnType<typeof setTimeout> | null;
 }
@@ -37,35 +36,6 @@ export interface ClaudeConversationStreamServiceDependencies {
 }
 
 const COMPLETED_RUN_RETENTION_MS = 30_000;
-
-function textOverlaps(left: string, right: string): boolean {
-  return left === right || left.startsWith(right) || right.startsWith(left);
-}
-
-function isSameLiveMessage(
-  left: AgentsUiConversationMessageDraft,
-  right: AgentsUiConversationMessageDraft,
-): boolean {
-  if (left.id === right.id) return true;
-  if (left.turnId !== right.turnId) return false;
-  if (left.role !== right.role) return false;
-  if (left.kind !== right.kind) return false;
-  if (left.toolCallId && right.toolCallId) return left.toolCallId === right.toolCallId;
-
-  return (left.kind === "text" || left.kind === "thinking") && textOverlaps(left.text, right.text);
-}
-
-function mergeLiveMessage(
-  existing: AgentsUiConversationMessageDraft,
-  incoming: AgentsUiConversationMessageDraft,
-): AgentsUiConversationMessageDraft {
-  const text = incoming.text.length >= existing.text.length ? incoming.text : existing.text;
-  return {
-    ...existing,
-    ...incoming,
-    text,
-  };
-}
 
 export class ClaudeConversationStreamService {
   private readonly runs = new Map<string, ActiveClaudeRun>();
@@ -100,7 +70,6 @@ export class ClaudeConversationStreamService {
       turnId: input.turnId,
       handle: null,
       liveMessages: new Map(),
-      nextBlockOrdinal: 1,
       completed: false,
       pruneTimer: null,
     };
@@ -117,7 +86,7 @@ export class ClaudeConversationStreamService {
         ...(input.systemPrompt ? { systemPrompt: input.systemPrompt } : {}),
       }, {
         onAssistantDelta: (delta, event) => {
-          this.notifyDelta(run, event?.blockIndex ?? 0, delta);
+          this.notifyDelta(run, event.itemId, delta);
         },
         onComplete: () => {
           this.finishRun(run, "completed");
@@ -229,9 +198,8 @@ export class ClaudeConversationStreamService {
     this.broadcastUpsert(run, message, message.id);
   }
 
-  private notifyDelta(run: ActiveClaudeRun, blockIndex: number, delta: string): void {
+  private notifyDelta(run: ActiveClaudeRun, itemId: string, delta: string): void {
     if (run.completed) return;
-    const itemId = `claude-live:${run.turnId}:${blockIndex}`;
     const event: AgentsUiConversationMessageDeltaLivePayload = {
       type: "messageDelta",
       conversationId: run.conversationId,
@@ -249,10 +217,11 @@ export class ClaudeConversationStreamService {
   private notifyMessage(run: ActiveClaudeRun, streamMessage: ClaudeCliStreamMessage): void {
     if (run.completed) return;
 
-    const id = `${streamMessage.uuid}:${run.nextBlockOrdinal}`;
-    run.nextBlockOrdinal += 1;
+    // `streamMessage.id` is the stable `${messageId}:${blockIndex}` /
+    // `tool_result:${toolCallId}` key — the same key the deltas use — so a
+    // finalized block simply overwrites its streaming placeholder by id.
     const message: AgentsUiConversationMessageDraft = {
-      id,
+      id: streamMessage.id,
       turnId: run.turnId,
       role: streamMessage.role,
       kind: streamMessage.kind,
@@ -262,8 +231,8 @@ export class ClaudeConversationStreamService {
       ...(streamMessage.toolName ? { toolName: streamMessage.toolName } : {}),
       ...(streamMessage.toolCallId ? { toolCallId: streamMessage.toolCallId } : {}),
     };
-    const merged = this.applyUpsert(run, message);
-    this.broadcastUpsert(run, merged.message, merged.orderKey);
+    run.liveMessages.set(message.id, message);
+    this.broadcastUpsert(run, message, message.id);
   }
 
   private finishRun(run: ActiveClaudeRun, status: "completed" | "failed"): void {
@@ -324,39 +293,5 @@ export class ClaudeConversationStreamService {
       status: "inProgress",
       createdAt: existing?.createdAt ?? null,
     });
-  }
-
-  private applyUpsert(
-    run: ActiveClaudeRun,
-    message: AgentsUiConversationMessageDraft,
-  ): { message: AgentsUiConversationMessageDraft; orderKey: string } {
-    const existingEntry = this.findLiveMessageEntry(run, message);
-    const nextMessage = existingEntry
-      ? mergeLiveMessage(existingEntry.message, message)
-      : message;
-    if (existingEntry && existingEntry.id !== message.id) {
-      run.liveMessages.delete(existingEntry.id);
-    }
-    run.liveMessages.set(message.id, nextMessage);
-    return {
-      message: nextMessage,
-      orderKey: existingEntry?.id ?? message.id,
-    };
-  }
-
-  private findLiveMessageEntry(
-    run: ActiveClaudeRun,
-    message: AgentsUiConversationMessageDraft,
-  ): { id: string; message: AgentsUiConversationMessageDraft } | null {
-    const byId = run.liveMessages.get(message.id);
-    if (byId) return { id: message.id, message: byId };
-
-    for (const [id, candidate] of run.liveMessages) {
-      if (isSameLiveMessage(candidate, message)) {
-        return { id, message: candidate };
-      }
-    }
-
-    return null;
   }
 }

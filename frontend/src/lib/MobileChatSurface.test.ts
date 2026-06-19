@@ -356,7 +356,7 @@ describe("MobileChatSurface", () => {
       revision: 1,
       conversationId: "session-1",
       turnId: "claude-turn:turn-1",
-      itemId: "claude-live:turn-1:1",
+      itemId: "msg_1:0",
       order: 0,
       delta: "Streaming from Claude",
     });

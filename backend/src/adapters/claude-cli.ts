@@ -33,11 +33,15 @@ export interface ClaudeCliSessionSummary {
 }
 
 export interface ClaudeCliAssistantDelta {
-  blockIndex: number;
+  itemId: string;
 }
 
+// A finalized content block, ready for the UI. Its `id` is the universal,
+// collision-free key shared with the streaming deltas and the persisted
+// transcript: `${anthropicMessageId}:${contentBlockIndex}` for assistant
+// blocks, `tool_result:${toolCallId}` for tool results.
 export interface ClaudeCliStreamMessage {
-  uuid: string;
+  id: string;
   role: "user" | "assistant";
   kind: ClaudeCliConversationMessageKind;
   text: string;
@@ -46,19 +50,33 @@ export interface ClaudeCliStreamMessage {
   toolCallId?: string;
 }
 
+// A parsed content block before the client stamps it with a stable id. The
+// client owns the `messageId`/`blockIndex` state that spans stream lines.
+export interface ClaudeCliStreamBlock {
+  role: "user" | "assistant";
+  kind: ClaudeCliConversationMessageKind;
+  text: string;
+  createdAt: string | null;
+  messageId: string | null;
+  toolName?: string;
+  toolCallId?: string;
+}
+
 export interface ParsedClaudeCliStreamLine {
   sessionId: string | null;
+  messageStart: { messageId: string } | null;
+  blockStart: { index: number } | null;
   assistantDelta: {
     delta: string;
     blockIndex: number;
   } | null;
-  messages: ClaudeCliStreamMessage[];
+  blocks: ClaudeCliStreamBlock[];
   completeSessionId: string | null;
   error: string | null;
 }
 
 export interface ClaudeCliRunCallbacks {
-  onAssistantDelta?: (delta: string, event?: ClaudeCliAssistantDelta) => void;
+  onAssistantDelta?: (delta: string, event: ClaudeCliAssistantDelta) => void;
   onComplete?: (sessionId: string) => void;
   onError?: (message: string) => void;
   onMessage?: (message: ClaudeCliStreamMessage) => void;
@@ -100,6 +118,7 @@ interface ClaudeStoredRecord {
 
 interface ClaudeStoredMessage {
   content?: unknown;
+  id?: unknown;
   role?: unknown;
   stop_reason?: unknown;
 }
@@ -164,20 +183,20 @@ function extractToolResultText(content: unknown): string {
   return truncate(text);
 }
 
-function buildStreamMessagesFromAssistantRecord(raw: Record<string, unknown>): ClaudeCliStreamMessage[] {
-  const uuid = readString(raw.uuid);
-  if (!uuid || !isRecord(raw.message)) return [];
+function buildStreamMessagesFromAssistantRecord(raw: Record<string, unknown>): ClaudeCliStreamBlock[] {
+  if (!isRecord(raw.message)) return [];
   const message = raw.message;
   if (message.role !== "assistant" || !Array.isArray(message.content)) return [];
+  const messageId = readString(message.id) ?? readString(raw.uuid);
 
-  return message.content.flatMap((block): ClaudeCliStreamMessage[] => {
+  return message.content.flatMap((block): ClaudeCliStreamBlock[] => {
     if (!isRecord(block)) return [];
     const createdAt = readString(raw.timestamp);
     if (block.type === "text" && typeof block.text === "string") {
       const text = block.text.trim();
       if (text.length === 0) return [];
       return [{
-        uuid,
+        messageId,
         role: "assistant",
         kind: "text",
         text,
@@ -186,14 +205,14 @@ function buildStreamMessagesFromAssistantRecord(raw: Record<string, unknown>): C
     }
     if (block.type === "tool_use") {
       const toolName = typeof block.name === "string" ? block.name : "tool";
-      const toolCallId = readString(block.id) ?? uuid;
+      const toolCallId = readString(block.id) ?? undefined;
       const text = truncate(compactJson(block.input ?? {}));
       return [{
-        uuid,
+        messageId,
         role: "assistant",
         kind: "toolUse",
         toolName,
-        toolCallId,
+        ...(toolCallId ? { toolCallId } : {}),
         text,
         createdAt,
       }];
@@ -202,22 +221,21 @@ function buildStreamMessagesFromAssistantRecord(raw: Record<string, unknown>): C
   });
 }
 
-function buildStreamMessagesFromUserRecord(raw: Record<string, unknown>): ClaudeCliStreamMessage[] {
-  const uuid = readString(raw.uuid);
-  if (!uuid || !isRecord(raw.message)) return [];
+function buildStreamMessagesFromUserRecord(raw: Record<string, unknown>): ClaudeCliStreamBlock[] {
+  if (!isRecord(raw.message)) return [];
   const message = raw.message;
   if (message.role !== "user" || !Array.isArray(message.content)) return [];
 
-  return message.content.flatMap((block): ClaudeCliStreamMessage[] => {
+  return message.content.flatMap((block): ClaudeCliStreamBlock[] => {
     if (!isRecord(block) || block.type !== "tool_result") return [];
     const text = extractToolResultText(block.content);
     if (text.length === 0) return [];
-    const toolCallId = readString(block.tool_use_id) ?? uuid;
+    const toolCallId = readString(block.tool_use_id) ?? undefined;
     return [{
-      uuid,
+      messageId: null,
       role: "user",
       kind: "toolResult",
-      toolCallId,
+      ...(toolCallId ? { toolCallId } : {}),
       text,
       createdAt: readString(raw.timestamp),
     }];
@@ -237,14 +255,24 @@ export function parseClaudeStreamLine(line: string): ParsedClaudeCliStreamLine |
   const sessionId = readString(parsed.session_id);
   const base: ParsedClaudeCliStreamLine = {
     sessionId,
+    messageStart: null,
+    blockStart: null,
     assistantDelta: null,
-    messages: [],
+    blocks: [],
     completeSessionId: null,
     error: null,
   };
 
   if (parsed.type === "stream_event" && isRecord(parsed.event)) {
     const event = parsed.event;
+    if (event.type === "message_start" && isRecord(event.message)) {
+      const messageId = readString(event.message.id);
+      return messageId ? { ...base, messageStart: { messageId } } : base;
+    }
+    if (event.type === "content_block_start") {
+      const index = readNumber(event.index);
+      return index !== null ? { ...base, blockStart: { index } } : base;
+    }
     if (event.type === "content_block_delta" && isRecord(event.delta) && event.delta.type === "text_delta") {
       const delta = readString(event.delta.text);
       const blockIndex = readNumber(event.index);
@@ -264,14 +292,14 @@ export function parseClaudeStreamLine(line: string): ParsedClaudeCliStreamLine |
   if (parsed.type === "assistant") {
     return {
       ...base,
-      messages: buildStreamMessagesFromAssistantRecord(parsed),
+      blocks: buildStreamMessagesFromAssistantRecord(parsed),
     };
   }
 
   if (parsed.type === "user") {
     return {
       ...base,
-      messages: buildStreamMessagesFromUserRecord(parsed),
+      blocks: buildStreamMessagesFromUserRecord(parsed),
     };
   }
 
@@ -407,11 +435,15 @@ export function buildClaudeSessionFromText(
   let createdAt: string | null = null;
   let lastSeenAt: string | null = null;
   let currentTurnId: string | null = null;
-  let blockIndex = 0;
 
-  const pushMessage = (message: ClaudeCliConversationMessage): void => {
-    messages.push(message);
-    blockIndex += 1;
+  // Content-block index per Anthropic message id, mirroring the live stream's
+  // `content_block.index`. Every block of a message advances the counter (even
+  // skipped thinking/empty blocks) so persisted ids line up with live ids.
+  const blockIndexByMessage = new Map<string, number>();
+  const nextBlockIndex = (messageId: string): number => {
+    const index = blockIndexByMessage.get(messageId) ?? 0;
+    blockIndexByMessage.set(messageId, index + 1);
+    return index;
   };
 
   for (const record of records) {
@@ -424,8 +456,7 @@ export function buildClaudeSessionFromText(
 
     if (isTopLevelClaudeUserPrompt(record)) {
       currentTurnId = record.uuid;
-      blockIndex = 0;
-      pushMessage({
+      messages.push({
         id: record.uuid,
         turnId: record.uuid,
         role: "user",
@@ -444,8 +475,8 @@ export function buildClaudeSessionFromText(
         const text = extractToolResultText(entry.content);
         if (text.length === 0) continue;
         const toolCallId = readString(entry.tool_use_id);
-        pushMessage({
-          id: `${record.uuid}:${blockIndex}`,
+        messages.push({
+          id: `tool_result:${toolCallId ?? `${record.uuid}`}`,
           turnId: currentTurnId,
           role: "user",
           kind: "toolResult",
@@ -459,14 +490,16 @@ export function buildClaudeSessionFromText(
 
     if (!isClaudeAssistantRecord(record)) continue;
     if (!Array.isArray(record.message.content)) continue;
+    const messageId = readString(record.message.id) ?? record.uuid;
 
     for (const block of record.message.content) {
       if (!isRecord(block)) continue;
+      const index = nextBlockIndex(messageId);
       if (block.type === "text" && typeof block.text === "string") {
         const text = block.text.trim();
         if (text.length === 0) continue;
-        pushMessage({
-          id: `${record.uuid}:${blockIndex}`,
+        messages.push({
+          id: `${messageId}:${index}`,
           turnId: currentTurnId,
           role: "assistant",
           kind: "text",
@@ -479,8 +512,8 @@ export function buildClaudeSessionFromText(
         const toolName = typeof block.name === "string" ? block.name : "tool";
         const toolCallId = readString(block.id);
         const text = truncate(compactJson(block.input ?? {}));
-        pushMessage({
-          id: `${record.uuid}:${blockIndex}`,
+        messages.push({
+          id: `${messageId}:${index}`,
           turnId: currentTurnId,
           role: "assistant",
           kind: "toolUse",
@@ -595,6 +628,11 @@ export class ClaudeCliClient implements ClaudeCliGateway {
       sessionIdReject = null;
     };
 
+    // Per-run cursor: the Anthropic message id (from `message_start`) and the
+    // content-block index (from `content_block_start`) currently being streamed.
+    // Together they form the stable id shared by deltas and finalized blocks.
+    const streamState: ClaudeStreamCursor = { messageId: null, blockIndex: 0 };
+
     const completion = (async () => {
       const stdoutReader = proc.stdout.getReader();
       const stderrReader = proc.stderr.getReader();
@@ -613,7 +651,7 @@ export class ClaudeCliClient implements ClaudeCliGateway {
             const line = stdoutBuffer.slice(0, newlineIndex).trim();
             stdoutBuffer = stdoutBuffer.slice(newlineIndex + 1);
             if (line.length === 0) continue;
-            this.handleStreamLine(line, callbacks, resolveSessionId);
+            this.handleStreamLine(line, callbacks, resolveSessionId, streamState);
           }
         }
       })();
@@ -683,6 +721,7 @@ export class ClaudeCliClient implements ClaudeCliGateway {
     line: string,
     callbacks: ClaudeCliRunCallbacks,
     resolveSessionId: (value: string) => void,
+    state: ClaudeStreamCursor,
   ): void {
     const parsed = parseClaudeStreamLine(line);
     if (!parsed) {
@@ -694,14 +733,23 @@ export class ClaudeCliClient implements ClaudeCliGateway {
       resolveSessionId(parsed.sessionId);
     }
 
+    if (parsed.messageStart) {
+      state.messageId = parsed.messageStart.messageId;
+    }
+
+    if (parsed.blockStart) {
+      state.blockIndex = parsed.blockStart.index;
+    }
+
     if (parsed.assistantDelta) {
+      const messageId = state.messageId ?? "msg";
       callbacks.onAssistantDelta?.(parsed.assistantDelta.delta, {
-        blockIndex: parsed.assistantDelta.blockIndex,
+        itemId: `${messageId}:${parsed.assistantDelta.blockIndex}`,
       });
     }
 
-    for (const message of parsed.messages) {
-      callbacks.onMessage?.(message);
+    for (const block of parsed.blocks) {
+      callbacks.onMessage?.(toStreamMessage(block, state));
     }
 
     if (parsed.completeSessionId) {
@@ -713,4 +761,26 @@ export class ClaudeCliClient implements ClaudeCliGateway {
       callbacks.onError?.(parsed.error);
     }
   }
+}
+
+// Mutable per-run cursor (see sendMessage) — the message/block currently being
+// streamed, used to stamp finalized blocks with their stable id.
+interface ClaudeStreamCursor {
+  messageId: string | null;
+  blockIndex: number;
+}
+
+function toStreamMessage(block: ClaudeCliStreamBlock, state: ClaudeStreamCursor): ClaudeCliStreamMessage {
+  const id = block.kind === "toolResult"
+    ? `tool_result:${block.toolCallId ?? `${state.messageId ?? "msg"}:${state.blockIndex}`}`
+    : `${block.messageId ?? state.messageId ?? "msg"}:${state.blockIndex}`;
+  return {
+    id,
+    role: block.role,
+    kind: block.kind,
+    text: block.text,
+    createdAt: block.createdAt,
+    ...(block.toolName ? { toolName: block.toolName } : {}),
+    ...(block.toolCallId ? { toolCallId: block.toolCallId } : {}),
+  };
 }

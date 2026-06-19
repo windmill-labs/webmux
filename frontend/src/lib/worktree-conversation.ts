@@ -44,40 +44,6 @@ function isServerUserForPendingTurn(
     && pendingMessage.turnId === incomingMessage.turnId;
 }
 
-function textOverlaps(left: string, right: string): boolean {
-  return left === right || left.startsWith(right) || right.startsWith(left);
-}
-
-function isSyntheticClaudeTurnId(turnId: string): boolean {
-  return turnId.startsWith("claude-turn:");
-}
-
-function isSameClaudeLiveMessage(
-  existing: AgentsUiConversationMessage,
-  incoming: AgentsUiConversationMessage,
-): boolean {
-  if (existing.id === incoming.id) return true;
-  if (existing.turnId !== incoming.turnId) return false;
-  if (!isSyntheticClaudeTurnId(existing.turnId) && !isSyntheticClaudeTurnId(incoming.turnId)) return false;
-  if (existing.role !== incoming.role) return false;
-  if (existing.kind !== incoming.kind) return false;
-  if (existing.toolCallId && incoming.toolCallId) return existing.toolCallId === incoming.toolCallId;
-  if (existing.phase !== incoming.phase) return false;
-  return (existing.kind === "text" || existing.kind === "thinking") && textOverlaps(existing.text, incoming.text);
-}
-
-function mergeLiveMessageReplacement(
-  existing: AgentsUiConversationMessage,
-  incoming: AgentsUiConversationMessage,
-): AgentsUiConversationMessage {
-  const text = incoming.text.length >= existing.text.length ? incoming.text : existing.text;
-  return {
-    ...incoming,
-    order: existing.order,
-    text,
-  };
-}
-
 function replaceAt(
   messages: AgentsUiConversationMessage[],
   index: number,
@@ -132,22 +98,15 @@ export function applyConversationMessageUpsert(
         isOptimisticUserMessage(message) && isServerUserForPendingTurn(message, event.message)
       )
     : -1;
-  const claudeLiveIndex = exactIndex === -1 && optimisticIndex === -1
-    ? conversation.messages.findIndex((message) => isSameClaudeLiveMessage(message, event.message))
-    : -1;
-  const existingIndex = exactIndex !== -1 ? exactIndex : optimisticIndex !== -1 ? optimisticIndex : claudeLiveIndex;
-  const existingMessage = existingIndex === -1 ? null : conversation.messages[existingIndex] ?? null;
-  const nextMessage = existingMessage && claudeLiveIndex === existingIndex
-    ? mergeLiveMessageReplacement(existingMessage, event.message)
-    : event.message;
+  const existingIndex = exactIndex !== -1 ? exactIndex : optimisticIndex;
   const messages = existingIndex === -1
-    ? [...conversation.messages, nextMessage]
-    : replaceAt(conversation.messages, existingIndex, nextMessage);
+    ? [...conversation.messages, event.message]
+    : replaceAt(conversation.messages, existingIndex, event.message);
 
   return {
     ...conversation,
-    running: conversation.running || nextMessage.status === "inProgress",
-    activeTurnId: nextMessage.status === "inProgress" ? nextMessage.turnId : conversation.activeTurnId,
+    running: conversation.running || event.message.status === "inProgress",
+    activeTurnId: event.message.status === "inProgress" ? event.message.turnId : conversation.activeTurnId,
     messages: orderConversationMessages(messages),
   };
 }

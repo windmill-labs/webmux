@@ -60,10 +60,10 @@ describe("ClaudeConversationStreamService", () => {
       permissionMode: "bypassPermissions",
     });
 
-    claude.callbacks?.onAssistantDelta?.("Hel", { blockIndex: 1 });
-    claude.callbacks?.onAssistantDelta?.("lo", { blockIndex: 1 });
+    claude.callbacks?.onAssistantDelta?.("Hel", { itemId: "msg_1:0" });
+    claude.callbacks?.onAssistantDelta?.("lo", { itemId: "msg_1:0" });
     claude.callbacks?.onMessage?.({
-      uuid: "assistant-final",
+      id: "msg_1:0",
       role: "assistant",
       kind: "text",
       text: "Hello",
@@ -99,7 +99,7 @@ describe("ClaudeConversationStreamService", () => {
     });
     expect(events[2]).toMatchObject({
       type: "messageDelta",
-      itemId: "claude-live:claude-turn:turn-1:1",
+      itemId: "msg_1:0",
       order: 1,
       delta: "Hel",
     });
@@ -107,7 +107,7 @@ describe("ClaudeConversationStreamService", () => {
       type: "messageUpsert",
       conversationId: "session-1",
       message: {
-        id: "assistant-final:1",
+        id: "msg_1:0",
         turnId: "claude-turn:turn-1",
         order: 1,
         role: "assistant",
@@ -120,7 +120,7 @@ describe("ClaudeConversationStreamService", () => {
     expect(events[5]).toMatchObject({
       type: "messageUpsert",
       message: {
-        id: "assistant-final:1",
+        id: "msg_1:0",
         order: 1,
         status: "completed",
       },
@@ -169,7 +169,7 @@ describe("ClaudeConversationStreamService", () => {
       sessionId: "session-1",
     })).toEqual({ ok: true });
 
-    claude.callbacks?.onAssistantDelta?.("Partial response", { blockIndex: 1 });
+    claude.callbacks?.onAssistantDelta?.("Partial response", { itemId: "msg_1:0" });
     claude.callbacks?.onError?.("API key is invalid");
 
     expect(events.map((event) => event.type)).toEqual([
@@ -183,7 +183,7 @@ describe("ClaudeConversationStreamService", () => {
     expect(events[3]).toMatchObject({
       type: "messageUpsert",
       message: {
-        id: "claude-live:claude-turn:turn-1:1",
+        id: "msg_1:0",
         order: 1,
         text: "Partial response",
         status: "failed",
@@ -212,9 +212,9 @@ describe("ClaudeConversationStreamService", () => {
       sessionId: "session-1",
     })).toEqual({ ok: true });
 
-    claude.callbacks?.onAssistantDelta?.("Hello", { blockIndex: 1 });
+    claude.callbacks?.onAssistantDelta?.("Hello", { itemId: "msg_1:0" });
     claude.callbacks?.onMessage?.({
-      uuid: "assistant-final",
+      id: "msg_1:0",
       role: "assistant",
       kind: "text",
       text: "Hello",
@@ -240,7 +240,7 @@ describe("ClaudeConversationStreamService", () => {
     expect(events[2]).toMatchObject({
       type: "messageUpsert",
       message: {
-        id: "assistant-final:1",
+        id: "msg_1:0",
         order: 4,
         text: "Hello",
       },
@@ -259,9 +259,9 @@ describe("ClaudeConversationStreamService", () => {
       sessionId: "session-1",
     })).toEqual({ ok: true });
 
-    claude.callbacks?.onAssistantDelta?.("Done", { blockIndex: 1 });
+    claude.callbacks?.onAssistantDelta?.("Done", { itemId: "msg_1:0" });
     claude.callbacks?.onMessage?.({
-      uuid: "assistant-final",
+      id: "msg_1:0",
       role: "assistant",
       kind: "text",
       text: "Done",
@@ -280,7 +280,7 @@ describe("ClaudeConversationStreamService", () => {
     expect(events[1]).toMatchObject({
       type: "messageUpsert",
       message: {
-        id: "assistant-final:1",
+        id: "msg_1:0",
         order: 3,
         text: "Done",
         status: "completed",

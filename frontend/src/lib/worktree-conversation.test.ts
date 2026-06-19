@@ -417,7 +417,10 @@ describe("worktree conversation helpers", () => {
     });
   });
 
-  it("replaces a synthetic Claude live item with its final message id", () => {
+  it("finalizes a Claude live item when its full message arrives with the same id", () => {
+    // Deltas and the finalized block now share the stable `${messageId}:${index}`
+    // id, so the upsert replaces the streaming placeholder in place — no
+    // text-overlap heuristics, no duplicate container.
     const current = applyConversationMessageDelta({
       ...makeConversation(),
       provider: "claudeCode",
@@ -427,7 +430,7 @@ describe("worktree conversation helpers", () => {
       revision: 1,
       conversationId: "session-1",
       turnId: "claude-turn:turn-2",
-      itemId: "claude-live:turn-2:1",
+      itemId: "msg_2:0",
       order: 1,
       delta: "Still working",
     });
@@ -437,25 +440,25 @@ describe("worktree conversation helpers", () => {
       revision: 2,
       conversationId: "session-1",
       message: {
-        id: "assistant-final:1",
+        id: "msg_2:0",
         turnId: "claude-turn:turn-2",
         order: 1,
         role: "assistant",
         kind: "text",
-        text: "Still working",
+        text: "Still working on it",
         status: "inProgress",
         createdAt: null,
       },
     });
 
-    expect(updated?.messages.filter((message) => message.text === "Still working")).toEqual([
+    expect(updated?.messages.filter((message) => message.id === "msg_2:0")).toEqual([
       {
-        id: "assistant-final:1",
+        id: "msg_2:0",
         turnId: "claude-turn:turn-2",
         order: 1,
         role: "assistant",
         kind: "text",
-        text: "Still working",
+        text: "Still working on it",
         status: "inProgress",
         createdAt: null,
       },

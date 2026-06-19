@@ -106,12 +106,16 @@ function canonicalizePath(path: string): string {
 /** Base URL for talking to the active project on the running server. The server
  *  serves each project under `/<prefix>`, so a server-backed CLI command must
  *  target `http://localhost:<port>/<prefix>` for the project at `projectDir`.
- *  Falls back to the unscoped base when the project root can't be determined;
- *  throws a CommandUsageError when the root resolves but isn't a served project. */
+ *  Throws a CommandUsageError when `projectDir` isn't a git repo (no project to
+ *  scope to) or when its root resolves but isn't a served project. */
 export async function resolveProjectBaseUrl(port: number, projectDir: string = process.cwd()): Promise<string> {
   const base = `http://localhost:${port}`;
   const root = resolveProjectRoot(projectDir);
-  if (!root) return base;
+  if (!root) {
+    throw new CommandUsageError(
+      `Not inside a git repository, so webmux can't tell which project this command targets. cd into a project served by webmux (\`webmux project ls\` lists them) and try again.`,
+    );
+  }
   const { projects } = await createApi(base).fetchProjects();
   const target = canonicalizePath(root);
   const match = projects.find((project) => canonicalizePath(project.path) === target);

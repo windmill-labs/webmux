@@ -44,6 +44,7 @@
     lastSignature: string | null;
     sawProgress: boolean;
     unchangedTicks: number;
+    stopWhenIdle: boolean;
   } | null>(null);
   let streamConnection: {
     conversationId: string;
@@ -162,6 +163,7 @@
 
   function startRefreshPolling(
     baselineConversation: AgentsUiConversationState | null = conversation,
+    stopWhenIdle = false,
   ): void {
     const baselineSignature = buildConversationProgressSignature(baselineConversation);
     refreshPollingState = {
@@ -170,6 +172,7 @@
       lastSignature: baselineSignature,
       sawProgress: false,
       unchangedTicks: 0,
+      stopWhenIdle,
     };
     nextRefreshPollingToken += 1;
   }
@@ -180,6 +183,10 @@
   ): void {
     const currentState = refreshPollingState;
     if (!currentState || currentState.token !== token) return;
+
+    // Terminal-owned turns settle when the worktree agent goes idle (handled by the
+    // busy-poll effect below), not via the message-progress heuristic used for sends.
+    if (currentState.stopWhenIdle) return;
 
     const nextSignature = buildConversationProgressSignature(nextConversation);
     const sawProgress = currentState.sawProgress || nextSignature !== currentState.baselineSignature;
@@ -254,6 +261,27 @@
     return () => {
       closeConversationStream();
     };
+  });
+
+  $effect(() => {
+    // A Claude turn started in the terminal (the initial worktree prompt, or anything
+    // typed in the pane) is not a backend-owned run, so there is no stream to subscribe
+    // to and the snapshot reports running:false. While the worktree agent is busy, poll
+    // history so the terminal claude's flushed messages appear live; stop once it idles.
+    const agentBusy = worktree.agent === "working";
+    const isTerminalOwnedClaudeTurn =
+      conversation?.provider === "claudeCode" && conversation.running !== true;
+
+    if (agentBusy && isTerminalOwnedClaudeTurn) {
+      if (refreshPollingState === null) {
+        startRefreshPolling(conversation, true);
+      }
+      return;
+    }
+
+    if (refreshPollingState?.stopWhenIdle === true) {
+      refreshPollingState = null;
+    }
   });
 
   $effect(() => {

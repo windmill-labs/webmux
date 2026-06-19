@@ -535,4 +535,70 @@ describe("MobileChatSurface", () => {
     expect(text.indexOf("Completed shell")).toBeLessThan(text.indexOf("Second assistant"));
   });
 
+  it("polls Claude history for a busy terminal-owned turn and stops when the agent goes idle", async () => {
+    const userMessage = {
+      id: "user-1",
+      turnId: "turn-1",
+      order: 0,
+      role: "user" as const,
+      kind: "text" as const,
+      text: "Build the feature",
+      status: "completed" as const,
+      createdAt: "2026-05-28T10:00:00.000Z",
+    };
+    vi.mocked(attachWorktreeConversation).mockResolvedValue(
+      createConversationResponse("claudeCode", {
+        running: false,
+        activeTurnId: null,
+        messages: [userMessage],
+      }),
+    );
+    vi.mocked(fetchWorktreeConversationHistory).mockResolvedValue(
+      createConversationResponse("claudeCode", {
+        running: false,
+        activeTurnId: null,
+        messages: [
+          userMessage,
+          {
+            id: "assistant-1",
+            turnId: "turn-1",
+            order: 1,
+            role: "assistant",
+            kind: "text",
+            text: "Done from terminal",
+            status: "completed",
+            createdAt: "2026-05-28T10:00:01.000Z",
+          },
+        ],
+      }),
+    );
+
+    const { rerender } = render(MobileChatSurface, {
+      props: {
+        worktree: createWorktree({ agent: "working", status: "running" }),
+      },
+    });
+
+    await screen.findByText("Build the feature");
+    // A terminal-owned turn has no backend stream to subscribe to.
+    expect(connectWorktreeConversationStream).not.toHaveBeenCalled();
+
+    // Polling surfaces the terminal claude's flushed response live.
+    await vi.advanceTimersByTimeAsync(1000);
+    await waitFor(() => {
+      expect(fetchWorktreeConversationHistory).toHaveBeenCalledWith("feature/mobile-chat");
+    });
+    await screen.findByText("Done from terminal");
+
+    // Polling keeps running while the agent is busy (it must not settle early).
+    await vi.advanceTimersByTimeAsync(5000);
+    const callsWhileBusy = vi.mocked(fetchWorktreeConversationHistory).mock.calls.length;
+    expect(callsWhileBusy).toBeGreaterThan(1);
+
+    // When the run settles and the agent goes idle, polling stops.
+    await rerender({ worktree: createWorktree({ agent: "waiting", status: "idle" }) });
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(vi.mocked(fetchWorktreeConversationHistory).mock.calls.length).toBe(callsWhileBusy);
+  });
+
 });

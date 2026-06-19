@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { createApi } from "@webmux/api-contract";
 
@@ -88,6 +88,21 @@ export function resolveProjectRoot(cwd: string = process.cwd()): string | null {
   }
 }
 
+/** Canonicalize a filesystem path for equality comparison: collapse symlinks,
+ *  trailing slashes, and `.`/`..` segments. The server stores each project's git
+ *  root via its own `projectRoot()`, which is `resolve`-based and does not follow
+ *  symlinks — so a CLI invoked from a symlinked cwd (or with a trailing slash)
+ *  could compute a different-but-equivalent string. Realpathing both sides at
+ *  compare time makes the match robust; falls back to `resolve` if the path is
+ *  gone (it normally exists, since the server is local). */
+function canonicalizePath(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
+}
+
 /** Base URL for talking to the active project on the running server. The server
  *  serves each project under `/<prefix>`, so a server-backed CLI command must
  *  target `http://localhost:<port>/<prefix>` for the project at `projectDir`.
@@ -98,7 +113,8 @@ export async function resolveProjectBaseUrl(port: number, projectDir: string = p
   const root = resolveProjectRoot(projectDir);
   if (!root) return base;
   const { projects } = await createApi(base).fetchProjects();
-  const match = projects.find((project) => project.path === root);
+  const target = canonicalizePath(root);
+  const match = projects.find((project) => canonicalizePath(project.path) === target);
   if (!match) {
     throw new CommandUsageError(
       `This project (${root}) isn't served by webmux on port ${port}. Run \`webmux project add\` or start \`webmux serve\` in it first.`,

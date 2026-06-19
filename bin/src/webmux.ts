@@ -383,7 +383,7 @@ async function main(args: string[] = process.argv.slice(2)): Promise<void> {
 
   if (parsed.command === "project") {
     const { runProjectCommand } = await import("./project-commands.ts");
-    const exitCode = await runProjectCommand(parsed.commandArgs, parsed.port);
+    const exitCode = await runProjectCommand(parsed.commandArgs, effectivePort);
     process.exit(exitCode);
   }
 

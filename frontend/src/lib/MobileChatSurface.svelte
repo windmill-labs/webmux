@@ -108,27 +108,23 @@
   }
 
   function syncConversationStream(force = false): void {
-    if (!supportsStreaming(conversation)) {
+    const conversationId = supportsStreaming(conversation) ? conversation?.conversationId ?? null : null;
+
+    // Keep one stream open across turns (close only on conversation change) so the
+    // server-side message ordering isn't reseeded per turn, which interleaves turns.
+    if (streamConnection && streamConnection.conversationId !== conversationId) {
       closeConversationStream();
+    }
+
+    if (!conversationId || hasActiveConversationStream(conversationId)) {
       return;
     }
 
-    const conversationId = conversation?.conversationId ?? null;
-    if (!conversationId) {
-      closeConversationStream();
-      return;
-    }
-
+    // Not connected yet: open on a send (force) or when a run is already active.
     if (!force && conversation?.running !== true) {
-      closeConversationStream();
       return;
     }
 
-    if (hasActiveConversationStream(conversationId)) {
-      return;
-    }
-
-    closeConversationStream();
     lastStreamRevision = 0;
     const disconnect = connectWorktreeConversationStream(worktree.branch, {
       onEvent: (event) => {

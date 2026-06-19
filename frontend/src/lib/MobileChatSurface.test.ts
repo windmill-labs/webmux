@@ -155,6 +155,59 @@ describe("MobileChatSurface", () => {
     expect(fetchWorktreeConversationHistory).not.toHaveBeenCalled();
   });
 
+  it("reuses one Claude stream across turns instead of reconnecting", async () => {
+    vi.mocked(attachWorktreeConversation).mockResolvedValue(createConversationResponse("claudeCode"));
+    vi.mocked(sendWorktreeConversationMessage)
+      .mockResolvedValueOnce({
+        conversationId: "session-1",
+        turnId: "turn-1",
+        running: true,
+        streaming: true,
+      } satisfies AgentsUiSendMessageResponse)
+      .mockResolvedValueOnce({
+        conversationId: "session-1",
+        turnId: "turn-2",
+        running: true,
+        streaming: true,
+      } satisfies AgentsUiSendMessageResponse);
+
+    render(MobileChatSurface, {
+      props: {
+        worktree: createWorktree(),
+      },
+    });
+
+    await screen.findByText("No messages yet. Send the first prompt to start this chat.");
+
+    // Turn 1 opens the stream.
+    await fireEvent.input(screen.getByLabelText("Message"), { target: { value: "first" } });
+    await fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await screen.findByText("first");
+    expect(connectWorktreeConversationStream).toHaveBeenCalledTimes(1);
+
+    // Turn 1 completes — the stream must stay open, not tear down.
+    const callbacks = vi.mocked(connectWorktreeConversationStream).mock.calls[0]?.[1];
+    callbacks?.onEvent({
+      type: "conversationStatus",
+      revision: 1,
+      conversationId: "session-1",
+      running: false,
+      activeTurnId: null,
+    });
+    await tick();
+
+    // Turn 2 must reuse the existing stream. Reconnecting spins up a fresh
+    // server-side session that reseeds ordering and interleaves turns into
+    // user/user/assistant/assistant.
+    await fireEvent.input(screen.getByLabelText("Message"), { target: { value: "second" } });
+    await fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => {
+      expect(sendWorktreeConversationMessage).toHaveBeenCalledTimes(2);
+    });
+
+    expect(connectWorktreeConversationStream).toHaveBeenCalledTimes(1);
+  });
+
   it("polls Claude history after terminal-routed sends", async () => {
     vi.mocked(attachWorktreeConversation).mockResolvedValue(createConversationResponse("claudeCode"));
     vi.mocked(sendWorktreeConversationMessage).mockResolvedValue({

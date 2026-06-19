@@ -784,6 +784,7 @@ async function sendClaudeStreamingMessage(input: {
     }
   }
 
+  // TODO: a tool-call-ending turn can still re-stick "running" if the subprocess's async PostToolUse hook lands after this onRunSettled; fully fix by suppressing status hooks for owned runs.
   const turnId = `claude-turn:${randomUUID()}`;
   const started = claudeConversationStreamService.startRun({
     conversationId: sessionId,

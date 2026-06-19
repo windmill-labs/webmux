@@ -135,25 +135,6 @@ function readNumber(raw: unknown): number | null {
   return typeof raw === "number" ? raw : null;
 }
 
-function extractClaudeMessageText(raw: unknown): string {
-  if (typeof raw === "string") {
-    return raw.trim();
-  }
-
-  if (!Array.isArray(raw)) {
-    return "";
-  }
-
-  return raw
-    .map((entry) => {
-      if (!isRecord(entry)) return "";
-      if (entry.type !== "text") return "";
-      return typeof entry.text === "string" ? entry.text : "";
-    })
-    .join("")
-    .trim();
-}
-
 const TOOL_PAYLOAD_TRUNCATE_LIMIT = 2000;
 
 function compactJson(value: unknown): string {

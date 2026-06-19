@@ -20,6 +20,10 @@ export interface ClaudeConversationStreamRunInput {
   resumeSessionId?: string | null;
   sessionId?: string | null;
   systemPrompt?: string | null;
+  /** Fired exactly once when the owned `claude -p` run settles (completes,
+   *  errors, or is interrupted). The server uses this reliable end-of-turn
+   *  signal to reset the worktree lifecycle, instead of the lossy Stop hook. */
+  onRunSettled?: () => void;
 }
 
 interface ActiveClaudeRun {
@@ -29,6 +33,7 @@ interface ActiveClaudeRun {
   liveMessages: Map<string, AgentsUiConversationMessageDraft>;
   completed: boolean;
   pruneTimer: ReturnType<typeof setTimeout> | null;
+  onRunSettled: (() => void) | null;
 }
 
 export interface ClaudeConversationStreamServiceDependencies {
@@ -72,6 +77,7 @@ export class ClaudeConversationStreamService {
       liveMessages: new Map(),
       completed: false,
       pruneTimer: null,
+      onRunSettled: input.onRunSettled ?? null,
     };
     this.runs.set(input.conversationId, run);
 
@@ -250,6 +256,7 @@ export class ClaudeConversationStreamService {
     }
 
     this.notifyStatus(run, false);
+    run.onRunSettled?.();
 
     run.pruneTimer = setTimeout(() => {
       const current = this.runs.get(run.conversationId);

@@ -706,6 +706,22 @@ async function setAgentTerminalStale(worktree: WorktreeSnapshot, stale: boolean)
   }
 }
 
+/** Drive the worktree agent lifecycle from the backend-owned `claude -p` web
+ *  chat run. The hook-based lifecycle (UserPromptSubmit/Stop) is best-effort and
+ *  can be lost or reordered, leaving the worktree stuck "running" so the busy
+ *  gate blocks the next web message even though nothing is running. The owned
+ *  run's start/settle is authoritative, so we set it directly. */
+function setWorktreeAgentLifecycle(worktree: WorktreeSnapshot, lifecycle: "running" | "stopped"): void {
+  const state = projectRuntime.getWorktreeByBranch(worktree.branch);
+  if (!state) return;
+  projectRuntime.applyEvent({
+    type: "agent_status_changed",
+    worktreeId: state.worktreeId,
+    branch: state.branch,
+    lifecycle,
+  });
+}
+
 async function resolveClaudeStreamingLaunchContext(
   worktree: WorktreeSnapshot,
 ): Promise<{
@@ -778,11 +794,13 @@ async function sendClaudeStreamingMessage(input: {
     permissionMode: launchContext.data.permissionMode,
     ...(hasExistingSession ? { resumeSessionId: sessionId } : { sessionId }),
     ...(!hasExistingSession && launchContext.data.systemPrompt ? { systemPrompt: launchContext.data.systemPrompt } : {}),
+    onRunSettled: () => setWorktreeAgentLifecycle(input.worktree, "stopped"),
   });
   if (!started.ok) {
     return errorResponse(started.error, 409);
   }
 
+  setWorktreeAgentLifecycle(input.worktree, "running");
   await setAgentTerminalStale(input.worktree, true);
   return jsonResponse({
     conversationId: sessionId,

@@ -292,4 +292,63 @@ describe("ClaudeConversationStreamService", () => {
       activeTurnId: null,
     });
   });
+
+  it("invokes onRunSettled exactly once when a run completes", () => {
+    const claude = new FakeClaudeCliGateway();
+    const service = new ClaudeConversationStreamService({ claude });
+    let settled = 0;
+
+    expect(service.startRun({
+      conversationId: "session-1",
+      turnId: "claude-turn:turn-1",
+      cwd: "/tmp/worktree",
+      prompt: "Ship it",
+      sessionId: "session-1",
+      onRunSettled: () => {
+        settled += 1;
+      },
+    })).toEqual({ ok: true });
+    expect(settled).toBe(0);
+
+    claude.callbacks?.onComplete?.("session-1");
+    expect(settled).toBe(1);
+
+    // A late/duplicate completion signal must not re-fire the callback.
+    claude.callbacks?.onComplete?.("session-1");
+    expect(settled).toBe(1);
+  });
+
+  it("invokes onRunSettled when a run errors or is interrupted", () => {
+    const erroring = new FakeClaudeCliGateway();
+    const errorService = new ClaudeConversationStreamService({ claude: erroring });
+    let erroredSettled = 0;
+    errorService.startRun({
+      conversationId: "session-1",
+      turnId: "claude-turn:turn-1",
+      cwd: "/tmp/worktree",
+      prompt: "Ship it",
+      sessionId: "session-1",
+      onRunSettled: () => {
+        erroredSettled += 1;
+      },
+    });
+    erroring.callbacks?.onError?.("boom");
+    expect(erroredSettled).toBe(1);
+
+    const interrupting = new FakeClaudeCliGateway();
+    const interruptService = new ClaudeConversationStreamService({ claude: interrupting });
+    let interruptedSettled = 0;
+    interruptService.startRun({
+      conversationId: "session-2",
+      turnId: "claude-turn:turn-2",
+      cwd: "/tmp/worktree",
+      prompt: "Ship it",
+      resumeSessionId: "session-2",
+      onRunSettled: () => {
+        interruptedSettled += 1;
+      },
+    });
+    interruptService.interrupt("session-2");
+    expect(interruptedSettled).toBe(1);
+  });
 });

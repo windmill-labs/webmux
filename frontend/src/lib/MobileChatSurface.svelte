@@ -280,37 +280,6 @@
     };
   });
 
-  // A freshly-created worktree runs Claude in the terminal (e.g. `claude -- "<prompt>"`),
-  // not the web `claude -p` socket, so those turns never publish live stream events.
-  // While that agent is actively working and we have no live stream, poll history so
-  // its messages — including a pending AskUserQuestion — show up in the web chat.
-  const agentWorking = $derived(worktree.agent === "working");
-
-  $effect(() => {
-    if (!agentWorking) return;
-
-    let requestInFlight = false;
-    const interval = window.setInterval(() => {
-      if (requestInFlight) return;
-      if (conversation?.provider !== "claudeCode") return;
-      if (hasActiveConversationStream(conversation.conversationId)) return;
-      requestInFlight = true;
-      void (async () => {
-        try {
-          applyConversationResponse(await requestConversation("history"));
-        } catch (error) {
-          conversationError = error instanceof Error ? error.message : String(error);
-        } finally {
-          requestInFlight = false;
-        }
-      })();
-    }, REFRESH_POLL_INTERVAL_MS);
-
-    return () => {
-      window.clearInterval(interval);
-    };
-  });
-
   $effect(() => {
     const pollingState = refreshPollingState;
     if (!pollingState) return;

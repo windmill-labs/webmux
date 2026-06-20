@@ -116,6 +116,7 @@ export interface WorktreeInfo {
 export interface WorktreeListRow {
   worktree: WorktreeInfo;
   depth: number;
+  parentBranch: string | null;
 }
 
 export type ToastTone = "info" | "success" | "error";

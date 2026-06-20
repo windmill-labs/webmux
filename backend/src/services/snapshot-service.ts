@@ -1,5 +1,6 @@
 import type { CreatingWorktreeState, PrEntry, ProjectSnapshot, WorktreeSnapshot } from "../domain/model";
 import type { RuntimeNotification } from "./notification-service";
+import { buildWorktreeOrderComparator } from "./order-service";
 import { ProjectRuntime } from "./project-runtime";
 
 function formatElapsedSince(startedAt: string | null, now: () => Date): string {
@@ -112,6 +113,7 @@ interface BuildWorktreeSnapshotsInput {
   isArchived?: (path: string) => boolean;
   findLinearIssue?: (branch: string) => WorktreeSnapshot["linearIssue"];
   findAgentLabel?: (agentId: string | null) => string | null;
+  order?: string[];
   now?: () => Date;
 }
 
@@ -139,7 +141,8 @@ export function buildWorktreeSnapshots(input: BuildWorktreeSnapshotsInput): Work
     }
   }
 
-  worktrees.sort((left, right) => left.branch.localeCompare(right.branch));
+  const compareByOrder = buildWorktreeOrderComparator(input.order ?? []);
+  worktrees.sort((left, right) => compareByOrder(left.branch, right.branch));
 
   return worktrees;
 }

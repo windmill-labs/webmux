@@ -108,23 +108,62 @@ export function buildWorktreeListRows(worktrees: WorktreeInfo[]): WorktreeListRo
   const rows: WorktreeListRow[] = [];
   const visited = new Set<string>();
 
-  function append(worktree: WorktreeInfo, depth: number): void {
+  function append(worktree: WorktreeInfo, depth: number, parentBranch: string | null): void {
     if (visited.has(worktree.branch)) return;
     visited.add(worktree.branch);
-    rows.push({ worktree, depth });
+    rows.push({ worktree, depth, parentBranch });
 
     for (const child of childrenByParent.get(worktree.branch) ?? []) {
-      append(child, depth + 1);
+      append(child, depth + 1, worktree.branch);
     }
   }
 
   for (const root of roots) {
-    append(root, 0);
+    append(root, 0, null);
   }
 
   for (const worktree of worktrees) {
-    append(worktree, 0);
+    append(worktree, 0, null);
   }
 
   return rows;
+}
+
+/** Reorder a worktree relative to a sibling, returning the new full branch order
+ *  (including filtered-out worktrees). Returns null when the move is invalid —
+ *  a no-op, an unknown branch, or a drop onto a non-sibling (different parent). */
+export function moveBranchInOrder(input: {
+  worktrees: WorktreeInfo[];
+  draggedBranch: string;
+  targetBranch: string;
+  position: "before" | "after";
+}): string[] | null {
+  const { worktrees, draggedBranch, targetBranch, position } = input;
+  if (draggedBranch === targetBranch) return null;
+
+  const worktreesByBranch = new Map(worktrees.map((worktree) => [worktree.branch, worktree]));
+  const dragged = worktreesByBranch.get(draggedBranch);
+  const target = worktreesByBranch.get(targetBranch);
+  if (!dragged || !target) return null;
+
+  if (parentBranchOf(dragged, worktreesByBranch) !== parentBranchOf(target, worktreesByBranch)) {
+    return null;
+  }
+
+  const order = worktrees.map((worktree) => worktree.branch).filter((branch) => branch !== draggedBranch);
+  const targetIndex = order.indexOf(targetBranch);
+  const insertAt = position === "before" ? targetIndex : targetIndex + 1;
+  return [...order.slice(0, insertAt), draggedBranch, ...order.slice(insertAt)];
+}
+
+/** Reorder the full worktree list to match a branch order, keeping any branch
+ *  not present in `order` in its original relative position at the end. */
+export function applyBranchOrder(worktrees: WorktreeInfo[], order: string[]): WorktreeInfo[] {
+  const orderIndex = new Map(order.map((branch, index) => [branch, index]));
+  return [...worktrees].sort((left, right) => {
+    const leftIndex = orderIndex.get(left.branch) ?? Number.POSITIVE_INFINITY;
+    const rightIndex = orderIndex.get(right.branch) ?? Number.POSITIVE_INFINITY;
+    if (leftIndex !== rightIndex) return leftIndex - rightIndex;
+    return left.branch.localeCompare(right.branch);
+  });
 }

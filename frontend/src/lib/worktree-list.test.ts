@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyBranchOrder,
   branchesWithAgentStatus,
   buildWorktreeListRows,
   countAgentStatusesIn,
   countArchivedMatches,
   filterWorktrees,
+  moveBranchInOrder,
 } from "./worktree-list";
 import type { WorktreeInfo, WorktreeListRow } from "./types";
 
@@ -104,8 +106,68 @@ describe("buildWorktreeListRows", () => {
 });
 
 function createRow(branch: string, overrides: Partial<WorktreeInfo> = {}): WorktreeListRow {
-  return { worktree: createWorktree(branch, { mux: "✓", ...overrides }), depth: 0 };
+  return { worktree: createWorktree(branch, { mux: "✓", ...overrides }), depth: 0, parentBranch: null };
 }
+
+describe("buildWorktreeListRows parentBranch", () => {
+  it("records the parent branch of each row", () => {
+    const rows = buildWorktreeListRows([
+      createWorktree("feature/base"),
+      createWorktree("feature/child", { baseBranch: "feature/base" }),
+      createWorktree("feature/root"),
+    ]);
+
+    expect(rows.map((row) => [row.worktree.branch, row.parentBranch])).toEqual([
+      ["feature/base", null],
+      ["feature/child", "feature/base"],
+      ["feature/root", null],
+    ]);
+  });
+});
+
+describe("moveBranchInOrder", () => {
+  const worktrees = [
+    createWorktree("main"),
+    createWorktree("feat-a", { baseBranch: "main" }),
+    createWorktree("feat-b", { baseBranch: "main" }),
+    createWorktree("other"),
+  ];
+
+  it("reorders siblings sharing the same parent", () => {
+    expect(
+      moveBranchInOrder({ worktrees, draggedBranch: "feat-b", targetBranch: "feat-a", position: "before" }),
+    ).toEqual(["main", "feat-b", "feat-a", "other"]);
+  });
+
+  it("reorders roots", () => {
+    expect(
+      moveBranchInOrder({ worktrees, draggedBranch: "other", targetBranch: "main", position: "before" }),
+    ).toEqual(["other", "main", "feat-a", "feat-b"]);
+  });
+
+  it("rejects moves across different parents", () => {
+    expect(
+      moveBranchInOrder({ worktrees, draggedBranch: "feat-a", targetBranch: "other", position: "after" }),
+    ).toBeNull();
+  });
+
+  it("rejects no-op and unknown branches", () => {
+    expect(
+      moveBranchInOrder({ worktrees, draggedBranch: "feat-a", targetBranch: "feat-a", position: "before" }),
+    ).toBeNull();
+    expect(
+      moveBranchInOrder({ worktrees, draggedBranch: "missing", targetBranch: "main", position: "before" }),
+    ).toBeNull();
+  });
+});
+
+describe("applyBranchOrder", () => {
+  it("sorts worktrees to match the given order, unknown branches last", () => {
+    const worktrees = [createWorktree("a"), createWorktree("b"), createWorktree("c")];
+    const ordered = applyBranchOrder(worktrees, ["c", "a"]);
+    expect(ordered.map((worktree) => worktree.branch)).toEqual(["c", "a", "b"]);
+  });
+});
 
 describe("countAgentStatusesIn", () => {
   const rows = [

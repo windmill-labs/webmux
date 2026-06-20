@@ -9,6 +9,7 @@ import {
   parseBranchCommandArgs,
   parseLabelCommandArgs,
   parseListCommandArgs,
+  parseReorderCommandArgs,
   parseSendCommandArgs,
   parseTabCommandArgs,
   runWorktreeCommand,
@@ -256,6 +257,41 @@ describe("parseListCommandArgs", () => {
 
   it("rejects conflicting archive filters", () => {
     expect(() => parseListCommandArgs(["--all", "--archived"])).toThrow("Cannot use --archived with --all");
+  });
+});
+
+describe("parseReorderCommandArgs", () => {
+  it("parses a branch with --before", () => {
+    expect(parseReorderCommandArgs(["feat-b", "--before", "feat-a"])).toEqual({
+      branch: "feat-b",
+      target: "feat-a",
+      position: "before",
+    });
+  });
+
+  it("parses a branch with --after", () => {
+    expect(parseReorderCommandArgs(["feat-a", "--after", "feat-b"])).toEqual({
+      branch: "feat-a",
+      target: "feat-b",
+      position: "after",
+    });
+  });
+
+  it("returns null only for --help", () => {
+    expect(parseReorderCommandArgs(["--help"])).toBeNull();
+  });
+
+  it("throws when required args are missing", () => {
+    expect(() => parseReorderCommandArgs([])).toThrow("reorder requires a <branch> to move");
+    expect(() => parseReorderCommandArgs(["feat-a"])).toThrow(
+      "reorder requires --before <branch> or --after <branch>",
+    );
+  });
+
+  it("rejects using both --before and --after", () => {
+    expect(() => parseReorderCommandArgs(["feat-a", "--before", "x", "--after", "y"])).toThrow(
+      "Use only one of --before or --after",
+    );
   });
 });
 
@@ -851,6 +887,66 @@ describe("runWorktreeCommand", () => {
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
+  });
+
+  it("persists a reorder and lists worktrees in the saved order", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "webmux-cli-reorder-"));
+    try {
+      const projectDir = join(tempDir, "repo");
+      await mkdir(projectDir, { recursive: true });
+      const makeReorderRuntime = () => ({
+        projectDir,
+        config: { workspace: { mainBranch: "main" } },
+        git: stubGit([
+          { path: projectDir, branch: "main", bare: false },
+          { path: join(projectDir, ".worktrees", "feat-a"), branch: "feat-a", bare: false },
+          { path: join(projectDir, ".worktrees", "feat-b"), branch: "feat-b", bare: false },
+        ]),
+        tmux: stubTmux(),
+        lifecycleService: stubLifecycleService([]),
+      });
+
+      const reorderOut: string[] = [];
+      const reorderExit = await runWorktreeCommand(
+        { command: "reorder", args: ["feat-b", "--before", "feat-a"], projectDir, port: 5111 },
+        { createRuntime: makeReorderRuntime, stdout: (msg) => reorderOut.push(msg) },
+      );
+      expect(reorderExit).toBe(0);
+      expect(reorderOut).toEqual(["Moved feat-b before feat-a"]);
+
+      const listOut: string[] = [];
+      const listExit = await runWorktreeCommand(
+        { command: "list", args: ["--all"], projectDir, port: 5111 },
+        { createRuntime: makeReorderRuntime, stdout: (msg) => listOut.push(msg) },
+      );
+      expect(listExit).toBe(0);
+      expect(listOut.map((line) => line.split(/\s+/)[0])).toEqual(["feat-b", "feat-a"]);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("errors when reordering an unknown worktree", async () => {
+    const stderr: string[] = [];
+    const exitCode = await runWorktreeCommand(
+      { command: "reorder", args: ["missing", "--before", "main"], projectDir: "/repo", port: 5111 },
+      {
+        createRuntime: () => ({
+          projectDir: "/repo",
+          config: { workspace: { mainBranch: "main" } },
+          git: stubGit([
+            { path: "/repo", branch: "main", bare: false },
+            { path: "/repo/.worktrees/feat-a", branch: "feat-a", bare: false },
+          ]),
+          tmux: stubTmux(),
+          lifecycleService: stubLifecycleService([]),
+        }),
+        stderr: (msg) => stderr.push(msg),
+      },
+    );
+
+    expect(exitCode).toBe(1);
+    expect(stderr[0]).toContain("Worktree not found: missing");
   });
 
   it("prints empty message when no worktrees exist", async () => {

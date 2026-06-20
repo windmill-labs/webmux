@@ -3,12 +3,22 @@ import { createApi } from "@webmux/api-contract";
 import { basename, resolve } from "node:path";
 import { buildSeedFromLinear, defaultSeedFromLinearDeps } from "../../backend/src/services/conversation-export-service";
 import { CommandUsageError, withServerConnection } from "./shared";
-import { readWorktreeArchiveState, readWorktreeMeta } from "../../backend/src/adapters/fs";
+import {
+  readWorktreeArchiveState,
+  readWorktreeMeta,
+  readWorktreeOrderState,
+  writeWorktreeOrderState,
+} from "../../backend/src/adapters/fs";
 import { buildProjectSessionName, buildWorktreeWindowName } from "../../backend/src/adapters/tmux";
 import type { AgentId } from "../../backend/src/domain/config";
 import type { WorktreeCreationPhase } from "../../backend/src/domain/model";
 import { isValidWorktreeName } from "../../backend/src/domain/policies";
 import { buildArchivedWorktreePathSet } from "../../backend/src/services/archive-service";
+import {
+  buildWorktreeOrderComparator,
+  createWorktreeOrderState,
+  moveBranchInOrder,
+} from "../../backend/src/services/order-service";
 import { createWebmuxRuntime } from "../../backend/src/runtime";
 import type { CreateLifecycleWorktreeInput, CreateLifecycleWorktreesInput, CreateLifecycleWorktreesResult, CreateWorktreeProgress, PruneWorktreesResult } from "../../backend/src/services/lifecycle-service";
 
@@ -20,7 +30,7 @@ const PHASE_LABELS: Record<WorktreeCreationPhase, string> = {
   reconciling: "Reconciling",
 };
 
-export type WorktreeSubcommand = "add" | "list" | "open" | "close" | "refresh" | "remove" | "merge" | "send" | "prune" | "archive" | "unarchive" | "label" | "tab";
+export type WorktreeSubcommand = "add" | "list" | "open" | "close" | "refresh" | "remove" | "merge" | "send" | "prune" | "archive" | "unarchive" | "label" | "tab" | "reorder";
 
 type WorktreeListMode = "active" | "all" | "archived";
 
@@ -140,6 +150,17 @@ export function getWorktreeCommandUsage(command: WorktreeSubcommand): string {
       ].join("\n");
     case "prune":
       return "Usage:\n  webmux prune";
+    case "reorder":
+      return [
+        "Usage:",
+        "  webmux reorder <branch> --before <branch>",
+        "  webmux reorder <branch> --after <branch>",
+        "",
+        "Options:",
+        "  --before <branch>        Place <branch> immediately before the given worktree",
+        "  --after <branch>         Place <branch> immediately after the given worktree",
+        "  --help                   Show this help message",
+      ].join("\n");
     case "tab":
       return [
         "Usage:",
@@ -571,6 +592,57 @@ export function parseListCommandArgs(args: string[]): ParsedListCommand | null {
   return { mode, search };
 }
 
+interface ParsedReorderCommand {
+  branch: string;
+  target: string;
+  position: "before" | "after";
+}
+
+export function parseReorderCommandArgs(args: string[]): ParsedReorderCommand | null {
+  let branch: string | null = null;
+  let target: string | null = null;
+  let position: "before" | "after" | null = null;
+
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index];
+    if (!arg) continue;
+
+    if (arg === "--help" || arg === "-h") {
+      return null;
+    }
+
+    if (arg === "--before" || arg.startsWith("--before=") || arg === "--after" || arg.startsWith("--after=")) {
+      if (position) {
+        throw new CommandUsageError("Use only one of --before or --after");
+      }
+      const flag = arg.startsWith("--before") ? "--before" : "--after";
+      const { value, nextIndex } = readOptionValue(args, index, flag);
+      target = value;
+      position = flag === "--before" ? "before" : "after";
+      index = nextIndex;
+      continue;
+    }
+
+    if (arg.startsWith("-")) {
+      throw new CommandUsageError(`Unknown option: ${arg}`);
+    }
+
+    if (branch) {
+      throw new CommandUsageError(`Unexpected argument: ${arg}`);
+    }
+    branch = arg;
+  }
+
+  if (!branch) {
+    throw new CommandUsageError("reorder requires a <branch> to move");
+  }
+  if (!target || !position) {
+    throw new CommandUsageError("reorder requires --before <branch> or --after <branch>");
+  }
+
+  return { branch, target, position };
+}
+
 function listProjectWorktrees(
   runtime: WorktreeRuntimeLike,
 ): Array<{ path: string; branch: string | null; bare: boolean }> {
@@ -660,6 +732,7 @@ async function listWorktrees(
 
   const projectGitDir = runtime.git.resolveWorktreeGitDir(projectDir);
   const archivedPaths = buildArchivedWorktreePathSet(await readWorktreeArchiveState(projectGitDir));
+  const orderComparator = buildWorktreeOrderComparator((await readWorktreeOrderState(projectGitDir)).branches);
   const rows = await Promise.all(entries.map(async (entry) => {
     const branch = entry.branch ?? basename(entry.path);
     const isOpen = openWindows.has(buildWorktreeWindowName(branch));
@@ -684,7 +757,7 @@ async function listWorktrees(
 
   const matchingRows = rows
     .filter((row) => matchesListSearch(row, options.search.trim()))
-    .sort((a, b) => a.branch.localeCompare(b.branch));
+    .sort((a, b) => orderComparator(a.branch, b.branch));
   const visibleRows = matchingRows.filter((row) => {
     if (options.mode === "all") return true;
     if (options.mode === "archived") return row.archived;
@@ -924,7 +997,45 @@ export async function runWorktreeCommand(
       return 0;
     }
 
-    const command: Exclude<WorktreeSubcommand, "add" | "list" | "send" | "prune" | "label" | "tab"> = context.command;
+    if (context.command === "reorder") {
+      const parsed = parseReorderCommandArgs(context.args);
+      if (!parsed) {
+        stdout(getWorktreeCommandUsage("reorder"));
+        return 0;
+      }
+
+      const runtime = createRuntime({
+        projectDir: context.projectDir,
+        port: context.port,
+      });
+      const projectDir = resolve(runtime.projectDir);
+      const projectGitDir = runtime.git.resolveWorktreeGitDir(projectDir);
+      const branches = listProjectWorktrees(runtime).map((entry) => entry.branch ?? basename(entry.path));
+
+      if (!branches.includes(parsed.branch)) {
+        stderr(`Worktree not found: ${parsed.branch}`);
+        return 1;
+      }
+      if (!branches.includes(parsed.target)) {
+        stderr(`Worktree not found: ${parsed.target}`);
+        return 1;
+      }
+
+      const orderState = await readWorktreeOrderState(projectGitDir);
+      const comparator = buildWorktreeOrderComparator(orderState.branches);
+      const currentOrder = [...branches].sort(comparator);
+      const nextOrder = moveBranchInOrder(currentOrder, parsed.branch, parsed.target, parsed.position);
+      if (!nextOrder) {
+        stderr(`Cannot move ${parsed.branch} ${parsed.position} ${parsed.target}`);
+        return 1;
+      }
+
+      await writeWorktreeOrderState(projectGitDir, createWorktreeOrderState(nextOrder));
+      stdout(`Moved ${parsed.branch} ${parsed.position} ${parsed.target}`);
+      return 0;
+    }
+
+    const command: Exclude<WorktreeSubcommand, "add" | "list" | "send" | "prune" | "label" | "tab" | "reorder"> = context.command;
     const branch = parseBranchCommandArgs(context.args);
     if (!branch) {
       stdout(getWorktreeCommandUsage(command));

@@ -31,6 +31,7 @@
     onmerge,
     onremove,
     onposttolinear,
+    onreorder = () => {},
   }: {
     rows: WorktreeListRow[];
     selected: string | null;
@@ -46,6 +47,7 @@
     onmerge: (branch: string) => void;
     onremove: (branch: string) => void;
     onposttolinear?: (branch: string) => void;
+    onreorder?: (draggedBranch: string, targetBranch: string, position: "before" | "after") => void;
   } = $props();
 
   function toggleMenu(branch: string): void {
@@ -192,10 +194,61 @@
     );
     target?.scrollIntoView({ behavior: "smooth", block: "center" });
   }
+
+  type DropPosition = "before" | "after";
+
+  let draggingBranch = $state<string | null>(null);
+  let draggingParent = $state<string | null>(null);
+  let dropTarget = $state<{ branch: string; position: DropPosition } | null>(null);
+
+  function handleRowDragStart(event: DragEvent, row: WorktreeListRow): void {
+    openMenuBranch = null;
+    draggingBranch = row.worktree.branch;
+    draggingParent = row.parentBranch;
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", row.worktree.branch);
+    }
+  }
+
+  function handleRowDragOver(event: DragEvent & { currentTarget: HTMLElement }, row: WorktreeListRow): void {
+    // Only allow dropping between siblings sharing the same parent. Clear any
+    // lingering indicator when hovering the dragged row or a non-sibling.
+    if (!draggingBranch || row.worktree.branch === draggingBranch || row.parentBranch !== draggingParent) {
+      dropTarget = null;
+      return;
+    }
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+    const rect = event.currentTarget.getBoundingClientRect();
+    const position: DropPosition = event.clientY < rect.top + rect.height / 2 ? "before" : "after";
+    dropTarget = { branch: row.worktree.branch, position };
+  }
+
+  function handleRowDrop(event: DragEvent, row: WorktreeListRow): void {
+    if (!draggingBranch || !dropTarget || row.parentBranch !== draggingParent) return;
+    event.preventDefault();
+    onreorder(draggingBranch, dropTarget.branch, dropTarget.position);
+    resetDragState();
+  }
+
+  function resetDragState(): void {
+    draggingBranch = null;
+    draggingParent = null;
+    dropTarget = null;
+  }
 </script>
 
 <div class="relative flex min-h-0 flex-1 flex-col">
-  <ul bind:this={listEl} class="list-none overflow-y-auto flex-1 min-h-0 p-2">
+  <ul
+    bind:this={listEl}
+    class="list-none overflow-y-auto flex-1 min-h-0 p-2"
+    ondragleave={(event) => {
+      if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) {
+        dropTarget = null;
+      }
+    }}
+  >
     {#if rows.length === 0}
       <li class="px-3 py-4 text-xs text-muted text-center">{emptyMessage}</li>
     {/if}
@@ -211,10 +264,24 @@
       {@const isBusy = isRemoving || isInitializing}
       {@const hasLabel = !!wt.label}
       {@const hasBadgeRow = isArchived || isCreating || isInitializing || isClosed || wt.prs.length > 0 || !!wt.linearIssue || wt.source === "oneshot"}
+      {@const isDragging = draggingBranch === wt.branch}
+      {@const isDropBefore = dropTarget?.branch === wt.branch && dropTarget.position === "before"}
+      {@const isDropAfter = dropTarget?.branch === wt.branch && dropTarget.position === "after"}
       <li
         data-branch={wt.branch}
-        class="mb-0.5 group relative {isBusy ? 'opacity-40 pointer-events-none' : ''}"
+        draggable={!isBusy}
+        class="mb-0.5 group relative {isBusy ? 'opacity-40 pointer-events-none' : ''} {isDragging ? 'opacity-40' : ''}"
+        ondragstart={(event) => handleRowDragStart(event, row)}
+        ondragover={(event) => handleRowDragOver(event, row)}
+        ondrop={(event) => handleRowDrop(event, row)}
+        ondragend={resetDragState}
       >
+        {#if isDropBefore}
+          <div class="pointer-events-none absolute -top-0.5 inset-x-1 h-0.5 rounded bg-accent"></div>
+        {/if}
+        {#if isDropAfter}
+          <div class="pointer-events-none absolute -bottom-0.5 inset-x-1 h-0.5 rounded bg-accent"></div>
+        {/if}
         <button
           type="button"
           disabled={isBusy}

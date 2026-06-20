@@ -11,7 +11,7 @@ interface ListBranchesDeps {
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
-const BRANCH_SUBCOMMANDS = new Set(["open", "close", "refresh", "archive", "unarchive", "label", "remove", "merge", "send"]);
+const BRANCH_SUBCOMMANDS = new Set(["open", "close", "refresh", "archive", "unarchive", "label", "remove", "merge", "send", "reorder"]);
 
 // ── Pure logic ─────────────────────────────────────────────────────────────
 
@@ -133,6 +133,7 @@ _webmux() {
     'remove:Remove a worktree'
     'merge:Merge a worktree into main'
     'send:Send a prompt to a running worktree agent'
+    'reorder:Reorder a worktree in the list'
     'prune:Remove all worktrees in the current project'
     'linear:Post a worktree conversation to a Linear issue/team'
     'completion:Generate shell completion script'
@@ -197,7 +198,7 @@ const BASH_SCRIPT = `_webmux() {
   prev="\${COMP_WORDS[COMP_CWORD-1]}"
 
   if [[ \${COMP_CWORD} -eq 1 ]]; then
-    COMPREPLY=($(compgen -W "serve init service update add oneshot list open close refresh archive unarchive label remove merge send prune linear completion" -- "\${cur}"))
+    COMPREPLY=($(compgen -W "serve init service update add oneshot list open close refresh archive unarchive label remove merge send reorder prune linear completion" -- "\${cur}"))
     return
   fi
 

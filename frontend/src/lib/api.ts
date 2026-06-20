@@ -105,6 +105,13 @@ export async function setWorktreeLabel(branch: string, label: string | null): Pr
   return response.label;
 }
 
+export async function setWorktreeOrder(branches: string[]): Promise<string[]> {
+  const response = await api.setWorktreeOrder({
+    body: { branches },
+  });
+  return response.branches;
+}
+
 export function attachWorktreeConversation(branch: string): Promise<AgentsUiWorktreeConversationResponse> {
   return api.attachAgentsWorktreeConversation({
     params: { name: branch },

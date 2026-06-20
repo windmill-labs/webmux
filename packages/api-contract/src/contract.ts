@@ -32,6 +32,8 @@ import {
   ProjectWorktreeSnapshotSchema,
   SetWorktreeLabelRequestSchema,
   SetWorktreeLabelResponseSchema,
+  SetWorktreeOrderRequestSchema,
+  SetWorktreeOrderResponseSchema,
   ToggleEnabledRequestSchema,
   WorktreeDiffResponseSchema,
   WorktreeListResponseSchema,
@@ -61,6 +63,7 @@ export const apiPaths = {
   interruptAgentsWorktreeConversation: "/api/agents/worktrees/:name/interrupt",
   streamAgentsWorktreeConversation: "/ws/agents/worktrees/:name",
   fetchWorktrees: "/api/worktrees",
+  setWorktreeOrder: "/api/worktrees/order",
   createWorktree: "/api/worktrees",
   removeWorktree: "/api/worktrees/:name",
   openWorktree: "/api/worktrees/:name/open",
@@ -230,6 +233,15 @@ export const apiContract = c.router({
       200: WorktreeListResponseSchema,
       500: ErrorResponseSchema,
       502: ErrorResponseSchema,
+    },
+  },
+  setWorktreeOrder: {
+    method: "PUT",
+    path: apiPaths.setWorktreeOrder,
+    body: SetWorktreeOrderRequestSchema,
+    responses: {
+      200: SetWorktreeOrderResponseSchema,
+      ...commonErrorResponses,
     },
   },
   createWorktree: {

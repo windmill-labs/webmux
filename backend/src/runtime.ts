@@ -8,6 +8,7 @@ import { BunTmuxGateway } from "./adapters/tmux";
 import { FileSessionDiscovery } from "./adapters/session-discovery";
 import { AutoNameService } from "./services/auto-name-service";
 import { ArchiveStateService } from "./services/archive-state-service";
+import { OrderStateService } from "./services/order-state-service";
 import { LifecycleService, type CreateWorktreeProgress } from "./services/lifecycle-service";
 import { NotificationService as RuntimeNotificationService } from "./services/notification-service";
 import { ProjectRuntime } from "./services/project-runtime";
@@ -25,6 +26,7 @@ export interface WebmuxRuntime {
   projectDir: string;
   config: ProjectConfig;
   archiveStateService: ArchiveStateService;
+  orderStateService: OrderStateService;
   git: BunGitGateway;
   portProbe: BunPortProbe;
   tmux: BunTmuxGateway;
@@ -44,6 +46,7 @@ export function createWebmuxRuntime(options: WebmuxRuntimeOptions = {}): WebmuxR
   const config = loadConfig(projectDir, { resolvedRoot: true });
   const git = new BunGitGateway();
   const archiveStateService = new ArchiveStateService(git.resolveWorktreeGitDir(projectDir));
+  const orderStateService = new OrderStateService(git.resolveWorktreeGitDir(projectDir));
   const portProbe = new BunPortProbe();
   const tmux = new BunTmuxGateway();
   const docker = new BunDockerGateway();
@@ -86,6 +89,7 @@ export function createWebmuxRuntime(options: WebmuxRuntimeOptions = {}): WebmuxR
     projectDir,
     config,
     archiveStateService,
+    orderStateService,
     git,
     portProbe,
     tmux,

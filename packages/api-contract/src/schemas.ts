@@ -191,6 +191,15 @@ export const SetWorktreeLabelResponseSchema = z.object({
   label: z.string().nullable(),
 });
 
+export const SetWorktreeOrderRequestSchema = z.object({
+  branches: z.array(z.string()),
+});
+
+export const SetWorktreeOrderResponseSchema = z.object({
+  ok: z.literal(true),
+  branches: z.array(z.string()),
+});
+
 export const ToggleEnabledRequestSchema = z.object({
   enabled: z.boolean(),
 });
@@ -629,6 +638,8 @@ export type SetWorktreeArchivedRequest = z.infer<typeof SetWorktreeArchivedReque
 export type SetWorktreeArchivedResponse = z.infer<typeof SetWorktreeArchivedResponseSchema>;
 export type SetWorktreeLabelRequest = z.infer<typeof SetWorktreeLabelRequestSchema>;
 export type SetWorktreeLabelResponse = z.infer<typeof SetWorktreeLabelResponseSchema>;
+export type SetWorktreeOrderRequest = z.infer<typeof SetWorktreeOrderRequestSchema>;
+export type SetWorktreeOrderResponse = z.infer<typeof SetWorktreeOrderResponseSchema>;
 export type ToggleEnabledRequest = z.infer<typeof ToggleEnabledRequestSchema>;
 export type SendWorktreePromptRequest = z.infer<typeof SendWorktreePromptRequestSchema>;
 export type AgentsSendMessageRequest = z.infer<typeof AgentsSendMessageRequestSchema>;

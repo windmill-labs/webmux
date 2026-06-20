@@ -2,6 +2,7 @@ import type { AgentId, RuntimeKind } from "./config";
 
 export const WORKTREE_META_SCHEMA_VERSION = 1;
 export const WORKTREE_ARCHIVE_STATE_VERSION = 1;
+export const WORKTREE_ORDER_STATE_VERSION = 1;
 
 export type WorktreeConversationProvider = "codexAppServer" | "claudeCode";
 
@@ -97,6 +98,11 @@ export interface ArchivedWorktreeEntry {
 export interface WorktreeArchiveState {
   schemaVersion: number;
   entries: ArchivedWorktreeEntry[];
+}
+
+export interface WorktreeOrderState {
+  schemaVersion: number;
+  branches: string[];
 }
 
 export interface WorktreeStoragePaths {

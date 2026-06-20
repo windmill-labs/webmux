@@ -304,4 +304,40 @@ describe("buildProjectSnapshot", () => {
       "feature/zebra",
     ]);
   });
+
+  it("applies a saved branch order, appending unknown branches alphabetically", () => {
+    const runtime = new ProjectRuntime();
+    runtime.upsertWorktree({
+      worktreeId: "wt_alpha",
+      branch: "feature/alpha",
+      path: "/repo/__worktrees/feature-alpha",
+      runtime: "host",
+    });
+    runtime.upsertWorktree({
+      worktreeId: "wt_beta",
+      branch: "feature/beta",
+      path: "/repo/__worktrees/feature-beta",
+      runtime: "host",
+    });
+    runtime.upsertWorktree({
+      worktreeId: "wt_gamma",
+      branch: "feature/gamma",
+      path: "/repo/__worktrees/feature-gamma",
+      runtime: "host",
+    });
+
+    const snapshot = buildProjectSnapshot({
+      projectName: "Project",
+      mainBranch: "main",
+      runtime,
+      notifications: [],
+      order: ["feature/gamma", "feature/alpha"],
+    });
+
+    expect(snapshot.worktrees.map((worktree) => worktree.branch)).toEqual([
+      "feature/gamma",
+      "feature/alpha",
+      "feature/beta",
+    ]);
+  });
 });

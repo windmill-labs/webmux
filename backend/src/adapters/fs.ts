@@ -11,10 +11,16 @@ import type {
   WorktreeConversationMeta,
   WorktreeArchiveState,
   WorktreeMeta,
+  WorktreeOrderState,
   WorktreeStoragePaths,
   WorktreeTab,
 } from "../domain/model";
-import { conversationSessionId, ROOT_TAB_ID, WORKTREE_ARCHIVE_STATE_VERSION } from "../domain/model";
+import {
+  conversationSessionId,
+  ROOT_TAB_ID,
+  WORKTREE_ARCHIVE_STATE_VERSION,
+  WORKTREE_ORDER_STATE_VERSION,
+} from "../domain/model";
 
 const SAFE_ENV_VALUE_RE = /^[A-Za-z0-9_./:@%+=,-]+$/;
 const DOTENV_LINE_RE = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)/;
@@ -72,6 +78,10 @@ export function getWorktreeStoragePaths(gitDir: string): WorktreeStoragePaths {
 
 export function getProjectArchiveStatePath(gitDir: string): string {
   return join(gitDir, "webmux", "archive.json");
+}
+
+export function getProjectOrderStatePath(gitDir: string): string {
+  return join(gitDir, "webmux", "order.json");
 }
 
 export async function ensureWorktreeStorageDirs(gitDir: string): Promise<WorktreeStoragePaths> {
@@ -134,6 +144,41 @@ export async function writeWorktreeArchiveState(gitDir: string, state: WorktreeA
   const archivePath = getProjectArchiveStatePath(gitDir);
   await ensureWorktreeStorageDirs(gitDir);
   await Bun.write(archivePath, JSON.stringify(state, null, 2) + "\n");
+}
+
+function emptyWorktreeOrderState(): WorktreeOrderState {
+  return {
+    schemaVersion: WORKTREE_ORDER_STATE_VERSION,
+    branches: [],
+  };
+}
+
+function isWorktreeOrderState(raw: unknown): raw is WorktreeOrderState {
+  return isRecord(raw)
+    && typeof raw.schemaVersion === "number"
+    && Array.isArray(raw.branches)
+    && raw.branches.every((branch) => typeof branch === "string");
+}
+
+export async function readWorktreeOrderState(gitDir: string): Promise<WorktreeOrderState> {
+  const orderPath = getProjectOrderStatePath(gitDir);
+  try {
+    const raw: unknown = await Bun.file(orderPath).json();
+    return isWorktreeOrderState(raw)
+      ? {
+          schemaVersion: raw.schemaVersion,
+          branches: [...raw.branches],
+        }
+      : emptyWorktreeOrderState();
+  } catch {
+    return emptyWorktreeOrderState();
+  }
+}
+
+export async function writeWorktreeOrderState(gitDir: string, state: WorktreeOrderState): Promise<void> {
+  const orderPath = getProjectOrderStatePath(gitDir);
+  await ensureWorktreeStorageDirs(gitDir);
+  await Bun.write(orderPath, JSON.stringify(state, null, 2) + "\n");
 }
 
 export function buildRuntimeEnvMap(

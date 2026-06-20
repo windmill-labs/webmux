@@ -265,6 +265,64 @@ describe("MobileChatSurface", () => {
     await screen.findByText("Done from terminal");
   });
 
+  it("polls Claude history for a terminal-routed run while the agent is working", async () => {
+    vi.mocked(attachWorktreeConversation).mockResolvedValue(createConversationResponse("claudeCode"));
+    vi.mocked(fetchWorktreeConversationHistory).mockResolvedValue(createConversationResponse("claudeCode", {
+      messages: [
+        {
+          id: "ask-1",
+          turnId: "turn-1",
+          order: 0,
+          role: "assistant",
+          kind: "toolUse",
+          toolName: "AskUserQuestion",
+          toolCallId: "ask-1",
+          text: JSON.stringify({
+            questions: [
+              {
+                question: "Cats or dogs?",
+                header: "Pet type",
+                multiSelect: false,
+                options: [{ label: "Cats" }, { label: "Dogs" }],
+              },
+            ],
+          }),
+          status: "completed",
+          createdAt: "2026-05-28T10:00:00.000Z",
+        },
+      ],
+    }));
+
+    render(MobileChatSurface, {
+      props: {
+        worktree: createWorktree({ agent: "working" }),
+      },
+    });
+
+    await vi.advanceTimersByTimeAsync(1000);
+
+    await waitFor(() => {
+      expect(fetchWorktreeConversationHistory).toHaveBeenCalledWith("feature/mobile-chat");
+    });
+    await screen.findByRole("button", { name: "Cats" });
+  });
+
+  it("does not poll history for an idle Claude worktree on mount", async () => {
+    vi.mocked(attachWorktreeConversation).mockResolvedValue(createConversationResponse("claudeCode"));
+    vi.mocked(fetchWorktreeConversationHistory).mockResolvedValue(createConversationResponse("claudeCode"));
+
+    render(MobileChatSurface, {
+      props: {
+        worktree: createWorktree({ agent: "waiting" }),
+      },
+    });
+
+    await screen.findByText("No messages yet. Send the first prompt to start this chat.");
+    await vi.advanceTimersByTimeAsync(3000);
+
+    expect(fetchWorktreeConversationHistory).not.toHaveBeenCalled();
+  });
+
   it("does not poll Codex history after sending when the websocket stream is active", async () => {
     vi.mocked(attachWorktreeConversation).mockResolvedValue(createConversationResponse("codexAppServer"));
     vi.mocked(sendWorktreeConversationMessage).mockResolvedValue({

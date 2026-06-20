@@ -38,6 +38,7 @@
   let conversationLoading = $state(false);
   let composerText = $state("");
   let isSending = $state(false);
+  let isAnsweringQuestion = $state(false);
   let refreshPollingState = $state<{
     token: number;
     baselineSignature: string | null;
@@ -200,25 +201,24 @@
     };
   }
 
-  async function sendSelectedConversationMessage(): Promise<void> {
-    if (!conversation) return;
+  async function sendConversationText(text: string): Promise<boolean> {
+    if (!conversation) return false;
     const baselineConversation = conversation;
-    const text = composerText.trim();
-    if (text.length === 0) return;
+    const trimmed = text.trim();
+    if (trimmed.length === 0) return false;
 
     isSending = true;
     conversationError = null;
     try {
       syncConversationStream(true);
-      const response = await sendWorktreeConversationMessage(worktree.branch, { text });
-      composerText = "";
+      const response = await sendWorktreeConversationMessage(worktree.branch, { text: trimmed });
       if (conversation.conversationId !== response.conversationId) {
         conversation = {
           ...conversation,
           conversationId: response.conversationId,
         };
       }
-      conversation = markConversationTurnStarted(conversation, response.turnId, text);
+      conversation = markConversationTurnStarted(conversation, response.turnId, trimmed);
       if (response.streaming) {
         syncConversationStream();
       } else {
@@ -226,11 +226,19 @@
         startRefreshPolling(baselineConversation);
       }
       onConversationMessageSent();
+      return true;
     } catch (error) {
       conversationError = error instanceof Error ? error.message : String(error);
+      return false;
     } finally {
       isSending = false;
     }
+  }
+
+  async function sendSelectedConversationMessage(): Promise<void> {
+    if (composerText.trim().length === 0) return;
+    const sent = await sendConversationText(composerText);
+    if (sent) composerText = "";
   }
 
   async function interruptSelectedConversation(): Promise<void> {
@@ -246,6 +254,22 @@
       }
     } catch (error) {
       conversationError = error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  // Answering an AskUserQuestion is a new turn, so the run that asked it must end
+  // first. In headless `claude -p` the question is auto-dismissed and the turn
+  // keeps going, so interrupt the active run before sending the answer.
+  async function answerConversationQuestion(text: string): Promise<void> {
+    if (!conversation || isSending || isAnsweringQuestion) return;
+    isAnsweringQuestion = true;
+    try {
+      if (conversation.running) {
+        await interruptSelectedConversation();
+      }
+      await sendConversationText(text);
+    } finally {
+      isAnsweringQuestion = false;
     }
   }
 
@@ -300,4 +324,5 @@
   onInterrupt={() => void interruptSelectedConversation()}
   onRefresh={() => void loadConversation("history")}
   onSend={() => void sendSelectedConversationMessage()}
+  onAnswerQuestion={(text) => void answerConversationQuestion(text)}
 />

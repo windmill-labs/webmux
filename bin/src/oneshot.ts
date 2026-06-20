@@ -275,6 +275,17 @@ function summarizeToolInput(toolName: string, jsonText: string): string {
   }
   if (!input) return truncateInline(jsonText, 100);
 
+  if (toolName.toLowerCase() === "askuserquestion" && Array.isArray(input.questions)) {
+    const headers: string[] = [];
+    for (const question of input.questions) {
+      if (question && typeof question === "object" && !Array.isArray(question)) {
+        const header = (question as Record<string, unknown>).header;
+        if (typeof header === "string") headers.push(header);
+      }
+    }
+    if (headers.length > 0) return truncateInline(headers.join(", "), 120);
+  }
+
   const keys = TOOL_PRIMARY_KEY[toolName.toLowerCase()];
   if (keys) {
     const values: string[] = [];

@@ -52,12 +52,14 @@ function renderPanel({
   conversationError = null,
   composerText = "",
   isSending = false,
+  onAnswerQuestion = vi.fn(),
 }: {
   worktree?: WorktreeInfo;
   conversation?: AgentsUiConversationState | null;
   conversationError?: string | null;
   composerText?: string;
   isSending?: boolean;
+  onAnswerQuestion?: (text: string) => void;
 } = {}) {
   const onInterrupt = vi.fn();
 
@@ -74,10 +76,11 @@ function renderPanel({
       onInterrupt,
       onRefresh: vi.fn(),
       onSend: vi.fn(),
+      onAnswerQuestion,
     },
   });
 
-  return { onInterrupt };
+  return { onInterrupt, onAnswerQuestion };
 }
 
 describe("WorktreeConversationPanel", () => {
@@ -193,6 +196,104 @@ describe("WorktreeConversationPanel", () => {
     expect(toolBlock).toHaveTextContent("ls");
     expect(toolBlock).toHaveTextContent("README.md");
     expect(toolBlock?.querySelector("details")).toBeNull();
+  });
+
+  it("renders an AskUserQuestion tool as a clickable question card", () => {
+    renderPanel({
+      conversation: createConversation({
+        messages: [
+          {
+            id: "ask-1",
+            turnId: "turn-1",
+            order: 0,
+            role: "assistant",
+            kind: "toolUse",
+            toolName: "AskUserQuestion",
+            toolCallId: "ask-1",
+            text: JSON.stringify({
+              questions: [
+                {
+                  question: "Do you prefer cats or dogs?",
+                  header: "Pet type",
+                  multiSelect: false,
+                  options: [{ label: "Cats" }, { label: "Dogs" }],
+                },
+              ],
+            }),
+            status: "completed",
+            createdAt: null,
+          },
+          {
+            id: "tool_result:ask-1",
+            turnId: "turn-1",
+            order: 1,
+            role: "user",
+            kind: "toolResult",
+            toolCallId: "ask-1",
+            text: "Answer questions?",
+            status: "failed",
+            createdAt: null,
+          },
+        ],
+      }),
+    });
+
+    expect(screen.getByText("Do you prefer cats or dogs?")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cats" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Dogs" })).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Custom answer…")).toBeInTheDocument();
+    expect(screen.queryByText("Answer questions?")).not.toBeInTheDocument();
+    expect(screen.queryByText("Failed AskUserQuestion")).not.toBeInTheDocument();
+  });
+
+  function askQuestionConversation(running: boolean): AgentsUiConversationState {
+    return createConversation({
+      running,
+      activeTurnId: running ? "turn-1" : null,
+      messages: [
+        {
+          id: "ask-1",
+          turnId: "turn-1",
+          order: 0,
+          role: "assistant",
+          kind: "toolUse",
+          toolName: "AskUserQuestion",
+          toolCallId: "ask-1",
+          text: JSON.stringify({
+            questions: [
+              {
+                question: "Do you prefer cats or dogs?",
+                header: "Pet type",
+                multiSelect: false,
+                options: [{ label: "Cats" }, { label: "Dogs" }],
+              },
+            ],
+          }),
+          status: "completed",
+          createdAt: null,
+        },
+      ],
+    });
+  }
+
+  it("answers through onAnswerQuestion when a question option is clicked", async () => {
+    const onAnswerQuestion = vi.fn();
+    renderPanel({ onAnswerQuestion, conversation: askQuestionConversation(false) });
+
+    await fireEvent.click(screen.getByRole("button", { name: "Cats" }));
+
+    expect(onAnswerQuestion).toHaveBeenCalledWith("Pet type: Cats");
+  });
+
+  it("keeps the question card answerable while the turn is still running", async () => {
+    const onAnswerQuestion = vi.fn();
+    renderPanel({ onAnswerQuestion, conversation: askQuestionConversation(true) });
+
+    const option = screen.getByRole("button", { name: "Cats" });
+    expect(option).not.toBeDisabled();
+
+    await fireEvent.click(option);
+    expect(onAnswerQuestion).toHaveBeenCalledWith("Pet type: Cats");
   });
 
   it("shows a processing indicator before visible progress arrives", () => {

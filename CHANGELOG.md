@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.39.0](https://github.com/windmill-labs/webmux/compare/v0.38.0...v0.39.0) (2026-06-22)
+
+
+### Features
+
+* serve all projects from one webmux dashboard on one port ([#271](https://github.com/windmill-labs/webmux/issues/271)) ([034b460](https://github.com/windmill-labs/webmux/commit/034b46055dc0f8448e3f7ac579e3b3e8889c0854))
+* set up a project on add (scaffold + analyze with Claude), observably ([#278](https://github.com/windmill-labs/webmux/issues/278)) ([b6411da](https://github.com/windmill-labs/webmux/commit/b6411dae3403ab785007e440807d8d1a5c014693))
+
 ## [0.38.0](https://github.com/windmill-labs/webmux/compare/v0.37.0...v0.38.0) (2026-06-20)
 
 

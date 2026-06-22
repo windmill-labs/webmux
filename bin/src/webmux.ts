@@ -353,17 +353,17 @@ async function main(args: string[] = process.argv.slice(2)): Promise<void> {
     }
   }
 
-  // Nudge toward consolidation when other webmux servers are running — on the
-  // occasional management commands (oneshot/linear/project), but NOT the
-  // high-frequency worktree commands (list/open/send/…) where a per-invocation
-  // warning would be noisy, nor `project migrate` (which consolidates them
-  // itself). Cheap: a local registry read, silent unless peers exist, and to
-  // stderr so it never pollutes piped output.
+  // Nudge toward consolidation when other webmux servers are running, on any
+  // command that reaches a project (everything dispatched below) except
+  // `project migrate`, which consolidates them itself. Cheap: a local registry
+  // read, silent unless peers exist, and to stderr so it never pollutes piped
+  // output. Only relevant before the user has consolidated, so it's transient.
   const isProjectMigrate = parsed.command === "project" && parsed.commandArgs[0] === "migrate";
-  const isOccasionalServerCommand = parsed.command === "oneshot"
+  const reachesAProject = parsed.command === "oneshot"
     || parsed.command === "linear"
-    || parsed.command === "project";
-  if (isOccasionalServerCommand && !isProjectMigrate) {
+    || parsed.command === "project"
+    || isWorktreeCommand(parsed.command);
+  if (reachesAProject && !isProjectMigrate) {
     const { warnIfOtherInstances } = await import("./migrate.ts");
     warnIfOtherInstances(effectivePort);
   }

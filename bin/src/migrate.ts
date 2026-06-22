@@ -145,7 +145,8 @@ export function warnIfOtherInstances(port: number, listLive: () => InstanceEntry
   }
   if (others.length === 0) return;
   const ports = others.map((entry) => entry.port).join(", ");
-  console.error(
-    `Warning: ${others.length} other webmux server(s) detected on port(s) ${ports}. Run \`webmux project migrate\` to consolidate them into this dashboard.`,
-  );
+  const message = `Warning: ${others.length} other webmux server(s) detected on port(s) ${ports}. Run \`webmux project migrate\` to consolidate them into this dashboard.`;
+  // Amber, not red — this is a nudge, not an error. Colorize only on a TTY so
+  // piped/redirected stderr stays plain (no escape codes in logs).
+  console.error(process.stderr.isTTY ? `\x1b[38;5;214m${message}\x1b[0m` : message);
 }

@@ -37,7 +37,14 @@ export async function awaitProjectSetup(path: string, deps: ProjectSetupPoller):
   let lastPhase: ProjectInitPhase | null = null;
 
   while (now() < deadline) {
-    const state = (await deps.poll()).find((init) => init.path === path);
+    // A transient poll failure shouldn't abort the flow — the backend job keeps
+    // running, so just retry until the deadline.
+    let state: ProjectInitState | undefined;
+    try {
+      state = (await deps.poll()).find((init) => init.path === path);
+    } catch {
+      state = undefined;
+    }
     if (state && state.phase !== lastPhase) {
       lastPhase = state.phase;
       if (state.phase !== "ready" && state.phase !== "failed") {
@@ -167,4 +174,3 @@ export async function runProjectCommand(args: string[], port: number): Promise<n
     return 1;
   }
 }
-

@@ -13,6 +13,7 @@ import type {
   PostWorktreeToLinearResponse,
   PostWorktreeToLinearTarget,
   ProjectInitPhase,
+  ProjectInitState,
   ProjectSummary,
   ProjectWorktreeSnapshot,
   UpsertCustomAgentRequest,
@@ -253,7 +254,9 @@ export async function setUpProject(
   const deadline = Date.now() + SETUP_TIMEOUT_MS;
   let lastPhase: ProjectInitPhase | null = null;
   while (Date.now() < deadline) {
-    const { inits } = await hubApi.projectInits();
+    // A transient poll failure shouldn't fail the flow — the backend job keeps
+    // running, so swallow it and retry until the deadline.
+    const inits = await hubApi.projectInits().then((r) => r.inits).catch((): ProjectInitState[] => []);
     const state = inits.find((entry) => entry.path === res.path);
     if (state) {
       if (state.phase !== lastPhase) {

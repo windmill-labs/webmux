@@ -2409,11 +2409,22 @@ async function apiAddProject(req: BunRequest): Promise<Response> {
   if (!isGitRepo(inputPath)) return errorResponse(`Not a git repository: ${inputPath}`, 400);
   const root = projectRoot(inputPath);
 
-  // Already served, or already a webmux project → register now, no setup job.
+  // Already served → register now, no setup job.
   const existing = manager.getByPath(root);
   if (existing) {
     return jsonResponse({ initializing: false, path: root, project: toProjectSummary(existing) });
   }
+
+  // A setup is already in flight for this repo (double-click / second tab):
+  // send the caller to the poller. Checked before `hasProjectConfig` because
+  // setup writes `.webmux.yaml` mid-run — without this guard a second request
+  // would see that half-written config and register from it before analysis
+  // finishes, bypassing the enriched result and the phase UI.
+  if (projectInitTracker.isActive(root)) {
+    return jsonResponse({ initializing: true, path: root, project: null });
+  }
+
+  // Already a webmux project → register immediately.
   if (hasProjectConfig(root)) {
     const project = manager.add(root);
     reloadRoutes();
@@ -2422,11 +2433,9 @@ async function apiAddProject(req: BunRequest): Promise<Response> {
 
   // No config → scaffold + analyze + register asynchronously; the client polls
   // `projectInits` for progress and the resulting prefix. runProjectInit sets
-  // the first phase synchronously before its first await, so the guard against
-  // a concurrent double-launch holds without setting it here too.
-  if (!projectInitTracker.isActive(root)) {
-    void runProjectInit(projectInitTracker, root, projectInitDeps);
-  }
+  // the first phase synchronously before its first await, so a concurrent
+  // request observes `isActive` above without setting it here too.
+  void runProjectInit(projectInitTracker, root, projectInitDeps);
   return jsonResponse({ initializing: true, path: root, project: null });
 }
 

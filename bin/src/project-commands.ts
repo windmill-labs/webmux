@@ -11,7 +11,7 @@ function projectSetupPhaseLabel(phase: ProjectInitPhase): string {
     case "creating_config":
       return "Creating .webmux.yaml";
     case "analyzing":
-      return "Analyzing project structure with Claude";
+      return "Analyzing project structure";
     case "ready":
       return "Project ready";
     case "failed":

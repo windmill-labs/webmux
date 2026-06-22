@@ -44,7 +44,7 @@
       webmux serves every project from this one dashboard. Add a git repo below
       and webmux sets it up for you — scaffolding a
       <code class="text-primary">.webmux.yaml</code> and analyzing the project
-      with Claude.
+      to fill it in.
     </p>
     <div class="flex gap-2">
       <input

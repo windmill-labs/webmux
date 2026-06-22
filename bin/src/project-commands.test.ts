@@ -74,7 +74,7 @@ describe("awaitProjectSetup", () => {
     expect(ready).toMatchObject({ phase: "ready", prefix: "a", name: "A" });
     expect(logs).toEqual([
       "  Creating .webmux.yaml…",
-      "  Analyzing project structure with Claude…",
+      "  Analyzing project structure…",
     ]);
   });
 

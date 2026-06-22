@@ -2371,9 +2371,11 @@ function hasProjectConfig(root: string): boolean {
   return existsSync(join(root, ".webmux.yaml")) || existsSync(join(root, ".webmux.local.yaml"));
 }
 
-/** Agent used to author config on setup: prefer Claude, fall back to Codex. */
+/** Agent used to author config on setup. Prefer Claude; use Codex only when
+ *  it's the one actually installed. With neither present, default the
+ *  scaffolded config to Claude (analysis is skipped, but the file persists). */
 function authoringAgent(): InitAgent {
-  return which("claude") ? "claude" : "codex";
+  return which("codex") && !which("claude") ? "codex" : "claude";
 }
 
 const ANALYZE_TIMEOUT_MS = 120_000;
@@ -2419,9 +2421,10 @@ async function apiAddProject(req: BunRequest): Promise<Response> {
   }
 
   // No config → scaffold + analyze + register asynchronously; the client polls
-  // `projectInits` for progress and the resulting prefix.
+  // `projectInits` for progress and the resulting prefix. runProjectInit sets
+  // the first phase synchronously before its first await, so the guard against
+  // a concurrent double-launch holds without setting it here too.
   if (!projectInitTracker.isActive(root)) {
-    projectInitTracker.set(root, { phase: "creating_config" });
     void runProjectInit(projectInitTracker, root, projectInitDeps);
   }
   return jsonResponse({ initializing: true, path: root, project: null });

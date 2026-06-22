@@ -460,12 +460,14 @@ export const AgentsUiSendMessageResponseSchema = z.object({
   conversationId: z.string(),
   turnId: z.string(),
   running: z.literal(true),
+  streaming: z.boolean(),
 });
 
 export const AgentsUiInterruptResponseSchema = z.object({
   conversationId: z.string(),
   turnId: z.string(),
   interrupted: z.literal(true),
+  streaming: z.boolean(),
 });
 
 export const AgentsUiConversationMessageDeltaEventSchema = z.object({

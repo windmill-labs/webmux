@@ -98,7 +98,7 @@ export function applyConversationMessageUpsert(
         isOptimisticUserMessage(message) && isServerUserForPendingTurn(message, event.message)
       )
     : -1;
-  const existingIndex = exactIndex === -1 ? optimisticIndex : exactIndex;
+  const existingIndex = exactIndex !== -1 ? exactIndex : optimisticIndex;
   const messages = existingIndex === -1
     ? [...conversation.messages, event.message]
     : replaceAt(conversation.messages, existingIndex, event.message);

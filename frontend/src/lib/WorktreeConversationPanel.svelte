@@ -1,6 +1,13 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import type { AgentsUiConversationMessage, AgentsUiConversationState, WorktreeInfo } from "./types";
+  import AskUserQuestionCard from "./AskUserQuestionCard.svelte";
+  import { ASK_USER_QUESTION_TOOL_NAME, parseAskUserQuestion } from "./ask-user-question";
+  import type {
+    AgentsUiConversationMessage,
+    AgentsUiConversationState,
+    AskUserQuestionInput,
+    WorktreeInfo,
+  } from "./types";
 
   interface Props {
     worktree: WorktreeInfo;
@@ -14,10 +21,18 @@
     onInterrupt: () => void;
     onRefresh: () => void;
     onSend: () => void;
+    onAnswerQuestion: (text: string) => void;
   }
 
   type TranscriptItem =
     | { type: "message"; key: string; message: AgentsUiConversationMessage }
+    | {
+      type: "question";
+      key: string;
+      tool: AgentsUiConversationMessage;
+      input: AskUserQuestionInput;
+      answered: boolean;
+    }
     | {
       type: "tool";
       key: string;
@@ -37,6 +52,7 @@
     onInterrupt,
     onRefresh,
     onSend,
+    onAnswerQuestion,
   }: Props = $props();
 
   const agentLabel = $derived(worktree.agentLabel ?? (worktree.agentName === "claude" ? "Claude" : "Codex"));
@@ -128,6 +144,15 @@
     return messages.flatMap((message): TranscriptItem[] => {
       const kind = messageKind(message);
       if (kind === "toolUse") {
+        if (message.toolName === ASK_USER_QUESTION_TOOL_NAME) {
+          const input = parseAskUserQuestion(message.text);
+          if (input) {
+            const answered = messages.some((other) =>
+              other.role === "user" && messageKind(other) === "text" && other.order > message.order
+            );
+            return [{ type: "question", key: message.id, tool: message, input, answered }];
+          }
+        }
         return [{
           type: "tool",
           key: message.id,
@@ -268,6 +293,12 @@
                   <div class="mt-2 uppercase tracking-[0.12em]">working</div>
                 {/if}
               </div>
+            {:else if item.type === "question"}
+              <AskUserQuestionCard
+                input={item.input}
+                disabled={item.answered}
+                onSubmit={onAnswerQuestion}
+              />
             {:else if item.type === "tool"}
               {@const message = item.tool}
               {@const result = item.result}

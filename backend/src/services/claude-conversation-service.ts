@@ -38,15 +38,19 @@ function isClaudeWorktree(worktree: WorktreeSnapshot): boolean {
   return worktree.agentName === "claude";
 }
 
-function isClaudeConversationMeta(meta: WorktreeConversationMeta | null | undefined): meta is ClaudeWorktreeConversationMeta {
+export function isClaudeConversationMeta(meta: WorktreeConversationMeta | null | undefined): meta is ClaudeWorktreeConversationMeta {
   return meta?.provider === "claudeCode";
 }
 
-function buildPendingConversationId(worktree: WorktreeSnapshot): string {
+export function buildPendingConversationId(worktree: WorktreeSnapshot): string {
   return `claude-pending:${worktree.path}`;
 }
 
-function buildClaudeConversationMeta(sessionId: string, cwd: string, now: Date): ClaudeWorktreeConversationMeta {
+export function isPendingClaudeConversationId(conversationId: string): boolean {
+  return conversationId.startsWith("claude-pending:");
+}
+
+export function buildClaudeConversationMeta(sessionId: string, cwd: string, now: Date): ClaudeWorktreeConversationMeta {
   return {
     provider: "claudeCode",
     conversationId: sessionId,
@@ -73,11 +77,12 @@ function normalizeSessionMessages(messages: ClaudeCliConversationMessage[]): Age
 
 function buildConversationState(
   worktree: WorktreeSnapshot,
+  conversationMeta: ClaudeWorktreeConversationMeta | null,
   session: ClaudeCliSession | null,
 ): AgentsUiConversationState {
   return {
     provider: "claudeCode",
-    conversationId: session?.sessionId ?? buildPendingConversationId(worktree),
+    conversationId: session?.sessionId ?? conversationMeta?.sessionId ?? buildPendingConversationId(worktree),
     cwd: worktree.path,
     running: false,
     activeTurnId: null,
@@ -92,7 +97,7 @@ function toWorktreeConversationResponse(
 ): AgentsUiWorktreeConversationResponse {
   return {
     worktree: buildAgentsUiWorktreeSummary(worktree, conversationMeta),
-    conversation: buildConversationState(worktree, session),
+    conversation: buildConversationState(worktree, conversationMeta, session),
   };
 }
 
@@ -123,6 +128,28 @@ export class ClaudeConversationService {
     );
   }
 
+  async setWorktreeConversationSession(
+    worktree: WorktreeSnapshot,
+    sessionId: string,
+  ): Promise<WorktreeConversationResult<ClaudeWorktreeConversationMeta>> {
+    if (!isClaudeWorktree(worktree)) {
+      return err(409, "Worktree chat is only available for Claude worktrees");
+    }
+
+    try {
+      const gitDir = this.deps.git.resolveWorktreeGitDir(worktree.path);
+      const meta = await this.readMeta(gitDir);
+      if (!meta) {
+        return err(409, "Worktree metadata is missing");
+      }
+
+      return ok(await this.persistConversationMeta(gitDir, meta, worktree.path, sessionId));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return err(502, message);
+    }
+  }
+
   private async withResolvedConversation<T>(
     worktree: WorktreeSnapshot,
     fn: (resolved: ResolvedClaudeConversation) => Promise<WorktreeConversationResult<T>>,
@@ -150,10 +177,13 @@ export class ClaudeConversationService {
       return err(409, "Worktree metadata is missing");
     }
 
+    const savedConversationMeta = isClaudeConversationMeta(meta.conversation)
+      ? meta.conversation
+      : null;
     const session = await this.resolveSession(meta, worktree.path);
     const conversationMeta = session
       ? await this.persistConversationMeta(gitDir, meta, worktree.path, session.sessionId)
-      : null;
+      : savedConversationMeta;
 
     return ok({
       conversationMeta,
@@ -180,7 +210,9 @@ export class ClaudeConversationService {
     if (savedSessionId) {
       const savedSession = await this.deps.claude.readSession(savedSessionId, cwd);
       if (savedSession) return savedSession;
-      log.warn(`[agents] saved Claude session missing, rediscovering cwd=${cwd} sessionId=${savedSessionId}`);
+      if (discovered) {
+        log.warn(`[agents] saved Claude session missing, rediscovering cwd=${cwd} sessionId=${savedSessionId}`);
+      }
     }
 
     if (!discovered) return null;

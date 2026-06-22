@@ -351,13 +351,25 @@ export class LifecycleService {
       const initialized = await this.refreshManagedArtifacts(resolved);
       const { profileName, profile } = this.resolveProfile(initialized.meta.profile);
       const agent = this.resolveAgentDefinition(initialized.meta.agent);
-      if (agent.kind !== "builtin" || agent.implementation.agent !== "codex") {
-        throw new LifecycleError("Refreshing the agent terminal is only available for Codex worktrees", 409);
+      if (agent.kind !== "builtin" || (agent.implementation.agent !== "codex" && agent.implementation.agent !== "claude")) {
+        throw new LifecycleError("Refreshing the agent terminal is only available for built-in agent worktrees", 409);
       }
 
       const conversation = initialized.meta.conversation;
-      if (conversation?.provider !== "codexAppServer") {
-        throw new LifecycleError("No Codex conversation is available to refresh", 409);
+      if (!conversation) {
+        throw new LifecycleError(`No ${agent.label} conversation is available to refresh`, 409);
+      }
+      let resumeConversationId: string;
+      if (agent.implementation.agent === "codex") {
+        if (conversation.provider !== "codexAppServer") {
+          throw new LifecycleError(`No ${agent.label} conversation is available to refresh`, 409);
+        }
+        resumeConversationId = conversation.threadId;
+      } else {
+        if (conversation.provider !== "claudeCode") {
+          throw new LifecycleError(`No ${agent.label} conversation is available to refresh`, 409);
+        }
+        resumeConversationId = conversation.sessionId;
       }
 
       await ensureAgentRuntimeArtifacts({
@@ -373,7 +385,7 @@ export class LifecycleService {
         initialized,
         worktreePath: resolved.entry.path,
         launchMode: "resume",
-        resumeConversationId: conversation.threadId,
+        resumeConversationId,
       });
 
       await writeWorktreeMeta(resolved.gitDir, {

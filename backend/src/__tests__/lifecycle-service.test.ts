@@ -1280,6 +1280,61 @@ describe("LifecycleService", () => {
     expect(runtime.getWorktreeByBranch("feature-codex-refresh")?.agentTerminalStale).toBe(false);
   });
 
+  it("refreshes a managed claude terminal from its saved session", async () => {
+    const repoRoot = await initRepo();
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const lifecycle = makeLifecycleService(
+      repoRoot,
+      tmux,
+      runtime,
+      new FakeDockerGateway(),
+      new FakeHookRunner(),
+      {
+        ...TEST_CONFIG,
+        profiles: {
+          ...TEST_CONFIG.profiles,
+          default: {
+            ...TEST_CONFIG.profiles.default,
+            yolo: true,
+          },
+        },
+      },
+    );
+
+    await lifecycle.createWorktree({
+      branch: "feature-claude-refresh",
+      prompt: "ship the fix",
+    });
+
+    const worktreePath = join(repoRoot, "__worktrees", "feature-claude-refresh");
+    const gitDir = new BunGitGateway().resolveWorktreeGitDir(worktreePath);
+    const meta = await readWorktreeMeta(gitDir);
+    if (!meta) throw new Error("Expected worktree metadata");
+    await writeWorktreeMeta(gitDir, {
+      ...meta,
+      agentTerminalStale: true,
+      conversation: {
+        provider: "claudeCode",
+        conversationId: "session-refresh",
+        sessionId: "session-refresh",
+        cwd: worktreePath,
+        lastSeenAt: "2026-04-15T10:00:00.000Z",
+      },
+    });
+
+    tmux.commands.length = 0;
+    await lifecycle.refreshAgentTerminal("feature-claude-refresh");
+
+    const agentCommand = tmux.commands.at(-1)?.command;
+    expect(agentCommand).toContain("claude --dangerously-skip-permissions --resume 'session-refresh'");
+    expect(agentCommand).not.toContain("--continue");
+
+    const refreshedMeta = await readWorktreeMeta(gitDir);
+    expect(refreshedMeta?.agentTerminalStale).toBe(false);
+    expect(runtime.getWorktreeByBranch("feature-claude-refresh")?.agentTerminalStale).toBe(false);
+  });
+
   it("closes the tmux window without removing the worktree or branch", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();

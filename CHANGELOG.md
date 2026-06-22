@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.38.0](https://github.com/windmill-labs/webmux/compare/v0.37.0...v0.38.0) (2026-06-20)
+
+
+### Features
+
+* add claude conversation streaming ([#262](https://github.com/windmill-labs/webmux/issues/262)) ([6b04e83](https://github.com/windmill-labs/webmux/commit/6b04e8344a0f8295369c018a7331511d348a6b54))
+* add forkable tabs for claude/codex agent sessions ([39bb904](https://github.com/windmill-labs/webmux/commit/39bb904b729b38fd51ca70bed4e168ebcfd20f76))
+* AI-polish Linear issue titles in web create-ticket path ([fd8ecf6](https://github.com/windmill-labs/webmux/commit/fd8ecf6b8217af74089bea0be6a41c328fa83d1f))
+* AI-polish Linear issue titles in web create-ticket path ([9d505bf](https://github.com/windmill-labs/webmux/commit/9d505bfe23f57dd017bfa55f5d4c4746c8db0688))
+* render AskUserQuestion tool as a clickable web-chat card ([#276](https://github.com/windmill-labs/webmux/issues/276)) ([4b7a659](https://github.com/windmill-labs/webmux/commit/4b7a659534600bd4fc657017c7c58a5ca7da7393))
+
+
+### Bug Fixes
+
+* keep claude chat stream open across turns to preserve message order ([#274](https://github.com/windmill-labs/webmux/issues/274)) ([3d35c34](https://github.com/windmill-labs/webmux/commit/3d35c342f9acd26355e8a67a162ac687259e3c3b))
+* live web-chat updates for terminal-initiated Claude turns ([#275](https://github.com/windmill-labs/webmux/issues/275)) ([a55f06c](https://github.com/windmill-labs/webmux/commit/a55f06cedfa541a669857ef0b58bdb5b2ba358d1))
+* reset web-chat worktree status from owned claude -p run ([#273](https://github.com/windmill-labs/webmux/issues/273)) ([5753794](https://github.com/windmill-labs/webmux/commit/57537941e3eaada34c998894d233ab025aae2067))
+* tear down tab parking windows and serialize tab mutations ([c649fe4](https://github.com/windmill-labs/webmux/commit/c649fe4f1de91ccf24e88d5ddc4fad3aae0c9d87))
+
 ## [0.37.0](https://github.com/windmill-labs/webmux/compare/v0.36.0...v0.37.0) (2026-06-09)
 
 

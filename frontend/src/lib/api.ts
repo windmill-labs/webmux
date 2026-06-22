@@ -32,7 +32,7 @@ export const apiBase: string = activePrefix ? `/${activePrefix}` : "";
  *  active project. */
 export const api = createApi(apiBase);
 
-/** Hub client — project list/add/remove + peer instances are global (no prefix). */
+/** Hub client — project list/add/remove + the migration sensor are global (no prefix). */
 const hubApi = createApi("");
 
 function mapAgentStatus(status: string): string {
@@ -217,6 +217,8 @@ export function validateAgent(body: UpsertCustomAgentRequest): Promise<ValidateC
   return api.validateAgent({ body });
 }
 
+/** Other webmux servers running on this machine (migration sensor) — drives the
+ *  banner that prompts the user to consolidate them with `webmux project migrate`. */
 export async function fetchInstances(): Promise<InstanceSummary[]> {
   const response = await hubApi.fetchInstances();
   return response.instances;

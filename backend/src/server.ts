@@ -106,12 +106,11 @@ import type {
   AgentsUiWorktreeConversationResponse,
 } from "./domain/agents-ui";
 import type { OneshotMeta, ProjectSnapshot, WorktreeSnapshot } from "./domain/model";
-import { deriveInstancePrefix, isValidBranchName, isValidInstancePrefix, isValidWorktreeName } from "./domain/policies";
+import { isValidBranchName, isValidWorktreeName } from "./domain/policies";
 import { createWebmuxRuntime, type WebmuxRuntime } from "./runtime";
-import { createInstanceRegistry, type InstanceEntry, type InstanceRegistry } from "./adapters/instance-registry";
-import { resolvePeerRedirect } from "./domain/peer-routing";
+import { createInstanceRegistry, type InstanceEntry } from "./adapters/instance-registry";
 import { createProjectsRegistry } from "./adapters/projects-registry";
-import { ProjectManager, type ManagedProject, type ProjectLoopController } from "./services/project-manager";
+import { ProjectManager, type ProjectLoopController } from "./services/project-manager";
 
 const PORT = parseInt(Bun.env.PORT || "5111", 10);
 const STATIC_DIR = Bun.env.WEBMUX_STATIC_DIR || "";
@@ -2154,9 +2153,8 @@ const PORT_STRICT = Bun.env.WEBMUX_PORT_STRICT === "1";
 // ── Global multi-project server ─────────────────────────────────────────────
 // One process, one port. Every known project gets its own runtime + app; the
 // shared HTTP server prefixes each project's routes with `/${prefix}` and the
-// shared WebSocket handler dispatches by `ws.data.prefix`. Local projects are
-// served in-process (never cross-port redirects). The peer-routing redirect in
-// `globalFetch` survives only for genuinely remote, separately-run instances.
+// shared WebSocket handler dispatches by `ws.data.prefix`. Every project is
+// served in this one process; an unknown prefix just falls through to the SPA.
 
 const apps = new Map<string, ProjectApp>();
 // Open WebSockets per project, so we can run their cleanup when a project is
@@ -2235,15 +2233,17 @@ async function apiRemoveProject(prefix: string): Promise<Response> {
   return jsonResponse({ ok: true });
 }
 
+/** List the OTHER webmux servers currently running on this machine (migration
+ *  sensor). One multi-project server per machine is the goal, so any peer here
+ *  is a leftover single-project instance the user should fold in with `webmux
+ *  project migrate`. The frontend reads this to show a migration banner. */
 function apiListInstances(): Response {
   return jsonResponse({
     instances: instanceRegistry.listLive()
       .filter((entry) => entry.port !== BOUND_PORT)
       .map((entry) => ({
-        prefix: entry.prefix,
         port: entry.port,
         projectDir: entry.projectDir,
-        startedAt: entry.startedAt,
       })),
   });
 }
@@ -2274,16 +2274,6 @@ function buildServeRoutes(): ProjectRoutes {
 
 async function globalFetch(req: Request): Promise<Response> {
   const url = new URL(req.url);
-
-  // A local project owns its `/<prefix>` namespace: its /api + /ws routes were
-  // already matched, and a bare `/<prefix>/...` is a client-side SPA route. Only
-  // a prefix we do NOT serve locally may redirect to a remote peer — otherwise a
-  // peer that happens to share the prefix would shadow our own project.
-  const firstSegment = url.pathname.split("/")[1] ?? "";
-  if (!apps.has(firstSegment)) {
-    const peerRedirect = resolvePeerRedirect(url, instanceRegistry.listLive(), BOUND_PORT);
-    if (peerRedirect) return peerRedirect;
-  }
 
   // Static frontend files in production mode (fallback for unmatched routes)
   if (STATIC_DIR) {
@@ -2402,14 +2392,18 @@ function reloadRoutes(): void {
 }
 
 /** Add the current repo as a project when it is a webmux project (has a config
- *  file). Lets `webmux serve` inside a repo behave like today with zero setup. */
+ *  file). Lets `webmux serve` inside a repo behave like today with zero setup.
+ *  The auto-add is in-memory only (not persisted): with one shared
+ *  `~/.webmux/projects.json`, persisting it would make every other running
+ *  server reload — and double-serve — this repo on its next restart. Only an
+ *  explicit `webmux project add` persists. */
 function autoAddCwd(): void {
   const cwd = Bun.env.WEBMUX_PROJECT_DIR ?? process.cwd();
   if (!isGitRepo(cwd)) return;
   const repoRoot = projectRoot(cwd);
   if (!existsSync(join(repoRoot, ".webmux.yaml")) && !existsSync(join(repoRoot, ".webmux.local.yaml"))) return;
   try {
-    manager.add(repoRoot);
+    manager.addEphemeral(repoRoot);
   } catch (err: unknown) {
     log.error(`[serve] failed to auto-add project ${repoRoot}: ${String(err)}`);
   }
@@ -2451,27 +2445,20 @@ manager.loadPersisted();
 autoAddCwd();
 reloadRoutes();
 
-// Register this server in the peer registry under its primary project's prefix
-// so separately-run `webmux serve` peers can redirect to us.
-const primaryCwd = Bun.env.WEBMUX_PROJECT_DIR ?? process.cwd();
-const primaryRoot = isGitRepo(primaryCwd) ? projectRoot(primaryCwd) : null;
-let primary: ManagedProject | null = primaryRoot ? manager.getByPath(primaryRoot) : null;
-if (!primary) primary = manager.list()[0] ?? null;
-const explicitPrefix = Bun.env.WEBMUX_PREFIX?.trim();
-const takenPrefixes = instanceRegistry.listLive().map((peer) => peer.prefix);
-const INSTANCE_PREFIX = explicitPrefix && isValidInstancePrefix(explicitPrefix)
-  ? explicitPrefix
-  : (primary?.prefix ?? deriveInstancePrefix(primaryRoot ?? process.cwd(), takenPrefixes));
+// Self-register as a migration sensor: record this server's port + the repo it
+// was started for, so a survivor can detect leftover single-project instances
+// and `webmux project migrate` can recover each one's repo. No prefix/federation
+// here — every project is served in this one process.
+const homeCwd = Bun.env.WEBMUX_PROJECT_DIR ?? process.cwd();
+const homeRoot = isGitRepo(homeCwd) ? projectRoot(homeCwd) : homeCwd;
 
 const selfEntry: InstanceEntry = {
-  prefix: INSTANCE_PREFIX,
   port: BOUND_PORT,
-  projectDir: primary?.entry.path ?? primaryRoot ?? process.cwd(),
+  projectDir: homeRoot,
   pid: process.pid,
-  startedAt: Date.now(),
 };
 instanceRegistry.register(selfEntry);
-log.info(`[serve] registered instance prefix=${INSTANCE_PREFIX} port=${BOUND_PORT} projects=${manager.list().length}`);
+log.info(`[serve] registered instance port=${BOUND_PORT} projects=${manager.list().length}`);
 
 function deregisterSelf(): void {
   try {

@@ -4,11 +4,9 @@ import type { InstanceEntry } from "../../backend/src/adapters/instance-registry
 
 function entry(overrides: Partial<InstanceEntry>): InstanceEntry {
   return {
-    prefix: "windmill",
     port: 5112,
     projectDir: "/home/me/windmill",
     pid: 1012,
-    startedAt: 1,
     ...overrides,
   };
 }

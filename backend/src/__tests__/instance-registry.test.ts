@@ -20,11 +20,9 @@ describe("instance-registry", () => {
 
   function makeEntry(overrides: Partial<InstanceEntry> = {}): InstanceEntry {
     return {
-      prefix: "demo",
       port: 5111,
       projectDir: "/repo/demo",
       pid: process.pid,
-      startedAt: Date.now(),
       ...overrides,
     };
   }
@@ -67,28 +65,24 @@ describe("instance-registry", () => {
     const { dir, registry } = await freshRegistry();
     registry.register(makeEntry({ port: 5111 }));
     writeFileSync(join(dir, "5112.json"), "not json");
-    writeFileSync(join(dir, "5113.json"), JSON.stringify({ prefix: 1 }));
+    writeFileSync(join(dir, "5113.json"), JSON.stringify({ port: 1 }));
 
     expect(registry.listLive().map((e) => e.port)).toEqual([5111]);
   });
 
-  it("rejects entries whose prefix is not a valid instance prefix", async () => {
+  it("rejects entries missing required fields", async () => {
     const { dir, registry } = await freshRegistry();
-    registry.register(makeEntry({ port: 5111, prefix: "good" }));
-    // Forge an entry with a bad prefix (leading hyphen, reserved, etc.)
+    registry.register(makeEntry({ port: 5111 }));
+    // Missing projectDir.
     writeFileSync(join(dir, "5112.json"), JSON.stringify({
-      prefix: "-nope",
       port: 5112,
-      projectDir: "/x",
       pid: process.pid,
-      startedAt: 1,
     }));
+    // Wrong type for port.
     writeFileSync(join(dir, "5113.json"), JSON.stringify({
-      prefix: "api",
-      port: 5113,
+      port: "nope",
       projectDir: "/x",
       pid: process.pid,
-      startedAt: 1,
     }));
 
     expect(registry.listLive().map((e) => e.port)).toEqual([5111]);
@@ -110,11 +104,11 @@ describe("instance-registry", () => {
 
   it("overwrites an existing entry when registering the same port twice", async () => {
     const { registry } = await freshRegistry();
-    registry.register(makeEntry({ port: 5111, prefix: "alpha" }));
-    registry.register(makeEntry({ port: 5111, prefix: "beta" }));
+    registry.register(makeEntry({ port: 5111, projectDir: "/repo/alpha" }));
+    registry.register(makeEntry({ port: 5111, projectDir: "/repo/beta" }));
 
     const entries = registry.listLive();
     expect(entries).toHaveLength(1);
-    expect(entries[0]?.prefix).toBe("beta");
+    expect(entries[0]?.projectDir).toBe("/repo/beta");
   });
 });

@@ -73,6 +73,31 @@ describe("ProjectManager", () => {
     expect(loopCalls.get("alpha")).toEqual(["startLight"]);
   });
 
+  it("addEphemeral serves the project in-memory but does not persist it", () => {
+    const { manager, registry, loopCalls } = makeManager();
+
+    const project = manager.addEphemeral("/repo/alpha");
+
+    expect(project.prefix).toBe("alpha");
+    expect(manager.list()).toHaveLength(1);
+    expect(manager.getByPrefix("alpha")).toBe(project);
+    expect(loopCalls.get("alpha")).toEqual(["startLight"]);
+    // The whole point: nothing is written to the shared registry, so other
+    // running servers won't reload (and double-serve) this repo on restart.
+    expect(registry.entries).toEqual([]);
+  });
+
+  it("addEphemeral returns an already-persisted project without dropping its persistence", () => {
+    const { manager, registry } = makeManager();
+
+    const persisted = manager.add("/repo/alpha");
+    const ephemeral = manager.addEphemeral("/repo/alpha");
+
+    expect(ephemeral).toBe(persisted);
+    expect(manager.list()).toHaveLength(1);
+    expect(registry.entries.map((e) => e.path)).toEqual(["/repo/alpha"]);
+  });
+
   it("returns the existing project (no duplicate runtime/entry) when adding the same path twice", () => {
     const { manager, registry, createdFor } = makeManager();
 

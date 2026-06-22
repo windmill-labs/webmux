@@ -1,12 +1,11 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { addProject, fetchInstances, fetchProjects, removeProject } from "./api";
-  import type { InstanceSummary, ProjectSummary } from "./types";
+  import { addProject, fetchProjects, removeProject } from "./api";
+  import type { ProjectSummary } from "./types";
 
   let { current }: { current: string } = $props();
 
   let projects = $state<ProjectSummary[]>([]);
-  let peers = $state<InstanceSummary[]>([]);
   let open = $state(false);
   let addPath = $state("");
   let addError = $state<string | null>(null);
@@ -24,11 +23,6 @@
       projects = await fetchProjects();
     } catch {
       projects = [];
-    }
-    try {
-      peers = await fetchInstances();
-    } catch {
-      peers = [];
     }
   }
 
@@ -176,17 +170,5 @@
         <div class="mt-1 text-[11px] text-red-400 break-words">{addError}</div>
       {/if}
     </div>
-
-    {#if peers.length > 0}
-      <div class="px-3 py-2 text-[11px] text-muted uppercase tracking-wide border-t border-edge">
-        Other instances
-      </div>
-      {#each peers as peer (peer.port)}
-        <a href={`/${peer.prefix}/`} class="block px-3 py-2 text-[12px] hover:bg-hover border-t border-edge" role="menuitem">
-          <div class="text-primary font-medium truncate">{peer.prefix}</div>
-          <div class="text-muted text-[11px] truncate">{peer.projectDir}</div>
-        </a>
-      {/each}
-    {/if}
   </div>
 {/if}

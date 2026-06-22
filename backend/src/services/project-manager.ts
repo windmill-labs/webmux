@@ -1,7 +1,7 @@
 import { projectRoot } from "../adapters/config";
 import type { ProjectsRegistry } from "../adapters/projects-registry";
 import type { ProjectEntry } from "../domain/projects";
-import { deriveInstancePrefix } from "../domain/policies";
+import { deriveProjectPrefix } from "../domain/policies";
 import { log } from "../lib/log";
 import type { WebmuxRuntime } from "../runtime";
 
@@ -101,6 +101,15 @@ export class ProjectManager<R extends RuntimeLike = WebmuxRuntime> {
     return this.register(path, true);
   }
 
+  /** Add (or return the existing) project for `path` for this process only,
+   *  without persisting it to the registry. Used for the cwd auto-add on
+   *  `serve`: the repo is served for this session but never written to the
+   *  shared `~/.webmux/projects.json`, so other running servers don't pick it
+   *  up (and cross-serve it) on their next restart. Only `add()` persists. */
+  addEphemeral(path: string): ManagedProject<R> {
+    return this.register(path, false);
+  }
+
   remove(prefix: string): void {
     const project = this.projects.get(prefix);
     if (!project) return;
@@ -138,7 +147,7 @@ export class ProjectManager<R extends RuntimeLike = WebmuxRuntime> {
       return existing;
     }
 
-    const prefix = deriveInstancePrefix(root, this.projects.keys());
+    const prefix = deriveProjectPrefix(root, this.projects.keys());
     const runtime = this.createRuntime({ projectDir: root, port: this.port });
     const entry: ProjectEntry = {
       path: root,

@@ -40,7 +40,9 @@ export interface WebmuxRuntime {
 
 export function createWebmuxRuntime(options: WebmuxRuntimeOptions = {}): WebmuxRuntime {
   const port = options.port ?? parseInt(Bun.env.PORT || "5111", 10);
-  const projectDir = projectRoot(options.projectDir ?? Bun.env.WEBMUX_PROJECT_DIR ?? process.cwd());
+  // ProjectManager (the only server-side caller) always passes an explicit
+  // projectDir; cwd is just the default for direct/CLI/test calls.
+  const projectDir = projectRoot(options.projectDir ?? process.cwd());
   const config = loadConfig(projectDir, { resolvedRoot: true });
   const git = new BunGitGateway();
   const archiveStateService = new ArchiveStateService(git.resolveWorktreeGitDir(projectDir));

@@ -582,11 +582,12 @@ export const RunIdParamsSchema = z.object({
   runId: NumberLikePathParamSchema,
 });
 
+/** Another webmux server running on this machine (migration sensor). Surfaced
+ *  by `/api/instances` so the dashboard can prompt the user to consolidate
+ *  leftover single-project instances with `webmux project migrate`. */
 export const InstanceSummarySchema = z.object({
-  prefix: z.string(),
   port: z.number(),
   projectDir: z.string(),
-  startedAt: z.number(),
 });
 
 export const InstancesResponseSchema = z.object({

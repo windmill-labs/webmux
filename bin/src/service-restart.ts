@@ -39,7 +39,9 @@ export function listInstalledServices(opts: {
   if (existsSync(systemdDir)) {
     try {
       for (const name of readdirSync(systemdDir)) {
-        if (!name.startsWith("webmux-") || !name.endsWith(".service")) continue;
+        // The single service is `webmux.service`; `webmux-<project>.service`
+        // are legacy per-project units (kept working until they're migrated).
+        if (!/^webmux(-.+)?\.service$/.test(name)) continue;
         out.push({
           name: name.slice(0, -".service".length),
           filePath: join(systemdDir, name),

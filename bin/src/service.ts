@@ -4,7 +4,6 @@ import { basename, join } from "node:path";
 import { homedir } from "node:os";
 import { run, getGitRoot, detectProjectName } from "./shared.ts";
 import type { RunResult } from "./shared.ts";
-import { discoverTakenPorts, pickFreePort, readPortFromUnit } from "./install-ports.ts";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -45,10 +44,6 @@ function resolveWebmuxPath(): string | null {
   const result = run("which", ["webmux"]);
   if (!result.success) return null;
   return result.stdout.toString().trim();
-}
-
-function sanitizeName(name: string): string {
-  return name.replace(/[^a-zA-Z0-9_-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
 }
 
 function formatCommand([bin, args]: Command): string {
@@ -166,6 +161,8 @@ export function generateServiceFile(config: ServiceConfig): string {
 
 const SYSTEMD_WORKDIR_RE = /^WorkingDirectory=(.+)$/m;
 const LAUNCHD_WORKDIR_RE = /<key>WorkingDirectory<\/key>\s*<string>([^<]+)<\/string>/;
+const SYSTEMD_PORT_RE = /--port\s+(\d+)/;
+const LAUNCHD_PORT_RE = /<string>--port<\/string>\s*<string>(\d+)<\/string>/;
 const SYSTEMD_ENV_RE = /^Environment=([A-Za-z_][A-Za-z0-9_]*)=(.*)$/gm;
 const LAUNCHD_ENV_DICT_RE = /<key>EnvironmentVariables<\/key>\s*<dict>([\s\S]*?)<\/dict>/;
 const LAUNCHD_ENV_ENTRY_RE = /<key>([^<]+)<\/key>\s*<string>([^<]*)<\/string>/g;
@@ -180,6 +177,21 @@ function readWorkingDirFromUnit(filePath: string, platform: Platform): string | 
   const regex = platform === "linux" ? SYSTEMD_WORKDIR_RE : LAUNCHD_WORKDIR_RE;
   const match = regex.exec(text);
   return match ? match[1].trim() : null;
+}
+
+/** Parse the `--port N` value out of an installed unit file (systemd or
+ *  launchd). Used to keep a reinstall idempotent (reuse the running port) and
+ *  to regenerate units on `webmux update`. */
+export function readPortFromUnit(filePath: string): number | null {
+  let text: string;
+  try {
+    text = readFileSync(filePath, "utf8");
+  } catch {
+    return null;
+  }
+  const regex = filePath.endsWith(".plist") ? LAUNCHD_PORT_RE : SYSTEMD_PORT_RE;
+  const match = regex.exec(text);
+  return match ? parseInt(match[1], 10) : null;
 }
 
 function unescapePlistText(value: string): string {
@@ -417,38 +429,20 @@ async function install(
     }
   }
 
-  // Pick the port that will go into the unit file. With an explicit `--port`,
-  // the user wins. On reinstall, reuse the existing unit's port so a re-run
-  // without flags is idempotent. Otherwise scan the live registry + already
-  // installed unit files and find the lowest free port at or above the
-  // requested start, so installing in a second project doesn't silently
-  // collide on 5111.
+  // Pick the port for the unit. An explicit `--port` wins; otherwise, on
+  // reinstall, reuse the existing unit's port so a bare re-run is idempotent;
+  // otherwise the default. webmux is one service per machine now — there's no
+  // other-instance scan. If the port is taken at start it's because another
+  // webmux is already running, which is the cue to `webmux project migrate`.
   const requestedPort = config.port;
   let chosenPort = requestedPort;
   let portNote: string | null = null;
-  let portWarning: string | null = null;
 
-  if (!portExplicit) {
-    const existingPort = alreadyInstalled ? readPortFromUnit(filePath) : null;
-    if (existingPort !== null) {
+  if (!portExplicit && alreadyInstalled) {
+    const existingPort = readPortFromUnit(filePath);
+    if (existingPort !== null && existingPort !== requestedPort) {
       chosenPort = existingPort;
-      if (existingPort !== requestedPort) {
-        portNote = `Reusing port ${existingPort} from the existing service unit (pass --port to override).`;
-      }
-    } else {
-      const taken = discoverTakenPorts({ excludeUnitPath: filePath });
-      chosenPort = pickFreePort(requestedPort, taken);
-      if (chosenPort !== requestedPort) {
-        portNote = `Port ${requestedPort} is already used by another webmux instance — picked ${chosenPort} instead (pass --port to override).`;
-      }
-    }
-  } else {
-    // Explicit `--port` always wins, but the service will fail to bind on
-    // start if something else is already there — surface it now rather than
-    // making the user dig through `journalctl` / `launchctl` logs later.
-    const taken = discoverTakenPorts({ excludeUnitPath: filePath });
-    if (taken.has(requestedPort)) {
-      portWarning = `Port ${requestedPort} is already claimed by another webmux instance. The service will fail to bind on start; omit --port to auto-pick a free port.`;
+      portNote = `Reusing port ${existingPort} from the existing service unit (pass --port to override).`;
     }
   }
 
@@ -476,7 +470,6 @@ async function install(
     p.log.info(`Environment variables baked into the unit:\n${envVarNotes.join("\n")}`);
   }
   if (portNote) p.log.info(portNote);
-  if (portWarning) p.log.warn(portWarning);
 
   const ok = await p.confirm({ message: "Proceed?" });
   if (p.isCancel(ok) || !ok) {
@@ -605,6 +598,9 @@ function usage(): void {
   console.log(`
 webmux service — Manage webmux as a system service
 
+webmux runs as a single multi-project service per machine. Install it once;
+add more projects from the dashboard or with \`webmux project add\`.
+
 Usage:
   webmux service install     Install, enable, and start the service
   webmux service uninstall   Stop, disable, and remove the service
@@ -612,10 +608,8 @@ Usage:
   webmux service logs        Tail service logs
 
 Options:
-  --port N                   Pin the service to a specific port. When omitted,
-                             a free port is picked automatically by scanning
-                             other webmux instances and installed services
-                             — second-project installs no longer collide on 5111.
+  --port N                   Pin the service to a port (default: 5111). On
+                             reinstall without --port the existing port is kept.
   --env KEY=VALUE            Bake an environment variable into the service
                              unit (repeatable). Reserved keys PORT,
                              WEBMUX_PROJECT_DIR, and PATH are rejected.
@@ -692,7 +686,10 @@ export default async function service(args: string[]): Promise<void> {
   }
 
   const projectName = detectProjectName(gitRoot);
-  const serviceName = `webmux-${sanitizeName(projectName)}`;
+  // One multi-project service per machine, under a fixed name. (Older versions
+  // installed one service per project as `webmux-<project>`; `webmux project
+  // migrate` consolidates those into this single service.)
+  const serviceName = "webmux";
 
   let envVars: Record<string, string> = {};
   let envVarNotes: string[] = [];

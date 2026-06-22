@@ -4,6 +4,7 @@ import {
   parseEnvCliArgs,
   parseInstalledServiceConfig,
   readEnvVarsFromUnit,
+  readPortFromUnit,
   resolveEnvVars,
   type ServiceConfig,
 } from "./service.ts";
@@ -200,6 +201,99 @@ describe("generateServiceFile + readEnvVarsFromUnit (round-trip)", () => {
       expect(parsed?.envVars).toEqual({ LINEAR_API_KEY: "lin_xyz" });
       // Idempotent regeneration: generate(parse(generate(x))) === generate(x)
       expect(generateServiceFile(parsed!)).toBe(generateServiceFile(original));
+    });
+  });
+});
+
+describe("readPortFromUnit", () => {
+  it("parses --port out of a systemd unit", async () => {
+    await withTempDir(async (dir) => {
+      const filePath = join(dir, "webmux.service");
+      await writeFile(
+        filePath,
+        [
+          "[Service]",
+          "Type=simple",
+          "ExecStart=/usr/local/bin/webmux serve --port 5117",
+          "WorkingDirectory=/home/x/proj",
+        ].join("\n"),
+      );
+
+      expect(readPortFromUnit(filePath)).toBe(5117);
+    });
+  });
+
+  it("parses --port out of a launchd plist", async () => {
+    await withTempDir(async (dir) => {
+      const filePath = join(dir, "com.webmux.webmux.plist");
+      await writeFile(
+        filePath,
+        [
+          "<plist version=\"1.0\"><dict>",
+          "  <key>ProgramArguments</key>",
+          "  <array>",
+          "    <string>/usr/local/bin/webmux</string>",
+          "    <string>serve</string>",
+          "    <string>--port</string>",
+          "    <string>5222</string>",
+          "  </array>",
+          "</dict></plist>",
+        ].join("\n"),
+      );
+
+      expect(readPortFromUnit(filePath)).toBe(5222);
+    });
+  });
+
+  it("returns null for a unit file without --port", async () => {
+    await withTempDir(async (dir) => {
+      const filePath = join(dir, "other.service");
+      await writeFile(filePath, "ExecStart=/usr/bin/something else\n");
+
+      expect(readPortFromUnit(filePath)).toBeNull();
+    });
+  });
+
+  it("returns null for a missing file", () => {
+    expect(readPortFromUnit("/no/such/path.service")).toBeNull();
+  });
+
+  // Round-trips against the exact strings service.ts emits, so a future
+  // re-indent or wrapping change in the unit generators surfaces as a failing
+  // test rather than a silent regression.
+  it("round-trips against the unit format generateServiceFile writes", async () => {
+    await withTempDir(async (dir) => {
+      const config: ServiceConfig = {
+        platform: "linux",
+        projectName: "roundtrip",
+        serviceName: "webmux",
+        webmuxPath: "/usr/local/bin/webmux",
+        projectDir: "/home/x/proj",
+        port: 5117,
+        envVars: {},
+      };
+      const filePath = join(dir, "webmux.service");
+      await writeFile(filePath, generateServiceFile(config));
+
+      expect(readPortFromUnit(filePath)).toBe(5117);
+    });
+  });
+
+  it("round-trips against the launchd plist generateServiceFile writes", async () => {
+    await withTempDir(async (dir) => {
+      const config: ServiceConfig = {
+        platform: "darwin",
+        projectName: "roundtrip",
+        serviceName: "webmux",
+        webmuxPath: "/usr/local/bin/webmux",
+        projectDir: "/Users/x/proj",
+        port: 5222,
+        envVars: {},
+      };
+      const filePath = join(dir, "com.webmux.webmux.plist");
+      await writeFile(filePath, generateServiceFile(config));
+
+      expect(readPortFromUnit(filePath)).toBe(5222);
     });
   });
 });

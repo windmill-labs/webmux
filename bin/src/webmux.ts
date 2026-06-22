@@ -55,8 +55,8 @@ type RootCommand = "serve" | "init" | "service" | "update" | "add" | "oneshot" |
 interface ParsedRootArgs {
   port: number;
   /** True when the port came from the user (--port flag or pre-existing PORT
-   *  env). False means the default 5111 — backend treats that as a hint and
-   *  may walk to the next free port on EADDRINUSE. */
+   *  env). When false (the default 5111), server-backed CLI commands resolve to
+   *  the live server for this project instead of assuming 5111. */
   portExplicit: boolean;
   debug: boolean;
   app: boolean;
@@ -395,7 +395,6 @@ async function main(args: string[] = process.argv.slice(2)): Promise<void> {
     ...process.env,
     PORT: String(parsed.port),
     WEBMUX_PROJECT_DIR: process.cwd(),
-    ...(parsed.portExplicit ? { WEBMUX_PORT_STRICT: "1" } : {}),
     ...(parsed.debug ? { WEBMUX_DEBUG: "1" } : {}),
   };
 
@@ -431,11 +430,7 @@ async function main(args: string[] = process.argv.slice(2)): Promise<void> {
     process.exit(1);
   }
 
-  console.log(
-    parsed.portExplicit
-      ? `Starting webmux on port ${parsed.port}...`
-      : `Starting webmux on port ${parsed.port} (falls back to a free port if taken)...`,
-  );
+  console.log(`Starting webmux on port ${parsed.port}...`);
 
   const be = Bun.spawn(["bun", backendEntry], {
     env: { ...baseEnv, WEBMUX_STATIC_DIR: staticDir },

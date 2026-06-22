@@ -2147,9 +2147,6 @@ function actualPort(server: Server<WsData>, requested: number): number {
   return server.port ?? requested;
 }
 
-const MAX_INCREMENTAL_BIND_ATTEMPTS = 100;
-const PORT_STRICT = Bun.env.WEBMUX_PORT_STRICT === "1";
-
 // ── Global multi-project server ─────────────────────────────────────────────
 // One process, one port. Every known project gets its own runtime + app; the
 // shared HTTP server prefixes each project's routes with `/${prefix}` and the
@@ -2350,41 +2347,21 @@ function startServer(port: number, routes: ProjectRoutes): Server<WsData> {
   });
 }
 
-/** Bind the HTTP server.
- *  - In strict mode (`WEBMUX_PORT_STRICT=1`, set by the CLI when `--port` or
- *    `PORT` was supplied explicitly): bind exactly `PORT` and fail loudly on
- *    `EADDRINUSE` — the user pinned that port, surfacing the conflict beats
- *    silently landing somewhere else.
- *  - Otherwise (default 5111): walk PORT, PORT+1, … up to a sane cap. If the
- *    whole window is taken, fall back to an OS-picked ephemeral port so the
- *    process never crashes on startup. */
+/** Bind the HTTP server to `PORT`. webmux is one server per machine now, so a
+ *  bind conflict almost always means another webmux is already running — fail
+ *  loudly and point at `webmux project migrate` rather than silently landing on
+ *  a different port (which would just create the duplicate we're trying to
+ *  avoid). */
 function bindServer(routes: ProjectRoutes): Server<WsData> {
-  if (PORT_STRICT) {
-    try {
-      return startServer(PORT, routes);
-    } catch (err: unknown) {
-      const code = (err as { code?: string } | null)?.code;
-      if (code === "EADDRINUSE") {
-        log.error(`[serve] port ${PORT} is in use and was set explicitly; drop --port / PORT to let webmux pick a free port`);
-      }
-      throw err;
+  try {
+    return startServer(PORT, routes);
+  } catch (err: unknown) {
+    const code = (err as { code?: string } | null)?.code;
+    if (code === "EADDRINUSE") {
+      log.error(`[serve] port ${PORT} is already in use — another webmux is likely running there. Stop it, pick another --port, or run \`webmux project migrate\` to consolidate.`);
     }
+    throw err;
   }
-
-  let candidate = PORT;
-  for (let attempt = 0; attempt < MAX_INCREMENTAL_BIND_ATTEMPTS; attempt++) {
-    try {
-      const bound = startServer(candidate, routes);
-      if (attempt > 0) log.info(`[serve] port ${PORT} in use; bound to ${actualPort(bound, candidate)}`);
-      return bound;
-    } catch (err: unknown) {
-      const code = (err as { code?: string } | null)?.code;
-      if (code !== "EADDRINUSE") throw err;
-      candidate += 1;
-    }
-  }
-  log.info(`[serve] ports ${PORT}..${PORT + MAX_INCREMENTAL_BIND_ATTEMPTS - 1} all in use; falling back to an OS-picked port`);
-  return startServer(0, routes);
 }
 
 function reloadRoutes(): void {

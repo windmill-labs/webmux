@@ -42,8 +42,9 @@ import {
   AutoNameConfigResponseSchema,
   InstancesResponseSchema,
   ProjectsResponseSchema,
-  ProjectSummarySchema,
   AddProjectRequestSchema,
+  AddProjectResponseSchema,
+  ProjectInitsResponseSchema,
   ProjectPrefixParamsSchema,
   MigrateProjectsRequestSchema,
   MigrateProjectsResponseSchema,
@@ -92,6 +93,7 @@ export const apiPaths = {
   fetchInstances: "/api/instances",
   fetchProjects: "/api/projects",
   addProject: "/api/projects",
+  projectInits: "/api/projects/init",
   migrateProjects: "/api/projects/migrate",
   removeProject: "/api/projects/:prefix",
 } as const;
@@ -473,8 +475,16 @@ export const apiContract = c.router({
     path: apiPaths.addProject,
     body: AddProjectRequestSchema,
     responses: {
-      200: ProjectSummarySchema,
+      200: AddProjectResponseSchema,
       400: ErrorResponseSchema,
+      500: ErrorResponseSchema,
+    },
+  },
+  projectInits: {
+    method: "GET",
+    path: apiPaths.projectInits,
+    responses: {
+      200: ProjectInitsResponseSchema,
       500: ErrorResponseSchema,
     },
   },

@@ -54,6 +54,20 @@ import {
   type ProjectConfig,
 } from "./adapters/config";
 import { jsonResponse, errorResponse } from "./lib/http";
+import { which } from "./lib/shell";
+import {
+  buildInitAgentCommand,
+  buildInitPromptSpec,
+  buildStarterTemplate,
+  detectInitProjectContext,
+  runInitAgentCommand,
+  type InitAgent,
+} from "./services/init-authoring";
+import {
+  ProjectInitTracker,
+  runProjectInit,
+  type ProjectInitDeps,
+} from "./services/project-init-service";
 import { isRecord, isStringArray } from "./lib/type-guards";
 import { parseJsonBody, parseParams, parseQuery } from "./api-validation";
 import { hasRecentDashboardActivity, touchDashboardActivity } from "./services/dashboard-activity";
@@ -118,7 +132,7 @@ import { isValidBranchName, isValidWorktreeName } from "./domain/policies";
 import { createWebmuxRuntime, type WebmuxRuntime } from "./runtime";
 import { createInstanceRegistry, type InstanceEntry } from "./adapters/instance-registry";
 import { createProjectsRegistry } from "./adapters/projects-registry";
-import { ProjectManager, type ProjectLoopController } from "./services/project-manager";
+import { ProjectManager, type ManagedProject, type ProjectLoopController } from "./services/project-manager";
 
 const PORT = parseInt(Bun.env.PORT || "5111", 10);
 const STATIC_DIR = Bun.env.WEBMUX_STATIC_DIR || "";
@@ -2328,6 +2342,9 @@ const apps = new Map<string, ProjectApp>();
 // removed and track whether a project is currently being viewed (`active`).
 const openSockets = new Map<string, Set<ServerWebSocket<WsData>>>();
 const instanceRegistry = createInstanceRegistry();
+// Tracks on-add project setups (scaffold config → analyze with Claude → ready)
+// so the UI + CLI can show progress. Hub-level: one per machine, keyed by repo.
+const projectInitTracker = new ProjectInitTracker();
 let manager: ProjectManager;
 let server: Server<WsData>;
 let BOUND_PORT = 0;
@@ -2341,16 +2358,45 @@ async function catchingRoute(label: string, fn: () => Promise<Response>): Promis
   }
 }
 
-function apiListProjects(): Response {
-  return jsonResponse({
-    projects: manager.list().map((p) => ({
-      prefix: p.prefix,
-      name: p.entry.name,
-      path: p.entry.path,
-      active: p.active,
-    })),
-  });
+function toProjectSummary(p: ManagedProject): { prefix: string; name: string; path: string; active: boolean } {
+  return { prefix: p.prefix, name: p.entry.name, path: p.entry.path, active: p.active };
 }
+
+function apiListProjects(): Response {
+  return jsonResponse({ projects: manager.list().map(toProjectSummary) });
+}
+
+/** A repo is a webmux project once it has a config file. */
+function hasProjectConfig(root: string): boolean {
+  return existsSync(join(root, ".webmux.yaml")) || existsSync(join(root, ".webmux.local.yaml"));
+}
+
+/** Agent used to author config on setup: prefer Claude, fall back to Codex. */
+function authoringAgent(): InitAgent {
+  return which("claude") ? "claude" : "codex";
+}
+
+const ANALYZE_TIMEOUT_MS = 120_000;
+
+/** I/O for the on-add setup flow. The server is local, so it spawns the agent
+ *  with the repo as cwd to scaffold + flesh out `.webmux.yaml`, then registers. */
+const projectInitDeps: ProjectInitDeps = {
+  analyzerAvailable: () => which("claude") || which("codex"),
+  scaffold: async (root) => {
+    const context = detectInitProjectContext(root, authoringAgent());
+    await Bun.write(join(root, ".webmux.yaml"), buildStarterTemplate(context));
+  },
+  analyze: async (root) => {
+    const agent = authoringAgent();
+    const spec = buildInitAgentCommand(agent, buildInitPromptSpec(detectInitProjectContext(root, agent)));
+    await runInitAgentCommand(spec, root, { timeoutMs: ANALYZE_TIMEOUT_MS });
+  },
+  register: (root) => {
+    const project = manager.add(root);
+    reloadRoutes();
+    return { prefix: project.prefix, name: project.entry.name };
+  },
+};
 
 async function apiAddProject(req: BunRequest): Promise<Response> {
   const body: unknown = await req.json().catch(() => null);
@@ -2359,13 +2405,37 @@ async function apiAddProject(req: BunRequest): Promise<Response> {
   }
   const inputPath = body.path.trim();
   if (!isGitRepo(inputPath)) return errorResponse(`Not a git repository: ${inputPath}`, 400);
-  const project = manager.add(inputPath);
-  reloadRoutes();
+  const root = projectRoot(inputPath);
+
+  // Already served, or already a webmux project → register now, no setup job.
+  const existing = manager.getByPath(root);
+  if (existing) {
+    return jsonResponse({ initializing: false, path: root, project: toProjectSummary(existing) });
+  }
+  if (hasProjectConfig(root)) {
+    const project = manager.add(root);
+    reloadRoutes();
+    return jsonResponse({ initializing: false, path: root, project: toProjectSummary(project) });
+  }
+
+  // No config → scaffold + analyze + register asynchronously; the client polls
+  // `projectInits` for progress and the resulting prefix.
+  if (!projectInitTracker.isActive(root)) {
+    projectInitTracker.set(root, { phase: "creating_config" });
+    void runProjectInit(projectInitTracker, root, projectInitDeps);
+  }
+  return jsonResponse({ initializing: true, path: root, project: null });
+}
+
+function apiListProjectInits(): Response {
   return jsonResponse({
-    prefix: project.prefix,
-    name: project.entry.name,
-    path: project.entry.path,
-    active: project.active,
+    inits: projectInitTracker.list().map((s) => ({
+      path: s.path,
+      phase: s.phase,
+      prefix: s.prefix,
+      name: s.name,
+      error: s.error,
+    })),
   });
 }
 
@@ -2454,6 +2524,9 @@ function buildServeRoutes(): ProjectRoutes {
     [apiPaths.fetchProjects]: {
       GET: () => apiListProjects(),
       POST: (req) => catchingRoute("POST /api/projects", () => apiAddProject(req)),
+    },
+    [apiPaths.projectInits]: {
+      GET: () => apiListProjectInits(),
     },
     [apiPaths.migrateProjects]: {
       POST: (req) => catchingRoute("POST /api/projects/migrate", () => apiMigrateProjects(req)),

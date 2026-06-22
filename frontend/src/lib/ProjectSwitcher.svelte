@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { addProject, fetchProjects, removeProject } from "./api";
-  import type { ProjectSummary } from "./types";
+  import { fetchProjects, removeProject, setUpProject } from "./api";
+  import { projectInitPhaseLabel } from "./utils";
+  import type { ProjectInitPhase, ProjectSummary } from "./types";
 
   let { current }: { current: string } = $props();
 
@@ -10,6 +11,7 @@
   let addPath = $state("");
   let addError = $state<string | null>(null);
   let busy = $state(false);
+  let addPhase = $state<ProjectInitPhase | null>(null);
   let triggerEl: HTMLButtonElement | undefined = $state();
   let menuEl: HTMLDivElement | undefined = $state();
   let menuRect = $state<{ top: number; left: number; width: number }>({ top: 0, left: 0, width: 0 });
@@ -66,12 +68,14 @@
     if (!path || busy) return;
     busy = true;
     addError = null;
+    addPhase = null;
     try {
-      const project = await addProject(path);
-      window.location.assign(`/${project.prefix}/`);
+      const { prefix } = await setUpProject(path, (next) => (addPhase = next));
+      window.location.assign(`/${prefix}/`);
     } catch (error) {
       addError = error instanceof Error ? error.message : String(error);
       busy = false;
+      addPhase = null;
     }
   }
 
@@ -155,7 +159,8 @@
           bind:value={addPath}
           onkeydown={handleAddKeydown}
           placeholder="Path to a git repo…"
-          class="flex-1 min-w-0 px-2 py-1 text-[12px] rounded border border-edge bg-bg text-primary placeholder:text-muted"
+          disabled={busy}
+          class="flex-1 min-w-0 px-2 py-1 text-[12px] rounded border border-edge bg-bg text-primary placeholder:text-muted disabled:opacity-50"
         />
         <button
           type="button"
@@ -166,6 +171,12 @@
           Add
         </button>
       </div>
+      {#if busy && addPhase}
+        <div class="mt-1 flex items-center gap-1 text-[11px] text-muted">
+          <span class="spinner"></span>
+          {projectInitPhaseLabel(addPhase)}…
+        </div>
+      {/if}
       {#if addError}
         <div class="mt-1 text-[11px] text-red-400 break-words">{addError}</div>
       {/if}

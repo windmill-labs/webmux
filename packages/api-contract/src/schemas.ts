@@ -616,6 +616,40 @@ export const AddProjectRequestSchema = z.object({
   path: z.string().min(1),
 });
 
+/** Adding a repo that has no .webmux.yaml kicks off an async setup job
+ *  (scaffold config → analyze with Claude → register); the response says the
+ *  job started and the client polls `projectInits`. When the repo already has
+ *  config it's registered immediately and `project` is returned. */
+export const AddProjectResponseSchema = z.object({
+  initializing: z.boolean(),
+  path: z.string(),
+  project: ProjectSummarySchema.nullable(),
+});
+
+/** Phases of the on-add project setup, surfaced so the UI and CLI can show
+ *  progress: scaffold the .webmux.yaml → analyze the repo with Claude → ready
+ *  (registered). `failed` means setup errored before the project was usable. */
+export const ProjectInitPhaseSchema = z.enum([
+  "creating_config",
+  "analyzing",
+  "ready",
+  "failed",
+]);
+
+export const ProjectInitStateSchema = z.object({
+  path: z.string(),
+  phase: ProjectInitPhaseSchema,
+  /** Set once the project is registered (phase "ready") so the client can open it. */
+  prefix: z.string().nullable(),
+  name: z.string().nullable(),
+  /** Set when phase is "failed". */
+  error: z.string().nullable(),
+});
+
+export const ProjectInitsResponseSchema = z.object({
+  inits: z.array(ProjectInitStateSchema),
+});
+
 export const ProjectPrefixParamsSchema = z.object({
   prefix: z.string(),
 });
@@ -635,6 +669,10 @@ export const MigrateProjectsResponseSchema = z.object({
 export type ProjectSummary = z.infer<typeof ProjectSummarySchema>;
 export type ProjectsResponse = z.infer<typeof ProjectsResponseSchema>;
 export type AddProjectRequest = z.infer<typeof AddProjectRequestSchema>;
+export type AddProjectResponse = z.infer<typeof AddProjectResponseSchema>;
+export type ProjectInitPhase = z.infer<typeof ProjectInitPhaseSchema>;
+export type ProjectInitState = z.infer<typeof ProjectInitStateSchema>;
+export type ProjectInitsResponse = z.infer<typeof ProjectInitsResponseSchema>;
 export type MigrateProjectsRequest = z.infer<typeof MigrateProjectsRequestSchema>;
 export type MigrateProjectsResponse = z.infer<typeof MigrateProjectsResponseSchema>;
 

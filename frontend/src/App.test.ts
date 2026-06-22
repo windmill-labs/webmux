@@ -131,7 +131,7 @@ vi.mock("./lib/api", () => ({
   apiBase: "",
   fetchProjects: vi.fn(async () => []),
   fetchInstances: vi.fn(async () => []),
-  addProject: vi.fn(),
+  setUpProject: vi.fn(),
   removeProject: vi.fn(),
 }));
 

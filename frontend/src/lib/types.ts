@@ -53,6 +53,8 @@ export type {
   PrComment,
   PrEntry,
   ProfileConfig,
+  ProjectInitPhase,
+  ProjectInitState,
   ProjectSnapshot,
   ProjectSummary,
   ProjectWorktreeSnapshot,

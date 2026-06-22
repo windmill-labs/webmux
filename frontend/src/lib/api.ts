@@ -12,6 +12,7 @@ import type {
   InstanceSummary,
   PostWorktreeToLinearResponse,
   PostWorktreeToLinearTarget,
+  ProjectInitPhase,
   ProjectSummary,
   ProjectWorktreeSnapshot,
   UpsertCustomAgentRequest,
@@ -229,8 +230,42 @@ export async function fetchProjects(): Promise<ProjectSummary[]> {
   return response.projects;
 }
 
-export async function addProject(path: string): Promise<ProjectSummary> {
-  return hubApi.addProject({ body: { path } });
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+const SETUP_POLL_INTERVAL_MS = 600;
+const SETUP_TIMEOUT_MS = 5 * 60_000;
+
+/** Add a project and, when the repo has no `.webmux.yaml`, drive its setup
+ *  (scaffold → analyze with Claude → register) to completion, reporting each
+ *  phase via `onPhase`. Resolves with the project's prefix once it's ready. */
+export async function setUpProject(
+  path: string,
+  onPhase?: (phase: ProjectInitPhase) => void,
+): Promise<{ prefix: string }> {
+  const res = await hubApi.addProject({ body: { path } });
+  if (!res.initializing) {
+    if (!res.project) throw new Error("Server accepted the project but returned nothing to open.");
+    return { prefix: res.project.prefix };
+  }
+
+  const deadline = Date.now() + SETUP_TIMEOUT_MS;
+  let lastPhase: ProjectInitPhase | null = null;
+  while (Date.now() < deadline) {
+    const { inits } = await hubApi.projectInits();
+    const state = inits.find((entry) => entry.path === res.path);
+    if (state) {
+      if (state.phase !== lastPhase) {
+        lastPhase = state.phase;
+        onPhase?.(state.phase);
+      }
+      if (state.phase === "ready" && state.prefix) return { prefix: state.prefix };
+      if (state.phase === "failed") throw new Error(state.error ?? "Project setup failed.");
+    }
+    await delay(SETUP_POLL_INTERVAL_MS);
+  }
+  throw new Error("Project setup timed out.");
 }
 
 export async function removeProject(prefix: string): Promise<void> {

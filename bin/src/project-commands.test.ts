@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { parseProjectArgs } from "./project-commands";
+import type { ProjectInitState } from "@webmux/api-contract";
+import { awaitProjectSetup, parseProjectArgs } from "./project-commands";
 import { CommandUsageError } from "./shared";
 
 describe("parseProjectArgs", () => {
@@ -46,5 +47,57 @@ describe("parseProjectArgs", () => {
 
   it("rejects unknown subcommands", () => {
     expect(() => parseProjectArgs(["frobnicate"])).toThrow(CommandUsageError);
+  });
+});
+
+function initState(over: Partial<ProjectInitState>): ProjectInitState {
+  return { path: "/repo/a", phase: "creating_config", prefix: null, name: null, error: null, ...over };
+}
+
+describe("awaitProjectSetup", () => {
+  it("logs each phase once and resolves with the ready state", async () => {
+    const logs: string[] = [];
+    const frames: ProjectInitState[][] = [
+      [initState({ phase: "creating_config" })],
+      [initState({ phase: "creating_config" })], // unchanged → not logged again
+      [initState({ phase: "analyzing" })],
+      [initState({ phase: "ready", prefix: "a", name: "A" })],
+    ];
+    let i = 0;
+
+    const ready = await awaitProjectSetup("/repo/a", {
+      poll: async () => frames[Math.min(i++, frames.length - 1)],
+      sleep: async () => {},
+      log: (m) => logs.push(m),
+    });
+
+    expect(ready).toMatchObject({ phase: "ready", prefix: "a", name: "A" });
+    expect(logs).toEqual([
+      "  Creating .webmux.yaml…",
+      "  Analyzing project structure with Claude…",
+    ]);
+  });
+
+  it("throws with the server error when setup fails", async () => {
+    await expect(
+      awaitProjectSetup("/repo/a", {
+        poll: async () => [initState({ phase: "failed", error: "no git" })],
+        sleep: async () => {},
+        log: () => {},
+      }),
+    ).rejects.toThrow("no git");
+  });
+
+  it("throws on timeout when the job never appears", async () => {
+    let clock = 0;
+    await expect(
+      awaitProjectSetup("/repo/a", {
+        poll: async () => [],
+        sleep: async () => { clock += 1000; },
+        now: () => clock,
+        timeoutMs: 1500,
+        log: () => {},
+      }),
+    ).rejects.toThrow("timed out");
   });
 });

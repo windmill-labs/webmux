@@ -13,7 +13,7 @@ import {
   type InitAgent,
   type InitAgentStreamEvent,
   type InitAuthoringChoice,
-} from "./init-helpers.ts";
+} from "../../backend/src/services/init-authoring.ts";
 
 // ── Dependency checks ───────────────────────────────────────────────────────
 

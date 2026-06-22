@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { detectProjectName, run } from "./shared.ts";
+import { detectProjectName, run } from "../lib/shell";
 
 export type InitAuthoringChoice = "claude" | "codex" | "manual";
 export type InitAgent = Exclude<InitAuthoringChoice, "manual">;

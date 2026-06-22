@@ -1,31 +1,12 @@
-import { existsSync, readFileSync, realpathSync } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { dirname, resolve } from "node:path";
+import { realpathSync } from "node:fs";
 import { createApi } from "@webmux/api-contract";
+import { run } from "../../backend/src/lib/shell";
 
-export interface RunResult {
-  success: boolean;
-  stdout: Buffer;
-  stderr: Buffer;
-}
-
-export function run(cmd: string, args: string[], opts?: { cwd?: string }): RunResult {
-  const result = Bun.spawnSync([cmd, ...args], { stdout: "pipe", stderr: "pipe", ...opts });
-  return {
-    success: result.success,
-    stdout: result.stdout as Buffer,
-    stderr: result.stderr as Buffer,
-  };
-}
-
-export function which(tool: string): boolean {
-  return run("which", [tool]).success;
-}
-
-export function getGitRoot(): string | null {
-  const result = run("git", ["rev-parse", "--show-toplevel"]);
-  if (!result.success) return null;
-  return result.stdout.toString().trim();
-}
+// Generic process/git/repo primitives live in the backend lib so backend code
+// (e.g. project setup) can share them; re-export here so existing CLI imports
+// from "./shared" keep working.
+export { run, which, getGitRoot, detectProjectName, type RunResult } from "../../backend/src/lib/shell";
 
 /**
  * Thrown by argparse functions to signal usage errors (e.g. missing flag value,
@@ -33,17 +14,6 @@ export function getGitRoot(): string | null {
  * help banner alongside the message.
  */
 export class CommandUsageError extends Error {}
-
-export function detectProjectName(gitRoot: string): string {
-  const pkgPath = join(gitRoot, "package.json");
-  if (existsSync(pkgPath)) {
-    try {
-      const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
-      if (pkg.name) return pkg.name;
-    } catch {} // malformed package.json, fall back to dir name
-  }
-  return basename(gitRoot);
-}
 
 /**
  * When the webmux server isn't reachable the bare error message is unhelpful to

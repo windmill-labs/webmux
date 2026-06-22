@@ -88,6 +88,7 @@ export async function runProjectInit(
   root: string,
   deps: ProjectInitDeps,
 ): Promise<void> {
+  log.info(`[project-init] setting up ${root}`);
   try {
     tracker.set(root, { phase: "creating_config" });
     await deps.scaffold(root);
@@ -98,14 +99,18 @@ export async function runProjectInit(
         await deps.analyze(root);
       } catch (err: unknown) {
         // Analysis is a best-effort enrichment; keep the starter config and
-        // finish setup rather than stranding the user with no project.
-        log.error(`[project-init] analysis failed for ${root}, keeping starter config: ${String(err)}`);
+        // finish setup rather than stranding the user with no project. Recoverable,
+        // so warn (not error) — setup still succeeds.
+        log.warn(`[project-init] analysis failed for ${root}, keeping starter config: ${String(err)}`);
       }
     }
 
     const { prefix, name } = deps.register(root);
     tracker.set(root, { phase: "ready", prefix, name });
+    log.info(`[project-init] ${root} ready as "${prefix}"`);
   } catch (err: unknown) {
-    tracker.set(root, { phase: "failed", error: err instanceof Error ? err.message : String(err) });
+    const message = err instanceof Error ? err.message : String(err);
+    log.error(`[project-init] setup failed for ${root}: ${message}`);
+    tracker.set(root, { phase: "failed", error: message });
   }
 }

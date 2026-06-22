@@ -77,17 +77,18 @@ The primary dashboard remains the best desktop experience. On mobile, the same d
 
 You don't run a separate webmux per project. A single `webmux serve` serves **every project you've added, on one dashboard and one port** — each scoped under its own `/<prefix>` URL. The only per-project requirement is a `.webmux.yaml` in the repo (created by `webmux init`); webmux auto-loads it.
 
-- The repo you launch `webmux serve` in is added automatically.
+- The repo you launch `webmux serve` in is served automatically — but only for that session. It isn't written to `~/.webmux/projects.json`, so it isn't remembered across restarts unless you `webmux project add` it.
 - Switch projects, or add/remove them, from the project switcher in the dashboard.
 - Or manage them from the CLI:
 
 ```bash
 webmux project ls                 # list projects the dashboard is serving
-webmux project add ~/code/other   # add another project (must have a .webmux.yaml)
+webmux project add ~/code/other   # add another project (persists; must have a .webmux.yaml)
 webmux project rm other           # remove by prefix
+webmux project migrate            # fold other running webmux servers into this one
 ```
 
-Known projects are remembered in `~/.webmux/projects.json` and reloaded on the next start. (Running a standalone `webmux serve` for a single repo still works, and separate instances cross-link to each other.)
+Projects added with `webmux project add` are remembered in `~/.webmux/projects.json` and reloaded on the next start. Run webmux as a single service per machine with `webmux service install`. If you're upgrading from an older setup that ran one service per project, `webmux project migrate` consolidates those leftover servers into this one (the dashboard shows a banner when it detects them).
 
 ## Prerequisites
 

@@ -61,3 +61,76 @@ describe("project-prefixed network calls", () => {
     );
   });
 });
+
+function jsonResponse(body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+function urlOf(input: string | URL | Request): string {
+  if (typeof input === "string") return input;
+  if (input instanceof URL) return input.href;
+  return input.url;
+}
+
+describe("setUpProject", () => {
+  it("returns the prefix immediately when the repo is already a project", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () =>
+      jsonResponse({
+        initializing: false,
+        path: "/repo/y",
+        project: { prefix: "y", name: "Y", path: "/repo/y", active: false },
+      }),
+    ));
+
+    const api = await loadApiAt("/y/");
+    const phases: string[] = [];
+    const result = await api.setUpProject("/repo/y", (phase) => phases.push(phase));
+
+    expect(result).toEqual({ prefix: "y" });
+    expect(phases).toEqual([]); // no setup needed → no phases
+  });
+
+  it("polls the setup tracker and resolves with the prefix when ready", async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = urlOf(input);
+      const method = init?.method ?? "GET";
+      if (url.endsWith("/api/projects") && method === "POST") {
+        return jsonResponse({ initializing: true, path: "/repo/x", project: null });
+      }
+      if (url.endsWith("/api/projects/init")) {
+        return jsonResponse({
+          inits: [{ path: "/repo/x", phase: "ready", prefix: "x", name: "X", error: null }],
+        });
+      }
+      throw new Error(`unexpected ${method} ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const api = await loadApiAt("/x/");
+    const phases: string[] = [];
+    const result = await api.setUpProject("/repo/x", (phase) => phases.push(phase));
+
+    expect(result).toEqual({ prefix: "x" });
+    expect(phases).toEqual(["ready"]);
+  });
+
+  it("rejects with the server error when setup fails", async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = urlOf(input);
+      const method = init?.method ?? "GET";
+      if (url.endsWith("/api/projects") && method === "POST") {
+        return jsonResponse({ initializing: true, path: "/repo/z", project: null });
+      }
+      return jsonResponse({
+        inits: [{ path: "/repo/z", phase: "failed", prefix: null, name: null, error: "not a git repo" }],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const api = await loadApiAt("/x/");
+    await expect(api.setUpProject("/repo/z", () => {})).rejects.toThrow("not a git repo");
+  });
+});

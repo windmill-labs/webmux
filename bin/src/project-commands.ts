@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import { createApi, type ProjectInitPhase, type ProjectInitState } from "@webmux/api-contract";
 import { CommandUsageError, formatServerError } from "./shared";
-import { runMigrate, warnIfOtherInstances } from "./migrate.ts";
+import { runMigrate } from "./migrate.ts";
 
 const PROJECT_SETUP_POLL_INTERVAL_MS = 700;
 const PROJECT_SETUP_TIMEOUT_MS = 5 * 60_000;
@@ -123,9 +123,6 @@ export async function runProjectCommand(args: string[], port: number): Promise<n
   if (parsed.subcommand === "migrate") {
     return runMigrate(port);
   }
-
-  // Nudge toward consolidation when other servers are still running.
-  warnIfOtherInstances(port);
 
   const api = createApi(`http://localhost:${port}`);
   try {

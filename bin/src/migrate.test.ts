@@ -97,6 +97,46 @@ describe("runMigrate", () => {
     expect(removed).toEqual(["/units/other.service"]);
   });
 
+  test("does not retire a unit whose repo failed to register", async () => {
+    const calls: string[] = [];
+    const removed: string[] = [];
+    const runner: ServiceRunner = {
+      run: (bin, args) => {
+        calls.push(`${bin} ${args.join(" ")}`);
+        return okRun;
+      },
+    };
+    const live = [
+      instance({ port: 5111, projectDir: "/repo/survivor" }),
+      instance({ port: 5112, projectDir: "/repo/ok" }),
+      instance({ port: 5113, projectDir: "/repo/gone" }),
+    ];
+    const services = [
+      service({ name: "webmux-ok", filePath: "/units/ok.service" }),
+      service({ name: "webmux-gone", filePath: "/units/gone.service" }),
+    ];
+
+    const code = await runMigrate(5111, {
+      listLive: () => live,
+      listServices: () => services,
+      runner,
+      portOf: (path) => ({ "/units/ok.service": 5112, "/units/gone.service": 5113 })[path] ?? null,
+      removeFile: (path) => removed.push(path),
+      migrate: async () => ({
+        migrated: [{ prefix: "ok", name: "Ok", path: "/repo/ok", active: false }],
+        failed: [{ path: "/repo/gone", error: "Not a git repository: /repo/gone" }],
+      }),
+    });
+
+    expect(code).toBe(0);
+    // Only the successfully-migrated unit is retired; the failed one is left running.
+    expect(calls).toEqual([
+      "systemctl --user stop webmux-ok",
+      "systemctl --user disable webmux-ok",
+    ]);
+    expect(removed).toEqual(["/units/ok.service"]);
+  });
+
   test("returns 1 when the survivor can't be reached", async () => {
     const code = await runMigrate(5111, {
       listLive: () => [instance({ port: 5111 }), instance({ port: 5112 })],

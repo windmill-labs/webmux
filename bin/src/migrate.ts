@@ -90,9 +90,19 @@ export async function runMigrate(port: number, deps: MigrateDeps = {}): Promise<
     console.error(`Warning: could not add ${failure.path}: ${failure.error}`);
   }
 
-  // 2. Stop + disable + remove each old server's service unit.
+  // 2. Stop + disable + remove each old server's service unit — but only for
+  // repos the survivor actually picked up. If registration failed (e.g. the
+  // repo is gone or its config is unreadable), retiring its unit would leave
+  // the project neither served here nor running where it was: leave it alone.
+  const failedPaths = new Set(result.failed.map((failure) => failure.path));
   const services = listServices();
   for (const instance of others) {
+    if (failedPaths.has(instance.projectDir)) {
+      console.error(
+        `Skipping retirement of the server on port ${instance.port} (${instance.projectDir}) — its repo wasn't migrated. Resolve the error above, then stop it yourself.`,
+      );
+      continue;
+    }
     const unit = findUnitForPort(services, instance.port, portOf);
     if (!unit) {
       console.error(

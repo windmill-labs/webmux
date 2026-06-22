@@ -17,6 +17,7 @@
   import WorktreeLabelDialog from "./lib/WorktreeLabelDialog.svelte";
   import SidebarRepoRow from "./lib/SidebarRepoRow.svelte";
   import ProjectSwitcher from "./lib/ProjectSwitcher.svelte";
+  import MigrationBanner from "./lib/MigrationBanner.svelte";
   import Toggle from "./lib/Toggle.svelte";
   import type {
     AvailableBranch,
@@ -1279,6 +1280,7 @@
   {/if}
 
   <main class="flex-1 min-w-0 flex flex-col overflow-hidden">
+    <MigrationBanner />
     <TopBar
       name={selectedWorktree?.branch ?? null}
       worktree={selectedWorktree}

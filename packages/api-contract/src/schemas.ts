@@ -618,9 +618,23 @@ export const ProjectPrefixParamsSchema = z.object({
   prefix: z.string(),
 });
 
+/** Fold the repos served by leftover single-project instances into this server.
+ *  The CLI sends each other instance's projectDir; the server adds + persists
+ *  them so this one dashboard serves them going forward. */
+export const MigrateProjectsRequestSchema = z.object({
+  paths: z.array(z.string().min(1)),
+});
+
+export const MigrateProjectsResponseSchema = z.object({
+  migrated: z.array(ProjectSummarySchema),
+  failed: z.array(z.object({ path: z.string(), error: z.string() })),
+});
+
 export type ProjectSummary = z.infer<typeof ProjectSummarySchema>;
 export type ProjectsResponse = z.infer<typeof ProjectsResponseSchema>;
 export type AddProjectRequest = z.infer<typeof AddProjectRequestSchema>;
+export type MigrateProjectsRequest = z.infer<typeof MigrateProjectsRequestSchema>;
+export type MigrateProjectsResponse = z.infer<typeof MigrateProjectsResponseSchema>;
 
 export type BuiltInAgentId = z.infer<typeof BuiltInAgentIdSchema>;
 export type AgentId = z.infer<typeof AgentIdSchema>;

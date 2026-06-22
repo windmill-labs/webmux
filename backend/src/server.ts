@@ -2199,6 +2199,37 @@ async function apiAddProject(req: BunRequest): Promise<Response> {
   });
 }
 
+/** Fold the repos served by leftover single-project instances into this server.
+ *  `webmux project migrate` posts each other instance's projectDir here; we add
+ *  and persist them so this dashboard serves them going forward. The CLI then
+ *  stops the old instances' service units. Per-path failures are reported, not
+ *  fatal, so one bad entry doesn't abort the rest. */
+async function apiMigrateProjects(req: BunRequest): Promise<Response> {
+  const body: unknown = await req.json().catch(() => null);
+  if (!isRecord(body) || !Array.isArray(body.paths) || body.paths.some((p) => typeof p !== "string")) {
+    return errorResponse("Request body must be { paths: string[] }", 400);
+  }
+  const paths = body.paths.map((p) => p.trim()).filter((p) => p !== "");
+  const migrated: Array<{ prefix: string; name: string; path: string; active: boolean }> = [];
+  const failed: Array<{ path: string; error: string }> = [];
+  for (const path of paths) {
+    try {
+      if (!isGitRepo(path)) throw new Error(`Not a git repository: ${path}`);
+      const project = manager.add(path);
+      migrated.push({
+        prefix: project.prefix,
+        name: project.entry.name,
+        path: project.entry.path,
+        active: project.active,
+      });
+    } catch (err: unknown) {
+      failed.push({ path, error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+  if (migrated.length > 0) reloadRoutes();
+  return jsonResponse({ migrated, failed });
+}
+
 /** Run each open socket's per-project cleanup (tmux detach, agents unsubscribe)
  *  and close it. Must run BEFORE the app is removed — once `apps.delete` has
  *  happened the global close handler can no longer find the project's cleanup. */
@@ -2253,6 +2284,9 @@ function buildServeRoutes(): ProjectRoutes {
     [apiPaths.fetchProjects]: {
       GET: () => apiListProjects(),
       POST: (req) => catchingRoute("POST /api/projects", () => apiAddProject(req)),
+    },
+    [apiPaths.migrateProjects]: {
+      POST: (req) => catchingRoute("POST /api/projects/migrate", () => apiMigrateProjects(req)),
     },
     [apiPaths.removeProject]: {
       DELETE: (req) => catchingRoute("DELETE /api/projects/:prefix", () => apiRemoveProject(decodeURIComponent(req.params.prefix))),

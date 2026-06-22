@@ -36,6 +36,14 @@ describe("parseProjectArgs", () => {
     expect(() => parseProjectArgs(["rm"])).toThrow(CommandUsageError);
   });
 
+  it("parses migrate", () => {
+    expect(parseProjectArgs(["migrate"])).toEqual({ subcommand: "migrate" });
+  });
+
+  it("rejects extra args to migrate", () => {
+    expect(() => parseProjectArgs(["migrate", "extra"])).toThrow(CommandUsageError);
+  });
+
   it("rejects unknown subcommands", () => {
     expect(() => parseProjectArgs(["frobnicate"])).toThrow(CommandUsageError);
   });

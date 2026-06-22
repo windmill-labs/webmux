@@ -45,6 +45,8 @@ import {
   ProjectSummarySchema,
   AddProjectRequestSchema,
   ProjectPrefixParamsSchema,
+  MigrateProjectsRequestSchema,
+  MigrateProjectsResponseSchema,
 } from "./schemas";
 
 const c = initContract();
@@ -90,6 +92,7 @@ export const apiPaths = {
   fetchInstances: "/api/instances",
   fetchProjects: "/api/projects",
   addProject: "/api/projects",
+  migrateProjects: "/api/projects/migrate",
   removeProject: "/api/projects/:prefix",
 } as const;
 
@@ -471,6 +474,16 @@ export const apiContract = c.router({
     body: AddProjectRequestSchema,
     responses: {
       200: ProjectSummarySchema,
+      400: ErrorResponseSchema,
+      500: ErrorResponseSchema,
+    },
+  },
+  migrateProjects: {
+    method: "POST",
+    path: apiPaths.migrateProjects,
+    body: MigrateProjectsRequestSchema,
+    responses: {
+      200: MigrateProjectsResponseSchema,
       400: ErrorResponseSchema,
       500: ErrorResponseSchema,
     },

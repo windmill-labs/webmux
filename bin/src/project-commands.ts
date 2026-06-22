@@ -1,11 +1,13 @@
 import { resolve } from "node:path";
 import { createApi } from "@webmux/api-contract";
 import { CommandUsageError, formatServerError } from "./shared";
+import { runMigrate, warnIfOtherInstances } from "./migrate.ts";
 
 export type ParsedProjectCommand =
   | { subcommand: "ls" }
   | { subcommand: "add"; path: string }
-  | { subcommand: "rm"; prefix: string };
+  | { subcommand: "rm"; prefix: string }
+  | { subcommand: "migrate" };
 
 export function getProjectUsage(): string {
   return [
@@ -13,6 +15,7 @@ export function getProjectUsage(): string {
     "  webmux project ls                 List projects the dashboard is serving",
     "  webmux project add [path]         Add a project (defaults to the current repo)",
     "  webmux project rm <prefix>        Remove a project by its prefix",
+    "  webmux project migrate            Fold other running webmux servers into this one",
     "",
     "All projects are served together on one dashboard and one port. `add` persists",
     "the project so it is reloaded on the next start. These commands talk to the live",
@@ -22,6 +25,7 @@ export function getProjectUsage(): string {
     "  webmux project ls",
     "  webmux project add ~/code/my-service",
     "  webmux project rm my-service",
+    "  webmux project migrate",
   ].join("\n");
 }
 
@@ -46,6 +50,11 @@ export function parseProjectArgs(args: string[]): ParsedProjectCommand | null {
     return { subcommand: "rm", prefix };
   }
 
+  if (subcommand === "migrate") {
+    if (args.length > 1) throw new CommandUsageError(`Unexpected argument: ${args[1]}`);
+    return { subcommand: "migrate" };
+  }
+
   throw new CommandUsageError(`Unknown project subcommand: ${subcommand}`);
 }
 
@@ -62,6 +71,13 @@ export async function runProjectCommand(args: string[], port: number): Promise<n
     console.log(getProjectUsage());
     return 0;
   }
+
+  if (parsed.subcommand === "migrate") {
+    return runMigrate(port);
+  }
+
+  // Nudge toward consolidation when other servers are still running.
+  warnIfOtherInstances(port);
 
   const api = createApi(`http://localhost:${port}`);
   try {

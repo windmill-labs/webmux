@@ -5,7 +5,9 @@ import {
   parseInstalledServiceConfig,
   readEnvVarsFromUnit,
   readPortFromUnit,
+  resolveConfirmDecision,
   resolveEnvVars,
+  shouldPersistCwdProject,
   type ServiceConfig,
 } from "./service.ts";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -20,6 +22,39 @@ async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
     await rm(dir, { recursive: true, force: true });
   }
 }
+
+describe("resolveConfirmDecision", () => {
+  it("proceeds outright with --yes, regardless of TTY", () => {
+    expect(resolveConfirmDecision(true, true)).toBe("proceed");
+    expect(resolveConfirmDecision(true, false)).toBe("proceed");
+  });
+
+  it("prompts in an interactive shell without --yes", () => {
+    expect(resolveConfirmDecision(false, true)).toBe("prompt");
+  });
+
+  it("bails in a non-interactive shell without --yes", () => {
+    expect(resolveConfirmDecision(false, false)).toBe("abort-noninteractive");
+  });
+});
+
+describe("shouldPersistCwdProject", () => {
+  it("persists a webmux repo that isn't registered yet", () => {
+    expect(shouldPersistCwdProject("/some/repo", true, ["/other/repo"])).toBe(true);
+  });
+
+  it("does not persist when not in a git repo", () => {
+    expect(shouldPersistCwdProject(null, true, [])).toBe(false);
+  });
+
+  it("does not persist a repo without a webmux config", () => {
+    expect(shouldPersistCwdProject("/some/repo", false, [])).toBe(false);
+  });
+
+  it("does not persist a repo that is already registered", () => {
+    expect(shouldPersistCwdProject("/some/repo", true, ["/some/repo"])).toBe(false);
+  });
+});
 
 describe("parseEnvCliArgs", () => {
   it("collects multiple --env KEY=VAL pairs", () => {
@@ -132,10 +167,8 @@ describe("generateServiceFile + readEnvVarsFromUnit (round-trip)", () => {
       const filePath = join(dir, "webmux-roundtrip.service");
       const config: ServiceConfig = {
         platform: "linux",
-        projectName: "roundtrip",
         serviceName: "webmux-roundtrip",
         webmuxPath: "/usr/local/bin/webmux",
-        projectDir: dir,
         port: 5111,
         envVars: { LINEAR_API_KEY: "lin_xyz", FOO: "bar=baz" },
       };
@@ -150,10 +183,8 @@ describe("generateServiceFile + readEnvVarsFromUnit (round-trip)", () => {
       const filePath = join(dir, "webmux-roundtrip.service");
       const config: ServiceConfig = {
         platform: "linux",
-        projectName: "roundtrip",
         serviceName: "webmux-roundtrip",
         webmuxPath: "/usr/local/bin/webmux",
-        projectDir: dir,
         port: 5111,
         envVars: { LINEAR_API_KEY: "x" },
       };
@@ -169,10 +200,8 @@ describe("generateServiceFile + readEnvVarsFromUnit (round-trip)", () => {
       const filePath = join(dir, "com.webmux.webmux-roundtrip.plist");
       const config: ServiceConfig = {
         platform: "darwin",
-        projectName: "roundtrip",
         serviceName: "webmux-roundtrip",
         webmuxPath: "/usr/local/bin/webmux",
-        projectDir: dir,
         port: 5222,
         envVars: { TOKEN: "needs <escaping> & a&mp", PLAIN: "ok" },
       };
@@ -188,10 +217,8 @@ describe("generateServiceFile + readEnvVarsFromUnit (round-trip)", () => {
       await writeFile(join(dir, "package.json"), JSON.stringify({ name: "roundtrip" }));
       const original: ServiceConfig = {
         platform: "linux",
-        projectName: "roundtrip",
         serviceName: "webmux-roundtrip",
         webmuxPath: "/usr/local/bin/webmux",
-        projectDir: dir,
         port: 5117,
         envVars: { LINEAR_API_KEY: "lin_xyz" },
       };
@@ -265,10 +292,8 @@ describe("readPortFromUnit", () => {
     await withTempDir(async (dir) => {
       const config: ServiceConfig = {
         platform: "linux",
-        projectName: "roundtrip",
         serviceName: "webmux",
         webmuxPath: "/usr/local/bin/webmux",
-        projectDir: "/home/x/proj",
         port: 5117,
         envVars: {},
       };
@@ -283,10 +308,8 @@ describe("readPortFromUnit", () => {
     await withTempDir(async (dir) => {
       const config: ServiceConfig = {
         platform: "darwin",
-        projectName: "roundtrip",
         serviceName: "webmux",
         webmuxPath: "/usr/local/bin/webmux",
-        projectDir: "/Users/x/proj",
         port: 5222,
         envVars: {},
       };

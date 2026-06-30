@@ -4,6 +4,7 @@ import { basename, join } from "node:path";
 import { homedir } from "node:os";
 import { run, getGitRoot, detectProjectName } from "./shared.ts";
 import type { RunResult } from "./shared.ts";
+import { createProjectsRegistry } from "../../backend/src/adapters/projects-registry";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -12,14 +13,11 @@ type Command = [bin: string, args: string[]];
 
 export interface ServiceConfig {
   platform: Platform;
-  projectName: string;
   serviceName: string;
   webmuxPath: string;
-  projectDir: string;
   port: number;
   /** Extra environment variables to bake into the unit (LINEAR_API_KEY etc.).
-   *  PORT / WEBMUX_PROJECT_DIR / PATH are managed by the generator and must
-   *  not be passed here. */
+   *  PORT / PATH are managed by the generator and must not be passed here. */
   envVars: Record<string, string>;
 }
 
@@ -44,6 +42,33 @@ function resolveWebmuxPath(): string | null {
   const result = run("which", ["webmux"]);
   if (!result.success) return null;
   return result.stdout.toString().trim();
+}
+
+/** Decide whether `service install` should persist the current repo as a
+ *  project. webmux is a single machine-wide service that serves everything in
+ *  projects.json, so installing from a webmux project registers that repo the
+ *  same way `webmux project add` would — replacing the old per-install
+ *  WEBMUX_PROJECT_DIR auto-add with an explicit, persisted entry. Skipped when
+ *  not in a git repo, when the repo has no webmux config, or when it is already
+ *  registered. */
+export function shouldPersistCwdProject(
+  gitRoot: string | null,
+  hasWebmuxConfig: boolean,
+  existingPaths: string[],
+): boolean {
+  if (!gitRoot || !hasWebmuxConfig) return false;
+  return !existingPaths.includes(gitRoot);
+}
+
+/** I/O wrapper around shouldPersistCwdProject: the git root of the current repo
+ *  when `service install` should register it, else null. */
+function cwdProjectToPersist(): string | null {
+  const gitRoot = getGitRoot();
+  if (!gitRoot) return null;
+  const hasConfig = existsSync(join(gitRoot, ".webmux.yaml"))
+    || existsSync(join(gitRoot, ".webmux.local.yaml"));
+  const existingPaths = createProjectsRegistry().list().map((entry) => entry.path);
+  return shouldPersistCwdProject(gitRoot, hasConfig, existingPaths) ? gitRoot : null;
 }
 
 function formatCommand([bin, args]: Command): string {
@@ -85,16 +110,15 @@ function generateSystemdUnit(config: ServiceConfig): string {
     .map((key) => `Environment=${key}=${config.envVars[key]}`)
     .join("\n");
   return `[Unit]
-Description=webmux dashboard — ${config.projectName}
+Description=webmux dashboard
 
 [Service]
 Type=simple
 ExecStart=${config.webmuxPath} serve --port ${config.port}
-WorkingDirectory=${config.projectDir}
+WorkingDirectory=${homedir()}
 Restart=on-failure
 RestartSec=5
 Environment=PORT=${config.port}
-Environment=WEBMUX_PROJECT_DIR=${config.projectDir}
 Environment=PATH=${process.env.PATH}${extra ? "\n" + extra : ""}
 
 [Install]
@@ -128,7 +152,7 @@ function generateLaunchdPlist(config: ServiceConfig): string {
     <string>${config.port}</string>
   </array>
   <key>WorkingDirectory</key>
-  <string>${config.projectDir}</string>
+  <string>${homedir()}</string>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
@@ -144,8 +168,6 @@ function generateLaunchdPlist(config: ServiceConfig): string {
   <dict>
     <key>PORT</key>
     <string>${config.port}</string>
-    <key>WEBMUX_PROJECT_DIR</key>
-    <string>${config.projectDir}</string>
     <key>PATH</key>
     <string>${process.env.PATH}</string>${extra ? "\n" + extra : ""}
   </dict>
@@ -159,25 +181,11 @@ export function generateServiceFile(config: ServiceConfig): string {
   return generateLaunchdPlist(config);
 }
 
-const SYSTEMD_WORKDIR_RE = /^WorkingDirectory=(.+)$/m;
-const LAUNCHD_WORKDIR_RE = /<key>WorkingDirectory<\/key>\s*<string>([^<]+)<\/string>/;
 const SYSTEMD_PORT_RE = /--port\s+(\d+)/;
 const LAUNCHD_PORT_RE = /<string>--port<\/string>\s*<string>(\d+)<\/string>/;
 const SYSTEMD_ENV_RE = /^Environment=([A-Za-z_][A-Za-z0-9_]*)=(.*)$/gm;
 const LAUNCHD_ENV_DICT_RE = /<key>EnvironmentVariables<\/key>\s*<dict>([\s\S]*?)<\/dict>/;
 const LAUNCHD_ENV_ENTRY_RE = /<key>([^<]+)<\/key>\s*<string>([^<]*)<\/string>/g;
-
-function readWorkingDirFromUnit(filePath: string, platform: Platform): string | null {
-  let text: string;
-  try {
-    text = readFileSync(filePath, "utf8");
-  } catch {
-    return null;
-  }
-  const regex = platform === "linux" ? SYSTEMD_WORKDIR_RE : LAUNCHD_WORKDIR_RE;
-  const match = regex.exec(text);
-  return match ? match[1].trim() : null;
-}
 
 /** Parse the `--port N` value out of an installed unit file (systemd or
  *  launchd). Used to keep a reinstall idempotent (reuse the running port) and
@@ -231,11 +239,10 @@ export function readEnvVarsFromUnit(filePath: string, platform: Platform): Recor
 }
 
 /** Reconstruct a ServiceConfig from an installed unit file. The serviceName
- *  is taken from the file basename (not re-derived) so a renamed project dir
- *  doesn't change the launchd Label / systemd unit name that the OS is
- *  already tracking — only the regenerated *content* (description, paths,
- *  environment) reflects the current state. Returns null when the file is
- *  missing required fields. */
+ *  is taken from the file basename (not re-derived) so the launchd Label /
+ *  systemd unit name the OS is already tracking stays stable — only the
+ *  regenerated *content* (paths, environment) reflects the current template.
+ *  Returns null when the file is missing required fields. */
 export function parseInstalledServiceConfig(
   filePath: string,
   platform: Platform,
@@ -244,23 +251,17 @@ export function parseInstalledServiceConfig(
   const port = readPortFromUnit(filePath);
   if (port === null) return null;
 
-  const projectDir = readWorkingDirFromUnit(filePath, platform);
-  if (projectDir === null) return null;
-
   const fileBase = basename(filePath);
   const serviceName = platform === "linux"
     ? fileBase.replace(/\.service$/, "")
     : fileBase.replace(/^com\.webmux\./, "").replace(/\.plist$/, "");
 
-  const projectName = detectProjectName(projectDir);
   const envVars = readEnvVarsFromUnit(filePath, platform);
 
   return {
     platform,
-    projectName,
     serviceName,
     webmuxPath,
-    projectDir,
     port,
     envVars,
   };
@@ -410,24 +411,32 @@ function redactSecretsInUnit(content: string, envVars: Record<string, string>): 
   return out;
 }
 
+/** Whether we can prompt the user. In a non-TTY (CI, a pipe, a service runner)
+ *  stdin can't answer a confirm, so callers print the plan and bail with a
+ *  `--yes` hint instead of hanging on a prompt nobody can see. */
+function isInteractive(): boolean {
+  return Boolean(process.stdin.isTTY);
+}
+
+export type ConfirmDecision = "proceed" | "prompt" | "abort-noninteractive";
+
+/** Resolve how `service install` should confirm: `--yes` proceeds outright, an
+ *  interactive shell prompts, and a non-interactive shell without `--yes` bails
+ *  (the caller prints the plan + a `--yes` hint instead of hanging). */
+export function resolveConfirmDecision(autoConfirm: boolean, interactive: boolean): ConfirmDecision {
+  if (autoConfirm) return "proceed";
+  if (!interactive) return "abort-noninteractive";
+  return "prompt";
+}
+
 async function install(
   config: ServiceConfig,
   portExplicit: boolean,
   envVarNotes: string[],
+  autoConfirm: boolean,
 ): Promise<void> {
   const filePath = serviceFilePath(config);
   const alreadyInstalled = isInstalled(config);
-
-  if (alreadyInstalled) {
-    const reinstall = await p.confirm({ message: "Service is already installed. Reinstall?" });
-    if (p.isCancel(reinstall) || !reinstall) {
-      p.log.info("Aborted.");
-      return;
-    }
-    for (const cmd of uninstallCommands(config)) {
-      runCommand(cmd);
-    }
-  }
 
   // Pick the port for the unit. An explicit `--port` wins; otherwise, on
   // reinstall, reuse the existing unit's port so a bare re-run is idempotent;
@@ -450,18 +459,25 @@ async function install(
   const content = generateServiceFile(config);
   const commands = installCommands(config);
 
+  // The service serves every project in projects.json, so if we're installing
+  // from inside a webmux project, register it now — that repo then loads on the
+  // service's next start like any other persisted project.
+  const persistPath = cwdProjectToPersist();
+
   // Mask secret-shaped values in the preview so the dry-run note doesn't
   // splat tokens onto the terminal. The on-disk unit gets chmod 600 below.
   const displayContent = redactSecretsInUnit(content, config.envVars);
 
   p.note(
     [
+      ...(alreadyInstalled ? ["Service is already installed — this will reinstall it.", ""] : []),
       `File: ${filePath}`,
       "",
       "Contents:",
       displayContent,
       "Commands to run:",
       ...commands.map((c) => `  $ ${formatCommand(c)}`),
+      ...(persistPath ? ["", `Also registering this project: ${persistPath}`] : []),
     ].join("\n"),
     "Install service",
   );
@@ -471,10 +487,30 @@ async function install(
   }
   if (portNote) p.log.info(portNote);
 
-  const ok = await p.confirm({ message: "Proceed?" });
-  if (p.isCancel(ok) || !ok) {
-    p.log.info("Aborted.");
+  // Confirmation gate. `--yes` skips it; otherwise a TTY prompts and a non-TTY
+  // (CI, pipe, service runner) prints the plan above and bails with a hint
+  // rather than hanging on a confirm nobody can answer.
+  const decision = resolveConfirmDecision(autoConfirm, isInteractive());
+  if (decision === "abort-noninteractive") {
+    p.log.info(
+      `Non-interactive environment — not ${alreadyInstalled ? "reinstalling" : "installing"}. ` +
+        "Re-run with --yes to confirm and apply the plan above.",
+    );
     return;
+  }
+  if (decision === "prompt") {
+    const ok = await p.confirm({ message: alreadyInstalled ? "Reinstall?" : "Proceed?" });
+    if (p.isCancel(ok) || !ok) {
+      p.log.info("Aborted.");
+      return;
+    }
+  }
+
+  // Tear the old unit down only once we're committed to reinstalling.
+  if (alreadyInstalled) {
+    for (const cmd of uninstallCommands(config)) {
+      runCommand(cmd);
+    }
   }
 
   mkdirSync(filePath.substring(0, filePath.lastIndexOf("/")), { recursive: true });
@@ -488,6 +524,15 @@ async function install(
     }
   }
   p.log.success(`Wrote ${filePath}`);
+
+  if (persistPath) {
+    createProjectsRegistry().add({
+      path: persistPath,
+      name: detectProjectName(persistPath),
+      addedAt: Date.now(),
+    });
+    p.log.success(`Registered project ${detectProjectName(persistPath)} (${persistPath})`);
+  }
 
   for (const cmd of commands) {
     const result = runCommand(cmd);
@@ -610,6 +655,9 @@ Usage:
 Options:
   --port N                   Pin the service to a port (default: 5111). On
                              reinstall without --port the existing port is kept.
+  --yes, -y                  Skip the confirmation prompt and install. In a
+                             non-interactive shell (CI, pipe) install prints the
+                             plan and stops unless --yes is passed.
   --env KEY=VALUE            Bake an environment variable into the service
                              unit (repeatable). Reserved keys PORT,
                              WEBMUX_PROJECT_DIR, and PATH are rejected.
@@ -643,12 +691,6 @@ export default async function service(args: string[]): Promise<void> {
     return;
   }
 
-  const gitRoot = getGitRoot();
-  if (!gitRoot) {
-    p.log.error("Not inside a git repository.");
-    return;
-  }
-
   const serviceManager = platform === "linux" ? "systemctl" : "launchctl";
   const smResult = run("which", [serviceManager]);
   if (!smResult.success) {
@@ -665,6 +707,7 @@ export default async function service(args: string[]): Promise<void> {
   let port = parseInt(process.env.PORT || "5111");
   let portExplicit = false;
   let autoPickup = true;
+  let autoConfirm = false;
   for (let i = 1; i < args.length; i++) {
     if (args[i] === "--port" && args[i + 1]) {
       const parsed = parseInt(args[++i]);
@@ -676,6 +719,8 @@ export default async function service(args: string[]): Promise<void> {
       portExplicit = true;
     } else if (args[i] === "--no-auto-env") {
       autoPickup = false;
+    } else if (args[i] === "--yes" || args[i] === "-y") {
+      autoConfirm = true;
     }
   }
 
@@ -685,7 +730,6 @@ export default async function service(args: string[]): Promise<void> {
     return;
   }
 
-  const projectName = detectProjectName(gitRoot);
   // One multi-project service per machine, under a fixed name. (Older versions
   // installed one service per project as `webmux-<project>`; `webmux project
   // migrate` consolidates those into this single service.)
@@ -714,17 +758,15 @@ export default async function service(args: string[]): Promise<void> {
 
   const config: ServiceConfig = {
     platform,
-    projectName,
     serviceName,
     webmuxPath,
-    projectDir: gitRoot,
     port,
     envVars,
   };
 
   switch (action) {
     case "install":
-      await install(config, portExplicit, envVarNotes);
+      await install(config, portExplicit, envVarNotes, autoConfirm);
       break;
     case "uninstall":
       await uninstall(config);

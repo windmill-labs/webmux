@@ -98,10 +98,8 @@ describe("parseInstalledServiceConfig", () => {
     const filePath = join(dir, "webmux-roundtrip.service");
     const original: ServiceConfig = {
       platform: "linux",
-      projectName: "roundtrip",
       serviceName: "webmux-roundtrip",
       webmuxPath: "/usr/local/bin/webmux",
-      projectDir: dir,
       port: 5117,
       envVars: {},
     };
@@ -111,7 +109,6 @@ describe("parseInstalledServiceConfig", () => {
 
     expect(parsed).not.toBeNull();
     expect(parsed?.port).toBe(5117);
-    expect(parsed?.projectDir).toBe(dir);
     expect(parsed?.serviceName).toBe("webmux-roundtrip");
     // webmuxPath comes from the caller (post-upgrade `which webmux`), not the unit.
     expect(parsed?.webmuxPath).toBe("/new/path/webmux");
@@ -122,10 +119,8 @@ describe("parseInstalledServiceConfig", () => {
     const filePath = join(dir, "com.webmux.webmux-roundtrip.plist");
     const original: ServiceConfig = {
       platform: "darwin",
-      projectName: "roundtrip",
       serviceName: "webmux-roundtrip",
       webmuxPath: "/usr/local/bin/webmux",
-      projectDir: dir,
       port: 5222,
       envVars: {},
     };
@@ -135,7 +130,6 @@ describe("parseInstalledServiceConfig", () => {
 
     expect(parsed).not.toBeNull();
     expect(parsed?.port).toBe(5222);
-    expect(parsed?.projectDir).toBe(dir);
     expect(parsed?.serviceName).toBe("webmux-roundtrip");
   });
 
@@ -150,18 +144,11 @@ describe("parseInstalledServiceConfig", () => {
 describe("generateServiceFile → parseInstalledServiceConfig → generateServiceFile is idempotent", () => {
   it("regenerated content matches the original for systemd units", async () => {
     const dir = await makeTempDir();
-    // `detectProjectName` reads package.json's `name` first, so seeding one
-    // with a stable name guarantees the re-derived `projectName` matches the
-    // original — otherwise it would fall back to the random temp-dir basename
-    // and the round-trip would diverge on the `Description=` line.
-    await writeFile(join(dir, "package.json"), JSON.stringify({ name: "idempotent" }));
     const filePath = join(dir, "webmux-idempotent.service");
     const original: ServiceConfig = {
       platform: "linux",
-      projectName: "idempotent",
       serviceName: "webmux-idempotent",
       webmuxPath: "/usr/local/bin/webmux",
-      projectDir: dir,
       port: 5333,
       envVars: {},
     };
@@ -184,10 +171,8 @@ describe("updateInstalledService", () => {
     const filePath = join(dir, "webmux-orch.service");
     const original: ServiceConfig = {
       platform: "linux",
-      projectName: "orch",
       serviceName: "webmux-orch",
       webmuxPath: "/old/path/webmux",
-      projectDir: dir,
       port: 5500,
       envVars: {},
     };
@@ -275,10 +260,8 @@ describe("updateInstalledService", () => {
     const filePath = join(dir, "com.webmux.webmux-darwin-orch.plist");
     const original: ServiceConfig = {
       platform: "darwin",
-      projectName: "darwin-orch",
       serviceName: "webmux-darwin-orch",
       webmuxPath: "/old/path/webmux",
-      projectDir: dir,
       port: 5600,
       envVars: {},
     };

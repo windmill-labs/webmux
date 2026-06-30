@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { run, type RunResult } from "./shared.ts";
-import { generateServiceFile, parseInstalledServiceConfig, type Platform } from "./service.ts";
+import { generateServiceFile, migrateServedRepoFromUnit, parseInstalledServiceConfig, type Platform } from "./service.ts";
 
 export type ServicePlatform = Platform;
 
@@ -109,6 +109,9 @@ export interface UpdateOutcome {
   service: InstalledService;
   regenerated: boolean;
   restarted: boolean;
+  /** Path of a repo the old unit served via WEBMUX_PROJECT_DIR that was carried
+   *  forward into projects.json before regeneration, if any. */
+  migratedProject?: string;
   error?: string;
 }
 
@@ -149,6 +152,7 @@ export async function updateInstalledService(
   service: InstalledService,
   webmuxPath: string,
   runner: ServiceRunner = defaultRunner,
+  migrate: (filePath: string, platform: Platform) => string | null = migrateServedRepoFromUnit,
 ): Promise<UpdateOutcome> {
   // Empty webmuxPath would write `ExecStart=  serve --port N` into the unit
   // and silently break the next restart. Happens when `which webmux` returns
@@ -160,6 +164,7 @@ export async function updateInstalledService(
     ? parseInstalledServiceConfig(service.filePath, service.platform, webmuxPath)
     : null;
   let regenerated = false;
+  let migratedProject: string | undefined;
 
   if (config !== null) {
     let currentContent = "";
@@ -170,6 +175,9 @@ export async function updateInstalledService(
     }
     const expected = generateServiceFile(config);
     if (currentContent !== expected) {
+      // The regenerated unit drops WEBMUX_PROJECT_DIR; carry the repo it served
+      // implicitly into projects.json first so it doesn't vanish on restart.
+      migratedProject = migrate(service.filePath, service.platform) ?? undefined;
       try {
         await Bun.write(service.filePath, expected);
         regenerated = true;
@@ -178,6 +186,7 @@ export async function updateInstalledService(
           service,
           regenerated: false,
           restarted: false,
+          migratedProject,
           error: `could not rewrite ${service.filePath}: ${String(err)}`,
         };
       }
@@ -187,13 +196,13 @@ export async function updateInstalledService(
   if (regenerated) {
     const reload = reloadAfterRegenerate(service, runner);
     if (!reload.ok) {
-      return { service, regenerated, restarted: false, error: reload.error };
+      return { service, regenerated, restarted: false, migratedProject, error: reload.error };
     }
     // On launchd the load step already (re)started the service. systemd
     // still needs an explicit restart so an already-running process picks
     // up the new ExecStart.
     if (service.platform === "darwin") {
-      return { service, regenerated, restarted: true };
+      return { service, regenerated, restarted: true, migratedProject };
     }
   }
 
@@ -201,6 +210,7 @@ export async function updateInstalledService(
   return {
     service,
     regenerated,
+    migratedProject,
     restarted: outcome.ok,
     error: outcome.error,
   };

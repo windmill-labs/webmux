@@ -1,18 +1,39 @@
 import { describe, expect, it } from "bun:test";
 import {
   generateServiceFile,
+  migrateServedRepoFromUnit,
   parseEnvCliArgs,
   parseInstalledServiceConfig,
   readEnvVarsFromUnit,
   readPortFromUnit,
   resolveConfirmDecision,
   resolveEnvVars,
-  shouldPersistCwdProject,
+  shouldPersistProject,
   type ServiceConfig,
 } from "./service.ts";
+import type { ProjectEntry } from "../../backend/src/domain/projects";
+import type { ProjectsRegistry } from "../../backend/src/adapters/projects-registry";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+/** In-memory ProjectsRegistry stub so the migration is testable without
+ *  touching ~/.webmux/projects.json. */
+function fakeRegistry(initial: ProjectEntry[] = []): ProjectsRegistry {
+  const entries = [...initial];
+  return {
+    list: () => [...entries],
+    add: (entry) => {
+      const idx = entries.findIndex((e) => e.path === entry.path);
+      if (idx >= 0) entries[idx] = entry;
+      else entries.push(entry);
+    },
+    remove: (path) => {
+      const idx = entries.findIndex((e) => e.path === path);
+      if (idx >= 0) entries.splice(idx, 1);
+    },
+  };
+}
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "webmux-service-env-"));
@@ -38,21 +59,74 @@ describe("resolveConfirmDecision", () => {
   });
 });
 
-describe("shouldPersistCwdProject", () => {
+describe("shouldPersistProject", () => {
   it("persists a webmux repo that isn't registered yet", () => {
-    expect(shouldPersistCwdProject("/some/repo", true, ["/other/repo"])).toBe(true);
+    expect(shouldPersistProject("/some/repo", true, ["/other/repo"])).toBe(true);
   });
 
-  it("does not persist when not in a git repo", () => {
-    expect(shouldPersistCwdProject(null, true, [])).toBe(false);
+  it("does not persist when there's no path", () => {
+    expect(shouldPersistProject(null, true, [])).toBe(false);
   });
 
   it("does not persist a repo without a webmux config", () => {
-    expect(shouldPersistCwdProject("/some/repo", false, [])).toBe(false);
+    expect(shouldPersistProject("/some/repo", false, [])).toBe(false);
   });
 
   it("does not persist a repo that is already registered", () => {
-    expect(shouldPersistCwdProject("/some/repo", true, ["/some/repo"])).toBe(false);
+    expect(shouldPersistProject("/some/repo", true, ["/some/repo"])).toBe(false);
+  });
+});
+
+describe("migrateServedRepoFromUnit", () => {
+  it("persists the repo an old systemd unit served via WorkingDirectory", async () => {
+    await withTempDir(async (repo) => {
+      await writeFile(join(repo, ".webmux.yaml"), "name: served\n");
+      const unitPath = join(repo, "webmux.service");
+      await writeFile(unitPath, `[Service]\nWorkingDirectory=${repo}\nExecStart=/x serve --port 5111\n`);
+      const registry = fakeRegistry();
+
+      const migrated = migrateServedRepoFromUnit(unitPath, "linux", registry);
+
+      expect(migrated).toBe(repo);
+      expect(registry.list().map((e) => e.path)).toEqual([repo]);
+    });
+  });
+
+  it("is a no-op when the served dir has no webmux config (e.g. $HOME)", async () => {
+    await withTempDir(async (dir) => {
+      const unitPath = join(dir, "webmux.service");
+      await writeFile(unitPath, `[Service]\nWorkingDirectory=${dir}\n`);
+      const registry = fakeRegistry();
+
+      expect(migrateServedRepoFromUnit(unitPath, "linux", registry)).toBeNull();
+      expect(registry.list()).toEqual([]);
+    });
+  });
+
+  it("is a no-op when the served repo is already registered", async () => {
+    await withTempDir(async (repo) => {
+      await writeFile(join(repo, ".webmux.yaml"), "name: served\n");
+      const unitPath = join(repo, "webmux.service");
+      await writeFile(unitPath, `[Service]\nWorkingDirectory=${repo}\n`);
+      const registry = fakeRegistry([{ path: repo, name: "served", addedAt: 1 }]);
+
+      expect(migrateServedRepoFromUnit(unitPath, "linux", registry)).toBeNull();
+      expect(registry.list().length).toBe(1);
+    });
+  });
+
+  it("reads WorkingDirectory out of a launchd plist", async () => {
+    await withTempDir(async (repo) => {
+      await writeFile(join(repo, ".webmux.yaml"), "name: served\n");
+      const unitPath = join(repo, "com.webmux.webmux.plist");
+      await writeFile(
+        unitPath,
+        `<plist><dict>\n  <key>WorkingDirectory</key>\n  <string>${repo}</string>\n</dict></plist>\n`,
+      );
+      const registry = fakeRegistry();
+
+      expect(migrateServedRepoFromUnit(unitPath, "darwin", registry)).toBe(repo);
+    });
   });
 });
 

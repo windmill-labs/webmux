@@ -326,6 +326,7 @@ async function main(args: string[] = process.argv.slice(2)): Promise<void> {
           const outcome = await updateInstalledService(svc, webmuxPath);
           const parts: string[] = [];
           if (outcome.regenerated) parts.push("regenerated unit");
+          if (outcome.migratedProject) parts.push(`migrated served project ${outcome.migratedProject}`);
           if (outcome.restarted) parts.push("restarted");
           if (!outcome.regenerated && !outcome.restarted && !outcome.error) parts.push("no change");
           const status = outcome.error

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -229,6 +230,41 @@ describe("updateInstalledService", () => {
       { bin: "systemctl", args: ["--user", "restart", "webmux-orch"] },
     ]);
     expect(await Bun.file(service.filePath).text()).toContain("/new/path/webmux");
+  });
+
+  it("migrates the old unit's served repo before regenerating, and surfaces it", async () => {
+    const { service, dir } = await setupSystemdService();
+    const servedRepo = join(dir, "served-repo");
+    // Rewrite the on-disk unit to the OLD format that pinned a served repo via
+    // WEBMUX_PROJECT_DIR, so regeneration drops it.
+    await writeFile(
+      service.filePath,
+      [
+        "[Unit]",
+        "Description=webmux dashboard — served",
+        "",
+        "[Service]",
+        "ExecStart=/old/path/webmux serve --port 5500",
+        `WorkingDirectory=${servedRepo}`,
+        `Environment=WEBMUX_PROJECT_DIR=${servedRepo}`,
+        "",
+      ].join("\n"),
+    );
+    const { runner } = makeRecorder(() => okResult);
+    let contentAtMigrate: string | null = null;
+    const migrate = (filePath: string): string | null => {
+      contentAtMigrate = readFileSync(filePath, "utf8");
+      return servedRepo;
+    };
+
+    const outcome = await updateInstalledService(service, "/new/path/webmux", runner, migrate);
+
+    expect(outcome.regenerated).toBe(true);
+    expect(outcome.migratedProject).toBe(servedRepo);
+    // Migration ran against the OLD content, before the rewrite.
+    expect(contentAtMigrate).toContain(`WEBMUX_PROJECT_DIR=${servedRepo}`);
+    // The regenerated unit no longer pins the repo.
+    expect(await Bun.file(service.filePath).text()).not.toContain("WEBMUX_PROJECT_DIR");
   });
 
   it("does not attempt a restart when daemon-reload fails", async () => {

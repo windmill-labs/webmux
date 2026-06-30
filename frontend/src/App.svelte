@@ -41,7 +41,6 @@
     loadSavedSelectedWorktree,
     saveSelectedWorktree,
     resolveSelectedBranch,
-    suggestSubworktreeBranchName,
     applyTheme,
     loadSavedSidebarWidth,
     saveSidebarWidth,
@@ -140,7 +139,6 @@
   let baseBranchesLoading = $state(false);
   let baseBranchesError = $state<string | null>(null);
   let lockedBaseBranch = $state<string | null>(null);
-  let subworktreeBranchSuggestion = $state("");
   let includeRemoteBranches = $state(false);
   let searchQuery = $state("");
   let worktreeSearchInput = $state<HTMLInputElement | null>(null);
@@ -615,7 +613,6 @@
     includeRemoteBranches = false;
     assignIssue = issue;
     lockedBaseBranch = null;
-    subworktreeBranchSuggestion = "";
     showCreateDialog = true;
   }
 
@@ -623,11 +620,6 @@
     includeRemoteBranches = false;
     assignIssue = null;
     lockedBaseBranch = parentBranch;
-    const existingBranches = [
-      ...worktrees.map((worktree) => worktree.branch),
-      ...(baseBranchCache ?? []).map((branch) => branch.name),
-    ];
-    subworktreeBranchSuggestion = suggestSubworktreeBranchName(parentBranch, existingBranches);
     showCreateDialog = true;
   }
 
@@ -660,7 +652,6 @@
     showCreateDialog = false;
     assignIssue = null;
     lockedBaseBranch = null;
-    subworktreeBranchSuggestion = "";
 
     try {
       const createPromise = api.createWorktree({ body: finalRequest });
@@ -1423,7 +1414,7 @@
     defaultProfileName={config.defaultProfileName}
     defaultAgentId={config.defaultAgentId}
     autoNameEnabled={config.autoName}
-    initialBranch={assignIssue?.branchName ?? subworktreeBranchSuggestion}
+    initialBranch={assignIssue?.branchName ?? ""}
     initialPrompt={assignIssue ? `${assignIssue.title}${assignIssue.description ? '\n\n' + assignIssue.description : ''}` : ""}
     bind:includeRemoteBranches
     {availableBranches}
@@ -1437,7 +1428,7 @@
     linearCreateTicketOption={config.linearCreateTicketOption}
     openedFromLinearIssue={assignIssue !== null}
     oncreate={handleCreate}
-    oncancel={() => { showCreateDialog = false; assignIssue = null; lockedBaseBranch = null; subworktreeBranchSuggestion = ""; }}
+    oncancel={() => { showCreateDialog = false; assignIssue = null; lockedBaseBranch = null; }}
   />
 {/if}
 

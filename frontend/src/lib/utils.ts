@@ -136,28 +136,6 @@ export function worktreeCreationPhaseLabel(phase: WorktreeCreationPhase | null):
   }
 }
 
-const NICE_WORDS = [
-  "amber", "brisk", "cobalt", "dawn", "ember", "fern", "glint", "harbor",
-  "indigo", "jade", "kelp", "lumen", "maple", "nimbus", "onyx", "pebble",
-  "quartz", "ripple", "saffron", "tide", "umber", "verve", "willow", "zephyr",
-  "aspen", "breeze", "cedar", "drift", "echo", "flint", "grove", "hazel",
-  "iris", "juniper", "lark", "meadow", "nectar", "opal", "pine", "quill",
-];
-
-export function suggestSubworktreeBranchName(
-  parentBranch: string,
-  existingBranches: Iterable<string> = [],
-): string {
-  const taken = new Set(existingBranches);
-  const shuffled = [...NICE_WORDS].sort(() => Math.random() - 0.5);
-  for (const word of shuffled) {
-    const candidate = `${parentBranch}-${word}`;
-    if (!taken.has(candidate)) return candidate;
-  }
-  // Every nice word is already taken — fall back to a unique-ish suffix.
-  return `${parentBranch}-${shuffled[0]}-${Math.floor(Math.random() * 1000)}`;
-}
-
 export function resolveSelectedBranch(
   selectedBranch: string | null,
   selectedWorktree: Pick<WorktreeInfo, "branch"> | undefined,

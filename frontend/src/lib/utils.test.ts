@@ -7,26 +7,7 @@ import {
   resolveSelectedBranch,
   saveSelectedWorktree,
   saveUseWebChatUi,
-  suggestSubworktreeBranchName,
 } from "./utils";
-
-describe("suggestSubworktreeBranchName", () => {
-  it("prefixes the parent branch and appends a nice word", () => {
-    const suggestion = suggestSubworktreeBranchName("feature/auth");
-    expect(suggestion).toMatch(/^feature\/auth-[a-z]+$/);
-  });
-
-  it("avoids suggesting a branch name that already exists", () => {
-    const taken = new Set<string>();
-    // Exhaust every single-word suggestion so the helper must avoid them all.
-    for (let i = 0; i < 200; i++) {
-      taken.add(suggestSubworktreeBranchName("feature/auth"));
-    }
-    const suggestion = suggestSubworktreeBranchName("feature/auth", taken);
-    expect(taken.has(suggestion)).toBe(false);
-    expect(suggestion).toMatch(/^feature\/auth-/);
-  });
-});
 
 describe("worktree selection persistence", () => {
   beforeEach(() => {

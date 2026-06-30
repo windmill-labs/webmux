@@ -2,14 +2,14 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadConfig } from "../../backend/src/adapters/config.ts";
+import { loadConfig } from "../adapters/config";
 import {
   buildInitAgentCommand,
   buildInitPromptSpec,
   buildStarterTemplate,
   detectInitProjectContext,
   parseInitAgentStreamLine,
-} from "./init-helpers.ts";
+} from "../services/init-authoring";
 
 describe("buildInitAgentCommand", () => {
   const prompt = {

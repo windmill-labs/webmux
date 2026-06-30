@@ -6,6 +6,7 @@ import type {
   CiCheck,
   CodexWorktreeConversationMeta,
   ControlEnvMap,
+  OpenSessionsState,
   PrComment,
   PrEntry,
   WorktreeConversationMeta,
@@ -14,7 +15,7 @@ import type {
   WorktreeStoragePaths,
   WorktreeTab,
 } from "../domain/model";
-import { conversationSessionId, ROOT_TAB_ID, WORKTREE_ARCHIVE_STATE_VERSION } from "../domain/model";
+import { conversationSessionId, OPEN_SESSIONS_STATE_VERSION, ROOT_TAB_ID, WORKTREE_ARCHIVE_STATE_VERSION } from "../domain/model";
 
 const SAFE_ENV_VALUE_RE = /^[A-Za-z0-9_./:@%+=,-]+$/;
 const DOTENV_LINE_RE = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)/;
@@ -72,6 +73,10 @@ export function getWorktreeStoragePaths(gitDir: string): WorktreeStoragePaths {
 
 export function getProjectArchiveStatePath(gitDir: string): string {
   return join(gitDir, "webmux", "archive.json");
+}
+
+export function getProjectOpenSessionsStatePath(gitDir: string): string {
+  return join(gitDir, "webmux", "open-sessions.json");
 }
 
 export async function ensureWorktreeStorageDirs(gitDir: string): Promise<WorktreeStoragePaths> {
@@ -134,6 +139,44 @@ export async function writeWorktreeArchiveState(gitDir: string, state: WorktreeA
   const archivePath = getProjectArchiveStatePath(gitDir);
   await ensureWorktreeStorageDirs(gitDir);
   await Bun.write(archivePath, JSON.stringify(state, null, 2) + "\n");
+}
+
+function emptyOpenSessionsState(): OpenSessionsState {
+  return {
+    schemaVersion: OPEN_SESSIONS_STATE_VERSION,
+    savedAt: "",
+    branches: [],
+  };
+}
+
+function isOpenSessionsState(raw: unknown): raw is OpenSessionsState {
+  return isRecord(raw)
+    && typeof raw.schemaVersion === "number"
+    && typeof raw.savedAt === "string"
+    && Array.isArray(raw.branches)
+    && raw.branches.every((branch) => typeof branch === "string");
+}
+
+export async function readOpenSessionsState(gitDir: string): Promise<OpenSessionsState> {
+  const statePath = getProjectOpenSessionsStatePath(gitDir);
+  try {
+    const raw: unknown = await Bun.file(statePath).json();
+    return isOpenSessionsState(raw)
+      ? {
+          schemaVersion: raw.schemaVersion,
+          savedAt: raw.savedAt,
+          branches: [...raw.branches],
+        }
+      : emptyOpenSessionsState();
+  } catch {
+    return emptyOpenSessionsState();
+  }
+}
+
+export async function writeOpenSessionsState(gitDir: string, state: OpenSessionsState): Promise<void> {
+  const statePath = getProjectOpenSessionsStatePath(gitDir);
+  await ensureWorktreeStorageDirs(gitDir);
+  await Bun.write(statePath, JSON.stringify(state, null, 2) + "\n");
 }
 
 export function buildRuntimeEnvMap(

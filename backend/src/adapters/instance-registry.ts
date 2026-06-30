@@ -4,14 +4,20 @@ import { mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFile
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { log } from "../lib/log";
-import { isValidInstancePrefix } from "../domain/policies";
 
+/** A live webmux server, self-registered under `~/.webmux/instances/<port>.json`.
+ *
+ *  This registry is a transitional **migration sensor**: webmux now runs one
+ *  multi-project server per machine, so the only reason to track other live
+ *  servers is to detect leftover single-project instances (from the old
+ *  one-server-per-project model) and consolidate them via `webmux project
+ *  migrate`. `projectDir` is the repo that instance was started for — what
+ *  migration recovers into the surviving server. Nothing new should be built on
+ *  this; it goes away once the migration path is retired. */
 export interface InstanceEntry {
-  prefix: string;
   port: number;
   projectDir: string;
   pid: number;
-  startedAt: number;
 }
 
 export interface InstanceRegistry {
@@ -43,12 +49,9 @@ function isAlive(pid: number): boolean {
 function isInstanceEntry(value: unknown): value is InstanceEntry {
   if (typeof value !== "object" || value === null) return false;
   const v = value as Record<string, unknown>;
-  return typeof v.prefix === "string"
-    && isValidInstancePrefix(v.prefix)
-    && typeof v.port === "number"
+  return typeof v.port === "number"
     && typeof v.projectDir === "string"
-    && typeof v.pid === "number"
-    && typeof v.startedAt === "number";
+    && typeof v.pid === "number";
 }
 
 export function createInstanceRegistry(dir: string = defaultRegistryDir()): InstanceRegistry {

@@ -150,4 +150,76 @@ describe("ClaudeConversationService", () => {
       lastSeenAt: "2026-04-14T12:00:00.000Z",
     });
   });
+
+  it("keeps a saved session id even before Claude has written the jsonl", async () => {
+    const metaStore = new Map<string, WorktreeMeta>();
+    const worktree = makeWorktree();
+    const gitDir = `${worktree.path}/.git`;
+    metaStore.set(gitDir, {
+      ...makeMeta(),
+      conversation: {
+        provider: "claudeCode",
+        conversationId: "session-pending",
+        sessionId: "session-pending",
+        cwd: worktree.path,
+        lastSeenAt: "2026-04-14T11:00:00.000Z",
+      },
+    });
+
+    const claude = new FakeClaudeCliGateway();
+    const service = new ClaudeConversationService({
+      claude,
+      git: new FakeGitGateway(),
+      now: () => new Date("2026-04-14T12:00:00.000Z"),
+      readMeta: async (path) => structuredClone(metaStore.get(path) ?? null),
+      writeMeta: async (path, meta) => {
+        metaStore.set(path, structuredClone(meta));
+      },
+    });
+
+    const result = await service.readWorktreeConversation(worktree);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.data.conversation.conversationId).toBe("session-pending");
+    expect(result.data.conversation.messages).toEqual([]);
+    expect(result.data.worktree.conversation).toEqual({
+      provider: "claudeCode",
+      conversationId: "session-pending",
+      sessionId: "session-pending",
+      cwd: worktree.path,
+      lastSeenAt: "2026-04-14T11:00:00.000Z",
+    });
+  });
+
+  it("persists a generated Claude session id before the session file exists", async () => {
+    const metaStore = new Map<string, WorktreeMeta>();
+    const worktree = makeWorktree();
+    const gitDir = `${worktree.path}/.git`;
+    metaStore.set(gitDir, makeMeta());
+
+    const claude = new FakeClaudeCliGateway();
+    const service = new ClaudeConversationService({
+      claude,
+      git: new FakeGitGateway(),
+      now: () => new Date("2026-04-14T12:00:00.000Z"),
+      readMeta: async (path) => structuredClone(metaStore.get(path) ?? null),
+      writeMeta: async (path, meta) => {
+        metaStore.set(path, structuredClone(meta));
+      },
+    });
+
+    const result = await service.setWorktreeConversationSession(worktree, "session-new");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.data).toEqual({
+      provider: "claudeCode",
+      conversationId: "session-new",
+      sessionId: "session-new",
+      cwd: worktree.path,
+      lastSeenAt: "2026-04-14T12:00:00.000Z",
+    });
+    expect(metaStore.get(gitDir)?.conversation).toEqual(result.data);
+  });
 });

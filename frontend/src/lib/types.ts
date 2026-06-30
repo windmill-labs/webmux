@@ -53,7 +53,10 @@ export type {
   PrComment,
   PrEntry,
   ProfileConfig,
+  ProjectInitPhase,
+  ProjectInitState,
   ProjectSnapshot,
+  ProjectSummary,
   ProjectWorktreeSnapshot,
   PullMainResult,
   ServiceConfig,
@@ -76,6 +79,22 @@ export type { AgentsSendMessageRequest as AgentsUiSendMessageRequest } from "@we
 
 export interface FileUploadResult {
   files: Array<{ path: string }>;
+}
+
+export interface AskUserQuestionOption {
+  label: string;
+  description?: string;
+}
+
+export interface AskUserQuestionItem {
+  question: string;
+  header: string;
+  multiSelect?: boolean;
+  options: AskUserQuestionOption[];
+}
+
+export interface AskUserQuestionInput {
+  questions: AskUserQuestionItem[];
 }
 
 export interface DiffDialogProps {

@@ -629,7 +629,7 @@ describe("runWorktreeCommand", () => {
     expect(stdout).toEqual(["Merged feature/search into develop"]);
   });
 
-  it("prunes all worktrees after confirmation", async () => {
+  it("prunes closed worktrees after confirmation", async () => {
     const { runtime, calls } = makeRuntime();
     runtime.git = stubGit([
       { path: "/repo", branch: "main", bare: false },
@@ -660,6 +660,71 @@ describe("runWorktreeCommand", () => {
     expect(confirmCalls).toEqual([2]);
     expect(calls).toEqual([{ method: "pruneWorktrees", value: null }]);
     expect(stdout).toEqual(["Pruned 2 worktrees: feature/search, feature/api"]);
+  });
+
+  it("counts only closed worktrees toward the prune confirmation", async () => {
+    const { runtime, calls } = makeRuntime();
+    runtime.git = stubGit([
+      { path: "/repo", branch: "main", bare: false },
+      { path: "/repo/.worktrees/feature-search", branch: "feature/search", bare: false },
+      { path: "/repo/.worktrees/feature-api", branch: "feature/api", bare: false },
+    ]);
+    runtime.tmux = stubTmux([
+      { sessionName: buildProjectSessionName("/repo"), windowName: buildWorktreeWindowName("feature/api") },
+    ]);
+    const stdout: string[] = [];
+    const confirmCalls: number[] = [];
+
+    const exitCode = await runWorktreeCommand(
+      {
+        command: "prune",
+        args: [],
+        projectDir: "/repo",
+        port: 5111,
+      },
+      {
+        createRuntime: () => runtime,
+        confirmPrune: async (count) => {
+          confirmCalls.push(count);
+          return true;
+        },
+        stdout: (message) => stdout.push(message),
+      },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(confirmCalls).toEqual([1]);
+    expect(calls).toEqual([{ method: "pruneWorktrees", value: null }]);
+  });
+
+  it("does not prune when every worktree is open", async () => {
+    const { runtime, calls } = makeRuntime();
+    runtime.git = stubGit([
+      { path: "/repo", branch: "main", bare: false },
+      { path: "/repo/.worktrees/feature-search", branch: "feature/search", bare: false },
+    ]);
+    runtime.tmux = stubTmux([
+      { sessionName: buildProjectSessionName("/repo"), windowName: buildWorktreeWindowName("feature/search") },
+    ]);
+    const stdout: string[] = [];
+
+    const exitCode = await runWorktreeCommand(
+      {
+        command: "prune",
+        args: [],
+        projectDir: "/repo",
+        port: 5111,
+      },
+      {
+        createRuntime: () => runtime,
+        confirmPrune: async () => true,
+        stdout: (message) => stdout.push(message),
+      },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(calls).toEqual([]);
+    expect(stdout).toEqual(["No closed worktrees to prune."]);
   });
 
   it("aborts prune when confirmation is declined", async () => {
@@ -939,6 +1004,7 @@ describe("runWorktreeCommand", () => {
         },
         {
           createRuntime: () => { throw new Error("unexpected"); },
+          resolveBaseUrl: async () => "http://localhost:5111/myproject",
           stdout: (msg) => stdout.push(msg),
         },
       );
@@ -946,7 +1012,7 @@ describe("runWorktreeCommand", () => {
       expect(exitCode).toBe(0);
       expect(stdout).toEqual(["Sent prompt to feature/search"]);
       expect(fetchCalls).toHaveLength(1);
-      expect(fetchCalls[0].url).toBe("http://localhost:5111/api/worktrees/feature%2Fsearch/send");
+      expect(fetchCalls[0].url).toBe("http://localhost:5111/myproject/api/worktrees/feature%2Fsearch/send");
       expect(fetchCalls[0].init.method).toBe("POST");
       expect(JSON.parse(fetchCalls[0].init.body as string)).toEqual({
         text: "Fix the bug",
@@ -972,6 +1038,7 @@ describe("runWorktreeCommand", () => {
         },
         {
           createRuntime: () => { throw new Error("unexpected"); },
+          resolveBaseUrl: async () => "http://localhost:5111/myproject",
           stderr: (msg) => stderr.push(msg),
         },
       );
@@ -995,6 +1062,7 @@ describe("runWorktreeCommand", () => {
         },
         {
           createRuntime: () => { throw new Error("unexpected"); },
+          resolveBaseUrl: async () => "http://localhost:9999/myproject",
           stderr: (msg) => stderr.push(msg),
         },
       );
@@ -1028,5 +1096,158 @@ describe("runWorktreeCommand", () => {
       expect(fetchCalled).toBe(false);
       expect(stdout[0]).toContain("webmux send");
     });
+  });
+});
+
+describe("runWorktreeCommand restore", () => {
+  const SESSION = buildProjectSessionName("/repo");
+
+  function makeRestoreRuntime(options: {
+    worktrees?: Array<{ path: string; branch: string | null; bare: boolean }>;
+    windows?: Array<{ sessionName: string; windowName: string }>;
+    openWorktree?: (branch: string) => Promise<{ branch: string; worktreeId: string }>;
+  }) {
+    const opened: string[] = [];
+    return {
+      opened,
+      runtime: {
+        projectDir: "/repo",
+        config: { workspace: { mainBranch: "main" } },
+        git: {
+          listWorktrees: () => options.worktrees ?? [],
+          resolveWorktreeGitDir: (cwd: string) => `${cwd}/.git`,
+        },
+        tmux: { listWindows: () => options.windows ?? [] },
+        lifecycleService: {
+          async openWorktree(branch: string): Promise<{ branch: string; worktreeId: string }> {
+            if (options.openWorktree) return options.openWorktree(branch);
+            opened.push(branch);
+            return { branch, worktreeId: `wt-${branch}` };
+          },
+        },
+      },
+    };
+  }
+
+  it("re-opens saved sessions that are not already open", async () => {
+    const { runtime, opened } = makeRestoreRuntime({
+      worktrees: [
+        { path: "/repo", branch: "main", bare: false },
+        { path: "/repo/wt/feature-a", branch: "feature-a", bare: false },
+        { path: "/repo/wt/feature-b", branch: "feature-b", bare: false },
+      ],
+      windows: [{ sessionName: SESSION, windowName: buildWorktreeWindowName("feature-b") }],
+    });
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    const switchCalls: Array<{ projectDir: string; branch: string }> = [];
+
+    const exitCode = await runWorktreeCommand(
+      { command: "restore", args: [], projectDir: "/repo", port: 5111 },
+      {
+        createRuntime: () => runtime,
+        stdout: (m) => stdout.push(m),
+        stderr: (m) => stderr.push(m),
+        switchToTmuxWindow: (projectDir, branch) => switchCalls.push({ projectDir, branch }),
+        readOpenSessions: async () => ({
+          schemaVersion: 1,
+          savedAt: "2026-06-27T12:00:00.000Z",
+          branches: ["feature-a", "feature-b"],
+        }),
+      },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(opened).toEqual(["feature-a"]);
+    expect(stdout).toEqual([
+      "Restored feature-a",
+      "Already open: feature-b",
+      "Restored 1 session, skipped 1.",
+    ]);
+    expect(stderr).toEqual([]);
+    expect(switchCalls).toEqual([{ projectDir: "/repo", branch: "feature-a" }]);
+  });
+
+  it("reports when there are no saved sessions", async () => {
+    const { runtime } = makeRestoreRuntime({});
+    const stdout: string[] = [];
+
+    const exitCode = await runWorktreeCommand(
+      { command: "restore", args: [], projectDir: "/repo", port: 5111 },
+      {
+        createRuntime: () => runtime,
+        stdout: (m) => stdout.push(m),
+        switchToTmuxWindow: () => {},
+        readOpenSessions: async () => ({ schemaVersion: 1, savedAt: "", branches: [] }),
+      },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(stdout).toEqual(["No saved sessions to restore."]);
+  });
+
+  it("skips saved branches whose worktree no longer exists", async () => {
+    const { runtime, opened } = makeRestoreRuntime({
+      worktrees: [{ path: "/repo", branch: "main", bare: false }],
+    });
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+
+    const exitCode = await runWorktreeCommand(
+      { command: "restore", args: [], projectDir: "/repo", port: 5111 },
+      {
+        createRuntime: () => runtime,
+        stdout: (m) => stdout.push(m),
+        stderr: (m) => stderr.push(m),
+        switchToTmuxWindow: () => {},
+        readOpenSessions: async () => ({ schemaVersion: 1, savedAt: "x", branches: ["gone"] }),
+      },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(opened).toEqual([]);
+    expect(stderr).toEqual(["Skipping gone: worktree no longer exists"]);
+    expect(stdout).toEqual(["Restored 0 sessions, skipped 1."]);
+  });
+
+  it("returns exit code 1 and reports when a restore fails", async () => {
+    const { runtime } = makeRestoreRuntime({
+      worktrees: [
+        { path: "/repo", branch: "main", bare: false },
+        { path: "/repo/wt/feature-a", branch: "feature-a", bare: false },
+      ],
+      openWorktree: async (branch) => { throw new Error(`boom ${branch}`); },
+    });
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+
+    const exitCode = await runWorktreeCommand(
+      { command: "restore", args: [], projectDir: "/repo", port: 5111 },
+      {
+        createRuntime: () => runtime,
+        stdout: (m) => stdout.push(m),
+        stderr: (m) => stderr.push(m),
+        switchToTmuxWindow: () => {},
+        readOpenSessions: async () => ({ schemaVersion: 1, savedAt: "x", branches: ["feature-a"] }),
+      },
+    );
+
+    expect(exitCode).toBe(1);
+    expect(stderr).toEqual(["Failed to restore feature-a: boom feature-a"]);
+    expect(stdout).toEqual(["Restored 0 sessions, 1 failed."]);
+  });
+
+  it("prints restore help with --help", async () => {
+    const stdout: string[] = [];
+    const exitCode = await runWorktreeCommand(
+      { command: "restore", args: ["--help"], projectDir: "/repo", port: 5111 },
+      {
+        createRuntime: () => { throw new Error("unexpected"); },
+        stdout: (m) => stdout.push(m),
+      },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(stdout[0]).toContain("webmux restore");
   });
 });

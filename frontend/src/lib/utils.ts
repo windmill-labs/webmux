@@ -1,4 +1,4 @@
-import type { PrEntry, WorktreeCreationPhase, WorktreeInfo } from "./types";
+import type { PrEntry, ProjectInitPhase, WorktreeCreationPhase, WorktreeInfo } from "./types";
 import { THEME_KEYS, getTheme } from "./themes";
 import type { ThemeKey } from "./themes";
 
@@ -133,6 +133,21 @@ export function worktreeCreationPhaseLabel(phase: WorktreeCreationPhase | null):
       return "Reconciling";
     default:
       return "Creating";
+  }
+}
+
+export function projectInitPhaseLabel(phase: ProjectInitPhase | null): string {
+  switch (phase) {
+    case "creating_config":
+      return "Creating .webmux.yaml";
+    case "analyzing":
+      return "Analyzing project structure";
+    case "ready":
+      return "Project ready";
+    case "failed":
+      return "Setup failed";
+    default:
+      return "Setting up";
   }
 }
 

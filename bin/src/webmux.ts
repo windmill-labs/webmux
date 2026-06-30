@@ -32,15 +32,15 @@ Usage:
   webmux merge        Merge a worktree into the main branch and remove it
   webmux send         Send a prompt to a running worktree agent
   webmux tab          List, create, switch, or close agent tabs in a worktree
-  webmux prune        Remove all worktrees in the current project
+  webmux prune        Remove all closed (not open) worktrees in the current project
+  webmux restore      Re-open all worktree sessions that were open before
   webmux linear       Post a worktree conversation to a Linear issue/team
+  webmux project      List, add, or remove projects served by the dashboard
   webmux completion   Generate shell completion script (bash, zsh)
 
 Options:
-  --port N            Set port (default: 5111). Falls back to a free port when taken.
+  --port N            Set port (default: 5111).
                       Without --port, CLI commands target the live server for this project.
-  --prefix NAME       URL prefix this instance registers under (default: project dir basename).
-                      Other webmux instances on this machine will redirect /<NAME> to this port.
   --app               Open dashboard in browser app mode (minimal window)
   --debug             Show debug-level logs
   --version           Show version number
@@ -48,21 +48,19 @@ Options:
 
 Environment:
   PORT             Same as --port (flag takes precedence)
-  WEBMUX_PREFIX    Same as --prefix
 `);
 }
 
-type RootCommand = "serve" | "init" | "service" | "update" | "add" | "oneshot" | "list" | "open" | "close" | "refresh" | "archive" | "unarchive" | "label" | "remove" | "merge" | "send" | "tab" | "prune" | "linear" | "completion" | null;
+type RootCommand = "serve" | "init" | "service" | "update" | "add" | "oneshot" | "list" | "open" | "close" | "refresh" | "archive" | "unarchive" | "label" | "remove" | "merge" | "send" | "tab" | "prune" | "restore" | "linear" | "project" | "completion" | null;
 
 interface ParsedRootArgs {
   port: number;
   /** True when the port came from the user (--port flag or pre-existing PORT
-   *  env). False means the default 5111 — backend treats that as a hint and
-   *  may walk to the next free port on EADDRINUSE. */
+   *  env). When false (the default 5111), server-backed CLI commands resolve to
+   *  the live server for this project instead of assuming 5111. */
   portExplicit: boolean;
   debug: boolean;
   app: boolean;
-  prefix: string | null;
   command: RootCommand;
   commandArgs: string[];
 }
@@ -86,13 +84,14 @@ function isRootCommand(value: string): value is NonNullable<RootCommand> {
     || value === "send"
     || value === "tab"
     || value === "prune"
+    || value === "restore"
     || value === "linear"
+    || value === "project"
     || value === "completion";
 }
 
 function isServeRootOption(value: string): boolean {
   return value === "--port"
-    || value === "--prefix"
     || value === "--app"
     || value === "--debug"
     || value === "--help"
@@ -106,7 +105,6 @@ export function parseRootArgs(args: string[]): ParsedRootArgs {
   let portExplicit = process.env.PORT !== undefined;
   let debug = false;
   let app = false;
-  let prefix: string | null = process.env.WEBMUX_PREFIX?.trim() || null;
   let command: RootCommand = null;
   const commandArgs: string[] = [];
 
@@ -130,15 +128,6 @@ export function parseRootArgs(args: string[]): ParsedRootArgs {
           throw new Error("Error: --port requires a numeric value");
         }
         portExplicit = true;
-        index += 1;
-        break;
-      }
-      case "--prefix": {
-        const value = args[index + 1];
-        if (!value) {
-          throw new Error("Error: --prefix requires a value");
-        }
-        prefix = value.trim();
         index += 1;
         break;
       }
@@ -170,13 +159,12 @@ export function parseRootArgs(args: string[]): ParsedRootArgs {
     portExplicit,
     debug,
     app,
-    prefix,
     command,
     commandArgs,
   };
 }
 
-function isWorktreeCommand(command: RootCommand): command is "add" | "list" | "open" | "close" | "refresh" | "archive" | "unarchive" | "label" | "remove" | "merge" | "send" | "tab" | "prune" {
+function isWorktreeCommand(command: RootCommand): command is "add" | "list" | "open" | "close" | "refresh" | "archive" | "unarchive" | "label" | "remove" | "merge" | "send" | "tab" | "prune" | "restore" {
   return command === "add"
     || command === "list"
     || command === "open"
@@ -189,7 +177,8 @@ function isWorktreeCommand(command: RootCommand): command is "add" | "list" | "o
     || command === "merge"
     || command === "send"
     || command === "tab"
-    || command === "prune";
+    || command === "prune"
+    || command === "restore";
 }
 
 // ── Load env files from CWD (.env.local overrides .env) ─────────────────────
@@ -367,6 +356,21 @@ async function main(args: string[] = process.argv.slice(2)): Promise<void> {
     }
   }
 
+  // Nudge toward consolidation when other webmux servers are running, on any
+  // command that reaches a project (everything dispatched below) except
+  // `project migrate`, which consolidates them itself. Cheap: a local registry
+  // read, silent unless peers exist, and to stderr so it never pollutes piped
+  // output. Only relevant before the user has consolidated, so it's transient.
+  const isProjectMigrate = parsed.command === "project" && parsed.commandArgs[0] === "migrate";
+  const reachesAProject = parsed.command === "oneshot"
+    || parsed.command === "linear"
+    || parsed.command === "project"
+    || isWorktreeCommand(parsed.command);
+  if (reachesAProject && !isProjectMigrate) {
+    const { warnIfOtherInstances } = await import("./migrate.ts");
+    warnIfOtherInstances(effectivePort);
+  }
+
   if (parsed.command === "oneshot") {
     const { runOneshotCommand } = await import("./oneshot.ts");
     const exitCode = await runOneshotCommand(parsed.commandArgs, effectivePort);
@@ -376,6 +380,12 @@ async function main(args: string[] = process.argv.slice(2)): Promise<void> {
   if (parsed.command === "linear") {
     const { runLinearCommand } = await import("./linear-commands.ts");
     const exitCode = await runLinearCommand(parsed.commandArgs, effectivePort);
+    process.exit(exitCode);
+  }
+
+  if (parsed.command === "project") {
+    const { runProjectCommand } = await import("./project-commands.ts");
+    const exitCode = await runProjectCommand(parsed.commandArgs, effectivePort);
     process.exit(exitCode);
   }
 
@@ -395,17 +405,14 @@ async function main(args: string[] = process.argv.slice(2)): Promise<void> {
     process.exit(0);
   }
 
-  if (!existsSync(resolve(process.cwd(), ".webmux.yaml"))) {
-    console.error("No .webmux.yaml found in this directory.\nRun `webmux init` to set up your project.");
-    process.exit(1);
-  }
+  // No `.webmux.yaml` requirement here: the server serves every known project
+  // (from ~/.webmux/projects.json) on one port and auto-adds the cwd repo when
+  // it is a webmux project. Running from a fresh dir just shows the empty state.
 
   const baseEnv = {
     ...process.env,
     PORT: String(parsed.port),
     WEBMUX_PROJECT_DIR: process.cwd(),
-    ...(parsed.portExplicit ? { WEBMUX_PORT_STRICT: "1" } : {}),
-    ...(parsed.prefix ? { WEBMUX_PREFIX: parsed.prefix } : {}),
     ...(parsed.debug ? { WEBMUX_DEBUG: "1" } : {}),
   };
 
@@ -441,11 +448,7 @@ async function main(args: string[] = process.argv.slice(2)): Promise<void> {
     process.exit(1);
   }
 
-  console.log(
-    parsed.portExplicit
-      ? `Starting webmux on port ${parsed.port}...`
-      : `Starting webmux on port ${parsed.port} (falls back to a free port if taken)...`,
-  );
+  console.log(`Starting webmux on port ${parsed.port}...`);
 
   const be = Bun.spawn(["bun", backendEntry], {
     env: { ...baseEnv, WEBMUX_STATIC_DIR: staticDir },

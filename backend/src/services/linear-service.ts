@@ -402,22 +402,6 @@ export function parseIssueCreateResponse(raw: GqlResponse<IssueCreateMutationDat
   };
 }
 
-export function deriveLinearIssueTitle(
-  explicitTitle: string | undefined,
-  prompt: string | undefined,
-): string | null {
-  const trimmedTitle = explicitTitle?.trim();
-  if (trimmedTitle) {
-    return trimmedTitle;
-  }
-
-  const firstPromptLine = prompt
-    ?.split(/\r?\n/)
-    .map((line) => line.trim())
-    .find((line) => line.length > 0);
-  return firstPromptLine ?? null;
-}
-
 export function branchMatchesIssue(
   worktreeBranch: string,
   issueBranchName: string,

@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { detectProjectName, run } from "./shared.ts";
+import { detectProjectName, run } from "../lib/shell";
 
 export type InitAuthoringChoice = "claude" | "codex" | "manual";
 export type InitAgent = Exclude<InitAuthoringChoice, "manual">;
@@ -41,6 +41,9 @@ export interface InitAgentRunResult {
 
 export interface InitAgentRunHandlers {
   onEvent?: (event: InitAgentStreamEvent) => void;
+  /** Kill the agent if it runs longer than this (ms). Used server-side so a
+   *  hung analysis can't stall project setup forever. */
+  timeoutMs?: number;
 }
 
 interface InitAgentStreamState {
@@ -506,11 +509,31 @@ export async function runInitAgentCommand(
     stderr: "pipe",
   });
 
-  const [exitCode, stdoutResult, stderr] = await Promise.all([
-    proc.exited,
-    consumeStructuredStream(proc.stdout, spec.agent, handlers.onEvent),
-    consumeRawStream(proc.stderr),
-  ]);
+  const timeout = handlers.timeoutMs
+    ? setTimeout(() => {
+        try { proc.kill(); } catch { /* already exited */ }
+      }, handlers.timeoutMs)
+    : null;
+
+  try {
+    const [exitCode, stdoutResult, stderr] = await Promise.all([
+      proc.exited,
+      consumeStructuredStream(proc.stdout, spec.agent, handlers.onEvent),
+      consumeRawStream(proc.stderr),
+    ]);
+
+    return finalizeAgentRun(spec, exitCode, stdoutResult, stderr);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+function finalizeAgentRun(
+  spec: InitAgentCommandSpec,
+  exitCode: number,
+  stdoutResult: { raw: string; assistantText: string },
+  stderr: string,
+): InitAgentRunResult {
 
   let summary = stdoutResult.assistantText.trim();
   if (spec.summaryPath && existsSync(spec.summaryPath)) {

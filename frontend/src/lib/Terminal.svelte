@@ -4,7 +4,7 @@
   import type { ITheme } from "@xterm/xterm";
   import { FitAddon } from "@xterm/addon-fit";
   import { WebLinksAddon } from "@xterm/addon-web-links";
-  import { uploadFiles } from "./api";
+  import { apiBase, uploadFiles } from "./api";
   import "@xterm/xterm/css/xterm.css";
 
   let {
@@ -272,7 +272,7 @@
   function connect(announceReconnect = false): void {
     if (destroyed || ws?.readyState === WebSocket.OPEN || ws?.readyState === WebSocket.CONNECTING) return;
     const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-    const nextWs = new WebSocket(`${protocol}//${location.host}/ws/${encodeURIComponent(worktree)}`);
+    const nextWs = new WebSocket(`${protocol}//${location.host}${apiBase}/ws/${encodeURIComponent(worktree)}`);
     ws = nextWs;
 
     nextWs.onmessage = (event) => {

@@ -122,7 +122,7 @@ describe("runCompletionCommand", () => {
     expect(output).toContain("archive:Hide a worktree from the default list");
     expect(output).toContain("refresh:Refresh a Codex agent terminal");
     expect(output).toContain("label:Set or clear a workspace label");
-    expect(output).toContain("prune:Remove all worktrees in the current project");
+    expect(output).toContain("prune:Remove all closed (not open) worktrees in the current project");
     expect(output).not.toContain('_webmux "$@"');
     spy.mockRestore();
   });

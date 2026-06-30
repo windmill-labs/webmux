@@ -641,6 +641,7 @@ export class WorktreeConversationService {
         conversationId: thread.id,
         turnId: started.turn.id,
         running: true,
+        streaming: true,
       });
     });
   }
@@ -663,6 +664,7 @@ export class WorktreeConversationService {
         conversationId: thread.id,
         turnId,
         interrupted: true,
+        streaming: true,
       });
     });
   }

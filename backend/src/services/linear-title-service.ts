@@ -131,6 +131,37 @@ export async function polishLinearIssueTitle(input: PolishLinearIssueTitleInput)
   return { title: normalized, source: "llm" };
 }
 
+export interface ResolvedLinearTicketTitle {
+  title: string;
+  source: "explicit" | TitlePolishSource;
+}
+
+export interface ResolveLinearTicketTitleInput {
+  explicitTitle?: string;
+  prompt: string;
+  autoName: AutoNameConfig | null;
+  runLlm?: RunLlmFn;
+}
+
+// Used by the worktree-create endpoint's createLinearTicket path. An explicit
+// title (typed in the dialog) always wins; otherwise we AI-polish the prompt the
+// same way `webmux oneshot --linear` does, so the web and CLI surfaces produce
+// the same kind of title instead of the raw first prompt line.
+export async function resolveLinearTicketTitle(
+  input: ResolveLinearTicketTitleInput,
+): Promise<ResolvedLinearTicketTitle | null> {
+  const explicit = input.explicitTitle?.trim();
+  if (explicit) {
+    return { title: explicit, source: "explicit" };
+  }
+  const polished = await polishLinearIssueTitle({
+    prompt: input.prompt,
+    autoName: input.autoName,
+    runLlm: input.runLlm,
+  });
+  return polished ? { title: polished.title, source: polished.source } : null;
+}
+
 export function extractKeywords(title: string, max = 4): string[] {
   const tokens = title
     .toLowerCase()

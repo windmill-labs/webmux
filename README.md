@@ -65,13 +65,30 @@ bun install -g webmux
 
 # 3. Set up your project
 cd /path/to/your/project
-webmux init                     # creates .webmux.yaml
+webmux init                     # creates .webmux.yaml (the only per-project step)
 
 # 4. Start the dashboard
 webmux serve                         # dashboard on http://localhost:5111
 ```
 
 The primary dashboard remains the best desktop experience. On mobile, the same dashboard swaps the embedded terminal for a chat view on open Codex and Claude worktrees.
+
+### One dashboard, many projects
+
+You don't run a separate webmux per project. A single `webmux serve` serves **every project you've added, on one dashboard and one port** — each scoped under its own `/<prefix>` URL. The only per-project requirement is a `.webmux.yaml` in the repo (created by `webmux init`); webmux auto-loads it.
+
+- The repo you launch `webmux serve` in is served automatically — but only for that session. It isn't written to `~/.webmux/projects.json`, so it isn't remembered across restarts unless you `webmux project add` it.
+- Switch projects, or add/remove them, from the project switcher in the dashboard.
+- Or manage them from the CLI:
+
+```bash
+webmux project ls                 # list projects the dashboard is serving
+webmux project add ~/code/other   # add another project (persists; must have a .webmux.yaml)
+webmux project rm other           # remove by prefix
+webmux project migrate            # fold other running webmux servers into this one
+```
+
+Projects added with `webmux project add` are remembered in `~/.webmux/projects.json` and reloaded on the next start. Run webmux as a single service per machine with `webmux service install`. If you're upgrading from an older setup that ran one service per project, `webmux project migrate` consolidates those leftover servers into this one (the dashboard shows a banner when it detects them).
 
 ## Prerequisites
 

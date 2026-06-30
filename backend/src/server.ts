@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { join, resolve } from "node:path";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
+import type { BunRequest, Server, ServerWebSocket, WebSocketHandler } from "bun";
 import { networkInterfaces } from "node:os";
 import pkg from "../../package.json";
 import {
@@ -48,10 +49,25 @@ import {
   persistLocalCustomAgent,
   persistLocalGitHubConfig,
   persistLocalLinearConfig,
+  projectRoot,
   removeLocalCustomAgent,
   type ProjectConfig,
 } from "./adapters/config";
 import { jsonResponse, errorResponse } from "./lib/http";
+import { which } from "./lib/shell";
+import {
+  buildInitAgentCommand,
+  buildInitPromptSpec,
+  buildStarterTemplate,
+  detectInitProjectContext,
+  runInitAgentCommand,
+  type InitAgent,
+} from "./services/init-authoring";
+import {
+  ProjectInitTracker,
+  runProjectInit,
+  type ProjectInitDeps,
+} from "./services/project-init-service";
 import { isRecord, isStringArray } from "./lib/type-guards";
 import { parseJsonBody, parseParams, parseQuery } from "./api-validation";
 import { hasRecentDashboardActivity, touchDashboardActivity } from "./services/dashboard-activity";
@@ -66,12 +82,12 @@ import {
   buildLinearPickupMarkdown,
   createIssueComment,
   createLinearIssue,
-  deriveLinearIssueTitle,
   fetchAssignedIssues,
   fetchIssueWithAttachments,
   fetchTeamByKey,
   uploadAttachmentFile,
 } from "./services/linear-service";
+import { resolveLinearTicketTitle } from "./services/linear-title-service";
 import {
   buildSeedFromLinear,
   defaultSeedFromLinearDeps,
@@ -86,13 +102,22 @@ import { startLinearAutoCreateMonitor, resetProcessedIssues } from "./services/l
 import { startOneshotWatcher } from "./services/oneshot-watcher-service";
 import { runAutoRemove, type AutoRemoveDependencies } from "./services/auto-remove-service";
 import { pullMainBranch, forcePullMainBranch, startAutoPullMonitor } from "./services/auto-pull-service";
+import { startSessionSnapshotMonitor } from "./services/session-restore-service";
 import {
   AgentsConversationStreamSession,
   readAgentsNotificationThreadId,
 } from "./services/agents-ui-stream-service";
 import { classifyAgentsTerminalWorktreeError } from "./services/agents-ui-action-service";
 import { buildProjectSnapshot } from "./services/snapshot-service";
-import { ClaudeConversationService } from "./services/claude-conversation-service";
+import {
+  ClaudeConversationService,
+  isPendingClaudeConversationId,
+} from "./services/claude-conversation-service";
+import {
+  buildClaudeStreamingLaunchContext,
+  type ClaudeStreamingLaunchContext,
+} from "./services/claude-streaming-launch-service";
+import { ClaudeConversationStreamService } from "./services/claude-conversation-stream-service";
 import {
   WorktreeConversationService,
   resolveCodexAppServerLaunchContext,
@@ -104,17 +129,72 @@ import type {
   AgentsUiWorktreeConversationResponse,
 } from "./domain/agents-ui";
 import type { OneshotMeta, ProjectSnapshot, WorktreeSnapshot } from "./domain/model";
-import { deriveInstancePrefix, isValidBranchName, isValidInstancePrefix, isValidWorktreeName } from "./domain/policies";
-import { createWebmuxRuntime } from "./runtime";
+import { isValidBranchName, isValidWorktreeName } from "./domain/policies";
+import { createWebmuxRuntime, type WebmuxRuntime } from "./runtime";
 import { createInstanceRegistry, type InstanceEntry } from "./adapters/instance-registry";
-import { resolvePeerRedirect } from "./domain/peer-routing";
+import { createProjectsRegistry } from "./adapters/projects-registry";
+import { ProjectManager, type ManagedProject, type ProjectLoopController } from "./services/project-manager";
 
 const PORT = parseInt(Bun.env.PORT || "5111", 10);
 const STATIC_DIR = Bun.env.WEBMUX_STATIC_DIR || "";
-const runtime = createWebmuxRuntime({
-  port: PORT,
-  projectDir: Bun.env.WEBMUX_PROJECT_DIR || process.cwd(),
-});
+/** Strict check: is `dir` itself inside a git work tree? Unlike
+ *  git.resolveRepoRoot it never scans child directories, so a non-repo path is
+ *  rejected rather than silently resolving to an unrelated nested repo. */
+function isGitRepo(dir: string): boolean {
+  try {
+    const result = Bun.spawnSync(["git", "rev-parse", "--is-inside-work-tree"], { cwd: dir, stdout: "pipe", stderr: "pipe" });
+    return result.exitCode === 0;
+  } catch {
+    return false;
+  }
+}
+
+// --- WebSocket protocol data (module-level: the global WS dispatcher routes
+//     each connection to its project by `prefix`) ---
+interface TerminalWsData {
+  kind: "terminal";
+  prefix: string;
+  branch: string;
+  worktreeId: string | null;
+  attachId: string | null;
+  attached: boolean;
+}
+
+interface AgentsWsData {
+  kind: "agents";
+  prefix: string;
+  branch: string;
+  conversationId: string | null;
+  unsubscribe: (() => void) | null;
+}
+
+type WsData = TerminalWsData | AgentsWsData;
+
+// --- Per-project route + WebSocket handler types (module-level: the single
+//     global server routes HTTP by URL prefix and WS by `ws.data.prefix`) ---
+type RouteHandler = (req: BunRequest, server: Server<WsData>) => Response | Promise<Response | undefined> | undefined;
+type RouteEntry = RouteHandler | { [method: string]: RouteHandler };
+type ProjectRoutes = Record<string, RouteEntry>;
+
+interface WsHandlers {
+  open(ws: ServerWebSocket<WsData>): void;
+  message(ws: ServerWebSocket<WsData>, message: string | Buffer): void | Promise<void>;
+  close(ws: ServerWebSocket<WsData>, code: number, reason: string): void | Promise<void>;
+}
+
+/** Everything a single project exposes: its (unprefixed) route map, WebSocket
+ *  handlers, and the light background-loop controls. Built by `createProjectApp`
+ *  and bound to exactly one `WebmuxRuntime`. The global server prefixes each
+ *  route key with `/${prefix}` and dispatches WS by `ws.data.prefix`. */
+interface ProjectApp {
+  prefix: string;
+  routes: ProjectRoutes;
+  wsHandlers: WsHandlers;
+  startLight(): void;
+  stopLight(): void;
+}
+
+function createProjectApp(runtime: WebmuxRuntime, instancePrefix: string): ProjectApp {
 const PROJECT_DIR = runtime.projectDir;
 const config: ProjectConfig = runtime.config;
 const git = runtime.git;
@@ -143,12 +223,19 @@ const claudeConversationService = new ClaudeConversationService({
   claude: claudeCliClient,
   git,
 });
+const claudeConversationStreamService = new ClaudeConversationStreamService({
+  claude: claudeCliClient,
+});
 const removingBranches = new Set<string>();
 const mutatingTabBranches = new Set<string>();
 const lifecycleService = runtime.lifecycleService;
 let linearAutoCreateEnabled = config.integrations.linear.autoCreateWorktrees;
 let stopLinearAutoCreate: (() => void) | null = null;
 let autoRemoveOnMergeEnabled = config.integrations.github.autoRemoveOnMerge;
+let stopPrMonitor: (() => void) | null = null;
+let stopOneshotWatcher: (() => void) | null = null;
+let stopAutoPullMonitor: (() => void) | null = null;
+let stopSessionSnapshot: (() => void) | null = null;
 
 /** Create a worktree in oneshot mode for the given Linear issue and arm the
  *  server-side watcher to post results back + close the session when done. Returns
@@ -312,24 +399,6 @@ function getFrontendConfig(): {
   };
 }
 
-// --- WebSocket protocol types ---
-
-interface TerminalWsData {
-  kind: "terminal";
-  branch: string;
-  worktreeId: string | null;
-  attachId: string | null;
-  attached: boolean;
-}
-
-interface AgentsWsData {
-  kind: "agents";
-  branch: string;
-  conversationId: string | null;
-  unsubscribe: (() => void) | null;
-}
-
-type WsData = TerminalWsData | AgentsWsData;
 type ParamsRequest = Request & { params: Record<string, string> };
 
 type WsInboundMessage =
@@ -663,6 +732,24 @@ function resolveWorktreeTerminalSubmitDelayMs(agentName: WorktreeSnapshot["agent
   });
 }
 
+function withClaudeLiveConversation(
+  response: AgentsUiWorktreeConversationResponse,
+): AgentsUiWorktreeConversationResponse {
+  if (response.conversation.provider !== "claudeCode") return response;
+
+  const activeTurnId = claudeConversationStreamService.activeTurnId(response.conversation.conversationId);
+  if (!activeTurnId) return response;
+
+  return {
+    ...response,
+    conversation: {
+      ...response.conversation,
+      running: true,
+      activeTurnId,
+    },
+  };
+}
+
 async function setAgentTerminalStale(worktree: WorktreeSnapshot, stale: boolean): Promise<void> {
   const gitDir = git.resolveWorktreeGitDir(worktree.path);
   const meta = await readWorktreeMeta(gitDir);
@@ -675,6 +762,111 @@ async function setAgentTerminalStale(worktree: WorktreeSnapshot, stale: boolean)
   if (projectRuntime.getWorktree(meta.worktreeId)) {
     projectRuntime.setAgentTerminalStale(meta.worktreeId, stale);
   }
+}
+
+/** Drive the worktree agent lifecycle from the backend-owned `claude -p` web
+ *  chat run. The hook-based lifecycle (UserPromptSubmit/Stop) is best-effort and
+ *  can be lost or reordered, leaving the worktree stuck "running" so the busy
+ *  gate blocks the next web message even though nothing is running. The owned
+ *  run's start/settle is authoritative, so we set it directly. */
+function setWorktreeAgentLifecycle(worktree: WorktreeSnapshot, lifecycle: "running" | "stopped"): void {
+  const state = projectRuntime.getWorktreeByBranch(worktree.branch);
+  if (!state) return;
+  projectRuntime.applyEvent({
+    type: "agent_status_changed",
+    worktreeId: state.worktreeId,
+    branch: state.branch,
+    lifecycle,
+  });
+}
+
+async function resolveClaudeStreamingLaunchContext(
+  worktree: WorktreeSnapshot,
+): Promise<{
+  ok: true;
+  data: ClaudeStreamingLaunchContext | null;
+} | {
+  ok: false;
+  response: Response;
+}> {
+  const gitDir = git.resolveWorktreeGitDir(worktree.path);
+  const meta = await readWorktreeMeta(gitDir);
+  if (!meta) {
+    return {
+      ok: false,
+      response: errorResponse("Worktree metadata is missing", 409),
+    };
+  }
+
+  const profile = config.profiles[meta.profile];
+  if (!profile) {
+    return {
+      ok: false,
+      response: errorResponse(`Profile is missing for Claude web chat: ${meta.profile}`, 409),
+    };
+  }
+
+  return {
+    ok: true,
+    data: await buildClaudeStreamingLaunchContext({
+      meta,
+      profile,
+      worktreePath: worktree.path,
+    }),
+  };
+}
+
+function isBusyAgentStatus(status: string): boolean {
+  return status === "starting" || status === "running";
+}
+
+async function sendClaudeStreamingMessage(input: {
+  worktree: WorktreeSnapshot;
+  text: string;
+  conversationId: string;
+}): Promise<Response | null> {
+  const launchContext = await resolveClaudeStreamingLaunchContext(input.worktree);
+  if (!launchContext.ok) return launchContext.response;
+  if (!launchContext.data) return null;
+
+  if (isBusyAgentStatus(input.worktree.status)) {
+    return errorResponse("Claude is already running in the terminal. Wait for it to finish before sending a web chat message.", 409);
+  }
+
+  const hasExistingSession = !isPendingClaudeConversationId(input.conversationId);
+  const sessionId = hasExistingSession ? input.conversationId : randomUUID();
+  if (!hasExistingSession) {
+    const saved = await claudeConversationService.setWorktreeConversationSession(input.worktree, sessionId);
+    if (!saved.ok) {
+      return errorResponse(saved.error, saved.status);
+    }
+  }
+
+  // TODO: a tool-call-ending turn can still re-stick "running" if the subprocess's async PostToolUse hook lands after this onRunSettled; fully fix by suppressing status hooks for owned runs.
+  const turnId = `claude-turn:${randomUUID()}`;
+  const started = claudeConversationStreamService.startRun({
+    conversationId: sessionId,
+    turnId,
+    cwd: input.worktree.path,
+    prompt: input.text,
+    env: launchContext.data.env,
+    permissionMode: launchContext.data.permissionMode,
+    ...(hasExistingSession ? { resumeSessionId: sessionId } : { sessionId }),
+    ...(!hasExistingSession && launchContext.data.systemPrompt ? { systemPrompt: launchContext.data.systemPrompt } : {}),
+    onRunSettled: () => setWorktreeAgentLifecycle(input.worktree, "stopped"),
+  });
+  if (!started.ok) {
+    return errorResponse(started.error, 409);
+  }
+
+  setWorktreeAgentLifecycle(input.worktree, "running");
+  await setAgentTerminalStale(input.worktree, true);
+  return jsonResponse({
+    conversationId: sessionId,
+    turnId,
+    running: true,
+    streaming: true,
+  });
 }
 
 async function apiAttachAgentsWorktree(branch: string): Promise<Response> {
@@ -691,7 +883,7 @@ async function apiAttachAgentsWorktree(branch: string): Promise<Response> {
     ? await claudeConversationService.attachWorktreeConversation(resolved.worktree)
     : await worktreeConversationService.attachWorktreeConversation(resolved.worktree);
   return result.ok
-    ? jsonResponse(result.data)
+    ? jsonResponse(withClaudeLiveConversation(result.data))
     : errorResponse(result.error, result.status);
 }
 
@@ -709,7 +901,7 @@ async function apiGetAgentsWorktreeHistory(branch: string): Promise<Response> {
     ? await claudeConversationService.readWorktreeConversation(resolved.worktree)
     : await worktreeConversationService.readWorktreeConversation(resolved.worktree);
   return result.ok
-    ? jsonResponse(result.data)
+    ? jsonResponse(withClaudeLiveConversation(result.data))
     : errorResponse(result.error, result.status);
 }
 
@@ -746,6 +938,14 @@ async function apiSendAgentsWorktreeMessage(branch: string, req: Request): Promi
   if (!conversationResult.ok) {
     return errorResponse(conversationResult.error, conversationResult.status);
   }
+
+  const streamingResponse = await sendClaudeStreamingMessage({
+    worktree: resolved.worktree,
+    text: parsed.data.text,
+    conversationId: conversationResult.data.conversation.conversationId,
+  });
+  if (streamingResponse) return streamingResponse;
+
   const terminalWorktree = await resolveAgentsTerminalWorktree(branch);
   if (!terminalWorktree.ok) return terminalWorktree.response;
   const sendResult = await sendTerminalPrompt(
@@ -765,6 +965,7 @@ async function apiSendAgentsWorktreeMessage(branch: string, req: Request): Promi
     conversationId: conversationResult.data.conversation.conversationId,
     turnId: `tmux:${crypto.randomUUID()}`,
     running: true,
+    streaming: false,
   });
 }
 
@@ -795,6 +996,17 @@ async function apiInterruptAgentsWorktree(branch: string): Promise<Response> {
   if (!conversationResult.ok) {
     return errorResponse(conversationResult.error, conversationResult.status);
   }
+  const activeClaudeInterrupt = claudeConversationStreamService.interrupt(conversationResult.data.conversation.conversationId);
+  if (activeClaudeInterrupt.ok) {
+    await setAgentTerminalStale(resolved.worktree, true);
+    return jsonResponse({
+      conversationId: conversationResult.data.conversation.conversationId,
+      turnId: activeClaudeInterrupt.turnId,
+      interrupted: true,
+      streaming: true,
+    });
+  }
+
   const terminalWorktree = await resolveAgentsTerminalWorktree(branch);
   if (!terminalWorktree.ok) return terminalWorktree.response;
   const interruptResult = await interruptPrompt(terminalWorktree.data.attachTarget, 0);
@@ -806,6 +1018,7 @@ async function apiInterruptAgentsWorktree(branch: string): Promise<Response> {
     conversationId: conversationResult.data.conversation.conversationId,
     turnId: conversationResult.data.conversation.activeTurnId ?? `tmux:${crypto.randomUUID()}`,
     interrupted: true,
+    streaming: false,
   });
 }
 
@@ -846,7 +1059,7 @@ async function loadAgentsConversationInitialState(
     ? await claudeConversationService.readWorktreeConversation(resolved.worktree)
     : await worktreeConversationService.readWorktreeConversation(resolved.worktree);
   return result.ok
-    ? { ok: true, data: result.data }
+    ? { ok: true, data: withClaudeLiveConversation(result.data) }
     : { ok: false, message: result.error };
 }
 
@@ -879,6 +1092,7 @@ async function openAgentsSocket(
   let socketClosed = false;
   let streamSession: AgentsConversationStreamSession | null = null;
   const bufferedNotifications: CodexAppServerNotification[] = [];
+  let unsubscribeClaudeStream: (() => void) | null = null;
   const unsubscribeNotifications = codexAppServerClient.onNotification((notification) => {
     if (bufferingNotifications || !streamSession) {
       bufferedNotifications.push(notification);
@@ -894,6 +1108,7 @@ async function openAgentsSocket(
     socketClosed = true;
     streamSession?.close();
     unsubscribeNotifications();
+    unsubscribeClaudeStream?.();
   };
 
   const initialState = await loadAgentsConversationInitialState(data.branch);
@@ -911,6 +1126,15 @@ async function openAgentsSocket(
     send: (event) => sendAgentsWs(ws, event),
   });
   data.conversationId = streamSession.currentConversationId();
+  if (initialState.data.conversation.provider === "claudeCode") {
+    unsubscribeNotifications();
+    unsubscribeClaudeStream = claudeConversationStreamService.subscribe(
+      initialState.data.conversation.conversationId,
+      streamSession,
+    );
+    return;
+  }
+
   if (initialState.data.conversation.provider !== "codexAppServer") {
     unsubscribeNotifications();
     data.unsubscribe = null;
@@ -1070,8 +1294,12 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
   }
 
   if (createLinearTicket) {
-    const title = deriveLinearIssueTitle(linearTitle, prompt);
-    if (!title) {
+    const resolvedTitle = await resolveLinearTicketTitle({
+      explicitTitle: linearTitle,
+      prompt: prompt ?? "",
+      autoName: config.autoName,
+    });
+    if (!resolvedTitle) {
       return errorResponse("Linear ticket title could not be derived from the prompt", 400);
     }
 
@@ -1088,7 +1316,7 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
     }
 
     const linearResult = await createLinearIssue({
-      title,
+      title: resolvedTitle.title,
       description: resolvedPrompt ?? "",
       teamId: teamResult.data.id,
     });
@@ -1098,7 +1326,7 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
 
     resolvedBranch = linearResult.data.branchName;
     log.info(
-      `[linear] created ticket ${linearResult.data.identifier} branch=${linearResult.data.branchName} title="${linearResult.data.title.slice(0, 80)}"`,
+      `[linear] created ticket ${linearResult.data.identifier} branch=${linearResult.data.branchName} title="${linearResult.data.title.slice(0, 80)}" titleSource=${resolvedTitle.source}`,
     );
   }
 
@@ -1643,15 +1871,10 @@ function parseAgentIdParam(params: Record<string, string>):
 
 // --- Server ---
 
-function startServer(port: number): ReturnType<typeof Bun.serve> {
-  return Bun.serve({
-  port,
-  idleTimeout: 255, // seconds; worktree removal can take >10s
-
-  routes: {
+  const routes: ProjectRoutes = {
     [apiPaths.streamAgentsWorktreeConversation]: (req, server) => {
       const branch = decodeURIComponent(req.params.name);
-      return server.upgrade(req, { data: { kind: "agents", branch, conversationId: null, unsubscribe: null } })
+      return server.upgrade(req, { data: { kind: "agents", prefix: instancePrefix, branch, conversationId: null, unsubscribe: null } })
         ? undefined
         : new Response("WebSocket upgrade failed", { status: 400 });
     },
@@ -1659,7 +1882,7 @@ function startServer(port: number): ReturnType<typeof Bun.serve> {
     "/ws/:worktree": (req, server) => {
       const branch = decodeURIComponent(req.params.worktree);
       return server.upgrade(req, {
-        data: { kind: "terminal", branch, worktreeId: null, attachId: null, attached: false },
+        data: { kind: "terminal", prefix: instancePrefix, branch, worktreeId: null, attachId: null, attached: false },
       })
         ? undefined
         : new Response("WebSocket upgrade failed", { status: 400 });
@@ -1942,58 +2165,9 @@ function startServer(port: number): ReturnType<typeof Bun.serve> {
       },
     },
 
-    [apiPaths.fetchInstances]: {
-      GET: () => jsonResponse({
-        instances: instanceRegistry.listLive()
-          .filter((entry) => entry.port !== BOUND_PORT)
-          .map((entry) => ({
-            prefix: entry.prefix,
-            port: entry.port,
-            projectDir: entry.projectDir,
-            startedAt: entry.startedAt,
-          })),
-      }),
-    },
-  },
+  };
 
-  async fetch(req) {
-    const url = new URL(req.url);
-
-    const peerRedirect = resolvePeerRedirect(url, instanceRegistry.listLive(), BOUND_PORT);
-    if (peerRedirect) return peerRedirect;
-
-    // Static frontend files in production mode (fallback for unmatched routes)
-    if (STATIC_DIR) {
-      const rawPath = url.pathname === "/" ? "index.html" : url.pathname;
-      const filePath = join(STATIC_DIR, rawPath);
-      const staticRoot = resolve(STATIC_DIR);
-      // Path traversal protection: resolved path must stay within STATIC_DIR
-      if (!resolve(filePath).startsWith(staticRoot + "/")) {
-        return new Response("Forbidden", { status: 403 });
-      }
-      const file = Bun.file(filePath);
-      if (await file.exists()) {
-        // Vite-hashed assets are immutable — cache forever
-        const headers: HeadersInit = rawPath.startsWith("/assets/")
-          ? { "Cache-Control": "public, max-age=31536000, immutable" }
-          : {};
-        return new Response(file, { headers });
-      }
-      // SPA fallback: serve index.html (never cache so new deploys take effect)
-      return new Response(Bun.file(join(STATIC_DIR, "index.html")), {
-        headers: { "Cache-Control": "no-cache" },
-      });
-    }
-    return new Response("Not Found", { status: 404 });
-  },
-
-  websocket: {
-    // WebSocket-specific timeout; keepalive pings prevent idle tab disconnects.
-    idleTimeout: 255,
-    sendPings: true,
-    // Type ws.data via the data property (Bun.serve<T> generic is deprecated)
-    data: {} as WsData,
-
+  const wsHandlers: WsHandlers = {
     open(ws) {
       const data = ws.data;
       if (data.kind === "terminal") {
@@ -2112,74 +2286,450 @@ function startServer(port: number): ReturnType<typeof Bun.serve> {
         await detach(data.attachId);
       }
     },
-  },
-  });
+  };
+
+  // Light-tier loops run for every known project (PR/CI poll, Linear
+  // auto-create, oneshot watcher, auto-pull). Heavy work (reconciliation,
+  // terminal attach) is on-demand and therefore already active-only.
+  function startLight(): void {
+    stopPrMonitor = startPrMonitor(getWorktreeGitDirs, config.integrations.github.linkedRepos, PROJECT_DIR, undefined, hasRecentDashboardActivity, async () => {
+      if (autoRemoveOnMergeEnabled) {
+        await runAutoRemove(autoRemoveDeps);
+      }
+    });
+    if (linearAutoCreateEnabled) {
+      startLinearAutoCreate();
+    }
+    stopOneshotWatcher = startOneshotWatcher({
+      projectRuntime,
+      lifecycleService,
+      postToLinear: async (branch, target) => {
+        const outcome = await postWorktreeConversationToLinear(branch, target);
+        if (!outcome.ok) throw new Error(outcome.error);
+      },
+    });
+    if (config.workspace.autoPull.enabled) {
+      stopAutoPullMonitor = startAutoPullMonitor(
+        { git, projectRoot: PROJECT_DIR, mainBranch: config.workspace.mainBranch },
+        config.workspace.autoPull.intervalSeconds * 1000,
+      );
+    }
+    stopSessionSnapshot = startSessionSnapshotMonitor({ git, tmux, projectRoot: PROJECT_DIR });
+  }
+
+  function stopLight(): void {
+    stopPrMonitor?.();
+    stopPrMonitor = null;
+    stopLinearAutoCreateMonitor();
+    stopOneshotWatcher?.();
+    stopOneshotWatcher = null;
+    stopAutoPullMonitor?.();
+    stopAutoPullMonitor = null;
+    stopSessionSnapshot?.();
+    stopSessionSnapshot = null;
+  }
+
+  return { prefix: instancePrefix, routes, wsHandlers, startLight, stopLight };
 }
 
-function actualPort(server: ReturnType<typeof Bun.serve>, requested: number): number {
+function actualPort(server: Server<WsData>, requested: number): number {
   return server.port ?? requested;
 }
 
-const MAX_INCREMENTAL_BIND_ATTEMPTS = 100;
-const PORT_STRICT = Bun.env.WEBMUX_PORT_STRICT === "1";
+// ── Global multi-project server ─────────────────────────────────────────────
+// One process, one port. Every known project gets its own runtime + app; the
+// shared HTTP server prefixes each project's routes with `/${prefix}` and the
+// shared WebSocket handler dispatches by `ws.data.prefix`. Every project is
+// served in this one process; an unknown prefix just falls through to the SPA.
 
-/** Bind the HTTP server.
- *  - In strict mode (`WEBMUX_PORT_STRICT=1`, set by the CLI when `--port` or
- *    `PORT` was supplied explicitly): bind exactly `PORT` and fail loudly on
- *    `EADDRINUSE` — the user pinned that port, surfacing the conflict beats
- *    silently landing somewhere else.
- *  - Otherwise (default 5111): walk PORT, PORT+1, … up to a sane cap. Nearby
- *    ports match the install-time picker and stay easy to spot in `lsof`. If
- *    the whole window is taken, fall back to an OS-picked ephemeral port so
- *    the process never crashes on startup. */
-function bindServer(): number {
-  if (PORT_STRICT) {
-    try {
-      return actualPort(startServer(PORT), PORT);
-    } catch (err: unknown) {
-      const code = (err as { code?: string } | null)?.code;
-      if (code === "EADDRINUSE") {
-        log.error(`[serve] port ${PORT} is in use and was set explicitly; drop --port / PORT to let webmux pick a free port`);
-      }
-      throw err;
-    }
-  }
+const apps = new Map<string, ProjectApp>();
+// Open WebSockets per project, so we can run their cleanup when a project is
+// removed and track whether a project is currently being viewed (`active`).
+const openSockets = new Map<string, Set<ServerWebSocket<WsData>>>();
+const instanceRegistry = createInstanceRegistry();
+// Tracks on-add project setups (scaffold config → analyze with Claude → ready)
+// so the UI + CLI can show progress. Hub-level: one per machine, keyed by repo.
+const projectInitTracker = new ProjectInitTracker();
+let manager: ProjectManager;
+let server: Server<WsData>;
+let BOUND_PORT = 0;
 
-  let candidate = PORT;
-  for (let attempt = 0; attempt < MAX_INCREMENTAL_BIND_ATTEMPTS; attempt++) {
-    try {
-      const server = startServer(candidate);
-      if (attempt > 0) log.info(`[serve] port ${PORT} in use; bound to ${actualPort(server, candidate)}`);
-      return actualPort(server, candidate);
-    } catch (err: unknown) {
-      const code = (err as { code?: string } | null)?.code;
-      if (code !== "EADDRINUSE") throw err;
-      candidate += 1;
-    }
+async function catchingRoute(label: string, fn: () => Promise<Response>): Promise<Response> {
+  try {
+    return await fn();
+  } catch (err: unknown) {
+    log.error(`[api] ${label} failed: ${err instanceof Error ? err.message : String(err)}`);
+    return errorResponse("Internal error", 500);
   }
-  log.info(`[serve] ports ${PORT}..${PORT + MAX_INCREMENTAL_BIND_ATTEMPTS - 1} all in use; falling back to an OS-picked port`);
-  return actualPort(startServer(0), 0);
 }
 
-const BOUND_PORT = bindServer();
+function toProjectSummary(p: ManagedProject): { prefix: string; name: string; path: string; active: boolean } {
+  return { prefix: p.prefix, name: p.entry.name, path: p.entry.path, active: p.active };
+}
 
-const instanceRegistry = createInstanceRegistry();
-const explicitPrefix = Bun.env.WEBMUX_PREFIX?.trim();
-const livePeers = instanceRegistry.listLive();
-const takenPrefixes = livePeers.map((peer) => peer.prefix);
-const INSTANCE_PREFIX = explicitPrefix && isValidInstancePrefix(explicitPrefix)
-  ? explicitPrefix
-  : deriveInstancePrefix(PROJECT_DIR, takenPrefixes);
+function apiListProjects(): Response {
+  return jsonResponse({ projects: manager.list().map(toProjectSummary) });
+}
+
+/** A repo is a webmux project once it has a config file. */
+function hasProjectConfig(root: string): boolean {
+  return existsSync(join(root, ".webmux.yaml")) || existsSync(join(root, ".webmux.local.yaml"));
+}
+
+/** Agent used to author config on setup. Prefer Claude; use Codex only when
+ *  it's the one actually installed. With neither present, default the
+ *  scaffolded config to Claude (analysis is skipped, but the file persists). */
+function authoringAgent(): InitAgent {
+  return which("codex") && !which("claude") ? "codex" : "claude";
+}
+
+const ANALYZE_TIMEOUT_MS = 120_000;
+
+/** I/O for the on-add setup flow. The server is local, so it spawns the agent
+ *  with the repo as cwd to scaffold + flesh out `.webmux.yaml`, then registers. */
+const projectInitDeps: ProjectInitDeps = {
+  analyzerAvailable: () => which("claude") || which("codex"),
+  scaffold: async (root) => {
+    const context = detectInitProjectContext(root, authoringAgent());
+    await Bun.write(join(root, ".webmux.yaml"), buildStarterTemplate(context));
+  },
+  analyze: async (root) => {
+    const agent = authoringAgent();
+    const spec = buildInitAgentCommand(agent, buildInitPromptSpec(detectInitProjectContext(root, agent)));
+    await runInitAgentCommand(spec, root, { timeoutMs: ANALYZE_TIMEOUT_MS });
+  },
+  register: (root) => {
+    const project = manager.add(root);
+    reloadRoutes();
+    return { prefix: project.prefix, name: project.entry.name };
+  },
+};
+
+async function apiAddProject(req: BunRequest): Promise<Response> {
+  const body: unknown = await req.json().catch(() => null);
+  if (!isRecord(body) || typeof body.path !== "string" || body.path.trim() === "") {
+    return errorResponse("Request body must be { path: string }", 400);
+  }
+  const inputPath = body.path.trim();
+  if (!isGitRepo(inputPath)) return errorResponse(`Not a git repository: ${inputPath}`, 400);
+  const root = projectRoot(inputPath);
+
+  // Already served → register now, no setup job.
+  const existing = manager.getByPath(root);
+  if (existing) {
+    return jsonResponse({ initializing: false, path: root, project: toProjectSummary(existing) });
+  }
+
+  // A setup is already in flight for this repo (double-click / second tab):
+  // send the caller to the poller. Checked before `hasProjectConfig` because
+  // setup writes `.webmux.yaml` mid-run — without this guard a second request
+  // would see that half-written config and register from it before analysis
+  // finishes, bypassing the enriched result and the phase UI.
+  if (projectInitTracker.isActive(root)) {
+    return jsonResponse({ initializing: true, path: root, project: null });
+  }
+
+  // Already a webmux project → register immediately.
+  if (hasProjectConfig(root)) {
+    const project = manager.add(root);
+    reloadRoutes();
+    return jsonResponse({ initializing: false, path: root, project: toProjectSummary(project) });
+  }
+
+  // No config → scaffold + analyze + register asynchronously; the client polls
+  // `projectInits` for progress and the resulting prefix. runProjectInit sets
+  // the first phase synchronously before its first await, so a concurrent
+  // request observes `isActive` above without setting it here too.
+  void runProjectInit(projectInitTracker, root, projectInitDeps);
+  return jsonResponse({ initializing: true, path: root, project: null });
+}
+
+function apiListProjectInits(): Response {
+  return jsonResponse({
+    inits: projectInitTracker.list().map((s) => ({
+      path: s.path,
+      phase: s.phase,
+      prefix: s.prefix,
+      name: s.name,
+      error: s.error,
+    })),
+  });
+}
+
+/** Fold the repos served by leftover single-project instances into this server.
+ *  `webmux project migrate` posts each other instance's projectDir here; we add
+ *  and persist them so this dashboard serves them going forward. The CLI then
+ *  stops the old instances' service units. Per-path failures are reported, not
+ *  fatal, so one bad entry doesn't abort the rest. */
+async function apiMigrateProjects(req: BunRequest): Promise<Response> {
+  const body: unknown = await req.json().catch(() => null);
+  if (!isRecord(body) || !Array.isArray(body.paths) || body.paths.some((p) => typeof p !== "string")) {
+    return errorResponse("Request body must be { paths: string[] }", 400);
+  }
+  const paths = body.paths.map((p) => p.trim()).filter((p) => p !== "");
+  const migrated: Array<{ prefix: string; name: string; path: string; active: boolean }> = [];
+  const failed: Array<{ path: string; error: string }> = [];
+  for (const path of paths) {
+    try {
+      if (!isGitRepo(path)) throw new Error(`Not a git repository: ${path}`);
+      const project = manager.add(path);
+      migrated.push({
+        prefix: project.prefix,
+        name: project.entry.name,
+        path: project.entry.path,
+        active: project.active,
+      });
+    } catch (err: unknown) {
+      failed.push({ path, error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+  if (migrated.length > 0) reloadRoutes();
+  return jsonResponse({ migrated, failed });
+}
+
+/** Run each open socket's per-project cleanup (tmux detach, agents unsubscribe)
+ *  and close it. Must run BEFORE the app is removed — once `apps.delete` has
+ *  happened the global close handler can no longer find the project's cleanup. */
+function closeProjectSockets(prefix: string): void {
+  const sockets = openSockets.get(prefix);
+  if (!sockets) return;
+  const app = apps.get(prefix);
+  for (const ws of sockets) {
+    void app?.wsHandlers.close(ws, 1001, "project removed");
+    try {
+      ws.close(1001, "project removed");
+    } catch {
+      // already closing — cleanup above already ran
+    }
+  }
+  openSockets.delete(prefix);
+}
+
+async function apiRemoveProject(prefix: string): Promise<Response> {
+  if (!apps.has(prefix)) return errorResponse("Project not found", 404);
+  // Ordering matters: closeProjectSockets() runs the cleanup synchronously, then
+  // manager.remove() → stopLight() → apps.delete(prefix) also runs synchronously.
+  // Bun fires the real `close` event for the sockets we just closed only after
+  // this turn, by which point apps.delete has happened, so the global close
+  // handler no-ops instead of double-running the cleanup. Keep these in order.
+  closeProjectSockets(prefix);
+  manager.remove(prefix);
+  reloadRoutes();
+  return jsonResponse({ ok: true });
+}
+
+/** List the OTHER webmux servers currently running on this machine (migration
+ *  sensor). One multi-project server per machine is the goal, so any peer here
+ *  is a leftover single-project instance the user should fold in with `webmux
+ *  project migrate`. The frontend reads this to show a migration banner. */
+function apiListInstances(): Response {
+  return jsonResponse({
+    instances: instanceRegistry.listLive()
+      .filter((entry) => entry.port !== BOUND_PORT)
+      .map((entry) => ({
+        port: entry.port,
+        projectDir: entry.projectDir,
+      })),
+  });
+}
+
+/** Build the full route map: global hub endpoints plus every project's routes
+ *  re-keyed under its `/${prefix}` segment. Rebuilt (via `server.reload`) on
+ *  every add/remove so newly known projects are served immediately. */
+function buildServeRoutes(): ProjectRoutes {
+  const routes: ProjectRoutes = {
+    [apiPaths.fetchProjects]: {
+      GET: () => apiListProjects(),
+      POST: (req) => catchingRoute("POST /api/projects", () => apiAddProject(req)),
+    },
+    [apiPaths.projectInits]: {
+      GET: () => apiListProjectInits(),
+    },
+    [apiPaths.migrateProjects]: {
+      POST: (req) => catchingRoute("POST /api/projects/migrate", () => apiMigrateProjects(req)),
+    },
+    [apiPaths.removeProject]: {
+      DELETE: (req) => catchingRoute("DELETE /api/projects/:prefix", () => apiRemoveProject(decodeURIComponent(req.params.prefix))),
+    },
+    [apiPaths.fetchInstances]: {
+      GET: () => apiListInstances(),
+    },
+  };
+  for (const app of apps.values()) {
+    for (const [pattern, entry] of Object.entries(app.routes)) {
+      routes[`/${app.prefix}${pattern}`] = entry;
+    }
+  }
+  return routes;
+}
+
+async function globalFetch(req: Request): Promise<Response> {
+  const url = new URL(req.url);
+
+  // Static frontend files in production mode (fallback for unmatched routes)
+  if (STATIC_DIR) {
+    const rawPath = url.pathname === "/" ? "index.html" : url.pathname;
+    const filePath = join(STATIC_DIR, rawPath);
+    const staticRoot = resolve(STATIC_DIR);
+    // Path traversal protection: resolved path must stay within STATIC_DIR
+    if (!resolve(filePath).startsWith(staticRoot + "/")) {
+      return new Response("Forbidden", { status: 403 });
+    }
+    const file = Bun.file(filePath);
+    if (await file.exists()) {
+      // Vite-hashed assets are immutable — cache forever
+      const headers: HeadersInit = rawPath.startsWith("/assets/")
+        ? { "Cache-Control": "public, max-age=31536000, immutable" }
+        : {};
+      return new Response(file, { headers });
+    }
+    // SPA fallback: serve index.html (never cache so new deploys take effect)
+    return new Response(Bun.file(join(STATIC_DIR, "index.html")), {
+      headers: { "Cache-Control": "no-cache" },
+    });
+  }
+  return new Response("Not Found", { status: 404 });
+}
+
+function trackSocket(ws: ServerWebSocket<WsData>): void {
+  const prefix = ws.data.prefix;
+  let sockets = openSockets.get(prefix);
+  if (!sockets) {
+    sockets = new Set();
+    openSockets.set(prefix, sockets);
+  }
+  sockets.add(ws);
+  // First socket for this project → it's being viewed.
+  if (sockets.size === 1) manager.setActive(prefix, true);
+}
+
+function untrackSocket(ws: ServerWebSocket<WsData>): void {
+  const prefix = ws.data.prefix;
+  const sockets = openSockets.get(prefix);
+  if (!sockets) return;
+  sockets.delete(ws);
+  if (sockets.size === 0) {
+    openSockets.delete(prefix);
+    manager.setActive(prefix, false);
+  }
+}
+
+const globalWebsocket: WebSocketHandler<WsData> = {
+  // WebSocket-specific timeout; keepalive pings prevent idle tab disconnects.
+  idleTimeout: 255,
+  sendPings: true,
+  open(ws): void {
+    trackSocket(ws);
+    apps.get(ws.data.prefix)?.wsHandlers.open(ws);
+  },
+  message(ws, message): void | Promise<void> {
+    return apps.get(ws.data.prefix)?.wsHandlers.message(ws, message);
+  },
+  close(ws, code, reason): void | Promise<void> {
+    untrackSocket(ws);
+    return apps.get(ws.data.prefix)?.wsHandlers.close(ws, code, reason);
+  },
+};
+
+function startServer(port: number, routes: ProjectRoutes): Server<WsData> {
+  return Bun.serve({
+    port,
+    idleTimeout: 255, // seconds; worktree removal can take >10s
+    routes,
+    fetch: globalFetch,
+    websocket: globalWebsocket,
+  });
+}
+
+/** Bind the HTTP server to `PORT`. webmux is one server per machine now, so a
+ *  bind conflict almost always means another webmux is already running — fail
+ *  loudly and point at `webmux project migrate` rather than silently landing on
+ *  a different port (which would just create the duplicate we're trying to
+ *  avoid). */
+function bindServer(routes: ProjectRoutes): Server<WsData> {
+  try {
+    return startServer(PORT, routes);
+  } catch (err: unknown) {
+    const code = (err as { code?: string } | null)?.code;
+    if (code === "EADDRINUSE") {
+      log.error(`[serve] port ${PORT} is already in use — another webmux is likely running there. Stop it, pick another --port, or run \`webmux project migrate\` to consolidate.`);
+    }
+    throw err;
+  }
+}
+
+function reloadRoutes(): void {
+  server.reload({ routes: buildServeRoutes(), fetch: globalFetch, websocket: globalWebsocket });
+}
+
+/** Add the current repo as a project when it is a webmux project (has a config
+ *  file). Lets `webmux serve` inside a repo behave like today with zero setup.
+ *  The auto-add is in-memory only (not persisted): with one shared
+ *  `~/.webmux/projects.json`, persisting it would make every other running
+ *  server reload — and double-serve — this repo on its next restart. Only an
+ *  explicit `webmux project add` persists. */
+function autoAddCwd(): void {
+  const cwd = Bun.env.WEBMUX_PROJECT_DIR ?? process.cwd();
+  if (!isGitRepo(cwd)) return;
+  const repoRoot = projectRoot(cwd);
+  if (!existsSync(join(repoRoot, ".webmux.yaml")) && !existsSync(join(repoRoot, ".webmux.local.yaml"))) return;
+  try {
+    manager.addEphemeral(repoRoot);
+  } catch (err: unknown) {
+    log.error(`[serve] failed to auto-add project ${repoRoot}: ${String(err)}`);
+  }
+}
+
+// Bind first with just the hub routes (no projects materialized yet), then load
+// projects and publish their routes via reloadRoutes().
+server = bindServer(buildServeRoutes());
+BOUND_PORT = actualPort(server, PORT);
+
+manager = new ProjectManager({
+  registry: createProjectsRegistry(),
+  port: BOUND_PORT,
+  createRuntime: ({ projectDir, port }) => createWebmuxRuntime({ projectDir, port }),
+  createLoops: (project): ProjectLoopController => {
+    const app = createProjectApp(project.runtime, project.prefix);
+    apps.set(project.prefix, app);
+    return {
+      startLight: (): void => app.startLight(),
+      stopLight: (): void => {
+        app.stopLight();
+        apps.delete(project.prefix);
+      },
+      startHeavy: (): void => {},
+      stopHeavy: (): void => {},
+    };
+  },
+});
+
+// Ensure tmux server is running (needs at least one session to persist)
+const tmuxCheck = Bun.spawnSync(["tmux", "list-sessions"], { stdout: "pipe", stderr: "pipe" });
+if (tmuxCheck.exitCode !== 0) {
+  Bun.spawnSync(["tmux", "new-session", "-d", "-s", "0"]);
+  log.info("Started tmux session");
+}
+cleanupStaleSessions();
+
+manager.loadPersisted();
+autoAddCwd();
+reloadRoutes();
+
+// Self-register as a migration sensor: record this server's port + the repo it
+// was started for, so a survivor can detect leftover single-project instances
+// and `webmux project migrate` can recover each one's repo. No prefix/federation
+// here — every project is served in this one process.
+const homeCwd = Bun.env.WEBMUX_PROJECT_DIR ?? process.cwd();
+const homeRoot = isGitRepo(homeCwd) ? projectRoot(homeCwd) : homeCwd;
 
 const selfEntry: InstanceEntry = {
-  prefix: INSTANCE_PREFIX,
   port: BOUND_PORT,
-  projectDir: PROJECT_DIR,
+  projectDir: homeRoot,
   pid: process.pid,
-  startedAt: Date.now(),
 };
 instanceRegistry.register(selfEntry);
-log.info(`[serve] registered instance prefix=${INSTANCE_PREFIX} port=${BOUND_PORT}`);
+log.info(`[serve] registered instance port=${BOUND_PORT} projects=${manager.list().length}`);
 
 function deregisterSelf(): void {
   try {
@@ -2191,38 +2741,6 @@ function deregisterSelf(): void {
 process.on("SIGINT", () => { deregisterSelf(); process.exit(0); });
 process.on("SIGTERM", () => { deregisterSelf(); process.exit(0); });
 process.on("exit", deregisterSelf);
-
-
-// Ensure tmux server is running (needs at least one session to persist)
-const tmuxCheck = Bun.spawnSync(["tmux", "list-sessions"], { stdout: "pipe", stderr: "pipe" });
-if (tmuxCheck.exitCode !== 0) {
-  Bun.spawnSync(["tmux", "new-session", "-d", "-s", "0"]);
-  log.info("Started tmux session");
-}
-
-cleanupStaleSessions();
-startPrMonitor(getWorktreeGitDirs, config.integrations.github.linkedRepos, PROJECT_DIR, undefined, hasRecentDashboardActivity, async () => {
-  if (autoRemoveOnMergeEnabled) {
-    await runAutoRemove(autoRemoveDeps);
-  }
-});
-if (linearAutoCreateEnabled) {
-  startLinearAutoCreate();
-}
-startOneshotWatcher({
-  projectRuntime,
-  lifecycleService,
-  postToLinear: async (branch, target) => {
-    const outcome = await postWorktreeConversationToLinear(branch, target);
-    if (!outcome.ok) throw new Error(outcome.error);
-  },
-});
-if (config.workspace.autoPull.enabled) {
-  startAutoPullMonitor(
-    { git, projectRoot: PROJECT_DIR, mainBranch: config.workspace.mainBranch },
-    config.workspace.autoPull.intervalSeconds * 1000,
-  );
-}
 
 log.info(`Dev Dashboard API running at http://localhost:${BOUND_PORT}`);
 const nets = networkInterfaces();

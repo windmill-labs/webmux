@@ -16,7 +16,8 @@
   import MobileChatSurface from "./lib/MobileChatSurface.svelte";
   import WorktreeLabelDialog from "./lib/WorktreeLabelDialog.svelte";
   import SidebarRepoRow from "./lib/SidebarRepoRow.svelte";
-  import InstanceSwitcher from "./lib/InstanceSwitcher.svelte";
+  import ProjectSwitcher from "./lib/ProjectSwitcher.svelte";
+  import MigrationBanner from "./lib/MigrationBanner.svelte";
   import Toggle from "./lib/Toggle.svelte";
   import type {
     AvailableBranch,
@@ -57,6 +58,7 @@
   import type { ThemeKey } from "./lib/themes";
   import { setToastController } from "./lib/toast-context";
   import {
+    activePrefix,
     api,
     createWorktreeTab,
     deleteWorktreeTab,
@@ -1149,7 +1151,7 @@
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-1 min-w-0">
             <h1 class="text-base font-semibold truncate">{config.name ?? "Dashboard"}</h1>
-            <InstanceSwitcher selfName={config.name ?? "Dashboard"} />
+            <ProjectSwitcher current={activePrefix} />
           </div>
           <div class="flex items-center gap-2">
             <button
@@ -1289,6 +1291,7 @@
   {/if}
 
   <main class="flex-1 min-w-0 flex flex-col overflow-hidden">
+    <MigrationBanner />
     <TopBar
       name={selectedWorktree?.branch ?? null}
       worktree={selectedWorktree}

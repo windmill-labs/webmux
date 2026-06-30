@@ -2,6 +2,7 @@ import type { AgentId, RuntimeKind } from "./config";
 
 export const WORKTREE_META_SCHEMA_VERSION = 1;
 export const WORKTREE_ARCHIVE_STATE_VERSION = 1;
+export const OPEN_SESSIONS_STATE_VERSION = 1;
 
 export type WorktreeConversationProvider = "codexAppServer" | "claudeCode";
 
@@ -97,6 +98,14 @@ export interface ArchivedWorktreeEntry {
 export interface WorktreeArchiveState {
   schemaVersion: number;
   entries: ArchivedWorktreeEntry[];
+}
+
+/** A periodically-saved snapshot of which worktree sessions were open, so
+ *  `webmux restore` can re-open them after a server restart or reboot. */
+export interface OpenSessionsState {
+  schemaVersion: number;
+  savedAt: string;
+  branches: string[];
 }
 
 export interface WorktreeStoragePaths {

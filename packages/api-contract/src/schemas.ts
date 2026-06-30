@@ -460,12 +460,14 @@ export const AgentsUiSendMessageResponseSchema = z.object({
   conversationId: z.string(),
   turnId: z.string(),
   running: z.literal(true),
+  streaming: z.boolean(),
 });
 
 export const AgentsUiInterruptResponseSchema = z.object({
   conversationId: z.string(),
   turnId: z.string(),
   interrupted: z.literal(true),
+  streaming: z.boolean(),
 });
 
 export const AgentsUiConversationMessageDeltaEventSchema = z.object({
@@ -582,11 +584,12 @@ export const RunIdParamsSchema = z.object({
   runId: NumberLikePathParamSchema,
 });
 
+/** Another webmux server running on this machine (migration sensor). Surfaced
+ *  by `/api/instances` so the dashboard can prompt the user to consolidate
+ *  leftover single-project instances with `webmux project migrate`. */
 export const InstanceSummarySchema = z.object({
-  prefix: z.string(),
   port: z.number(),
   projectDir: z.string(),
-  startedAt: z.number(),
 });
 
 export const InstancesResponseSchema = z.object({
@@ -595,6 +598,83 @@ export const InstancesResponseSchema = z.object({
 
 export type InstanceSummary = z.infer<typeof InstanceSummarySchema>;
 export type InstancesResponse = z.infer<typeof InstancesResponseSchema>;
+
+export const ProjectSummarySchema = z.object({
+  prefix: z.string(),
+  name: z.string(),
+  path: z.string(),
+  /** True while at least one client has a terminal/agent WebSocket open on this
+   *  project (i.e. it is currently being viewed). */
+  active: z.boolean(),
+});
+
+export const ProjectsResponseSchema = z.object({
+  projects: z.array(ProjectSummarySchema),
+});
+
+export const AddProjectRequestSchema = z.object({
+  path: z.string().min(1),
+});
+
+/** Adding a repo that has no .webmux.yaml kicks off an async setup job
+ *  (scaffold config → analyze with Claude → register); the response says the
+ *  job started and the client polls `projectInits`. When the repo already has
+ *  config it's registered immediately and `project` is returned. */
+export const AddProjectResponseSchema = z.object({
+  initializing: z.boolean(),
+  path: z.string(),
+  project: ProjectSummarySchema.nullable(),
+});
+
+/** Phases of the on-add project setup, surfaced so the UI and CLI can show
+ *  progress: scaffold the .webmux.yaml → analyze the repo with Claude → ready
+ *  (registered). `failed` means setup errored before the project was usable. */
+export const ProjectInitPhaseSchema = z.enum([
+  "creating_config",
+  "analyzing",
+  "ready",
+  "failed",
+]);
+
+export const ProjectInitStateSchema = z.object({
+  path: z.string(),
+  phase: ProjectInitPhaseSchema,
+  /** Set once the project is registered (phase "ready") so the client can open it. */
+  prefix: z.string().nullable(),
+  name: z.string().nullable(),
+  /** Set when phase is "failed". */
+  error: z.string().nullable(),
+});
+
+export const ProjectInitsResponseSchema = z.object({
+  inits: z.array(ProjectInitStateSchema),
+});
+
+export const ProjectPrefixParamsSchema = z.object({
+  prefix: z.string(),
+});
+
+/** Fold the repos served by leftover single-project instances into this server.
+ *  The CLI sends each other instance's projectDir; the server adds + persists
+ *  them so this one dashboard serves them going forward. */
+export const MigrateProjectsRequestSchema = z.object({
+  paths: z.array(z.string().min(1)),
+});
+
+export const MigrateProjectsResponseSchema = z.object({
+  migrated: z.array(ProjectSummarySchema),
+  failed: z.array(z.object({ path: z.string(), error: z.string() })),
+});
+
+export type ProjectSummary = z.infer<typeof ProjectSummarySchema>;
+export type ProjectsResponse = z.infer<typeof ProjectsResponseSchema>;
+export type AddProjectRequest = z.infer<typeof AddProjectRequestSchema>;
+export type AddProjectResponse = z.infer<typeof AddProjectResponseSchema>;
+export type ProjectInitPhase = z.infer<typeof ProjectInitPhaseSchema>;
+export type ProjectInitState = z.infer<typeof ProjectInitStateSchema>;
+export type ProjectInitsResponse = z.infer<typeof ProjectInitsResponseSchema>;
+export type MigrateProjectsRequest = z.infer<typeof MigrateProjectsRequestSchema>;
+export type MigrateProjectsResponse = z.infer<typeof MigrateProjectsResponseSchema>;
 
 export type BuiltInAgentId = z.infer<typeof BuiltInAgentIdSchema>;
 export type AgentId = z.infer<typeof AgentIdSchema>;

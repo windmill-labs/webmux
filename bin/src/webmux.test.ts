@@ -62,14 +62,12 @@ describe("webmux entrypoint", () => {
 
   it("parses serve flags after the subcommand", () => {
     delete process.env.PORT;
-    delete process.env.WEBMUX_PREFIX;
 
     expect(parseRootArgs(["serve", "--port", "8080", "--debug"])).toEqual({
       port: 8080,
       portExplicit: true,
       debug: true,
       app: false,
-      prefix: null,
       command: "serve",
       commandArgs: [],
     });
@@ -77,62 +75,25 @@ describe("webmux entrypoint", () => {
 
   it("parses --app flag", () => {
     delete process.env.PORT;
-    delete process.env.WEBMUX_PREFIX;
 
     expect(parseRootArgs(["serve", "--app"])).toEqual({
       port: 5111,
       portExplicit: false,
       debug: false,
       app: true,
-      prefix: null,
       command: "serve",
       commandArgs: [],
     });
-  });
-
-  it("parses --prefix flag", () => {
-    delete process.env.PORT;
-    delete process.env.WEBMUX_PREFIX;
-
-    expect(parseRootArgs(["serve", "--prefix", "myproj"])).toEqual({
-      port: 5111,
-      portExplicit: false,
-      debug: false,
-      app: false,
-      prefix: "myproj",
-      command: "serve",
-      commandArgs: [],
-    });
-  });
-
-  it("reads WEBMUX_PREFIX from env", () => {
-    delete process.env.PORT;
-    process.env.WEBMUX_PREFIX = "envproj";
-    try {
-      expect(parseRootArgs(["serve"])).toEqual({
-        port: 5111,
-        portExplicit: false,
-        debug: false,
-        app: false,
-        prefix: "envproj",
-        command: "serve",
-        commandArgs: [],
-      });
-    } finally {
-      delete process.env.WEBMUX_PREFIX;
-    }
   });
 
   it("treats PORT from env as an explicit port", () => {
     process.env.PORT = "5500";
-    delete process.env.WEBMUX_PREFIX;
 
     expect(parseRootArgs(["serve"])).toEqual({
       port: 5500,
       portExplicit: true,
       debug: false,
       app: false,
-      prefix: null,
       command: "serve",
       commandArgs: [],
     });
@@ -140,14 +101,12 @@ describe("webmux entrypoint", () => {
 
   it("leaves service subcommand flags untouched", () => {
     delete process.env.PORT;
-    delete process.env.WEBMUX_PREFIX;
 
     expect(parseRootArgs(["service", "install", "--port", "8080"])).toEqual({
       port: 5111,
       portExplicit: false,
       debug: false,
       app: false,
-      prefix: null,
       command: "service",
       commandArgs: ["install", "--port", "8080"],
     });
@@ -155,14 +114,12 @@ describe("webmux entrypoint", () => {
 
   it("parses prune as a worktree command", () => {
     delete process.env.PORT;
-    delete process.env.WEBMUX_PREFIX;
 
     expect(parseRootArgs(["prune"])).toEqual({
       port: 5111,
       portExplicit: false,
       debug: false,
       app: false,
-      prefix: null,
       command: "prune",
       commandArgs: [],
     });
@@ -170,14 +127,12 @@ describe("webmux entrypoint", () => {
 
   it("parses archive as a worktree command", () => {
     delete process.env.PORT;
-    delete process.env.WEBMUX_PREFIX;
 
     expect(parseRootArgs(["archive", "feature/search"])).toEqual({
       port: 5111,
       portExplicit: false,
       debug: false,
       app: false,
-      prefix: null,
       command: "archive",
       commandArgs: ["feature/search"],
     });
@@ -185,14 +140,12 @@ describe("webmux entrypoint", () => {
 
   it("parses refresh as a worktree command", () => {
     delete process.env.PORT;
-    delete process.env.WEBMUX_PREFIX;
 
     expect(parseRootArgs(["refresh", "feature/search"])).toEqual({
       port: 5111,
       portExplicit: false,
       debug: false,
       app: false,
-      prefix: null,
       command: "refresh",
       commandArgs: ["feature/search"],
     });
@@ -200,14 +153,12 @@ describe("webmux entrypoint", () => {
 
   it("parses label as a worktree command", () => {
     delete process.env.PORT;
-    delete process.env.WEBMUX_PREFIX;
 
     expect(parseRootArgs(["label", "feature/search", "Search", "ranking"])).toEqual({
       port: 5111,
       portExplicit: false,
       debug: false,
       app: false,
-      prefix: null,
       command: "label",
       commandArgs: ["feature/search", "Search", "ranking"],
     });
@@ -223,10 +174,16 @@ describe("webmux entrypoint", () => {
     const nestedDir = join(repoRoot, "nested", "dir");
     await mkdir(nestedDir, { recursive: true });
 
+    // Isolate HOME so the migration-warning's registry read (~/.webmux/instances)
+    // sees an empty dir, not the dev machine's real running instances.
+    const home = await mkdtemp(join(tmpdir(), "webmux-home-"));
+    tempDirs.push(home);
+
     const result = Bun.spawnSync(["bun", webmuxEntry, "open", "missing-branch"], {
       cwd: nestedDir,
       stdout: "pipe",
       stderr: "pipe",
+      env: { ...process.env, HOME: home },
     });
     const stderr = decoder.decode(result.stderr).trim();
 
@@ -260,12 +217,18 @@ describe("webmux entrypoint", () => {
     const worktreePath = join(worktreesRoot, "feature-self-remove");
     runOrThrow(["git", "worktree", "add", "-b", "feature-self-remove", worktreePath], repoRoot);
 
+    // Isolate HOME so the migration-warning's registry read sees an empty dir,
+    // keeping stderr clean regardless of what's running on the dev machine.
+    const home = await mkdtemp(join(tmpdir(), "webmux-home-"));
+    tempDirs.push(home);
+
     const result = Bun.spawnSync(["bun", webmuxEntry, "remove", "feature-self-remove"], {
       cwd: worktreePath,
       stdout: "pipe",
       stderr: "pipe",
       env: {
         ...process.env,
+        HOME: home,
         PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
       },
     });

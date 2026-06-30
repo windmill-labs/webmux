@@ -38,12 +38,14 @@
   let conversationLoading = $state(false);
   let composerText = $state("");
   let isSending = $state(false);
+  let isAnsweringQuestion = $state(false);
   let refreshPollingState = $state<{
     token: number;
     baselineSignature: string | null;
     lastSignature: string | null;
     sawProgress: boolean;
     unchangedTicks: number;
+    stopWhenIdle: boolean;
   } | null>(null);
   let streamConnection: {
     conversationId: string;
@@ -62,7 +64,7 @@
   }
 
   function supportsStreaming(nextConversation: AgentsUiConversationState | null): boolean {
-    return nextConversation?.provider === "codexAppServer";
+    return nextConversation?.provider === "codexAppServer" || nextConversation?.provider === "claudeCode";
   }
 
   function hasActiveConversationStream(conversationId: string): boolean {
@@ -108,27 +110,23 @@
   }
 
   function syncConversationStream(force = false): void {
-    if (!supportsStreaming(conversation)) {
+    const conversationId = supportsStreaming(conversation) ? conversation?.conversationId ?? null : null;
+
+    // Keep one stream open across turns (close only on conversation change) so the
+    // server-side message ordering isn't reseeded per turn, which interleaves turns.
+    if (streamConnection && streamConnection.conversationId !== conversationId) {
       closeConversationStream();
+    }
+
+    if (!conversationId || hasActiveConversationStream(conversationId)) {
       return;
     }
 
-    const conversationId = conversation?.conversationId ?? null;
-    if (!conversationId) {
-      closeConversationStream();
-      return;
-    }
-
+    // Not connected yet: open on a send (force) or when a run is already active.
     if (!force && conversation?.running !== true) {
-      closeConversationStream();
       return;
     }
 
-    if (hasActiveConversationStream(conversationId)) {
-      return;
-    }
-
-    closeConversationStream();
     lastStreamRevision = 0;
     const disconnect = connectWorktreeConversationStream(worktree.branch, {
       onEvent: (event) => {
@@ -166,6 +164,7 @@
 
   function startRefreshPolling(
     baselineConversation: AgentsUiConversationState | null = conversation,
+    stopWhenIdle = false,
   ): void {
     const baselineSignature = buildConversationProgressSignature(baselineConversation);
     refreshPollingState = {
@@ -174,6 +173,7 @@
       lastSignature: baselineSignature,
       sawProgress: false,
       unchangedTicks: 0,
+      stopWhenIdle,
     };
     nextRefreshPollingToken += 1;
   }
@@ -184,6 +184,10 @@
   ): void {
     const currentState = refreshPollingState;
     if (!currentState || currentState.token !== token) return;
+
+    // Terminal-owned turns settle when the worktree agent goes idle (handled by the
+    // busy-poll effect below), not via the message-progress heuristic used for sends.
+    if (currentState.stopWhenIdle) return;
 
     const nextSignature = buildConversationProgressSignature(nextConversation);
     const sawProgress = currentState.sawProgress || nextSignature !== currentState.baselineSignature;
@@ -204,47 +208,75 @@
     };
   }
 
-  async function sendSelectedConversationMessage(): Promise<void> {
-    if (!conversation) return;
+  async function sendConversationText(text: string): Promise<boolean> {
+    if (!conversation) return false;
     const baselineConversation = conversation;
-    const text = composerText.trim();
-    if (text.length === 0) return;
+    const trimmed = text.trim();
+    if (trimmed.length === 0) return false;
 
     isSending = true;
     conversationError = null;
     try {
       syncConversationStream(true);
-      const response = await sendWorktreeConversationMessage(worktree.branch, { text });
-      composerText = "";
+      const response = await sendWorktreeConversationMessage(worktree.branch, { text: trimmed });
       if (conversation.conversationId !== response.conversationId) {
         conversation = {
           ...conversation,
           conversationId: response.conversationId,
         };
       }
-      conversation = markConversationTurnStarted(conversation, response.turnId, text);
-      syncConversationStream();
-      if (!supportsStreaming(conversation)) {
+      conversation = markConversationTurnStarted(conversation, response.turnId, trimmed);
+      if (response.streaming) {
+        syncConversationStream();
+      } else {
+        closeConversationStream();
         startRefreshPolling(baselineConversation);
       }
       onConversationMessageSent();
+      return true;
     } catch (error) {
       conversationError = error instanceof Error ? error.message : String(error);
+      return false;
     } finally {
       isSending = false;
     }
+  }
+
+  async function sendSelectedConversationMessage(): Promise<void> {
+    if (composerText.trim().length === 0) return;
+    const sent = await sendConversationText(composerText);
+    if (sent) composerText = "";
   }
 
   async function interruptSelectedConversation(): Promise<void> {
     const baselineConversation = conversation;
     conversationError = null;
     try {
-      await interruptWorktreeConversation(worktree.branch);
-      if (!supportsStreaming(conversation)) {
+      const response = await interruptWorktreeConversation(worktree.branch);
+      if (response.streaming) {
+        syncConversationStream();
+      } else {
+        closeConversationStream();
         startRefreshPolling(baselineConversation);
       }
     } catch (error) {
       conversationError = error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  // Answering an AskUserQuestion is a new turn, so the run that asked it must end
+  // first. In headless `claude -p` the question is auto-dismissed and the turn
+  // keeps going, so interrupt the active run before sending the answer.
+  async function answerConversationQuestion(text: string): Promise<void> {
+    if (!conversation || isSending || isAnsweringQuestion) return;
+    isAnsweringQuestion = true;
+    try {
+      if (conversation.running) {
+        await interruptSelectedConversation();
+      }
+      await sendConversationText(text);
+    } finally {
+      isAnsweringQuestion = false;
     }
   }
 
@@ -256,14 +288,34 @@
   });
 
   $effect(() => {
+    // A Claude turn started in the terminal (the initial worktree prompt, or anything
+    // typed in the pane) is not a backend-owned run, so there is no stream to subscribe
+    // to and the snapshot reports running:false. While the worktree agent is busy, poll
+    // history so the terminal claude's flushed messages appear live; stop once it idles.
+    const agentBusy = worktree.agent === "working";
+    const isTerminalOwnedClaudeTurn =
+      conversation?.provider === "claudeCode" && conversation.running !== true;
+
+    if (agentBusy && isTerminalOwnedClaudeTurn) {
+      if (refreshPollingState === null) {
+        startRefreshPolling(conversation, true);
+      }
+      return;
+    }
+
+    if (refreshPollingState?.stopWhenIdle === true) {
+      refreshPollingState = null;
+    }
+  });
+
+  $effect(() => {
     const pollingState = refreshPollingState;
     if (!pollingState) return;
 
     const token = pollingState.token;
     let requestInFlight = false;
 
-    // Codex websocket deltas are primary, and history polling keeps the transcript settled if
-    // app-server notifications arrive late or are missed while the socket reconnects.
+    // Polling is only for conversation providers that do not publish live stream events.
     const interval = window.setInterval(() => {
       if (!refreshPollingState || refreshPollingState.token !== token || requestInFlight) return;
       requestInFlight = true;
@@ -300,4 +352,5 @@
   onInterrupt={() => void interruptSelectedConversation()}
   onRefresh={() => void loadConversation("history")}
   onSend={() => void sendSelectedConversationMessage()}
+  onAnswerQuestion={(text) => void answerConversationQuestion(text)}
 />

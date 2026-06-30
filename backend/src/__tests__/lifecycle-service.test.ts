@@ -1280,6 +1280,61 @@ describe("LifecycleService", () => {
     expect(runtime.getWorktreeByBranch("feature-codex-refresh")?.agentTerminalStale).toBe(false);
   });
 
+  it("refreshes a managed claude terminal from its saved session", async () => {
+    const repoRoot = await initRepo();
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const lifecycle = makeLifecycleService(
+      repoRoot,
+      tmux,
+      runtime,
+      new FakeDockerGateway(),
+      new FakeHookRunner(),
+      {
+        ...TEST_CONFIG,
+        profiles: {
+          ...TEST_CONFIG.profiles,
+          default: {
+            ...TEST_CONFIG.profiles.default,
+            yolo: true,
+          },
+        },
+      },
+    );
+
+    await lifecycle.createWorktree({
+      branch: "feature-claude-refresh",
+      prompt: "ship the fix",
+    });
+
+    const worktreePath = join(repoRoot, "__worktrees", "feature-claude-refresh");
+    const gitDir = new BunGitGateway().resolveWorktreeGitDir(worktreePath);
+    const meta = await readWorktreeMeta(gitDir);
+    if (!meta) throw new Error("Expected worktree metadata");
+    await writeWorktreeMeta(gitDir, {
+      ...meta,
+      agentTerminalStale: true,
+      conversation: {
+        provider: "claudeCode",
+        conversationId: "session-refresh",
+        sessionId: "session-refresh",
+        cwd: worktreePath,
+        lastSeenAt: "2026-04-15T10:00:00.000Z",
+      },
+    });
+
+    tmux.commands.length = 0;
+    await lifecycle.refreshAgentTerminal("feature-claude-refresh");
+
+    const agentCommand = tmux.commands.at(-1)?.command;
+    expect(agentCommand).toContain("claude --dangerously-skip-permissions --resume 'session-refresh'");
+    expect(agentCommand).not.toContain("--continue");
+
+    const refreshedMeta = await readWorktreeMeta(gitDir);
+    expect(refreshedMeta?.agentTerminalStale).toBe(false);
+    expect(runtime.getWorktreeByBranch("feature-claude-refresh")?.agentTerminalStale).toBe(false);
+  });
+
   it("closes the tmux window without removing the worktree or branch", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
@@ -1654,7 +1709,7 @@ describe("LifecycleService", () => {
     expect(run(["git", "branch", "--list", "feature-ahead"], repoRoot)).toBe("");
   });
 
-  it("prunes all project worktrees", async () => {
+  it("prunes only closed worktrees, leaving open ones untouched", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
     const tmux = new FakeTmuxGateway();
@@ -1664,24 +1719,38 @@ describe("LifecycleService", () => {
 
     await lifecycle.createWorktree({ branch: "feature-prune-host" });
     await lifecycle.createWorktree({ branch: "feature-prune-docker", profile: "sandbox" });
+    // feature-prune-host is closed (no tmux window); feature-prune-docker stays open.
     await lifecycle.closeWorktree("feature-prune-host");
 
     const result = await lifecycle.pruneWorktrees();
 
-    expect(result.removedBranches).toEqual([
-      "feature-prune-docker",
-      "feature-prune-host",
-    ]);
-    expect(hooks.calls.filter((call) => call.name === "preRemove").map((call) => call.cwd).sort()).toEqual([
-      join(repoRoot, "__worktrees", "feature-prune-docker"),
+    expect(result.removedBranches).toEqual(["feature-prune-host"]);
+    expect(hooks.calls.filter((call) => call.name === "preRemove").map((call) => call.cwd)).toEqual([
       join(repoRoot, "__worktrees", "feature-prune-host"),
     ]);
-    expect(docker.removed).toEqual(["feature-prune-docker"]);
-    expect(new BunGitGateway().listWorktrees(repoRoot).filter((entry) => entry.path !== repoRoot)).toEqual([]);
+    expect(docker.removed).toEqual([]);
+    expect(new BunGitGateway().listWorktrees(repoRoot).filter((entry) => entry.path !== repoRoot).map((entry) => entry.branch)).toEqual([
+      "feature-prune-docker",
+    ]);
     expect(run(["git", "branch", "--list", "feature-prune-host"], repoRoot)).toBe("");
-    expect(run(["git", "branch", "--list", "feature-prune-docker"], repoRoot)).toBe("");
-    expect(tmux.listWindows()).toEqual([]);
-    expect(runtime.listWorktrees()).toEqual([]);
+    expect(run(["git", "branch", "--list", "feature-prune-docker"], repoRoot)).not.toBe("");
+    expect(runtime.listWorktrees().map((entry) => entry.branch)).toEqual(["feature-prune-docker"]);
+  });
+
+  it("prunes nothing when all worktrees are open", async () => {
+    const repoRoot = await initRepo();
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const docker = new FakeDockerGateway();
+    const hooks = new FakeHookRunner();
+    const lifecycle = makeLifecycleService(repoRoot, tmux, runtime, docker, hooks);
+
+    await lifecycle.createWorktree({ branch: "feature-open" });
+
+    const result = await lifecycle.pruneWorktrees();
+
+    expect(result.removedBranches).toEqual([]);
+    expect(runtime.listWorktrees().map((entry) => entry.branch)).toEqual(["feature-open"]);
   });
 
   it("removes the sandbox container before deleting a docker worktree", async () => {

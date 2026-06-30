@@ -417,6 +417,54 @@ describe("worktree conversation helpers", () => {
     });
   });
 
+  it("finalizes a Claude live item when its full message arrives with the same id", () => {
+    // Deltas and the finalized block now share the stable `${messageId}:${index}`
+    // id, so the upsert replaces the streaming placeholder in place — no
+    // text-overlap heuristics, no duplicate container.
+    const current = applyConversationMessageDelta({
+      ...makeConversation(),
+      provider: "claudeCode",
+      conversationId: "session-1",
+    }, {
+      type: "messageDelta",
+      revision: 1,
+      conversationId: "session-1",
+      turnId: "claude-turn:turn-2",
+      itemId: "msg_2:0",
+      order: 1,
+      delta: "Still working",
+    });
+
+    const updated = applyConversationMessageUpsert(current, {
+      type: "messageUpsert",
+      revision: 2,
+      conversationId: "session-1",
+      message: {
+        id: "msg_2:0",
+        turnId: "claude-turn:turn-2",
+        order: 1,
+        role: "assistant",
+        kind: "text",
+        text: "Still working on it",
+        status: "inProgress",
+        createdAt: null,
+      },
+    });
+
+    expect(updated?.messages.filter((message) => message.id === "msg_2:0")).toEqual([
+      {
+        id: "msg_2:0",
+        turnId: "claude-turn:turn-2",
+        order: 1,
+        role: "assistant",
+        kind: "text",
+        text: "Still working on it",
+        status: "inProgress",
+        createdAt: null,
+      },
+    ]);
+  });
+
   it("uses snapshot text for server-owned messages", () => {
     const current = applyConversationMessageDelta(makeConversation(), {
       type: "messageDelta",

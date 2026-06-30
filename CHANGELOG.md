@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.41.0](https://github.com/windmill-labs/webmux/compare/v0.40.0...v0.41.0) (2026-06-30)
+
+
+### Features
+
+* add create sub-worktree shortcut to worktree menu ([#269](https://github.com/windmill-labs/webmux/issues/269)) ([f40807f](https://github.com/windmill-labs/webmux/commit/f40807f2445c418be22ed12e959c11b9297a9309))
+* let webmux service run anywhere and add non-interactive install ([#282](https://github.com/windmill-labs/webmux/issues/282)) ([4013397](https://github.com/windmill-labs/webmux/commit/40133971ea3dce9d85ceb86c35d3d6a1074a3342))
+
 ## [0.40.0](https://github.com/windmill-labs/webmux/compare/v0.39.0...v0.40.0) (2026-06-27)
 
 

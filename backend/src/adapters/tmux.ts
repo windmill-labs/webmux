@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { basename, resolve } from "node:path";
 import type { PaneSplit } from "../domain/config";
+import { leakedProjectEnvKeys, stripProjectEnv } from "./project-env";
 
 export interface TmuxWindowSummary {
   sessionName: string;
@@ -41,40 +42,21 @@ export interface TmuxGateway {
   killPane(target: string): void;
 }
 
-/** Keys webmux's launcher loaded from the serve directory's `.env`/`.env.local`
- *  into its own process env (comma-separated in WEBMUX_PROJECT_ENV_KEYS). These
- *  are the launch project's application secrets; webmux does not need them in the
- *  tmux server. When webmux starts the tmux server it inherits webmux's env, and
- *  the server captures that as its *global* environment — which every session and
- *  pane of every project then inherits. Stripping these keys from the env used to
- *  spawn tmux keeps a webmux-created server from ever being born with one
- *  project's secrets visible to all the others. */
-function leakedProjectEnvKeys(): Set<string> {
-  const raw = Bun.env.WEBMUX_PROJECT_ENV_KEYS;
-  if (!raw) return new Set();
-  return new Set(raw.split(",").map((key) => key.trim()).filter(Boolean));
-}
-
 let cachedTmuxSpawnEnv: { value: Record<string, string> | undefined } | null = null;
+let globalEnvScrubbed = false;
 
 /** Environment for spawning tmux control commands, stripped of the launch
- *  project's `.env` keys. Whichever tmux command first starts the server fixes
- *  the global environment for the server's lifetime, so every tmux invocation
- *  must use the stripped env. Returns `undefined` (inherit the process env
- *  unchanged) when there is nothing to strip. */
+ *  project's `.env` keys (see {@link stripProjectEnv}). Whichever tmux command
+ *  first starts the server fixes the global environment for the server's
+ *  lifetime, so every tmux invocation must use the stripped env. Returns
+ *  `undefined` (inherit the process env unchanged) on the common path where no
+ *  project keys were loaded, so tmux spawns don't copy the whole env for
+ *  nothing. */
 function tmuxSpawnEnv(): Record<string, string> | undefined {
   if (cachedTmuxSpawnEnv) return cachedTmuxSpawnEnv.value;
-  const keys = leakedProjectEnvKeys();
-  if (keys.size === 0) {
-    cachedTmuxSpawnEnv = { value: undefined };
-    return undefined;
-  }
-  const env: Record<string, string> = {};
-  for (const [key, val] of Object.entries(process.env)) {
-    if (val !== undefined && !keys.has(key)) env[key] = val;
-  }
-  cachedTmuxSpawnEnv = { value: env };
-  return env;
+  const value = Bun.env.WEBMUX_PROJECT_ENV_KEYS ? stripProjectEnv(Bun.env) : undefined;
+  cachedTmuxSpawnEnv = { value };
+  return value;
 }
 
 function runTmux(args: string[]): { stdout: string; stderr: string; exitCode: number } {
@@ -180,8 +162,14 @@ export class BunTmuxGateway implements TmuxGateway {
    *  environment cleans every pane created afterwards, in existing and new
    *  sessions alike. Runs once the server is known to be up (`exit-empty` means a
    *  server only persists after a session exists). Tolerant: unsetting a key that
-   *  is absent is a no-op. */
+   *  is absent is a no-op.
+   *
+   *  Runs at most once per backend process: once the global env is scrubbed,
+   *  stripped-env spawns keep it clean, so re-scrubbing on every session-ensure /
+   *  reconciliation pass would be pure overhead (a tmux spawn per leaked key). */
   private scrubLeakedGlobalEnv(): void {
+    if (globalEnvScrubbed) return;
+    globalEnvScrubbed = true;
     for (const key of leakedProjectEnvKeys()) {
       runTmux(["set-environment", "-gu", key]);
     }

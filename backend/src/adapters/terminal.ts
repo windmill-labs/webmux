@@ -1,4 +1,5 @@
 import { log } from "../lib/log";
+import { stripProjectEnv } from "./project-env";
 
 interface PtyProcess {
   pid: number;
@@ -77,11 +78,15 @@ const defaultSpawnTmuxProcess: SpawnTmuxProcess = (args, opts = {}) =>
     stdin: opts.stdin ?? "ignore",
     stdout: "ignore",
     stderr: "pipe",
+    // Strip the launch project's `.env` keys: if one of these commands is ever
+    // the first to reach a not-yet-running server it must not birth it with
+    // another project's secrets in the global env (see project-env.ts).
+    env: stripProjectEnv(Bun.env),
   });
 const defaultSleep: Sleep = (ms) => Bun.sleep(ms);
 
 const defaultSpawnSyncCommand: SpawnSyncCommand = (args, opts = {}) => {
-  const result = Bun.spawnSync(args, opts);
+  const result = Bun.spawnSync(args, { ...opts, env: opts.env ?? stripProjectEnv(Bun.env) });
   return {
     exitCode: result.exitCode,
     stdout: result.stdout ?? new Uint8Array(),
@@ -242,7 +247,7 @@ export async function attach(
     initialPane,
   });
 
-  const proc = spawnPtyProcess(buildPtyArgs(cmd), { ...Bun.env, TERM: "xterm-256color" });
+  const proc = spawnPtyProcess(buildPtyArgs(cmd), { ...stripProjectEnv(Bun.env), TERM: "xterm-256color" });
 
   const session: TerminalSession = {
     proc,

@@ -183,8 +183,13 @@ function isWorktreeCommand(command: RootCommand): command is "add" | "list" | "o
 
 // ── Load env files from CWD (.env.local overrides .env) ─────────────────────
 
-async function loadEnvFile(path: string) {
-  if (!existsSync(path)) return;
+/** Load a `.env` file from CWD into `process.env`, returning the keys it added.
+ *  Those keys are the launch project's env: webmux tracks them so it can keep
+ *  them out of the tmux server's *global* environment (see WEBMUX_PROJECT_ENV_KEYS),
+ *  where they would otherwise leak into every project's sessions and panes. */
+async function loadEnvFile(path: string): Promise<string[]> {
+  if (!existsSync(path)) return [];
+  const added: string[] = [];
   const lines = (await Bun.file(path).text()).split("\n");
   for (const line of lines) {
     const trimmed = line.trim();
@@ -195,8 +200,10 @@ async function loadEnvFile(path: string) {
     const val = trimmed.slice(eq + 1).trim().replace(/^["']|["']$/g, "");
     if (!(key in process.env)) {
       process.env[key] = val;
+      added.push(key);
     }
   }
+  return added;
 }
 
 // ── Browser app mode ─────────────────────────────────────────────────────────
@@ -338,8 +345,9 @@ async function main(args: string[] = process.argv.slice(2)): Promise<void> {
     process.exit(code);
   }
 
-  await loadEnvFile(resolve(process.cwd(), ".env.local"));
-  await loadEnvFile(resolve(process.cwd(), ".env"));
+  const projectEnvKeys = new Set<string>();
+  for (const key of await loadEnvFile(resolve(process.cwd(), ".env.local"))) projectEnvKeys.add(key);
+  for (const key of await loadEnvFile(resolve(process.cwd(), ".env"))) projectEnvKeys.add(key);
 
   // When the user didn't pin a port, point CLI commands at the live server for
   // this project rather than the 5111 default. `webmux serve` walks to a free
@@ -413,6 +421,9 @@ async function main(args: string[] = process.argv.slice(2)): Promise<void> {
     ...process.env,
     PORT: String(parsed.port),
     WEBMUX_PROJECT_DIR: process.cwd(),
+    // Tell the backend which keys came from the launch project's `.env` so it can
+    // strip them from the tmux server's global environment (see tmux adapter).
+    ...(projectEnvKeys.size > 0 ? { WEBMUX_PROJECT_ENV_KEYS: [...projectEnvKeys].join(",") } : {}),
     ...(parsed.debug ? { WEBMUX_DEBUG: "1" } : {}),
   };
 

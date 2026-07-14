@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.41.1](https://github.com/windmill-labs/webmux/compare/v0.41.0...v0.41.1) (2026-07-14)
+
+
+### Bug Fixes
+
+* keep launch project .env secrets out of tmux global env ([#285](https://github.com/windmill-labs/webmux/issues/285)) ([153ce85](https://github.com/windmill-labs/webmux/commit/153ce85bfe7c99edd967d5cb75ef67b03fe7a78b))
+* **linear:** don't treat a linked github issue as a PR ([#287](https://github.com/windmill-labs/webmux/issues/287)) ([b8600a0](https://github.com/windmill-labs/webmux/commit/b8600a0091034edab3037472487b3cedf0c493fd))
+
 ## [0.41.0](https://github.com/windmill-labs/webmux/compare/v0.40.0...v0.41.0) (2026-06-30)
 
 

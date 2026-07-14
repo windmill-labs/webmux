@@ -461,6 +461,21 @@ describe("findLinkedGitHubPr", () => {
     expect(result?.url).toBe("https://github.com/org/repo/pull/42");
     expect(result?.state).toBe("unknown");
   });
+
+  it("ignores a linked github issue tagged sourceType 'github' (not a PR)", () => {
+    // Linear's "GitHub Issues" sync attaches the source issue with
+    // sourceType "github" and an /issues/ URL. It must not be treated as a PR,
+    // else the oneshot seed resolves to a never-created branch.
+    const result = findLinkedGitHubPr({
+      attachments: [
+        attachment({
+          id: "1", url: "https://github.com/org/repo/issues/10105", title: "#10105 bug",
+          createdAt: "2026-05-01", sourceType: "github",
+        }),
+      ],
+    });
+    expect(result).toBeNull();
+  });
 });
 
 describe("buildLinearPickupMarkdown", () => {

@@ -842,9 +842,13 @@ export function findLinkedGitHubPr(
   issue: { attachments: LinearAttachment[] },
 ): LinkedGitHubPr | null {
   const githubAttachments = issue.attachments.filter((a) => {
-    if (a.sourceType === "github" || a.sourceType === "githubPR" || a.sourceType === "github_pull_request") {
+    if (a.sourceType === "githubPR" || a.sourceType === "github_pull_request") {
       return true;
     }
+    // `sourceType: "github"` covers both linked PRs and linked issues, so it is
+    // not enough on its own — a synced GitHub *issue* (Linear's "GitHub Issues"
+    // team) would otherwise be treated as a PR, and the oneshot seed resolves to
+    // a branch that was never created ("Branch not found"). Only /pull/ URLs are PRs.
     return /github\.com\/.+\/pull\/\d+/i.test(a.url);
   });
   if (githubAttachments.length === 0) return null;

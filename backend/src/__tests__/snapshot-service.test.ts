@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import type { PrEntry } from "../domain/model";
 import { NotificationService } from "../services/notification-service";
 import { ProjectRuntime } from "../services/project-runtime";
 import { buildProjectSnapshot } from "../services/snapshot-service";
@@ -302,6 +303,63 @@ describe("buildProjectSnapshot", () => {
       "feature/alpha",
       "feature/middle",
       "feature/zebra",
+    ]);
+  });
+
+  it("orders open worktrees first, then closed ones by pr state", () => {
+    const runtime = new ProjectRuntime();
+    const addWorktree = (worktreeId: string, branch: string): void => {
+      runtime.upsertWorktree({
+        worktreeId,
+        branch,
+        path: `/repo/__worktrees/${worktreeId}`,
+        runtime: "host",
+      });
+    };
+    const openSession = (worktreeId: string): void => {
+      runtime.setSessionState(worktreeId, { exists: true, sessionName: `wm-${worktreeId}`, paneCount: 1 });
+    };
+    const addPr = (worktreeId: string, state: PrEntry["state"]): void => {
+      runtime.setPrs(worktreeId, [
+        {
+          repo: "org/repo",
+          number: 1,
+          state,
+          url: "https://github.com/org/repo/pull/1",
+          updatedAt: "2026-03-06T10:02:00.000Z",
+          ciStatus: "none",
+          ciChecks: [],
+          comments: [],
+        },
+      ]);
+    };
+
+    addWorktree("wt_open_zulu", "feature/open-zulu");
+    openSession("wt_open_zulu");
+    addWorktree("wt_open_alpha", "feature/open-alpha");
+    openSession("wt_open_alpha");
+    addWorktree("wt_closed_no_pr", "feature/closed-no-pr");
+    addWorktree("wt_closed_merged_pr", "feature/closed-merged-pr");
+    addPr("wt_closed_merged_pr", "merged");
+    addWorktree("wt_closed_closed_pr", "feature/closed-closed-pr");
+    addPr("wt_closed_closed_pr", "closed");
+    addWorktree("wt_closed_open_pr", "feature/closed-open-pr");
+    addPr("wt_closed_open_pr", "open");
+
+    const snapshot = buildProjectSnapshot({
+      projectName: "Project",
+      mainBranch: "main",
+      runtime,
+      notifications: [],
+    });
+
+    expect(snapshot.worktrees.map((worktree) => worktree.branch)).toEqual([
+      "feature/open-alpha",
+      "feature/open-zulu",
+      "feature/closed-open-pr",
+      "feature/closed-closed-pr",
+      "feature/closed-merged-pr",
+      "feature/closed-no-pr",
     ]);
   });
 });

@@ -3,12 +3,12 @@ import { createApi } from "@webmux/api-contract";
 import { basename, resolve } from "node:path";
 import { buildSeedFromLinear, defaultSeedFromLinearDeps } from "../../backend/src/services/conversation-export-service";
 import { CommandUsageError, resolveProjectBaseUrl, withServerConnection } from "./shared";
-import { readOpenSessionsState, readWorktreeArchiveState, readWorktreeMeta } from "../../backend/src/adapters/fs";
-import type { OpenSessionsState } from "../../backend/src/domain/model";
+import { readOpenSessionsState, readWorktreeArchiveState, readWorktreeMeta, readWorktreePrs } from "../../backend/src/adapters/fs";
+import type { OpenSessionsState, PrEntry } from "../../backend/src/domain/model";
 import { buildProjectSessionName, buildWorktreeWindowName } from "../../backend/src/adapters/tmux";
 import type { AgentId } from "../../backend/src/domain/config";
 import type { WorktreeCreationPhase } from "../../backend/src/domain/model";
-import { isValidWorktreeName } from "../../backend/src/domain/policies";
+import { compareWorktreeOrder, isValidWorktreeName } from "../../backend/src/domain/policies";
 import { buildArchivedWorktreePathSet } from "../../backend/src/services/archive-service";
 import { createWebmuxRuntime } from "../../backend/src/runtime";
 import type { CreateLifecycleWorktreeInput, CreateLifecycleWorktreesInput, CreateLifecycleWorktreesResult, CreateWorktreeProgress, PruneWorktreesResult } from "../../backend/src/services/lifecycle-service";
@@ -663,6 +663,7 @@ interface ListedWorktreeRow {
   label: string | null;
   isOpen: boolean;
   archived: boolean;
+  prStates: PrEntry["state"][];
   info: string;
   searchText: string;
 }
@@ -693,12 +694,14 @@ async function listWorktrees(
     const isOpen = openWindows.has(buildWorktreeWindowName(branch));
     const gitDir = runtime.git.resolveWorktreeGitDir(entry.path);
     const meta = await readWorktreeMeta(gitDir);
+    const prs = await readWorktreePrs(gitDir);
     const info = meta ? `${meta.profile} / ${meta.agent}` : "";
     return {
       branch,
       label: meta?.label ?? null,
       isOpen,
       archived: archivedPaths.has(resolve(entry.path)),
+      prStates: prs.map((pr) => pr.state),
       info,
       searchText: [
         meta?.label ?? "",
@@ -712,7 +715,12 @@ async function listWorktrees(
 
   const matchingRows = rows
     .filter((row) => matchesListSearch(row, options.search.trim()))
-    .sort((a, b) => a.branch.localeCompare(b.branch));
+    .sort((a, b) =>
+      compareWorktreeOrder(
+        { branch: a.branch, open: a.isOpen, prStates: a.prStates },
+        { branch: b.branch, open: b.isOpen, prStates: b.prStates },
+      )
+    );
   const visibleRows = matchingRows.filter((row) => {
     if (options.mode === "all") return true;
     if (options.mode === "archived") return row.archived;

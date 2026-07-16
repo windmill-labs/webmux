@@ -866,10 +866,10 @@ describe("runWorktreeCommand", () => {
 
     expect(exitCode).toBe(0);
     expect(stdout).toHaveLength(2);
-    expect(stdout[0]).toContain("fix-bug");
-    expect(stdout[0]).toContain("closed");
-    expect(stdout[1]).toContain("my-feature");
-    expect(stdout[1]).toContain("open");
+    expect(stdout[0]).toContain("my-feature");
+    expect(stdout[0]).toContain("open");
+    expect(stdout[1]).toContain("fix-bug");
+    expect(stdout[1]).toContain("closed");
   });
 
   it("lists and searches workspace labels", async () => {

@@ -1,8 +1,10 @@
 import { describe, expect, it } from "bun:test";
 import {
   allocateServicePorts,
+  compareWorktreeOrder,
   deriveProjectPrefix,
   sanitizeProjectPrefix,
+  type WorktreeOrderFields,
 } from "../domain/policies";
 
 describe("allocateServicePorts", () => {
@@ -83,5 +85,60 @@ describe("deriveProjectPrefix", () => {
     expect(deriveProjectPrefix("/srv/api", [])).toBe("api-2");
     expect(deriveProjectPrefix("/srv/ws", [])).toBe("ws-2");
     expect(deriveProjectPrefix("/srv/assets", [])).toBe("assets-2");
+  });
+});
+
+describe("compareWorktreeOrder", () => {
+  const worktree = (branch: string, fields: Partial<WorktreeOrderFields> = {}): WorktreeOrderFields => ({
+    branch,
+    open: false,
+    prStates: [],
+    ...fields,
+  });
+
+  it("ranks open worktrees above every closed one", () => {
+    const rows = [
+      worktree("closed-open-pr", { prStates: ["open"] }),
+      worktree("open-no-pr", { open: true }),
+    ];
+
+    expect([...rows].sort(compareWorktreeOrder).map((row) => row.branch)).toEqual([
+      "open-no-pr",
+      "closed-open-pr",
+    ]);
+  });
+
+  it("ranks closed worktrees by pr state, then no pr at all", () => {
+    const rows = [
+      worktree("no-pr"),
+      worktree("merged-pr", { prStates: ["merged"] }),
+      worktree("open-pr", { prStates: ["open"] }),
+      worktree("closed-pr", { prStates: ["closed"] }),
+    ];
+
+    expect([...rows].sort(compareWorktreeOrder).map((row) => row.branch)).toEqual([
+      "open-pr",
+      "closed-pr",
+      "merged-pr",
+      "no-pr",
+    ]);
+  });
+
+  it("promotes a worktree whose repos disagree on pr state if any pr is open", () => {
+    const rows = [
+      worktree("all-merged", { prStates: ["merged", "merged"] }),
+      worktree("one-open", { prStates: ["merged", "open"] }),
+    ];
+
+    expect([...rows].sort(compareWorktreeOrder).map((row) => row.branch)).toEqual([
+      "one-open",
+      "all-merged",
+    ]);
+  });
+
+  it("falls back to branch name within the same rank", () => {
+    const rows = [worktree("zulu", { open: true }), worktree("alpha", { open: true })];
+
+    expect([...rows].sort(compareWorktreeOrder).map((row) => row.branch)).toEqual(["alpha", "zulu"]);
   });
 });

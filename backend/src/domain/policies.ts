@@ -1,5 +1,5 @@
 import type { ServiceSpec } from "./config";
-import type { WorktreeMeta } from "./model";
+import type { PrEntry, WorktreeMeta } from "./model";
 
 const INVALID_BRANCH_CHARS_RE = /[~^:?*\[\]\\]+/g;
 const UNSAFE_ENV_KEY_RE = /^[a-z_][a-z0-9_]*$/i;
@@ -60,6 +60,29 @@ export function deriveProjectPrefix(projectDir: string, takenPrefixes: Iterable<
     if (!taken.has(candidate)) return candidate;
   }
   return `${base}-${Date.now()}`;
+}
+
+/** The fields worktree list ordering depends on, normalized across the surfaces
+ *  that render a list (snapshot for the UI, `wt list` for the CLI). */
+export interface WorktreeOrderFields {
+  branch: string;
+  /** Has a live session, or is still being created (it is about to have one). */
+  open: boolean;
+  prStates: readonly PrEntry["state"][];
+}
+
+/** Open worktrees first, then closed ones ranked by how much attention their PR
+ *  still needs: an open PR, then a closed/merged one, then no PR at all. */
+function worktreeOrderRank(worktree: WorktreeOrderFields): number {
+  if (worktree.open) return 0;
+  if (worktree.prStates.includes("open")) return 1;
+  if (worktree.prStates.length > 0) return 2;
+  return 3;
+}
+
+export function compareWorktreeOrder(left: WorktreeOrderFields, right: WorktreeOrderFields): number {
+  const byRank = worktreeOrderRank(left) - worktreeOrderRank(right);
+  return byRank !== 0 ? byRank : left.branch.localeCompare(right.branch);
 }
 
 export function allocateServicePorts(

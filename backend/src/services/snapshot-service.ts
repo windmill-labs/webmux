@@ -1,4 +1,5 @@
 import type { CreatingWorktreeState, PrEntry, ProjectSnapshot, WorktreeSnapshot } from "../domain/model";
+import { compareWorktreeOrder, type WorktreeOrderFields } from "../domain/policies";
 import type { RuntimeNotification } from "./notification-service";
 import { ProjectRuntime } from "./project-runtime";
 
@@ -106,6 +107,14 @@ function mapCreatingWorktreeSnapshot(
   };
 }
 
+function orderFieldsOf(worktree: WorktreeSnapshot): WorktreeOrderFields {
+  return {
+    branch: worktree.branch,
+    open: worktree.mux || worktree.creation !== null,
+    prStates: worktree.prs.map((pr) => pr.state),
+  };
+}
+
 interface BuildWorktreeSnapshotsInput {
   runtime: ProjectRuntime;
   creatingWorktrees?: CreatingWorktreeState[];
@@ -139,7 +148,7 @@ export function buildWorktreeSnapshots(input: BuildWorktreeSnapshotsInput): Work
     }
   }
 
-  worktrees.sort((left, right) => left.branch.localeCompare(right.branch));
+  worktrees.sort((left, right) => compareWorktreeOrder(orderFieldsOf(left), orderFieldsOf(right)));
 
   return worktrees;
 }

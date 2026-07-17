@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.42.0](https://github.com/windmill-labs/webmux/compare/v0.41.2...v0.42.0) (2026-07-17)
+
+
+### Features
+
+* order worktree list by session and pr state ([#289](https://github.com/windmill-labs/webmux/issues/289)) ([44bd900](https://github.com/windmill-labs/webmux/commit/44bd900efa85dae03cc0c3abd3c268cab2639b55))
+
+
+### Bug Fixes
+
+* **auto-remove:** sweep merged worktrees headlessly ([#291](https://github.com/windmill-labs/webmux/issues/291)) ([70c51e4](https://github.com/windmill-labs/webmux/commit/70c51e43e75b7208a7a9040bbf98762d6d22aa4a))
+
 ## [0.41.2](https://github.com/windmill-labs/webmux/compare/v0.41.1...v0.41.2) (2026-07-16)
 
 

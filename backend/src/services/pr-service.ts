@@ -513,3 +513,87 @@ export function startPrMonitor(
 
   return startSerializedInterval(run, intervalMs);
 }
+
+/** Fetch the PR state for every branch across the current repo and all linked
+ *  repos, one `gh pr list --state all` call per repo. Unlike the display sync
+ *  (open-only), this sees merged/closed PRs, so the auto-remove sweep can detect a
+ *  merge even when no earlier open-state sync ever recorded the PR. */
+export async function fetchBranchPrStates(
+  linkedRepos: LinkedRepoConfig[],
+  projectDir?: string,
+): Promise<Map<string, PrEntry["state"][]>> {
+  const perRepo = await Promise.all([
+    fetchRepoBranchStates(undefined, projectDir),
+    ...linkedRepos.map(({ repo }) => fetchRepoBranchStates(repo, projectDir)),
+  ]);
+
+  const states = new Map<string, PrEntry["state"][]>();
+  for (const entries of perRepo) {
+    for (const { branch, state } of entries) {
+      const existing = states.get(branch) ?? [];
+      existing.push(state);
+      states.set(branch, existing);
+    }
+  }
+  return states;
+}
+
+async function fetchRepoBranchStates(
+  repoSlug: string | undefined,
+  cwd: string | undefined,
+): Promise<Array<{ branch: string; state: PrEntry["state"] }>> {
+  const args = [
+    "gh",
+    "pr",
+    "list",
+    "--state",
+    "all",
+    "--json",
+    "headRefName,state",
+    "--limit",
+    String(PR_FETCH_LIMIT),
+  ];
+  if (repoSlug) args.push("--repo", repoSlug);
+
+  const proc = Bun.spawn(args, {
+    stdout: "pipe",
+    stderr: "pipe",
+    ...(cwd ? { cwd } : {}),
+  });
+
+  const timeout = Bun.sleep(GH_TIMEOUT_MS).then(() => {
+    proc.kill();
+    return "timeout" as const;
+  });
+
+  const raceResult = await Promise.race([proc.exited, timeout]);
+  if (raceResult === "timeout" || raceResult !== 0) return [];
+
+  try {
+    const raw = JSON.parse(await new Response(proc.stdout).text()) as Array<{
+      headRefName: string;
+      state: string;
+    }>;
+    return raw.map((r) => ({
+      branch: r.headRefName,
+      state: r.state.toLowerCase() as PrEntry["state"],
+    }));
+  } catch {
+    return [];
+  }
+}
+
+/** Periodically sweep merged worktrees. Runs independently of dashboard activity:
+ *  PRs merge while nobody is watching the dashboard, and cleanup must happen anyway. */
+export function startAutoRemoveMonitor(
+  run: () => Promise<void>,
+  intervalMs: number = 60_000,
+): () => void {
+  return startSerializedInterval(
+    () =>
+      run().catch((err: unknown) => {
+        log.error(`[auto-remove] sweep error: ${err}`);
+      }),
+    intervalMs,
+  );
+}

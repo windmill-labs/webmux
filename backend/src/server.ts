@@ -97,7 +97,12 @@ import {
 } from "./services/conversation-export-service";
 import { buildCreateWorktreeTargets, LifecycleError } from "./services/lifecycle-service";
 import { buildNativeTerminalLaunch, buildNativeTerminalTmuxCommand } from "./services/native-terminal-service";
-import { startPrMonitor, syncPrStatus } from "./services/pr-service";
+import {
+  fetchBranchPrStates,
+  startAutoRemoveMonitor,
+  startPrMonitor,
+  syncPrStatus,
+} from "./services/pr-service";
 import { startLinearAutoCreateMonitor, resetProcessedIssues } from "./services/linear-auto-create-service";
 import { startOneshotWatcher } from "./services/oneshot-watcher-service";
 import { runAutoRemove, type AutoRemoveDependencies } from "./services/auto-remove-service";
@@ -233,6 +238,7 @@ let linearAutoCreateEnabled = config.integrations.linear.autoCreateWorktrees;
 let stopLinearAutoCreate: (() => void) | null = null;
 let autoRemoveOnMergeEnabled = config.integrations.github.autoRemoveOnMerge;
 let stopPrMonitor: (() => void) | null = null;
+let stopAutoRemoveMonitor: (() => void) | null = null;
 let stopOneshotWatcher: (() => void) | null = null;
 let stopAutoPullMonitor: (() => void) | null = null;
 let stopSessionSnapshot: (() => void) | null = null;
@@ -350,6 +356,8 @@ const autoRemoveDeps: AutoRemoveDependencies = {
   isRemoving: (branch: string) => removingBranches.has(branch),
   markRemoving: (branch: string) => removingBranches.add(branch),
   unmarkRemoving: (branch: string) => removingBranches.delete(branch),
+  getBranchPrStates: () =>
+    fetchBranchPrStates(config.integrations.github.linkedRepos, PROJECT_DIR),
 };
 
 function getFrontendConfig(): {
@@ -2292,7 +2300,12 @@ function parseAgentIdParam(params: Record<string, string>):
   // auto-create, oneshot watcher, auto-pull). Heavy work (reconciliation,
   // terminal attach) is on-demand and therefore already active-only.
   function startLight(): void {
-    stopPrMonitor = startPrMonitor(getWorktreeGitDirs, config.integrations.github.linkedRepos, PROJECT_DIR, undefined, hasRecentDashboardActivity, async () => {
+    // Display sync (PR/CI status shown in the dashboard) stays gated on dashboard
+    // activity -- that data is only needed while someone is looking.
+    stopPrMonitor = startPrMonitor(getWorktreeGitDirs, config.integrations.github.linkedRepos, PROJECT_DIR, undefined, hasRecentDashboardActivity);
+    // Auto-remove is headless maintenance: it must run even when the dashboard is
+    // closed, so it gets its own ungated sweep instead of riding the display sync.
+    stopAutoRemoveMonitor = startAutoRemoveMonitor(async () => {
       if (autoRemoveOnMergeEnabled) {
         await runAutoRemove(autoRemoveDeps);
       }
@@ -2320,6 +2333,8 @@ function parseAgentIdParam(params: Record<string, string>):
   function stopLight(): void {
     stopPrMonitor?.();
     stopPrMonitor = null;
+    stopAutoRemoveMonitor?.();
+    stopAutoRemoveMonitor = null;
     stopLinearAutoCreateMonitor();
     stopOneshotWatcher?.();
     stopOneshotWatcher = null;

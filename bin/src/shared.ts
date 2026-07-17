@@ -96,3 +96,18 @@ export async function resolveProjectBaseUrl(port: number, projectDir: string = p
   }
   return `${base}/${match.prefix}`;
 }
+
+/** The server serves each project under `/<prefix>`, so an in-process runtime
+ *  that writes `control.env` must embed that prefix or the agent's status hooks
+ *  POST to an unrouted path. Best-effort: returns `undefined` when the prefix
+ *  can't be resolved (no server running, or the repo isn't a served project) so
+ *  the caller writes no control URL at all rather than a wrong one. Status
+ *  self-heals when the worktree is next opened/refreshed from a dashboard. */
+export async function resolveProjectPrefix(port: number, projectDir: string = process.cwd()): Promise<string | undefined> {
+  try {
+    const base = await resolveProjectBaseUrl(port, projectDir);
+    return new URL(base).pathname.replace(/^\/+|\/+$/g, "") || undefined;
+  } catch {
+    return undefined;
+  }
+}

@@ -33,16 +33,19 @@ function makeManager(initial: ProjectEntry[] = []): {
   registry: ProjectsRegistry & { entries: ProjectEntry[] };
   loopCalls: Map<string, string[]>;
   createdFor: string[];
+  createdWith: Array<{ projectDir: string; port: number; prefix: string }>;
 } {
   const registry = fakeRegistry(initial);
   const loopCalls = new Map<string, string[]>();
   const createdFor: string[] = [];
+  const createdWith: Array<{ projectDir: string; port: number; prefix: string }> = [];
   const manager = new ProjectManager<FakeRuntime>({
     registry,
     port: 5111,
     resolveRoot: (path) => path,
-    createRuntime: ({ projectDir }) => {
+    createRuntime: ({ projectDir, port, prefix }) => {
       createdFor.push(projectDir);
+      createdWith.push({ projectDir, port, prefix });
       return { config: { name: `name:${projectDir}` } };
     },
     createLoops: (project: ManagedProject<FakeRuntime>): ProjectLoopController => {
@@ -56,7 +59,7 @@ function makeManager(initial: ProjectEntry[] = []): {
       };
     },
   });
-  return { manager, registry, loopCalls, createdFor };
+  return { manager, registry, loopCalls, createdFor, createdWith };
 }
 
 describe("ProjectManager", () => {
@@ -71,6 +74,18 @@ describe("ProjectManager", () => {
     expect(manager.list()).toHaveLength(1);
     expect(registry.entries.map((e) => e.path)).toEqual(["/repo/alpha"]);
     expect(loopCalls.get("alpha")).toEqual(["startLight"]);
+  });
+
+  it("passes the derived prefix to createRuntime so the runtime can build a prefixed control URL", () => {
+    const { manager, createdWith } = makeManager();
+
+    manager.add("/repo/alpha");
+    manager.add("/repo/alpha-clone/alpha");
+
+    expect(createdWith).toEqual([
+      { projectDir: "/repo/alpha", port: 5111, prefix: "alpha" },
+      { projectDir: "/repo/alpha-clone/alpha", port: 5111, prefix: "alpha-2" },
+    ]);
   });
 
   it("addEphemeral serves the project in-memory but does not persist it", () => {

@@ -43,7 +43,7 @@ export interface ProjectManagerDeps<R extends RuntimeLike = WebmuxRuntime> {
   port: number;
   /** Build the per-project runtime — pass `createWebmuxRuntime` in production.
    *  `R` is inferred from the return type, so tests can supply a typed stub. */
-  createRuntime: (options: { projectDir: string; port: number }) => R;
+  createRuntime: (options: { projectDir: string; port: number; prefix: string }) => R;
   /** Resolve an arbitrary path to its canonical project (git) root. */
   resolveRoot?: (path: string) => string;
   /** Build the loop controller for a project. Defaults to a no-op (wired in
@@ -58,7 +58,7 @@ export class ProjectManager<R extends RuntimeLike = WebmuxRuntime> {
   private readonly registry: ProjectsRegistry;
   private readonly port: number;
   private readonly resolveRoot: (path: string) => string;
-  private readonly createRuntime: (options: { projectDir: string; port: number }) => R;
+  private readonly createRuntime: (options: { projectDir: string; port: number; prefix: string }) => R;
   private readonly createLoops: (project: ManagedProject<R>) => ProjectLoopController;
   private readonly projects = new Map<string, ManagedProject<R>>();
   private readonly loops = new Map<string, ProjectLoopController>();
@@ -148,7 +148,7 @@ export class ProjectManager<R extends RuntimeLike = WebmuxRuntime> {
     }
 
     const prefix = deriveProjectPrefix(root, this.projects.keys());
-    const runtime = this.createRuntime({ projectDir: root, port: this.port });
+    const runtime = this.createRuntime({ projectDir: root, port: this.port, prefix });
     const entry: ProjectEntry = {
       path: root,
       name: runtime.config.name,

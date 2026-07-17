@@ -2,7 +2,7 @@ import * as p from "@clack/prompts";
 import { createApi } from "@webmux/api-contract";
 import { basename, resolve } from "node:path";
 import { buildSeedFromLinear, defaultSeedFromLinearDeps } from "../../backend/src/services/conversation-export-service";
-import { CommandUsageError, resolveProjectBaseUrl, withServerConnection } from "./shared";
+import { CommandUsageError, resolveProjectBaseUrl, resolveProjectPrefix, withServerConnection } from "./shared";
 import { readOpenSessionsState, readWorktreeArchiveState, readWorktreeMeta, readWorktreePrs } from "../../backend/src/adapters/fs";
 import type { OpenSessionsState, PrEntry } from "../../backend/src/domain/model";
 import { buildProjectSessionName, buildWorktreeWindowName } from "../../backend/src/adapters/tmux";
@@ -66,6 +66,7 @@ interface WorktreeCommandDependencies {
   createRuntime?: (options: {
     projectDir: string;
     port: number;
+    prefix?: string;
     onCreateProgress?: (progress: CreateWorktreeProgress) => void;
   }) => WorktreeRuntimeLike;
   stdout?: (message: string) => void;
@@ -75,6 +76,11 @@ interface WorktreeCommandDependencies {
   /** Resolve the project-scoped base URL for server-backed commands (send/tab).
    *  Injectable so tests can exercise the HTTP shape without a live server. */
   resolveBaseUrl?: (port: number, projectDir: string) => Promise<string>;
+  /** Resolve the project's route prefix so control.env written by in-process
+   *  commands (add/open/refresh) matches the dashboard's prefixed routes.
+   *  Returns undefined when it can't be resolved (no server), so no control URL
+   *  is written. Injectable so tests can drive it without a live server. */
+  resolveProjectPrefix?: (port: number, projectDir: string) => Promise<string | undefined>;
   /** Read the saved open-sessions snapshot (used by `restore`). Injectable so
    *  tests can drive restore without touching the filesystem. */
   readOpenSessions?: (gitDir: string) => Promise<OpenSessionsState>;
@@ -770,13 +776,29 @@ export async function runWorktreeCommand(
   context: WorktreeCommandContext,
   deps: WorktreeCommandDependencies = {},
 ): Promise<number> {
-  const createRuntime = deps.createRuntime ?? ((options: { projectDir: string; port: number }) => createWebmuxRuntime(options));
+  const createRuntime = deps.createRuntime ?? ((options) => createWebmuxRuntime(options));
   const stdout = deps.stdout ?? ((message: string) => console.log(message));
   const stderr = deps.stderr ?? ((message: string) => console.error(message));
   const resolveBaseUrl = deps.resolveBaseUrl ?? resolveProjectBaseUrl;
   const switchToTmuxWindow = deps.switchToTmuxWindow ?? defaultSwitchToTmuxWindow;
   const confirmPrune = deps.confirmPrune ?? defaultConfirmPrune;
   const readOpenSessions = deps.readOpenSessions ?? readOpenSessionsState;
+
+  // The project's route prefix, resolved from the running server at most once.
+  // Only commands that write control.env (add/open/refresh) need it.
+  //
+  // `createRuntime === undefined` is the production sentinel: real callers never
+  // inject deps, so production always resolves. A test that injects createRuntime
+  // without a prefix resolver skips the lookup, keeping offline commands offline.
+  const shouldResolvePrefix = deps.resolveProjectPrefix !== undefined || deps.createRuntime === undefined;
+  let prefixPromise: Promise<string | undefined> | null = null;
+  const resolvePrefix = (): Promise<string | undefined> => {
+    if (!shouldResolvePrefix) return Promise.resolve(undefined);
+    if (!prefixPromise) {
+      prefixPromise = (deps.resolveProjectPrefix ?? resolveProjectPrefix)(context.port, context.projectDir);
+    }
+    return prefixPromise;
+  };
 
   try {
     if (context.command === "add") {
@@ -789,6 +811,7 @@ export async function runWorktreeCommand(
       const runtime = createRuntime({
         projectDir: context.projectDir,
         port: context.port,
+        prefix: await resolvePrefix(),
         onCreateProgress: (progress) => {
           stdout(PHASE_LABELS[progress.phase] ?? progress.phase);
         },
@@ -900,6 +923,7 @@ export async function runWorktreeCommand(
       const runtime = createRuntime({
         projectDir: context.projectDir,
         port: context.port,
+        prefix: await resolvePrefix(),
       });
       const projectDir = resolve(runtime.projectDir);
       const gitDir = runtime.git.resolveWorktreeGitDir(projectDir);
@@ -1051,9 +1075,13 @@ export async function runWorktreeCommand(
       return 0;
     }
 
+    // open/refresh rewrite control.env, so they need the prefixed control URL;
+    // the rest (close/archive/unarchive/remove/merge) don't touch it.
+    const needsPrefix = command === "open" || command === "refresh";
     const runtime = createRuntime({
       projectDir: context.projectDir,
       port: context.port,
+      prefix: needsPrefix ? await resolvePrefix() : undefined,
     });
 
     switch (command) {

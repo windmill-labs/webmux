@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.41.2](https://github.com/windmill-labs/webmux/compare/v0.41.1...v0.41.2) (2026-07-16)
+
+
+### Bug Fixes
+
+* restore agent status by prefixing the runtime control URL ([d168301](https://github.com/windmill-labs/webmux/commit/d16830192fdcc5dfa81bff33df544f60bb136b25))
+* restore agent status by prefixing the runtime control URL ([d7fba24](https://github.com/windmill-labs/webmux/commit/d7fba241c00714d9d5e3cecd9e31c8c36d696001))
+
 ## [0.41.1](https://github.com/windmill-labs/webmux/compare/v0.41.0...v0.41.1) (2026-07-14)
 
 

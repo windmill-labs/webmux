@@ -1,5 +1,5 @@
-import { readWorktreePrs } from "../adapters/fs";
 import type { GitGateway } from "../adapters/git";
+import type { PrEntry } from "../domain/model";
 import { log } from "../lib/log";
 import type { LifecycleService } from "./lifecycle-service";
 import type { NotificationService } from "./notification-service";
@@ -12,21 +12,33 @@ export interface AutoRemoveDependencies {
   isRemoving: (branch: string) => boolean;
   markRemoving: (branch: string) => void;
   unmarkRemoving: (branch: string) => void;
+  /** Authoritative PR states per branch across all configured repos. Queried live
+   *  rather than read from the per-worktree PR cache, so a merge is detected even
+   *  when no open-state display sync ever ran (dashboard was never opened). Returns
+   *  null when the query was inconclusive (a repo fetch failed) -- removing on
+   *  partial state could drop an open cross-repo PR and remove a live worktree. */
+  getBranchPrStates: () => Promise<Map<string, PrEntry["state"][]> | null>;
 }
 
-/** Check all worktrees for merged PRs and remove clean ones.
- *  Called after PR sync completes -- reads the PR files that sync just wrote. */
+/** Check all worktrees for merged PRs and remove clean ones. */
 export async function runAutoRemove(deps: AutoRemoveDependencies): Promise<void> {
   const worktrees = deps.git.listLiveWorktrees(deps.projectRoot)
     .filter((e) => !e.bare && e.branch !== null && e.path !== deps.projectRoot);
+  if (worktrees.length === 0) return;
+
+  const branchStates = await deps.getBranchPrStates();
+  if (branchStates === null) {
+    log.debug("[auto-remove] skipping sweep: PR state fetch was inconclusive");
+    return;
+  }
 
   for (const entry of worktrees) {
     const branch = entry.branch!;
     if (deps.isRemoving(branch)) continue;
 
-    const prs = await readWorktreePrs(deps.git.resolveWorktreeGitDir(entry.path));
-    if (prs.length === 0) continue;
-    if (!prs.every((pr) => pr.state === "merged")) continue;
+    const states = branchStates.get(branch);
+    if (!states || states.length === 0) continue;
+    if (!states.every((state) => state === "merged")) continue;
 
     if (deps.git.readWorktreeStatus(entry.path).dirty) {
       log.info(`[auto-remove] skipping dirty worktree: ${branch}`);

@@ -17,7 +17,24 @@ import { WorktreeCreationTracker } from "./services/worktree-creation-service";
 export interface WebmuxRuntimeOptions {
   projectDir?: string;
   port?: number;
+  /** URL-path prefix the server mounts this project's routes under. Agent hooks
+   *  POST status events to the control URL, which must carry the same prefix or
+   *  the events fall through to the SPA and Claude's status never updates. */
+  prefix?: string;
   onCreateProgress?: (progress: CreateWorktreeProgress) => void | Promise<void>;
+}
+
+/** Base URL agent hooks POST runtime events to. The server serves each project
+ *  under `/${prefix}` (see server.ts buildServeRoutes), so the control URL must
+ *  include the prefix to hit the project's `/api/runtime/events` route.
+ *
+ *  `undefined` prefix means control reporting is not configured (the CLI passes
+ *  it when it can't resolve a prefix — no server running). We return undefined
+ *  rather than an unprefixed URL so no control.env is written and the agent's
+ *  hooks no-op cleanly instead of POSTing to an unrouted path. */
+export function buildControlBaseUrl(port: number, prefix: string | undefined): string | undefined {
+  if (prefix === undefined) return undefined;
+  return prefix ? `http://127.0.0.1:${port}/${prefix}` : `http://127.0.0.1:${port}`;
 }
 
 export interface WebmuxRuntime {
@@ -63,7 +80,7 @@ export function createWebmuxRuntime(options: WebmuxRuntimeOptions = {}): WebmuxR
   });
   const lifecycleService = new LifecycleService({
     projectRoot: projectDir,
-    controlBaseUrl: `http://127.0.0.1:${port}`,
+    controlBaseUrl: buildControlBaseUrl(port, options.prefix),
     getControlToken: loadControlToken,
     config,
     archiveState: archiveStateService,

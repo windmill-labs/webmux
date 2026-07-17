@@ -409,6 +409,32 @@ describe("runWorktreeCommand", () => {
     expect(stdout).toEqual(["Created worktree feature/remote-branch"]);
   });
 
+  it("passes the server-resolved project prefix to the runtime so control.env carries it", async () => {
+    const { runtime } = makeRuntime();
+    const createdWith: Array<{ prefix?: string }> = [];
+
+    const exitCode = await runWorktreeCommand(
+      {
+        command: "add",
+        args: ["feature/search", "--detach"],
+        projectDir: "/repo",
+        port: 5111,
+      },
+      {
+        createRuntime: (options) => {
+          createdWith.push({ prefix: options.prefix });
+          return runtime;
+        },
+        resolveProjectPrefix: async () => "myproject",
+        stdout: () => {},
+        switchToTmuxWindow: () => {},
+      },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(createdWith).toEqual([{ prefix: "myproject" }]);
+  });
+
   it("skips tmux switch when --detach is passed to add", async () => {
     const { runtime } = makeRuntime();
     const stdout: string[] = [];

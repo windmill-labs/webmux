@@ -492,7 +492,6 @@ export function startPrMonitor(
   projectDir?: string,
   intervalMs: number = 10_000,
   isActive?: () => boolean,
-  onAfterSync?: () => Promise<void>,
 ): () => void {
   const run = async (): Promise<void> => {
     if (isActive && !isActive()) {
@@ -504,11 +503,6 @@ export function startPrMonitor(
         log.error(`[pr] sync error: ${err}`);
       },
     );
-    if (onAfterSync) {
-      await onAfterSync().catch((err: unknown) => {
-        log.error(`[pr] after-sync hook error: ${err}`);
-      });
-    }
   };
 
   return startSerializedInterval(run, intervalMs);
@@ -517,19 +511,25 @@ export function startPrMonitor(
 /** Fetch the PR state for every branch across the current repo and all linked
  *  repos, one `gh pr list --state all` call per repo. Unlike the display sync
  *  (open-only), this sees merged/closed PRs, so the auto-remove sweep can detect a
- *  merge even when no earlier open-state sync ever recorded the PR. */
+ *  merge even when no earlier open-state sync ever recorded the PR.
+ *
+ *  Returns null if any repo query failed: a failed query is indistinguishable from
+ *  "this branch has no PR here", and since auto-remove reads this live (no persisted
+ *  fallback), proceeding on partial data could drop an open cross-repo PR and wrongly
+ *  remove a merged-in-main worktree. Callers must treat null as "skip this sweep". */
 export async function fetchBranchPrStates(
   linkedRepos: LinkedRepoConfig[],
   projectDir?: string,
-): Promise<Map<string, PrEntry["state"][]>> {
+): Promise<Map<string, PrEntry["state"][]> | null> {
   const perRepo = await Promise.all([
     fetchRepoBranchStates(undefined, projectDir),
     ...linkedRepos.map(({ repo }) => fetchRepoBranchStates(repo, projectDir)),
   ]);
+  if (perRepo.some((entries) => entries === null)) return null;
 
   const states = new Map<string, PrEntry["state"][]>();
   for (const entries of perRepo) {
-    for (const { branch, state } of entries) {
+    for (const { branch, state } of entries!) {
       const existing = states.get(branch) ?? [];
       existing.push(state);
       states.set(branch, existing);
@@ -538,10 +538,12 @@ export async function fetchBranchPrStates(
   return states;
 }
 
+/** Returns null (not []) on any failure so the caller can distinguish a failed
+ *  query from a repo that genuinely has no matching PRs. */
 async function fetchRepoBranchStates(
   repoSlug: string | undefined,
   cwd: string | undefined,
-): Promise<Array<{ branch: string; state: PrEntry["state"] }>> {
+): Promise<Array<{ branch: string; state: PrEntry["state"] }> | null> {
   const args = [
     "gh",
     "pr",
@@ -550,6 +552,9 @@ async function fetchRepoBranchStates(
     "all",
     "--json",
     "headRefName,state",
+    // Shares the display-sync limit. On a repo with heavy merged/closed history an
+    // older PR for a still-checked-out branch may fall outside the window and never
+    // be swept -- best-effort, but fails safe (a missed cleanup, never a wrong one).
     "--limit",
     String(PR_FETCH_LIMIT),
   ];
@@ -567,7 +572,7 @@ async function fetchRepoBranchStates(
   });
 
   const raceResult = await Promise.race([proc.exited, timeout]);
-  if (raceResult === "timeout" || raceResult !== 0) return [];
+  if (raceResult === "timeout" || raceResult !== 0) return null;
 
   try {
     const raw = JSON.parse(await new Response(proc.stdout).text()) as Array<{
@@ -579,7 +584,7 @@ async function fetchRepoBranchStates(
       state: r.state.toLowerCase() as PrEntry["state"],
     }));
   } catch {
-    return [];
+    return null;
   }
 }
 

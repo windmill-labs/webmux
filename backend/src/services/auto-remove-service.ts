@@ -14,8 +14,10 @@ export interface AutoRemoveDependencies {
   unmarkRemoving: (branch: string) => void;
   /** Authoritative PR states per branch across all configured repos. Queried live
    *  rather than read from the per-worktree PR cache, so a merge is detected even
-   *  when no open-state display sync ever ran (dashboard was never opened). */
-  getBranchPrStates: () => Promise<Map<string, PrEntry["state"][]>>;
+   *  when no open-state display sync ever ran (dashboard was never opened). Returns
+   *  null when the query was inconclusive (a repo fetch failed) -- removing on
+   *  partial state could drop an open cross-repo PR and remove a live worktree. */
+  getBranchPrStates: () => Promise<Map<string, PrEntry["state"][]> | null>;
 }
 
 /** Check all worktrees for merged PRs and remove clean ones. */
@@ -25,6 +27,10 @@ export async function runAutoRemove(deps: AutoRemoveDependencies): Promise<void>
   if (worktrees.length === 0) return;
 
   const branchStates = await deps.getBranchPrStates();
+  if (branchStates === null) {
+    log.debug("[auto-remove] skipping sweep: PR state fetch was inconclusive");
+    return;
+  }
 
   for (const entry of worktrees) {
     const branch = entry.branch!;

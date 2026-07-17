@@ -15,7 +15,7 @@ function worktree(branch: string): GitWorktreeEntry {
 /** Builds deps with fakes; records which branches got removed. */
 function makeDeps(opts: {
   worktrees: GitWorktreeEntry[];
-  states: Map<string, PrEntry["state"][]>;
+  states: Map<string, PrEntry["state"][]> | null;
   dirty?: Set<string>;
 }): { deps: AutoRemoveDependencies; removed: string[] } {
   const removed: string[] = [];
@@ -94,6 +94,16 @@ describe("runAutoRemove", () => {
   it("keeps a worktree that has no PR", async () => {
     const wt = worktree("feature");
     const { deps, removed } = makeDeps({ worktrees: [wt], states: new Map() });
+    await runAutoRemove(deps);
+    expect(removed).toEqual([]);
+  });
+
+  it("removes nothing when the PR state fetch is inconclusive", async () => {
+    // A failed repo query (null) must not be read as "merged with no other PRs":
+    // a transient gh failure on a linked repo could otherwise drop an open
+    // cross-repo PR and remove a still-live worktree.
+    const wt = worktree("feature");
+    const { deps, removed } = makeDeps({ worktrees: [wt], states: null });
     await runAutoRemove(deps);
     expect(removed).toEqual([]);
   });

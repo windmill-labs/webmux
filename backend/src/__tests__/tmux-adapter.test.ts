@@ -6,6 +6,7 @@ import {
   buildProjectSessionName,
   buildWorktreeWindowName,
   parseWindowSummaries,
+  pickTmuxLocale,
   sanitizeTmuxNameSegment,
 } from "../adapters/tmux";
 
@@ -174,6 +175,28 @@ describe("parseWindowSummaries", () => {
         paneCount: 3,
       },
     ]);
+  });
+});
+
+describe("pickTmuxLocale", () => {
+  it("pins C.UTF-8 when no locale is set", () => {
+    expect(pickTmuxLocale({})).toBe("C.UTF-8");
+  });
+
+  it("pins C.UTF-8 when the inherited locale is not UTF-8", () => {
+    expect(pickTmuxLocale({ LANG: "C" })).toBe("C.UTF-8");
+    expect(pickTmuxLocale({ LC_ALL: "POSIX" })).toBe("C.UTF-8");
+  });
+
+  it("keeps an inherited UTF-8 locale (any spelling)", () => {
+    expect(pickTmuxLocale({ LANG: "en_US.UTF-8" })).toBe("en_US.UTF-8");
+    expect(pickTmuxLocale({ LANG: "C.UTF-8" })).toBe("C.UTF-8");
+    expect(pickTmuxLocale({ LANG: "en_GB.utf8" })).toBe("en_GB.utf8");
+  });
+
+  it("prefers LC_ALL, then LC_CTYPE, then LANG", () => {
+    expect(pickTmuxLocale({ LC_ALL: "en_US.UTF-8", LANG: "C" })).toBe("en_US.UTF-8");
+    expect(pickTmuxLocale({ LC_CTYPE: "de_DE.UTF-8", LANG: "C" })).toBe("de_DE.UTF-8");
   });
 });
 

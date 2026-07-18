@@ -42,31 +42,38 @@ export interface TmuxGateway {
   killPane(target: string): void;
 }
 
-let cachedTmuxSpawnEnv: { value: Record<string, string> | undefined } | null = null;
+let cachedTmuxSpawnEnv: Record<string, string> | null = null;
 let globalEnvScrubbed = false;
 
-/** Environment for spawning tmux control commands, stripped of the launch
+/** Base environment for spawning tmux control commands, stripped of the launch
  *  project's `.env` keys (see {@link stripProjectEnv}). Whichever tmux command
  *  first starts the server fixes the global environment for the server's
- *  lifetime, so every tmux invocation must use the stripped env. Returns
- *  `undefined` (inherit the process env unchanged) on the common path where no
- *  project keys were loaded, so tmux spawns don't copy the whole env for
- *  nothing. */
-function tmuxSpawnEnv(): Record<string, string> | undefined {
-  if (cachedTmuxSpawnEnv) return cachedTmuxSpawnEnv.value;
-  const value = Bun.env.WEBMUX_PROJECT_ENV_KEYS ? stripProjectEnv(Bun.env) : undefined;
-  cachedTmuxSpawnEnv = { value };
-  return value;
+ *  lifetime, so every tmux invocation must use the stripped env. Cached — the
+ *  leaked keys are fixed at launch. When no project keys were loaded this is the
+ *  full parent env (nothing to strip). */
+function tmuxSpawnEnv(): Record<string, string> {
+  return (cachedTmuxSpawnEnv ??= stripProjectEnv(Bun.env));
+}
+
+/** Pick a UTF-8 locale for tmux. Under a non-UTF-8 locale — e.g. a macOS launchd
+ *  agent that inherits no `LANG`/`LC_*` — tmux rewrites the TAB byte in `-F`
+ *  output as `_`, which silently breaks webmux's tab-delimited parsing of
+ *  `list-windows` (every window drops, so every session looks closed). Keep a
+ *  UTF-8 locale the environment already provides; otherwise pin `C.UTF-8`. */
+export function pickTmuxLocale(env: Record<string, string | undefined>): string {
+  const inherited = env.LC_ALL || env.LC_CTYPE || env.LANG || "";
+  return /utf-?8/i.test(inherited) ? inherited : "C.UTF-8";
 }
 
 function runTmux(args: string[]): { stdout: string; stderr: string; exitCode: number } {
-  // Only pass `env` when we have a stripped copy: Bun.spawnSync treats an
-  // explicit `env: undefined` as an *empty* environment, not "inherit".
-  const spawnEnv = tmuxSpawnEnv();
+  // Pass an explicit env — Bun.spawnSync treats it as the *complete* child
+  // environment, not a merge — built from the project-stripped parent env, and
+  // pin a UTF-8 locale so tmux keeps the TAB separator in `-F` output.
+  const base = tmuxSpawnEnv();
   const result = Bun.spawnSync(["tmux", ...args], {
     stdout: "pipe",
     stderr: "pipe",
-    ...(spawnEnv ? { env: spawnEnv } : {}),
+    env: { ...base, LC_ALL: pickTmuxLocale(base) },
   });
 
   return {

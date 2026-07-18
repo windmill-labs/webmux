@@ -43,6 +43,7 @@ export interface TmuxGateway {
 }
 
 let cachedTmuxSpawnEnv: Record<string, string> | null = null;
+let cachedUtf8Locale: string | null = null;
 let globalEnvScrubbed = false;
 
 /** Base environment for spawning tmux control commands, stripped of the launch
@@ -55,14 +56,51 @@ function tmuxSpawnEnv(): Record<string, string> {
   return (cachedTmuxSpawnEnv ??= stripProjectEnv(Bun.env));
 }
 
+/** Choose the best UTF-8 locale from a `locale -a` listing, used only when the
+ *  environment carries no UTF-8 locale of its own. Preference: a neutral
+ *  `C.UTF-8`/`C.utf8` (no locale-specific collation/messages leak into panes),
+ *  then `en_US.*`, then any UTF-8 locale the host reports. Returns the *exact*
+ *  listed name so `setlocale` accepts it. This keeps the fallback valid across
+ *  platforms — older macOS lacks `C.UTF-8` (but has `en_US.UTF-8`); minimal
+ *  Linux images often lack `en_US.UTF-8` (but glibc >= 2.35 ships `C.UTF-8`).
+ *  `C.UTF-8` is only the last-resort literal when nothing is listed. */
+export function chooseUtf8Locale(available: string[]): string {
+  const trimmed = available.map((entry) => entry.trim()).filter(Boolean);
+  const byLower = new Map(trimmed.map((entry) => [entry.toLowerCase(), entry]));
+  const preferred = ["c.utf-8", "c.utf8", "en_us.utf-8", "en_us.utf8"];
+  return (
+    preferred.map((key) => byLower.get(key)).find((entry): entry is string => Boolean(entry))
+    ?? trimmed.find((entry) => /\.utf-?8$/i.test(entry))
+    ?? "C.UTF-8"
+  );
+}
+
+/** Best UTF-8 locale actually installed on this host (from `locale -a`), cached
+ *  for the process lifetime. Falls back to a bare `C.UTF-8` if `locale(1)` can't
+ *  be run. */
+function detectUtf8Locale(): string {
+  if (cachedUtf8Locale) return cachedUtf8Locale;
+  let available: string[] = [];
+  try {
+    const result = Bun.spawnSync(["locale", "-a"], { stdout: "pipe", stderr: "pipe" });
+    if (result.exitCode === 0) {
+      available = new TextDecoder().decode(result.stdout).split("\n");
+    }
+  } catch {
+    // locale(1) unavailable — fall back to the literal in chooseUtf8Locale.
+  }
+  return (cachedUtf8Locale = chooseUtf8Locale(available));
+}
+
 /** Pick a UTF-8 locale for tmux. Under a non-UTF-8 locale — e.g. a macOS launchd
  *  agent that inherits no `LANG`/`LC_*` — tmux rewrites the TAB byte in `-F`
  *  output as `_`, which silently breaks webmux's tab-delimited parsing of
  *  `list-windows` (every window drops, so every session looks closed). Keep a
- *  UTF-8 locale the environment already provides; otherwise pin `C.UTF-8`. */
-export function pickTmuxLocale(env: Record<string, string | undefined>): string {
+ *  UTF-8 locale the environment already provides; otherwise use `fallback` (a
+ *  UTF-8 locale detected on the host). */
+export function pickTmuxLocale(env: Record<string, string | undefined>, fallback: string): string {
   const inherited = env.LC_ALL || env.LC_CTYPE || env.LANG || "";
-  return /utf-?8/i.test(inherited) ? inherited : "C.UTF-8";
+  return /utf-?8/i.test(inherited) ? inherited : fallback;
 }
 
 function runTmux(args: string[]): { stdout: string; stderr: string; exitCode: number } {
@@ -73,7 +111,7 @@ function runTmux(args: string[]): { stdout: string; stderr: string; exitCode: nu
   const result = Bun.spawnSync(["tmux", ...args], {
     stdout: "pipe",
     stderr: "pipe",
-    env: { ...base, LC_ALL: pickTmuxLocale(base) },
+    env: { ...base, LC_ALL: pickTmuxLocale(base, detectUtf8Locale()) },
   });
 
   return {

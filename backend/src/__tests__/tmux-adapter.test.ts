@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
   buildProjectSessionName,
   buildWorktreeWindowName,
+  chooseUtf8Locale,
   parseWindowSummaries,
   pickTmuxLocale,
   sanitizeTmuxNameSegment,
@@ -179,24 +180,47 @@ describe("parseWindowSummaries", () => {
 });
 
 describe("pickTmuxLocale", () => {
-  it("pins C.UTF-8 when no locale is set", () => {
-    expect(pickTmuxLocale({})).toBe("C.UTF-8");
+  it("uses the host fallback when no locale is set", () => {
+    expect(pickTmuxLocale({}, "C.UTF-8")).toBe("C.UTF-8");
   });
 
-  it("pins C.UTF-8 when the inherited locale is not UTF-8", () => {
-    expect(pickTmuxLocale({ LANG: "C" })).toBe("C.UTF-8");
-    expect(pickTmuxLocale({ LC_ALL: "POSIX" })).toBe("C.UTF-8");
+  it("uses the host fallback when the inherited locale is not UTF-8", () => {
+    expect(pickTmuxLocale({ LANG: "C" }, "C.UTF-8")).toBe("C.UTF-8");
+    expect(pickTmuxLocale({ LC_ALL: "POSIX" }, "en_US.UTF-8")).toBe("en_US.UTF-8");
   });
 
-  it("keeps an inherited UTF-8 locale (any spelling)", () => {
-    expect(pickTmuxLocale({ LANG: "en_US.UTF-8" })).toBe("en_US.UTF-8");
-    expect(pickTmuxLocale({ LANG: "C.UTF-8" })).toBe("C.UTF-8");
-    expect(pickTmuxLocale({ LANG: "en_GB.utf8" })).toBe("en_GB.utf8");
+  it("keeps an inherited UTF-8 locale (any spelling), ignoring the fallback", () => {
+    expect(pickTmuxLocale({ LANG: "en_US.UTF-8" }, "C.UTF-8")).toBe("en_US.UTF-8");
+    expect(pickTmuxLocale({ LANG: "C.UTF-8" }, "en_US.UTF-8")).toBe("C.UTF-8");
+    expect(pickTmuxLocale({ LANG: "en_GB.utf8" }, "C.UTF-8")).toBe("en_GB.utf8");
   });
 
   it("prefers LC_ALL, then LC_CTYPE, then LANG", () => {
-    expect(pickTmuxLocale({ LC_ALL: "en_US.UTF-8", LANG: "C" })).toBe("en_US.UTF-8");
-    expect(pickTmuxLocale({ LC_CTYPE: "de_DE.UTF-8", LANG: "C" })).toBe("de_DE.UTF-8");
+    expect(pickTmuxLocale({ LC_ALL: "en_US.UTF-8", LANG: "C" }, "C.UTF-8")).toBe("en_US.UTF-8");
+    expect(pickTmuxLocale({ LC_CTYPE: "de_DE.UTF-8", LANG: "C" }, "C.UTF-8")).toBe("de_DE.UTF-8");
+  });
+});
+
+describe("chooseUtf8Locale", () => {
+  it("prefers a neutral C.UTF-8 when available (macOS spelling)", () => {
+    expect(chooseUtf8Locale(["C", "C.UTF-8", "en_US.UTF-8", "POSIX"])).toBe("C.UTF-8");
+  });
+
+  it("prefers C.utf8 (glibc spelling) and returns the exact listed name", () => {
+    expect(chooseUtf8Locale(["C", "C.utf8", "en_US.utf8"])).toBe("C.utf8");
+  });
+
+  it("falls back to en_US.UTF-8 when C.UTF-8 is absent (older macOS)", () => {
+    expect(chooseUtf8Locale(["C", "POSIX", "en_US.UTF-8", "fr_FR.UTF-8"])).toBe("en_US.UTF-8");
+  });
+
+  it("uses any UTF-8 locale when no preferred one is present", () => {
+    expect(chooseUtf8Locale(["C", "de_DE.UTF-8"])).toBe("de_DE.UTF-8");
+  });
+
+  it("last-resorts to C.UTF-8 when nothing UTF-8 is listed or the list is empty", () => {
+    expect(chooseUtf8Locale(["C", "POSIX"])).toBe("C.UTF-8");
+    expect(chooseUtf8Locale([])).toBe("C.UTF-8");
   });
 });
 

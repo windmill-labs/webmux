@@ -721,6 +721,10 @@ Options:
 
   When any env var is set, the unit file is written with mode 0600 so
   secrets are readable only by the installing user.
+
+  Alternatively, put machine-wide secrets (e.g. LINEAR_API_KEY) in
+  ~/.config/webmux/.env — the server loads it at startup regardless of which
+  directory it runs from, so they survive updates without re-baking the unit.
 `);
 }
 

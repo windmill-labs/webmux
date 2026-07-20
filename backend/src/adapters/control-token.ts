@@ -1,7 +1,8 @@
 import { chmod, mkdir } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
+import { webmuxConfigDir } from "./webmux-paths";
 
-const CONTROL_TOKEN_PATH = `${Bun.env.HOME ?? "/root"}/.config/webmux/control-token`;
+const CONTROL_TOKEN_PATH = join(webmuxConfigDir(), "control-token");
 
 let cachedToken: string | null = null;
 

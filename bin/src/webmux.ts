@@ -350,6 +350,15 @@ async function main(args: string[] = process.argv.slice(2)): Promise<void> {
   for (const key of await loadEnvFile(resolve(process.cwd(), ".env.local"))) projectEnvKeys.add(key);
   for (const key of await loadEnvFile(resolve(process.cwd(), ".env"))) projectEnvKeys.add(key);
 
+  // webmux's own global config env (`~/.config/webmux/.env`): machine-wide
+  // secrets like LINEAR_API_KEY the single service reads regardless of which
+  // directory it runs from. Loaded last so an already-set value wins — the unit
+  // and the launch project's `.env` both take precedence. Its keys join
+  // projectEnvKeys so they're stripped from the tmux global environment like any
+  // other secret webmux loads, rather than leaking into every session and pane.
+  const { webmuxConfigEnvPath } = await import("../../backend/src/adapters/webmux-paths");
+  for (const key of await loadEnvFile(webmuxConfigEnvPath())) projectEnvKeys.add(key);
+
   // When the user didn't pin a port, point CLI commands at the live server for
   // this project rather than the 5111 default. `webmux serve` walks to a free
   // port when 5111 is taken, so the running instance is often elsewhere (e.g.

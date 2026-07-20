@@ -5,6 +5,7 @@ import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { Subprocess } from "bun";
 import pkg from "../../package.json";
+import { webmuxConfigEnvPath } from "../../backend/src/adapters/webmux-paths";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -356,7 +357,6 @@ async function main(args: string[] = process.argv.slice(2)): Promise<void> {
   // and the launch project's `.env` both take precedence. Its keys join
   // projectEnvKeys so they're stripped from the tmux global environment like any
   // other secret webmux loads, rather than leaking into every session and pane.
-  const { webmuxConfigEnvPath } = await import("../../backend/src/adapters/webmux-paths");
   for (const key of await loadEnvFile(webmuxConfigEnvPath())) projectEnvKeys.add(key);
 
   // When the user didn't pin a port, point CLI commands at the live server for

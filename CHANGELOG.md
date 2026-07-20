@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.43.0](https://github.com/windmill-labs/webmux/compare/v0.42.0...v0.43.0) (2026-07-20)
+
+
+### Features
+
+* load global config env from ~/.config/webmux/.env ([#295](https://github.com/windmill-labs/webmux/issues/295)) ([d62612e](https://github.com/windmill-labs/webmux/commit/d62612e71e12c00664d3463d91f51f0acc9bf2c9))
+
+
+### Bug Fixes
+
+* **tmux:** force a UTF-8 locale for tmux control commands ([#293](https://github.com/windmill-labs/webmux/issues/293)) ([e725f3b](https://github.com/windmill-labs/webmux/commit/e725f3be7a0dd0bd7f960b7b2641a37b900e6fb8))
+
 ## [0.42.0](https://github.com/windmill-labs/webmux/compare/v0.41.2...v0.42.0) (2026-07-17)
 
 

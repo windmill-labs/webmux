@@ -52,19 +52,16 @@ Each issue is processed once while it stays in Todo + labeled. Remove the label 
 
 When the auto-create watcher picks up a `webmux_oneshot` issue, it posts a structured comment on the Linear issue (prefix `` **Webmux pickup — branch `<branch>`** ``) so external automation can track when the autonomous run starts. (Regular `webmux` pickups are user-driven and skip the comment.)
 
-**Setup — `LINEAR_API_KEY`.** Everything above needs a [Linear API key](https://linear.app/settings/account/security) in the server's environment. Because webmux runs as a single machine-wide service (started from your home directory, not any one repo), provide the key in one of these ways — the first one found wins:
+**Setup — `LINEAR_API_KEY`.** Everything above needs a [Linear API key](https://linear.app/settings/account/security) in the server's environment. webmux runs as a single machine-wide service started from your home directory, so put the key in `~/.config/webmux/.env` — a `KEY=value` file the server loads at startup regardless of which directory it runs from, so it survives `webmux update`:
 
-1. **`~/.config/webmux/.env`** *(recommended)* — a simple `KEY=value` file the server loads at startup no matter which directory it runs from, so the key survives `webmux update` without touching the service unit:
-   ```bash
-   mkdir -p ~/.config/webmux
-   echo 'LINEAR_API_KEY=lin_api_...' >> ~/.config/webmux/.env
-   chmod 600 ~/.config/webmux/.env
-   systemctl --user restart webmux    # macOS: launchctl kickstart -k gui/$UID/com.webmux.webmux
-   ```
-2. **Baked into the service unit** — `webmux service install` auto-picks up `LINEAR_API_KEY` from your shell, or pass it explicitly with `webmux service install --env LINEAR_API_KEY=lin_api_...`. Re-run after rotating the key.
-3. **A project `.env` / `.env.local`** in the directory you launch `webmux serve` from — loaded at startup, and overrides the global file above for that session. Handy for a foreground `webmux serve`, but not read by the background service (which runs from `$HOME`).
+```bash
+mkdir -p ~/.config/webmux
+echo 'LINEAR_API_KEY=lin_api_...' >> ~/.config/webmux/.env
+chmod 600 ~/.config/webmux/.env
+webmux service restart
+```
 
-If issues don't appear, confirm the running service actually sees the key — `systemctl --user show webmux -p Environment` (baked-in case) — or that `~/.config/webmux/.env` exists and the service was restarted after you wrote it.
+Your assigned issues appear in the dashboard once the service restarts.
 
 ## Quick Start
 

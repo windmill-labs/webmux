@@ -339,6 +339,14 @@ function uninstallCommands(config: ServiceConfig): Command[] {
   ];
 }
 
+export function restartCommands(config: ServiceConfig): Command[] {
+  if (config.platform === "linux") {
+    return [["systemctl", ["--user", "restart", config.serviceName]]];
+  }
+  const uid = typeof process.getuid === "function" ? process.getuid() : 0;
+  return [["launchctl", ["kickstart", "-k", `gui/${uid}/com.webmux.${config.serviceName}`]]];
+}
+
 // ── Check if service exists ─────────────────────────────────────────────────
 
 function isInstalled(config: ServiceConfig): boolean {
@@ -650,6 +658,22 @@ async function uninstall(config: ServiceConfig): Promise<void> {
   p.log.success("Service uninstalled.");
 }
 
+function restart(config: ServiceConfig): void {
+  if (!isInstalled(config)) {
+    p.log.error("Service is not installed.");
+    return;
+  }
+
+  for (const cmd of restartCommands(config)) {
+    const result = runCommand(cmd);
+    if (!result.success) {
+      p.log.error(`Command failed: ${formatCommand(cmd)}\n${result.stderr.toString()}`);
+      return;
+    }
+  }
+  p.log.success("Service restarted.");
+}
+
 function status(config: ServiceConfig): void {
   if (!isInstalled(config)) {
     p.log.error("Service is not installed.");
@@ -702,6 +726,7 @@ add more projects from the dashboard or with \`webmux project add\`.
 Usage:
   webmux service install     Install, enable, and start the service
   webmux service uninstall   Stop, disable, and remove the service
+  webmux service restart     Restart the service (e.g. to reload config env)
   webmux service status      Show service status
   webmux service logs        Tail service logs
 
@@ -736,7 +761,7 @@ export default async function service(args: string[]): Promise<void> {
     return;
   }
 
-  if (!["install", "uninstall", "status", "logs"].includes(action)) {
+  if (!["install", "uninstall", "restart", "status", "logs"].includes(action)) {
     p.log.error(`Unknown action: ${action}`);
     usage();
     return;
@@ -827,6 +852,9 @@ export default async function service(args: string[]): Promise<void> {
       break;
     case "uninstall":
       await uninstall(config);
+      break;
+    case "restart":
+      restart(config);
       break;
     case "status":
       status(config);

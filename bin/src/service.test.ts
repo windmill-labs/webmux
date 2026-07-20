@@ -6,6 +6,7 @@ import {
   parseInstalledServiceConfig,
   readEnvVarsFromUnit,
   readPortFromUnit,
+  restartCommands,
   resolveConfirmDecision,
   resolveEnvVars,
   shouldPersistProject,
@@ -56,6 +57,29 @@ describe("resolveConfirmDecision", () => {
 
   it("bails in a non-interactive shell without --yes", () => {
     expect(resolveConfirmDecision(false, false)).toBe("abort-noninteractive");
+  });
+});
+
+describe("restartCommands", () => {
+  const base: ServiceConfig = {
+    platform: "linux",
+    serviceName: "webmux",
+    webmuxPath: "/usr/bin/webmux",
+    port: 5111,
+    envVars: {},
+  };
+
+  it("restarts the user unit on linux", () => {
+    expect(restartCommands(base)).toEqual([
+      ["systemctl", ["--user", "restart", "webmux"]],
+    ]);
+  });
+
+  it("kickstarts the labeled agent on darwin", () => {
+    const [[bin, args]] = restartCommands({ ...base, platform: "darwin" });
+    expect(bin).toBe("launchctl");
+    expect(args.slice(0, 2)).toEqual(["kickstart", "-k"]);
+    expect(args[2]).toMatch(/^gui\/\d+\/com\.webmux\.webmux$/);
   });
 });
 

@@ -49,6 +49,8 @@ interface GhCheckRunEntry {
   status: GhCheckStatus;
   name: string;
   detailsUrl: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
 }
 
 // StatusContext entries from external CI (e.g. Vercel)
@@ -57,6 +59,7 @@ interface GhStatusContextEntry {
   context: string;
   state: "SUCCESS" | "FAILURE" | "PENDING" | "ERROR" | "EXPECTED";
   targetUrl: string | null;
+  createdAt?: string | null;
 }
 
 type GhCheckEntry = GhCheckRunEntry | GhStatusContextEntry;
@@ -88,18 +91,68 @@ const etagCache = new Map<string, { etag: string; comments: PrComment[] }>();
 
 // ── Pure helper functions (exported for unit testing) ─────────────────────────
 
+/** Group key for an entry: check-run name, or external status context. */
+function checkEntryKey(c: GhCheckEntry): string {
+  return c.__typename === "StatusContext" ? `status:${c.context}` : `check:${c.name}`;
+}
+
+/** Parse an ISO timestamp to epoch ms, 0 when absent/invalid. */
+function toEpoch(ts: string | null | undefined): number {
+  const t = ts ? new Date(ts).getTime() : NaN;
+  return Number.isNaN(t) ? 0 : t;
+}
+
+/**
+ * Recency of an entry (epoch ms) for latest-wins dedupe. For a check run, use
+ * the later of startedAt/completedAt: GitHub reports completedAt as a zero
+ * sentinel ("0001-01-01T00:00:00Z") while still running, so a live run would
+ * otherwise sort as ancient and lose to an older completed run.
+ */
+function checkEntryTime(c: GhCheckEntry): number {
+  if (c.__typename === "StatusContext") return toEpoch(c.createdAt);
+  return Math.max(toEpoch(c.startedAt), toEpoch(c.completedAt));
+}
+
+/** A CANCELLED check-run is a superseded/aborted run, not a failing verdict. */
+function isCancelled(c: GhCheckEntry): boolean {
+  return c.__typename === "CheckRun" && c.conclusion === "CANCELLED";
+}
+
+/**
+ * Collapse the rollup to the most recent entry per check name / status context.
+ * Re-triggering a workflow (e.g. `/review` re-running codex CI) leaves the prior
+ * run in the rollup under the same name; keeping only the latest lets the fresh
+ * result win instead of a stale run masking it. Latest wins by completion time,
+ * falling back to array order (GitHub returns oldest-first) on ties.
+ */
+export function dedupeLatestChecks(checks: GhCheckEntry[]): GhCheckEntry[] {
+  const latest = new Map<string, GhCheckEntry>();
+  for (const c of checks) {
+    const key = checkEntryKey(c);
+    const prev = latest.get(key);
+    if (!prev || checkEntryTime(c) >= checkEntryTime(prev)) latest.set(key, c);
+  }
+  return [...latest.values()];
+}
+
 /** Summarize CI check status from a statusCheckRollup array. */
 export function summarizeChecks(
   checks: GhCheckEntry[] | null,
 ): PrEntry["ciStatus"] {
   if (!checks || checks.length === 0) return "none";
-  const allDone = checks.every((c) =>
+  // Drop CANCELLED runs: a codex CI review cancelled when `/review` re-triggers
+  // it (concurrency cancel-in-progress) reports CANCELLED, which must not mask
+  // the latest run — otherwise the PR stays "failed" forever. Also dedupe so a
+  // same-name re-run's fresh result wins over the superseded one.
+  const relevant = dedupeLatestChecks(checks).filter((c) => !isCancelled(c));
+  if (relevant.length === 0) return "none";
+  const allDone = relevant.every((c) =>
     c.__typename === "StatusContext"
       ? c.state !== "PENDING" && c.state !== "EXPECTED"
       : c.status === "COMPLETED",
   );
   if (!allDone) return "pending";
-  const allPass = checks.every((c) => {
+  const allPass = relevant.every((c) => {
     if (c.__typename === "StatusContext") return c.state === "SUCCESS";
     return c.conclusion === "SUCCESS" || c.conclusion === "NEUTRAL" || c.conclusion === "SKIPPED";
   });
@@ -124,14 +177,15 @@ export function deriveCheckStatus(check: GhCheckEntry): CiCheck["status"] {
   if (check.status !== "COMPLETED") return "pending";
   const c = check.conclusion;
   if (c === "SUCCESS" || c === "NEUTRAL") return "success";
-  if (c === "SKIPPED") return "skipped";
+  // CANCELLED = superseded (e.g. codex CI re-triggered by `/review`); not a failure.
+  if (c === "SKIPPED" || c === "CANCELLED") return "skipped";
   return "failed";
 }
 
 /** Map raw GH check entries to typed CiCheck array. */
 export function mapChecks(checks: GhCheckEntry[] | null): CiCheck[] {
   if (!checks || checks.length === 0) return [];
-  return checks.map((c) => {
+  return dedupeLatestChecks(checks).map((c) => {
     const name = c.__typename === "StatusContext" ? c.context : c.name;
     const url = c.__typename === "StatusContext" ? c.targetUrl : c.detailsUrl;
     return {

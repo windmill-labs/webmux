@@ -1,6 +1,26 @@
 import { describe, expect, it } from "bun:test";
 import { mapWithConcurrency, startSerializedInterval } from "../lib/async";
-import { parseReviewComments } from "../services/pr-service";
+import {
+  dedupeLatestChecks,
+  mapChecks,
+  parseReviewComments,
+  summarizeChecks,
+} from "../services/pr-service";
+
+// Mirror the GhCheckEntry shape from pr-service (not exported) closely enough
+// for these summarizers, which only read the fields referenced below.
+function checkRun(over: Record<string, unknown> = {}): any {
+  return {
+    __typename: "CheckRun",
+    name: "codex-review",
+    status: "COMPLETED",
+    conclusion: "SUCCESS",
+    detailsUrl: "https://github.com/o/r/actions/runs/1/job/1",
+    startedAt: "2026-07-23T09:00:00Z",
+    completedAt: "2026-07-23T09:05:00Z",
+    ...over,
+  };
+}
 
 describe("parseReviewComments", () => {
   it("parses normal review comments", () => {
@@ -79,6 +99,59 @@ describe("parseReviewComments", () => {
     }));
     const result = parseReviewComments(JSON.stringify(comments));
     expect(result).toHaveLength(50);
+  });
+});
+
+describe("summarizeChecks — cancelled/superseded runs", () => {
+  it("does not report failed when a codex run was cancelled by a re-trigger", () => {
+    // Real-world shape: `/review` cancels the auto codex run (concurrency
+    // cancel-in-progress); the fresh run posts under a different check name.
+    const checks = [
+      checkRun({ name: "codex-review", conclusion: "CANCELLED", completedAt: "2026-07-23T09:32:58Z" }),
+      checkRun({ name: "codex / codex-review", conclusion: "SUCCESS", completedAt: "2026-07-23T09:40:00Z" }),
+    ];
+    expect(summarizeChecks(checks)).toBe("success");
+  });
+
+  it("latest run of the same check name wins over an earlier cancelled one", () => {
+    const checks = [
+      checkRun({ conclusion: "CANCELLED", completedAt: "2026-07-23T09:32:58Z" }),
+      checkRun({ conclusion: "SUCCESS", startedAt: "2026-07-23T09:33:00Z", completedAt: "2026-07-23T09:40:00Z" }),
+    ];
+    expect(summarizeChecks(checks)).toBe("success");
+  });
+
+  it("still reports failed for a genuine failing run", () => {
+    expect(summarizeChecks([checkRun({ conclusion: "FAILURE" })])).toBe("failed");
+  });
+
+  it("reports none when every check is cancelled (no verdict)", () => {
+    expect(summarizeChecks([checkRun({ conclusion: "CANCELLED" })])).toBe("none");
+  });
+
+  it("treats a still-running check as pending despite the zero completedAt sentinel", () => {
+    const checks = [
+      checkRun({ conclusion: "CANCELLED", completedAt: "2026-07-23T09:32:58Z" }),
+      checkRun({ status: "IN_PROGRESS", conclusion: "", startedAt: "2026-07-23T09:35:00Z", completedAt: "0001-01-01T00:00:00Z" }),
+    ];
+    expect(summarizeChecks(checks)).toBe("pending");
+  });
+});
+
+describe("dedupeLatestChecks / mapChecks", () => {
+  it("keeps only the latest entry per check name", () => {
+    const deduped = dedupeLatestChecks([
+      checkRun({ conclusion: "CANCELLED", completedAt: "2026-07-23T09:32:58Z" }),
+      checkRun({ conclusion: "SUCCESS", completedAt: "2026-07-23T09:40:00Z" }),
+    ]);
+    expect(deduped).toHaveLength(1);
+    expect((deduped[0] as any).conclusion).toBe("SUCCESS");
+  });
+
+  it("maps a cancelled run to skipped rather than failed", () => {
+    const mapped = mapChecks([checkRun({ name: "solo", conclusion: "CANCELLED" })]);
+    expect(mapped).toHaveLength(1);
+    expect(mapped[0].status).toBe("skipped");
   });
 });
 

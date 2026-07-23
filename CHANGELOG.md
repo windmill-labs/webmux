@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.43.1](https://github.com/windmill-labs/webmux/compare/v0.43.0...v0.43.1) (2026-07-23)
+
+
+### Bug Fixes
+
+* **pr:** stop cancelled CI runs from masking the latest review status ([#298](https://github.com/windmill-labs/webmux/issues/298)) ([9001d9f](https://github.com/windmill-labs/webmux/commit/9001d9f92d94d151add9983dc32a7d1384fd3945))
+
 ## [0.43.0](https://github.com/windmill-labs/webmux/compare/v0.42.0...v0.43.0) (2026-07-20)
 
 

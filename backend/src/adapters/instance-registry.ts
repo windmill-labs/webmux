@@ -1,11 +1,12 @@
 // Sync Node fs APIs on purpose: register/deregister run from synchronous startup
 // and `process.on("exit")` paths where async (Bun.write) would not flush in time.
 import { mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { log } from "../lib/log";
+import { webmuxRuntimeStateDir } from "./webmux-paths";
 
-/** A live webmux server, self-registered under `~/.webmux/instances/<port>.json`.
+/** A live webmux server, self-registered under the runtime state directory
+ *  (`~/.webmux/instances/<port>.json` in production).
  *
  *  This registry is a transitional **migration sensor**: webmux now runs one
  *  multi-project server per machine, so the only reason to track other live
@@ -30,7 +31,7 @@ export interface InstanceRegistry {
 }
 
 function defaultRegistryDir(): string {
-  return join(homedir(), ".webmux", "instances");
+  return join(webmuxRuntimeStateDir(), "instances");
 }
 
 /** A live PID is one we can signal. `ESRCH` means "no such process" — that's

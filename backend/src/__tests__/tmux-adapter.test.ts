@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -405,6 +405,77 @@ describe("ensureSessionLayout", () => {
       expect(result.relatedPaneIndexes).toEqual(["0", "1"]);
       expect(result.unrelatedPaneIndexes).toEqual(["1"]);
     } finally {
+      await rm(testRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("isolated tmux wrapper", () => {
+  it("finishes isolated tmux cleanup when another termination signal arrives", async () => {
+    const testRoot = await mkdtemp(join(tmpdir(), "webmux-tmux-signal-cleanup-"));
+    const childPath = join(testRoot, "slow-shutdown.sh");
+    const socketName = `webmux-signal-cleanup-${process.pid}-${Date.now()}`;
+    await Bun.write(
+      childPath,
+      [
+        "#!/usr/bin/env bash",
+        "trap 'sleep 0.2; exit 0' TERM",
+        'tmux new-session -d -s "signal-cleanup"',
+        "while true; do sleep 0.05; done",
+        "",
+      ].join("\n"),
+    );
+
+    const proc = Bun.spawn(
+      ["bash", isolatedTmuxScriptPath, "bash", childPath],
+      {
+        env: buildEnv({
+          TMPDIR: testRoot,
+          WEBMUX_ISOLATED_TMUX_SOCKET_NAME: socketName,
+        }),
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
+
+    try {
+      let started = false;
+      for (let attempt = 0; attempt < 100; attempt++) {
+        const result = Bun.spawnSync(
+          ["tmux", "-L", socketName, "has-session", "-t", "signal-cleanup"],
+          { stdout: "ignore", stderr: "ignore" },
+        );
+        if (result.exitCode === 0) {
+          started = true;
+          break;
+        }
+        await Bun.sleep(10);
+      }
+      expect(started).toBe(true);
+
+      proc.kill("SIGTERM");
+      await Bun.sleep(25);
+      proc.kill("SIGTERM");
+      await proc.exited;
+
+      const hasSession = Bun.spawnSync(
+        ["tmux", "-L", socketName, "has-session", "-t", "signal-cleanup"],
+        { stdout: "ignore", stderr: "ignore" },
+      );
+      expect(hasSession.exitCode).not.toBe(0);
+
+      const leftovers = (await readdir(testRoot))
+        .filter((name) => name.startsWith("webmux-isolated-tmux."));
+      expect(leftovers).toEqual([]);
+    } finally {
+      if (proc.exitCode === null) {
+        proc.kill("SIGKILL");
+        await proc.exited;
+      }
+      Bun.spawnSync(
+        ["tmux", "-L", socketName, "kill-server"],
+        { stdout: "ignore", stderr: "ignore" },
+      );
       await rm(testRoot, { recursive: true, force: true });
     }
   });

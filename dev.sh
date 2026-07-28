@@ -28,8 +28,18 @@ if [ -n "$CLI_PORT" ]; then
   export FRONTEND_PORT=$((PORT + 1))
 fi
 
-export PORT="${PORT:-5111}"
+if [ -z "${PORT:-}" ]; then
+  read -r AUTO_BACKEND_PORT AUTO_FRONTEND_PORT < <(bun bin/src/dev-ports.ts 5111)
+  export PORT="$AUTO_BACKEND_PORT"
+  if [ -z "${FRONTEND_PORT:-}" ]; then
+    export FRONTEND_PORT="$AUTO_FRONTEND_PORT"
+  elif [ "$FRONTEND_PORT" = "$PORT" ]; then
+    export PORT="$AUTO_FRONTEND_PORT"
+  fi
+fi
+
 export FRONTEND_PORT="${FRONTEND_PORT:-$((PORT + 1))}"
+echo "Starting isolated webmux dev servers (backend $PORT, frontend $FRONTEND_PORT)"
 
 PIDS=()
 
@@ -42,14 +52,14 @@ trap cleanup EXIT
 
 # Backend (bun --watch)
 cd backend
-bun run dev 2>&1 | sed 's/^/[BE] /' &
+bash ../scripts/dev-backend.sh > >(sed 's/^/[BE] /') 2>&1 &
 BE_PID=$!
 PIDS+=("$BE_PID")
 cd ..
 
 # Frontend (vite dev)
 cd frontend
-bun run dev 2>&1 | sed 's/^/[FE] /' &
+bun run dev > >(sed 's/^/[FE] /') 2>&1 &
 FE_PID=$!
 PIDS+=("$FE_PID")
 cd ..

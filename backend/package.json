@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun --watch src/server.ts",
+    "dev": "bash ../scripts/dev-backend.sh",
     "start": "bun src/server.ts",
     "check": "tsc --noEmit",
     "test": "bun test",

@@ -1,4 +1,28 @@
-import { join } from "node:path";
+import { createHash } from "node:crypto";
+import { homedir, tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+
+export interface RuntimeStateDirInput {
+  homeDir: string;
+  tempDir: string;
+  projectDir: string;
+  isolatedDev: boolean;
+}
+
+export function resolveRuntimeStateDir(input: RuntimeStateDirInput): string {
+  if (!input.isolatedDev) return join(input.homeDir, ".webmux");
+  const scope = createHash("sha1").update(resolve(input.projectDir)).digest("hex").slice(0, 12);
+  return join(input.tempDir, "webmux-dev", scope);
+}
+
+export function webmuxRuntimeStateDir(): string {
+  return resolveRuntimeStateDir({
+    homeDir: homedir(),
+    tempDir: tmpdir(),
+    projectDir: Bun.env.WEBMUX_DEV_STATE_SCOPE ?? Bun.env.WEBMUX_PROJECT_DIR ?? process.cwd(),
+    isolatedDev: Bun.env.WEBMUX_DEV_ISOLATED === "1",
+  });
+}
 
 /** webmux's XDG-style config directory (`~/.config/webmux`). Home to the
  *  control token and the optional global env file. Distinct from the

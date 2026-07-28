@@ -31,7 +31,15 @@ EOF
 
 chmod +x "$wrapper_path"
 
+child_pid=""
+
 cleanup() {
+  trap '' INT TERM
+  trap - EXIT
+  if [ -n "$child_pid" ] && kill -0 "$child_pid" >/dev/null 2>&1; then
+    kill "$child_pid" >/dev/null 2>&1 || true
+    wait "$child_pid" >/dev/null 2>&1 || true
+  fi
   env -u TMUX PATH="$bin_dir:$PATH" "$wrapper_path" kill-server >/dev/null 2>&1 || true
   rm -rf "$tmp_root"
 }
@@ -43,4 +51,10 @@ export WEBMUX_ISOLATED_TMUX_CONFIG="$config_path"
 export WEBMUX_ISOLATED_TMUX_SOCKET="$socket_name"
 unset TMUX
 
-"$@"
+"$@" <&0 &
+child_pid=$!
+set +e
+wait "$child_pid"
+status=$?
+set -e
+exit "$status"

@@ -1,10 +1,10 @@
 // Sync Node fs APIs on purpose: mirrors instance-registry.ts so writes flush
 // from synchronous startup/shutdown paths where async (Bun.write) would not.
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { isProjectEntry, type ProjectEntry } from "../domain/projects";
 import { log } from "../lib/log";
+import { webmuxRuntimeStateDir } from "./webmux-paths";
 
 export interface ProjectsRegistry {
   /** All known, well-formed project entries, in insertion order. */
@@ -16,7 +16,7 @@ export interface ProjectsRegistry {
 }
 
 function defaultRegistryFile(): string {
-  return join(homedir(), ".webmux", "projects.json");
+  return join(webmuxRuntimeStateDir(), "projects.json");
 }
 
 export function createProjectsRegistry(file: string = defaultRegistryFile()): ProjectsRegistry {

@@ -598,6 +598,26 @@ describe("LifecycleService", () => {
     expect(agentCommand).toContain(`Database: ${databaseUrl}`);
   });
 
+  it("injects sibling pane capture commands into fresh host agent launches", async () => {
+    const repoRoot = await initRepo();
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const lifecycle = makeLifecycleService(repoRoot, tmux, runtime);
+
+    await lifecycle.createWorktree({
+      branch: "feature/tmux-pane-context",
+    });
+
+    const agentCommand = tmux.commands.find(({ target }) =>
+      target === `${buildProjectSessionName(repoRoot)}:${buildWorktreeWindowName("feature/tmux-pane-context")}.0`
+    )?.command;
+
+    expect(agentCommand).toContain("--append-system-prompt");
+    expect(agentCommand).toContain("You are running inside a webmux-managed tmux window");
+    expect(agentCommand).toContain("Pane 1 (`shell`, shell)");
+    expect(agentCommand).toContain("tmux capture-pane");
+  });
+
   it("appends the oneshot system prompt to fresh launches when source is oneshot", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
@@ -631,7 +651,14 @@ describe("LifecycleService", () => {
     )?.command;
 
     expect(agentCommand).toContain("base profile prompt");
+    expect(agentCommand).toContain("webmux-managed tmux window");
     expect(agentCommand).toContain("complete the task autonomously");
+    expect(agentCommand?.indexOf("base profile prompt") ?? -1).toBeLessThan(
+      agentCommand?.indexOf("webmux-managed tmux window") ?? -1,
+    );
+    expect(agentCommand?.indexOf("webmux-managed tmux window") ?? -1).toBeLessThan(
+      agentCommand?.indexOf("complete the task autonomously") ?? -1,
+    );
   });
 
   it("does not append the oneshot system prompt for ui-sourced worktrees", async () => {
@@ -1553,6 +1580,45 @@ describe("LifecycleService", () => {
     expect(windowCommand).toContain("wm-feature-sandbox-agent-container");
     expect(agentCommand).toContain("claude");
     expect(agentCommand).not.toContain("docker exec");
+  });
+
+  it("does not inject host tmux instructions into docker agent launches", async () => {
+    const repoRoot = await initRepo();
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const docker = new FakeDockerGateway();
+    const lifecycle = makeLifecycleService(
+      repoRoot,
+      tmux,
+      runtime,
+      docker,
+      new FakeHookRunner(),
+      {
+        ...TEST_CONFIG,
+        profiles: {
+          ...TEST_CONFIG.profiles,
+          sandbox: {
+            ...TEST_CONFIG.profiles.sandbox,
+            panes: [
+              { id: "agent", kind: "agent", focus: true },
+              { id: "logs", kind: "shell", split: "right" },
+            ],
+          },
+        },
+      },
+    );
+
+    await lifecycle.createWorktree({
+      branch: "feature-sandbox-pane-context",
+      profile: "sandbox",
+    });
+
+    const agentCommand = tmux.commands.find(({ target }) =>
+      target === `${buildProjectSessionName(repoRoot)}:${buildWorktreeWindowName("feature-sandbox-pane-context")}.0`
+    )?.command;
+
+    expect(agentCommand).not.toContain("webmux-managed tmux window");
+    expect(agentCommand).not.toContain("tmux capture-pane");
   });
 
   it("refreshes docker control env with a host-reachable callback when reopening", async () => {

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "bun:test";
 import { WM_WINDOW_ROLE_OPTION, WM_WORKTREE_ID_OPTION, type TmuxGateway } from "../adapters/tmux";
-import { ensureSessionLayout, isWorktreeOpen, planSessionLayout } from "../services/session-service";
+import {
+  buildTmuxPaneSystemPrompt,
+  ensureSessionLayout,
+  isWorktreeOpen,
+  planSessionLayout,
+} from "../services/session-service";
 
 class FakeTmuxGateway implements TmuxGateway {
   calls: string[] = [];
@@ -75,6 +80,28 @@ class FakeTmuxGateway implements TmuxGateway {
     return [];
   }
 }
+
+describe("buildTmuxPaneSystemPrompt", () => {
+  it("maps configured pane ids to stable tmux indexes and capture commands", () => {
+    const prompt = buildTmuxPaneSystemPrompt([
+      { id: "agent", kind: "agent", focus: true },
+      { id: "backend", kind: "command", command: "bun run dev" },
+      { id: "frontend", kind: "shell" },
+    ]);
+
+    expect(prompt).toBe([
+      "You are running inside a webmux-managed tmux window. You can inspect other panes without interrupting them:",
+      "- Pane 1 (`backend`, command): `tmux capture-pane -t \"$(tmux display-message -t \"$TMUX_PANE\" -p '#{session_name}:#{window_name}').1\" -p -S -50`",
+      "- Pane 2 (`frontend`, shell): `tmux capture-pane -t \"$(tmux display-message -t \"$TMUX_PANE\" -p '#{session_name}:#{window_name}').2\" -p -S -50`",
+    ].join("\n"));
+  });
+
+  it("omits tmux context when the profile has no non-agent panes", () => {
+    expect(buildTmuxPaneSystemPrompt([
+      { id: "agent", kind: "agent", focus: true },
+    ])).toBeUndefined();
+  });
+});
 
 describe("planSessionLayout", () => {
   it("materializes pane cwd and command with a deterministic session/window name", () => {

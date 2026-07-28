@@ -44,7 +44,7 @@ import {
 } from "./agent-service";
 import { getAgentDefinition, type AgentDefinition } from "./agent-registry";
 import type { ReconciliationService } from "./reconciliation-service";
-import { ensureSessionLayout, planSessionLayout } from "./session-service";
+import { buildTmuxPaneSystemPrompt, ensureSessionLayout, planSessionLayout } from "./session-service";
 import { ArchiveStateService } from "./archive-state-service";
 import {
   createManagedWorktree,
@@ -1137,9 +1137,14 @@ export class LifecycleService {
     const oneshotPrompt = input.launchMode === "fresh" && input.source === "oneshot"
       ? this.deps.config.oneshot.systemPrompt
       : undefined;
-    const systemPrompt = baseSystemPrompt && oneshotPrompt
-      ? `${baseSystemPrompt}\n\n${oneshotPrompt}`
-      : (oneshotPrompt ?? baseSystemPrompt);
+    const tmuxPanePrompt = input.launchMode === "fresh" && input.profile.runtime === "host"
+      ? buildTmuxPaneSystemPrompt(input.profile.panes)
+      : undefined;
+    const systemPromptParts = [baseSystemPrompt, tmuxPanePrompt, oneshotPrompt]
+      .filter((part): part is string => part !== undefined && part.length > 0);
+    const systemPrompt = systemPromptParts.length > 0
+      ? systemPromptParts.join("\n\n")
+      : undefined;
     // Pick the prompt source for the launch mode. Any value supplied for the
     // wrong field is silently ignored — this is the defense PR #116 added.
     const prompt = input.launchMode === "resume" ? input.followUpPrompt : input.creationPrompt;

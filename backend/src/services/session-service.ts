@@ -70,6 +70,21 @@ function resolvePaneStartupCommand(template: PaneTemplate, ctx: SessionLayoutCon
   }
 }
 
+export function buildTmuxPaneSystemPrompt(templates: PaneTemplate[]): string | undefined {
+  const inspectablePanes = templates
+    .map((template, index) => ({ template, index }))
+    .filter(({ template }) => template.kind !== "agent");
+  if (inspectablePanes.length === 0) return undefined;
+
+  const windowTarget = "$(tmux display-message -t \"$TMUX_PANE\" -p '#{session_name}:#{window_name}')";
+  return [
+    "You are running inside a webmux-managed tmux window. You can inspect other panes without interrupting them:",
+    ...inspectablePanes.map(({ template, index }) =>
+      `- Pane ${index} (\`${template.id}\`, ${template.kind}): \`tmux capture-pane -t "${windowTarget}.${index}" -p -S -50\``
+    ),
+  ].join("\n");
+}
+
 export function planSessionLayout(
   projectRoot: string,
   branch: string,

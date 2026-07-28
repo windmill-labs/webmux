@@ -48,12 +48,6 @@ profiles:
         workingDir: frontend
         command: bun install && bun run dev
     systemPrompt: >
-      You are running inside a tmux session with other panes running services.
-      Pane layout (current window):
-      - Pane 0: this pane (AI agent)
-      - Pane 1: backend (bun run dev)
-      - Pane 2: frontend (bun run dev)
-      To check logs, use: \`tmux capture-pane -t $(tmux display-message -t "$TMUX_PANE" -p '#{session_name}:#{window_name}').1 -p -S -50\` (backend) or \`tmux capture-pane -t $(tmux display-message -t "$TMUX_PANE" -p '#{session_name}:#{window_name}').2 -p -S -50\` (frontend).
       For this window specifically, backend is running on: ${PORT} and frontend is running on: ${FRONTEND_PORT}.
       IMPORTANT: Read docs/autonomous-mode.md before starting any work.
     yolo: true

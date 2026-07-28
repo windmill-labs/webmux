@@ -200,6 +200,8 @@ lifecycleHooks:
 
 </details>
 
+For fresh agents using a host profile, webmux automatically includes capture commands for configured command and shell panes in the agent system prompt. Profile `systemPrompt` values only need to contain project-specific guidance.
+
 <details>
 <summary><strong>.webmux.yaml full schema</strong></summary>
 

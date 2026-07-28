@@ -42,6 +42,7 @@ function createWorktree(overrides: Partial<WorktreeInfo> = {}): WorktreeInfo {
     agentLabel: "Claude",
     agentTerminalStale: false,
     services: [],
+    components: [],
     paneCount: 1,
     prs: [],
     linearIssue: null,

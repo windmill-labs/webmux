@@ -5,6 +5,7 @@
     AvailableBranch,
     BuiltInAgentId,
     CreateWorktreeRequest,
+    ComponentCatalogState,
     ProfileConfig,
     WorktreeCreateMode,
   } from "./types";
@@ -14,9 +15,15 @@
   import Btn from "./Btn.svelte";
   import StartupEnvFields from "./StartupEnvFields.svelte";
   import Toggle from "./Toggle.svelte";
+  import ComponentSelector from "./ComponentSelector.svelte";
 
   let {
     profiles = [],
+    componentCatalog = {
+      status: "disabled",
+      components: [],
+      error: null,
+    },
     agents = [],
     defaultProfileName = "",
     defaultAgentId = "claude",
@@ -38,6 +45,7 @@
     oncancel,
   }: {
     profiles: ProfileConfig[];
+    componentCatalog?: ComponentCatalogState;
     agents?: AgentSummary[];
     defaultProfileName?: string;
     defaultAgentId?: BuiltInAgentId;
@@ -129,6 +137,7 @@
   let multiAgentMode = $state(savedMultiAgentMode);
   let selectedAgentIds = $state<AgentId[]>(savedAgentIds);
   let profile = $state(savedProfile ?? "");
+  let selectedComponentIds = $state<string[]>([]);
   let createLinearTicket = $state(false);
   let linearTitle = $state("");
   // svelte-ignore state_referenced_locally
@@ -164,10 +173,18 @@
       && (!promptRequired || prompt.trim().length > 0)
       && (!createLinearTicket || linearTeamKeyValid),
   );
+  let selectedProfile = $derived(profiles.find((candidate) => candidate.name === profile));
+  let componentsEnabled = $derived(selectedProfile?.componentsEnabled === true);
 
   $effect(() => {
     if (!profiles.some((p) => p.name === profile)) {
       profile = fallbackProfile;
+    }
+  });
+
+  $effect(() => {
+    if (!componentsEnabled && selectedComponentIds.length > 0) {
+      selectedComponentIds = [];
     }
   });
 
@@ -271,6 +288,7 @@
         ...(mode === "new" && selectedBaseBranch ? { baseBranch: selectedBaseBranch } : {}),
         profile,
         agents: [...selectedAgentIds],
+        ...(selectedComponentIds.length > 0 ? { components: [...selectedComponentIds] } : {}),
         ...(trimmedPrompt ? { prompt: trimmedPrompt } : {}),
         ...(Object.keys(filteredEnvs).length > 0 ? { envOverrides: filteredEnvs } : {}),
         ...(createLinearTicket ? { createLinearTicket: true, linearTeamKey: linearTeamKeyTrimmed } : {}),
@@ -459,6 +477,13 @@
           </label>
         {/each}
       </div>
+    {/if}
+    {#if componentsEnabled}
+      <ComponentSelector
+        components={componentCatalog.components}
+        error={componentCatalog.status === "error" ? componentCatalog.error : null}
+        bind:selected={selectedComponentIds}
+      />
     {/if}
     <label
       class="flex items-center gap-2 mb-4 text-[13px] text-muted cursor-pointer"

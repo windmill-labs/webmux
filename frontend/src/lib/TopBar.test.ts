@@ -24,6 +24,7 @@ function createWorktree(
     agentLabel: null,
     agentTerminalStale: false,
     services: [],
+    components: [],
     paneCount: 1,
     prs: [],
     linearIssue: null,

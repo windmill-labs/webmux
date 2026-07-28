@@ -26,6 +26,7 @@ function createWorktree(branch: string, overrides: Partial<WorktreeInfo> = {}): 
     agentLabel: null,
     agentTerminalStale: false,
     services: [],
+    components: [],
     paneCount: 1,
     prs: [],
     linearIssue: null,

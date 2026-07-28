@@ -70,11 +70,17 @@
     subscribeNotifications,
   } from "./lib/api";
   import TabBar from "./lib/TabBar.svelte";
+  import ComponentStatusStrip from "./lib/ComponentStatusStrip.svelte";
 
   function createDefaultConfig(): AppConfig {
     return {
       name: "",
       services: [],
+      componentCatalog: {
+        status: "disabled",
+        components: [],
+        error: null,
+      },
       profiles: [],
       agents: [],
       defaultProfileName: "",
@@ -584,9 +590,14 @@
   let paneBarPanes = $derived.by(() => {
     const count = selectedWorktree?.paneCount ?? 0;
     if (count < 2) return [];
+    const componentsByPane = new Map(
+      (selectedWorktree?.components ?? [])
+        .filter((component) => component.paneIndex !== null)
+        .map((component) => [component.paneIndex, component.label]),
+    );
     return Array.from({ length: count }, (_, i) => ({
       index: i,
-      label: String(i + 1),
+      label: i === 0 ? "Agent" : (componentsByPane.get(i) ?? String(i + 1)),
     }));
   });
   let showPaneBar = $derived(isMobile && canConnect && !showWebChat && paneBarPanes.length > 0);
@@ -1338,6 +1349,7 @@
         />
       {/if}
       {#key selectedTerminalKey}
+        <ComponentStatusStrip components={selectedWorktree?.components ?? []} />
         <Terminal
           worktree={selectedBranch!}
           {isMobile}
@@ -1413,6 +1425,7 @@
 {#if showCreateDialog}
   <CreateWorktreeDialog
     profiles={config.profiles}
+    componentCatalog={config.componentCatalog}
     agents={config.agents}
     defaultProfileName={config.defaultProfileName}
     defaultAgentId={config.defaultAgentId}

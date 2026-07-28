@@ -35,6 +35,7 @@ function makeState(overrides: Partial<ManagedWorktreeRuntimeState> = {}): Manage
       lastError: null,
     },
     services: [],
+    components: [],
     prs: [],
     tabs: [],
     activeTabId: null,

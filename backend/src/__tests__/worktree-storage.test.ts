@@ -336,6 +336,18 @@ describe("worktree env maps", () => {
     expect(env.FRONTEND_PORT).toBe("3010");
   });
 
+  it("includes namespaced component ports without overriding the shared PORT", () => {
+    const env = buildRuntimeEnvMap({
+      ...makeMeta(),
+      selectedComponents: ["service-alerts"],
+      componentPorts: {
+        "service-alerts": { http: 24_000 },
+      },
+    });
+
+    expect(env.WEBMUX_PORT_SERVICE_ALERTS_HTTP).toBe("24000");
+    expect(env.PORT).toBe("5111");
+  });
 });
 
 describe("initializeManagedWorktree", () => {
@@ -415,6 +427,8 @@ describe("initializeManagedWorktree", () => {
 
     expect(await readWorktreeMeta(gitDir)).toEqual({
       ...makeMeta(),
+      selectedComponents: [],
+      componentPorts: {},
       conversation: {
         provider: "codexAppServer",
         conversationId: "thread-legacy",
@@ -635,4 +649,5 @@ describe("initializeManagedWorktree", () => {
     expect(new BunGitGateway().listWorktrees(repoRoot).some((entry) => entry.path === worktreePath)).toBe(false);
     expect(run(["git", "branch", "--list", "feature-tmux-rollback"], repoRoot)).toBe("");
   });
+
 });

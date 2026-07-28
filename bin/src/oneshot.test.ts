@@ -38,20 +38,34 @@ describe("parseOneshotArgs", () => {
       .toThrow("Cannot pass both a positional branch and --resume");
   });
 
-  it("parses agent, base, profile, env overrides", () => {
+  it("parses agent, base, profile, components, and env overrides", () => {
     const parsed = parseOneshotArgs([
       "feature/search",
       "--prompt", "Fix bug",
       "--agent", "codex",
       "--base", "main",
       "--profile", "sandbox",
+      "--component", "mappings-v2",
+      "--component=public-gateway",
       "--env", "FOO=bar",
       "--env=BAZ=qux",
     ]);
     expect(parsed?.body.agent).toBe("codex");
     expect(parsed?.body.baseBranch).toBe("main");
     expect(parsed?.body.profile).toBe("sandbox");
+    expect(parsed?.body.components).toEqual(["mappings-v2", "public-gateway"]);
     expect(parsed?.body.envOverrides).toEqual({ FOO: "bar", BAZ: "qux" });
+  });
+
+  it("rejects component selection while resuming", () => {
+    expect(() => parseOneshotArgs([
+      "--resume",
+      "feature/search",
+      "--prompt",
+      "continue",
+      "--component",
+      "mappings-v2",
+    ])).toThrow("Cannot change components when resuming a worktree");
   });
 
   it("returns null for --help", () => {

@@ -146,6 +146,27 @@ _webmux() {
   fi
 
   case "\${words[2]}" in
+    add)
+      _arguments \
+        '*--agent=[Agent id]:agent id:' \
+        '*--component=[App component id]:component id:' \
+        '*--env=[Runtime environment override]:KEY=VALUE:' \
+        '--base=[Base branch]:branch:' \
+        '--profile=[Worktree profile]:profile:' \
+        '--prompt=[Initial prompt]:prompt:' \
+        '--existing[Use an existing branch]' \
+        '--detach[Do not switch to the new worktree]'
+      ;;
+    oneshot)
+      _arguments \
+        '--agent=[Agent id]:agent id:' \
+        '*--component=[App component id]:component id:' \
+        '*--env=[Runtime environment override]:KEY=VALUE:' \
+        '--base=[Base branch]:branch:' \
+        '--profile=[Worktree profile]:profile:' \
+        '--prompt=[Initial prompt]:prompt:' \
+        '--keep-open[Keep the worktree session open]'
+      ;;
     open|close|refresh|archive|unarchive|label|remove|merge|send)
       if (( CURRENT == 3 )); then
         local -a branches
@@ -211,6 +232,16 @@ const BASH_SCRIPT = `_webmux() {
   fi
 
   case "\${COMP_WORDS[1]}" in
+    add)
+      if [[ "\${cur}" == --* ]]; then
+        COMPREPLY=($(compgen -W "--existing --base --profile --agent --component --prompt --env --detach --from-linear --help" -- "\${cur}"))
+      fi
+      ;;
+    oneshot)
+      if [[ "\${cur}" == --* ]]; then
+        COMPREPLY=($(compgen -W "--resume --prompt --agent --base --profile --component --env --keep-open --linear --branch --help" -- "\${cur}"))
+      fi
+      ;;
     open|close|refresh|archive|unarchive|label|remove|merge|send)
       if [[ \${COMP_CWORD} -eq 2 ]]; then
         local branches

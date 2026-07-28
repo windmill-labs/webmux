@@ -4,6 +4,7 @@ import { dirname, resolve } from "node:path";
 import { ensureAgentRuntimeArtifacts } from "../adapters/agent-runtime";
 import type { CreateWorktreeMode, GitGateway, GitWorktreeEntry } from "../adapters/git";
 import type { LifecycleHookRunner, RunLifecycleHookInput } from "../adapters/hooks";
+import type { PortProbe } from "../adapters/port-probe";
 import {
   buildControlEnvMap,
   buildRuntimeEnvMap,
@@ -19,6 +20,7 @@ import { type DockerGateway } from "../adapters/docker";
 import { buildProjectSessionName, buildWorktreeParkingWindowName, buildWorktreeWindowName, type TmuxGateway } from "../adapters/tmux";
 import { captureNewSessionId, type SessionDiscoveryGateway } from "../adapters/session-discovery";
 import type { AgentId, ProfileConfig, ProjectConfig, RuntimeKind } from "../domain/config";
+import type { ComponentDefinition } from "../domain/components";
 import { ROOT_TAB_ID, type ControlEnvMap, type OneshotMeta, type WorktreeCreationPhase, type WorktreeMeta, type WorktreeSource, type WorktreeTab } from "../domain/model";
 import {
   activeTabId as readActiveTabId,
@@ -44,6 +46,8 @@ import {
 } from "./agent-service";
 import { getAgentDefinition, type AgentDefinition } from "./agent-registry";
 import type { ReconciliationService } from "./reconciliation-service";
+import type { ComponentCatalogService } from "./component-catalog-service";
+import { allocateComponentPorts } from "./component-port-service";
 import { buildTmuxPaneSystemPrompt, ensureSessionLayout, planSessionLayout } from "./session-service";
 import { ArchiveStateService } from "./archive-state-service";
 import {
@@ -169,6 +173,8 @@ export interface LifecycleServiceDependencies {
   reconciliation: ReconciliationService;
   hooks: LifecycleHookRunner;
   autoName: AutoNameGenerator;
+  componentCatalog?: Pick<ComponentCatalogService, "getState" | "getComponents">;
+  portProbe?: PortProbe;
   onCreateProgress?: (progress: CreateWorktreeProgress) => void | Promise<void>;
   onCreateFinished?: (branch: string) => void | Promise<void>;
 }
@@ -181,6 +187,7 @@ export interface CreateLifecycleWorktreeInput {
   profile?: string;
   agent?: AgentId;
   envOverrides?: Record<string, string>;
+  components?: string[];
   source?: WorktreeSource;
   oneshot?: OneshotMeta;
 }
@@ -294,6 +301,7 @@ export class LifecycleService {
         initialized = { ...initialized, meta: nextMeta };
       }
       const { profileName, profile } = this.resolveProfile(initialized.meta.profile);
+      const components = await this.resolveSelectedComponents(initialized.meta.selectedComponents, profile);
       const agent = this.resolveAgentDefinition(initialized.meta.agent);
       const launchMode: AgentLaunchMode = resolved.meta && agent.capabilities.resume ? "resume" : "fresh";
       const resumeConversationId = resolveCodexResumeConversationId(initialized.meta, agent, launchMode);
@@ -312,6 +320,7 @@ export class LifecycleService {
         launchMode,
         followUpPrompt: options.prompt,
         resumeConversationId,
+        components,
       });
 
       if (initialized.meta.agentTerminalStale === true) {
@@ -352,6 +361,7 @@ export class LifecycleService {
 
       const initialized = await this.refreshManagedArtifacts(resolved);
       const { profileName, profile } = this.resolveProfile(initialized.meta.profile);
+      const components = await this.resolveSelectedComponents(initialized.meta.selectedComponents, profile);
       const agent = this.resolveAgentDefinition(initialized.meta.agent);
       if (agent.kind !== "builtin" || (agent.implementation.agent !== "codex" && agent.implementation.agent !== "claude")) {
         throw new LifecycleError("Refreshing the agent terminal is only available for built-in agent worktrees", 409);
@@ -388,6 +398,7 @@ export class LifecycleService {
         worktreePath: resolved.entry.path,
         launchMode: "resume",
         resumeConversationId,
+        components,
       });
 
       await writeWorktreeMeta(resolved.gitDir, {
@@ -865,6 +876,58 @@ export class LifecycleService {
     return agent;
   }
 
+  private async resolveSelectedComponents(
+    componentIds: string[] | undefined,
+    profile: ProfileConfig,
+  ): Promise<ComponentDefinition[]> {
+    const requestedIds = [...new Set((componentIds ?? []).map((id) => id.trim()).filter(Boolean))];
+    if (requestedIds.length === 0) return [];
+
+    const componentGroups = profile.panes.filter((pane) => pane.kind === "componentGroup");
+    if (componentGroups.length === 0) {
+      throw new LifecycleError("The selected profile does not support components", 400);
+    }
+    if (
+      profile.runtime !== "host"
+      || componentGroups.length !== 1
+      || profile.panes.at(-1)?.kind !== "componentGroup"
+      || profile.panes.length !== 2
+      || profile.panes[0]?.kind !== "agent"
+    ) {
+      throw new LifecycleError(
+        "The component POC requires a host profile with one agent pane followed by one componentGroup",
+        400,
+      );
+    }
+
+    const catalogState = await this.deps.componentCatalog?.getState();
+    if (!catalogState || catalogState.status === "disabled") {
+      throw new LifecycleError("This project does not define a component catalog", 400);
+    }
+    if (catalogState.status === "error") {
+      throw new LifecycleError(`Component catalog is unavailable: ${catalogState.error}`, 422);
+    }
+
+    const requestedSet = new Set(requestedIds);
+    const unknownIds = requestedIds.filter((id) =>
+      !catalogState.components.some((component) => component.id === id)
+    );
+    if (unknownIds.length > 0) {
+      throw new LifecycleError(`Unknown component: ${unknownIds.join(", ")}`, 400);
+    }
+    return catalogState.components.filter((component) => requestedSet.has(component.id));
+  }
+
+  private async allocateSelectedComponentPorts(
+    components: ComponentDefinition[],
+  ): Promise<Record<string, Record<string, number>>> {
+    if (components.length === 0) return {};
+    if (!this.deps.portProbe) {
+      throw new LifecycleError("Component port allocation is unavailable", 500);
+    }
+    return await allocateComponentPorts(await this.readManagedMetas(), components, this.deps.portProbe);
+  }
+
   private resolveSelectedAgents(input: CreateLifecycleWorktreesInput): AgentId[] {
     const selectedAgents = input.agents && input.agents.length > 0
       ? input.agents
@@ -1074,6 +1137,7 @@ export class LifecycleService {
     launchMode: AgentLaunchMode;
     source?: WorktreeSource;
     resumeConversationId?: string;
+    components: ComponentDefinition[];
   }): Promise<void> {
     if (input.profile.runtime === "docker") {
       const dockerProfile = this.requireDockerProfile(input.profile);
@@ -1097,6 +1161,7 @@ export class LifecycleService {
         launchMode: input.launchMode,
         source: input.source,
         resumeConversationId: input.resumeConversationId,
+        components: input.components,
         containerName,
       }));
       return;
@@ -1114,6 +1179,7 @@ export class LifecycleService {
       launchMode: input.launchMode,
       source: input.source,
       resumeConversationId: input.resumeConversationId,
+      components: input.components,
     }));
   }
 
@@ -1129,6 +1195,7 @@ export class LifecycleService {
     launchMode: AgentLaunchMode;
     source?: WorktreeSource;
     resumeConversationId?: string;
+    components: ComponentDefinition[];
     containerName?: string;
   }) {
     const baseSystemPrompt = input.launchMode === "fresh" && input.profile.systemPrompt
@@ -1138,7 +1205,7 @@ export class LifecycleService {
       ? this.deps.config.oneshot.systemPrompt
       : undefined;
     const tmuxPanePrompt = input.launchMode === "fresh" && input.profile.runtime === "host"
-      ? buildTmuxPaneSystemPrompt(input.profile.panes)
+      ? buildTmuxPaneSystemPrompt(input.profile.panes, input.components)
       : undefined;
     const systemPromptParts = [baseSystemPrompt, tmuxPanePrompt, oneshotPrompt]
       .filter((part): part is string => part !== undefined && part.length > 0);
@@ -1194,7 +1261,12 @@ export class LifecycleService {
                 resumeConversationId: input.resumeConversationId,
               }),
               shell: buildManagedShellCommand(input.initialized.paths.runtimeEnvPath),
-        },
+            },
+        runtimeEnvPath: input.initialized.paths.runtimeEnvPath,
+        components: input.components.map((component) => ({
+          definition: component,
+          ports: input.initialized.meta.componentPorts?.[component.id] ?? {},
+        })),
       },
     );
   }
@@ -1365,6 +1437,8 @@ export class LifecycleService {
     const baseBranch = input.mode === "new" ? (requestedBaseBranch || this.deps.config.workspace.mainBranch) : undefined;
     const branchAvailability = this.resolveBranchAvailability(input.branch, input.mode);
     const { profileName, profile } = this.resolveProfile(input.profile);
+    const selectedComponents = await this.resolveSelectedComponents(input.components, profile);
+    const componentPorts = await this.allocateSelectedComponentPorts(selectedComponents);
     const agent = this.resolveAgentDefinition(input.agent);
     const worktreePath = this.resolveWorktreePath(input.branch);
     const source: WorktreeSource = input.source ?? "ui";
@@ -1400,6 +1474,8 @@ export class LifecycleService {
           runtime: profile.runtime,
           startupEnvValues: await this.buildStartupEnvValues(input.envOverrides),
           allocatedPorts: await this.allocatePorts(),
+          selectedComponents: selectedComponents.map((component) => component.id),
+          componentPorts,
           runtimeEnvExtras: { WEBMUX_WORKTREE_PATH: worktreePath },
           ...(await this.controlEnvFields(profile.runtime)),
           deleteBranchOnRollback,
@@ -1449,6 +1525,7 @@ export class LifecycleService {
         creationPrompt: input.prompt,
         launchMode: "fresh",
         source,
+        components: selectedComponents,
       });
 
       await this.reportCreateProgress({

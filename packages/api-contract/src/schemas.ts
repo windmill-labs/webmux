@@ -78,6 +78,32 @@ export const AgentCapabilitiesSchema = z.object({
   resume: z.boolean(),
 });
 
+export const ComponentIdSchema = z.string().trim().min(1);
+
+export const ComponentSummarySchema = z.object({
+  id: ComponentIdSchema,
+  label: z.string(),
+  kind: z.string(),
+});
+
+export const ComponentCatalogStateSchema = z.object({
+  status: z.enum(["disabled", "ready", "error"]),
+  components: z.array(ComponentSummarySchema),
+  error: z.string().nullable(),
+});
+
+export const ComponentRuntimeStatusSchema = z.object({
+  id: ComponentIdSchema,
+  label: z.string(),
+  kind: z.string(),
+  paneIndex: z.number().int().nonnegative().nullable(),
+  processStatus: z.enum(["running", "exited", "stopped"]),
+  healthStatus: z.enum(["starting", "ready", "unhealthy", "unavailable"]),
+  ports: z.record(z.number().int().positive()),
+  urls: z.record(z.string()),
+  exitCode: z.number().int().nullable(),
+});
+
 export const AgentSummarySchema = z.object({
   id: AgentIdSchema,
   label: z.string(),
@@ -148,6 +174,7 @@ export const CreateWorktreeRequestSchema = z.object({
   agents: z.array(AgentIdSchema).min(1).optional(),
   prompt: z.string().optional(),
   envOverrides: z.record(z.string()).optional(),
+  components: z.array(ComponentIdSchema).optional(),
   createLinearTicket: z.literal(true).optional(),
   linearTitle: z.string().optional(),
   // Accept any case at the boundary, then normalize and validate against the
@@ -355,6 +382,7 @@ export const ProjectWorktreeSnapshotSchema = z.object({
   status: z.string(),
   elapsed: z.string(),
   services: z.array(ServiceStatusSchema),
+  components: z.array(ComponentRuntimeStatusSchema).default([]),
   prs: z.array(PrEntrySchema),
   linearIssue: LinkedLinearIssueSchema.nullable(),
   creation: WorktreeCreationStateSchema.nullable(),
@@ -531,6 +559,7 @@ export const ServiceConfigSchema = z.object({
 export const ProfileConfigSchema = z.object({
   name: z.string(),
   systemPrompt: z.string().optional(),
+  componentsEnabled: z.boolean().optional(),
 });
 
 export const LinkedRepoInfoSchema = z.object({
@@ -541,6 +570,7 @@ export const LinkedRepoInfoSchema = z.object({
 export const AppConfigSchema = z.object({
   name: z.string(),
   services: z.array(ServiceConfigSchema),
+  componentCatalog: ComponentCatalogStateSchema.optional(),
   profiles: z.array(ProfileConfigSchema),
   agents: z.array(AgentSummarySchema),
   defaultProfileName: z.string(),
@@ -686,6 +716,9 @@ export type AgentListResponse = z.infer<typeof AgentListResponseSchema>;
 export type UpsertCustomAgentRequest = z.infer<typeof UpsertCustomAgentRequestSchema>;
 export type AgentResponse = z.infer<typeof AgentResponseSchema>;
 export type ValidateCustomAgentResponse = z.infer<typeof ValidateCustomAgentResponseSchema>;
+export type ComponentSummary = z.infer<typeof ComponentSummarySchema>;
+export type ComponentCatalogState = z.infer<typeof ComponentCatalogStateSchema>;
+export type ComponentRuntimeStatus = z.infer<typeof ComponentRuntimeStatusSchema>;
 export type WorktreeCreateMode = z.infer<typeof WorktreeCreateModeSchema>;
 export type LinearIssueId = z.infer<typeof LinearIssueIdSchema>;
 export type LinearTeamKey = z.infer<typeof LinearTeamKeySchema>;

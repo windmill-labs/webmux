@@ -30,6 +30,7 @@ export function getOneshotUsage(): string {
   return [
     "Usage:",
     "  webmux oneshot [branch] --prompt <text> [--agent <id>] [--base <branch>] [--profile <name>]",
+    "                          [--component <id>]...",
     "                          [--env KEY=VALUE]... [--keep-open] [--linear <issue-id|team-key>]",
     "  webmux oneshot --resume <branch> --prompt <text>",
     "",
@@ -49,6 +50,7 @@ export function getOneshotUsage(): string {
     "  --agent <id>             Agent id to launch",
     "  --base <branch>          Base branch for a new worktree (defaults to config)",
     "  --profile <name>         Worktree profile from .webmux.yaml",
+    "  --component <id>         App component to launch (repeatable)",
     "  --env KEY=VALUE          Runtime env override (repeatable)",
     "  --keep-open              Don't auto-close the worktree session when the agent finishes",
     "  --linear ID|TEAM         Tie this oneshot to Linear:",
@@ -85,6 +87,7 @@ export function parseOneshotArgs(args: string[]): ParsedOneshotCommand | null {
   let keepOpen = false;
   let fromLinearIssueId: string | null = null;
   let postToLinearTarget: PostWorktreeToLinearTarget | null = null;
+  const selectedComponents: string[] = [];
 
   for (let index = 0; index < args.length; index++) {
     const arg = args[index];
@@ -124,6 +127,15 @@ export function parseOneshotArgs(args: string[]): ParsedOneshotCommand | null {
     if (arg === "--profile" || arg.startsWith("--profile=")) {
       const { value, nextIndex } = readOptionValue(args, index, "--profile");
       body.profile = value;
+      index = nextIndex;
+      continue;
+    }
+
+    if (arg === "--component" || arg.startsWith("--component=")) {
+      const { value, nextIndex } = readOptionValue(args, index, "--component");
+      const componentId = value.trim();
+      if (!componentId) throw new CommandUsageError("Component id cannot be empty");
+      selectedComponents.push(componentId);
       index = nextIndex;
       continue;
     }
@@ -184,6 +196,9 @@ export function parseOneshotArgs(args: string[]): ParsedOneshotCommand | null {
   }
 
   if (resume) {
+    if (selectedComponents.length > 0) {
+      throw new CommandUsageError("Cannot change components when resuming a worktree");
+    }
     if (fromLinearIssueId) {
       throw new CommandUsageError("Cannot use --resume with --linear <issue-id>");
     }
@@ -215,6 +230,7 @@ export function parseOneshotArgs(args: string[]): ParsedOneshotCommand | null {
 
   if (branch) body.branch = branch;
   if (prompt) body.prompt = prompt;
+  if (selectedComponents.length > 0) body.components = [...new Set(selectedComponents)];
   if (Object.keys(envOverrides).length > 0) body.envOverrides = envOverrides;
 
   return {

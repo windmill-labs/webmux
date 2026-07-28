@@ -43,6 +43,7 @@ function makeWorktree(overrides: {
       lastError: null,
     },
     services: [],
+    components: [],
     prs: overrides.prs ?? [],
     tabs: [],
     activeTabId: null,

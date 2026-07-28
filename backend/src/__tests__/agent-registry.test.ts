@@ -11,6 +11,7 @@ import {
 
 const TEST_CONFIG: ProjectConfig = {
   name: "Project",
+  componentCatalog: null,
   workspace: {
     mainBranch: "main",
     worktreeRoot: "__worktrees",

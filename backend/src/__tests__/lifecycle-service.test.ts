@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ProjectConfig } from "../domain/config";
+import type { ComponentCatalogState, ComponentDefinition } from "../domain/components";
 import { BunGitGateway, type GitGateway } from "../adapters/git";
 import type { LifecycleHookRunner, RunLifecycleHookInput } from "../adapters/hooks";
 import type { PortProbe } from "../adapters/port-probe";
@@ -22,6 +23,7 @@ import type { AutoNameConfig } from "../domain/config";
 import { ProjectRuntime } from "../services/project-runtime";
 import { ArchiveStateService } from "../services/archive-state-service";
 import type { AutoNameGenerator } from "../services/auto-name-service";
+import type { ComponentCatalogService } from "../services/component-catalog-service";
 import { ReconciliationService } from "../services/reconciliation-service";
 import {
   buildCreateWorktreeTargets,
@@ -232,6 +234,7 @@ class AheadTrackingGitGateway extends BunGitGateway {
 
 const TEST_CONFIG: ProjectConfig = {
   name: "Project",
+  componentCatalog: null,
   workspace: {
     mainBranch: "main",
     worktreeRoot: "__worktrees",
@@ -301,6 +304,21 @@ const NO_DEFAULT_PROFILE_CONFIG: ProjectConfig = {
   },
 };
 
+const COMPONENT_PROFILE_CONFIG: ProjectConfig = {
+  ...TEST_CONFIG,
+  componentCatalog: { command: "catalog" },
+  profiles: {
+    host: {
+      runtime: "host",
+      envPassthrough: [],
+      panes: [
+        { id: "agent", kind: "agent", focus: true },
+        { id: "components", kind: "componentGroup", split: "right", layout: "tiled" },
+      ],
+    },
+  },
+};
+
 function makeLifecycleService(
   repoRoot: string,
   tmux: FakeTmuxGateway,
@@ -318,6 +336,7 @@ function makeLifecycleService(
   // `null` explicitly configures no control reporting (passing `undefined` would
   // fall back to the default below).
   controlBaseUrl: string | null = "http://127.0.0.1:5111",
+  componentCatalog?: Pick<ComponentCatalogService, "getState" | "getComponents">,
 ): LifecycleService {
   const reconciliation = new ReconciliationService({
     config,
@@ -325,6 +344,7 @@ function makeLifecycleService(
     tmux,
     portProbe: new FakePortProbe(),
     runtime,
+    componentCatalog,
   });
 
   return new LifecycleService({
@@ -340,6 +360,8 @@ function makeLifecycleService(
     reconciliation,
     hooks,
     autoName,
+    componentCatalog,
+    portProbe: new FakePortProbe(),
     onCreateProgress: createCallbacks.onProgress,
     onCreateFinished: createCallbacks.onFinished,
   });
@@ -441,6 +463,75 @@ describe("LifecycleService", () => {
     const state = runtime.getWorktreeByBranch("feature/search");
     expect(state?.session.exists).toBe(true);
     expect(state?.session.paneCount).toBe(2);
+  });
+
+  it("persists selected components, allocates ports, and creates their panes", async () => {
+    const repoRoot = await initRepo();
+    const runtime = new ProjectRuntime();
+    const tmux = new FakeTmuxGateway();
+    const definitions: ComponentDefinition[] = [
+      {
+        id: "gateway-web",
+        label: "Gateway",
+        kind: "gateway",
+        workingDir: "services/gateway-web",
+        command: "yarn dev",
+        environment: {},
+        ports: [{ name: "http", processEnv: "PORT", protocol: "http", health: { type: "tcp" } }],
+      },
+      {
+        id: "service-alerts",
+        label: "Alerts",
+        kind: "service",
+        workingDir: "services/service-alerts",
+        command: "yarn dev",
+        environment: {},
+        ports: [{ name: "http", processEnv: "PORT", protocol: "http", health: { type: "tcp" } }],
+      },
+    ];
+    const catalogState: ComponentCatalogState = {
+      status: "ready",
+      components: definitions,
+      error: null,
+    };
+    const lifecycle = makeLifecycleService(
+      repoRoot,
+      tmux,
+      runtime,
+      undefined,
+      undefined,
+      COMPONENT_PROFILE_CONFIG,
+      undefined,
+      undefined,
+      {},
+      undefined,
+      null,
+      {
+        getState: async () => catalogState,
+        getComponents: async () => definitions,
+      },
+    );
+
+    await mkdir(join(repoRoot, "services", "gateway-web"), { recursive: true });
+    await mkdir(join(repoRoot, "services", "service-alerts"), { recursive: true });
+    await Bun.write(join(repoRoot, "services", "gateway-web", "package.json"), "{}\n");
+    await Bun.write(join(repoRoot, "services", "service-alerts", "package.json"), "{}\n");
+    run(["git", "add", "services"], repoRoot);
+    run(["git", "commit", "-m", "add services"], repoRoot);
+    await lifecycle.createWorktree({
+      branch: "feature-components",
+      profile: "host",
+      components: ["service-alerts", "gateway-web"],
+    });
+
+    const worktreePath = join(repoRoot, "__worktrees", "feature-components");
+    const gitDir = new BunGitGateway().resolveWorktreeGitDir(worktreePath);
+    const meta = await readWorktreeMeta(gitDir);
+    expect(meta?.selectedComponents).toEqual(["gateway-web", "service-alerts"]);
+    expect(meta?.componentPorts?.["gateway-web"]?.http).toBeGreaterThanOrEqual(24_000);
+    expect(meta?.componentPorts?.["service-alerts"]?.http).toBeGreaterThanOrEqual(24_000);
+    expect(meta?.componentPorts?.["gateway-web"]?.http).not.toBe(meta?.componentPorts?.["service-alerts"]?.http);
+    expect(tmux.listWindows().find((window) => window.role === "main")?.paneCount).toBe(3);
   });
 
   it("writes no control.env when no control base URL is configured", async () => {

@@ -408,6 +408,138 @@ describe("ensureSessionLayout", () => {
       await rm(testRoot, { recursive: true, force: true });
     }
   });
+
+  it("keeps the agent at half width and stacks three direct component processes", async () => {
+    const testRoot = await mkdtemp(join(tmpdir(), "webmux-tmux-components-"));
+    const projectRoot = join(testRoot, "repo");
+    const worktreePath = join(projectRoot, "__worktrees", "feature-components");
+    const runtimeEnvPath = join(testRoot, "runtime.env");
+    const runnerPath = join(testRoot, "run-components.ts");
+    await mkdir(join(worktreePath, "services", "service-a"), { recursive: true });
+    await mkdir(join(worktreePath, "services", "service-b"), { recursive: true });
+    await mkdir(join(worktreePath, "services", "gateway-c"), { recursive: true });
+    await Bun.write(runtimeEnvPath, "BASE_ENV=ready\n");
+
+    const tmuxModuleUrl = new URL("../adapters/tmux.ts", import.meta.url).href;
+    const sessionServiceModuleUrl = new URL("../services/session-service.ts", import.meta.url).href;
+    await Bun.write(
+      runnerPath,
+      [
+        `import { ensureSessionLayout, planSessionLayout } from ${JSON.stringify(sessionServiceModuleUrl)};`,
+        `import { BunTmuxGateway } from ${JSON.stringify(tmuxModuleUrl)};`,
+        "",
+        "function read(args: string[]): string {",
+        '  const result = Bun.spawnSync(args, { stdout: "pipe", stderr: "pipe" });',
+        "  if (result.exitCode !== 0) {",
+        "    const stderr = new TextDecoder().decode(result.stderr).trim();",
+        '    throw new Error(`${args.join(" ")} failed: ${stderr || `exit ${result.exitCode}`}`);',
+        "  }",
+        '  return new TextDecoder().decode(result.stdout).trim();',
+        "}",
+        "",
+        "const projectRoot = process.argv[2];",
+        "const worktreePath = process.argv[3];",
+        "const runtimeEnvPath = process.argv[4];",
+        'if (!projectRoot || !worktreePath || !runtimeEnvPath) throw new Error("missing paths");',
+        "const component = (id: string, label: string) => ({",
+        "  definition: {",
+        "    id,",
+        "    label,",
+        '    kind: id.startsWith("gateway") ? "gateway" : "service",',
+        '    workingDir: `services/${id}`,',
+        '    command: "sleep 30",',
+        "    environment: {},",
+        "    ports: [],",
+        "  },",
+        "  ports: {},",
+        "});",
+        "const gateway = new BunTmuxGateway();",
+        "const plan = planSessionLayout(",
+        "  projectRoot,",
+        '  "feature/components",',
+        '  "wt_components",',
+        "  [",
+        '    { id: "agent", kind: "agent", focus: true },',
+        '    { id: "components", kind: "componentGroup", split: "right", layout: "tiled" },',
+        "  ],",
+        "  {",
+        "    repoRoot: projectRoot,",
+        "    worktreePath,",
+        "    runtimeEnvPath,",
+        '    paneCommands: { agent: "", shell: "sh" },',
+        "    components: [",
+        '      component("service-a", "Service A"),',
+        '      component("service-b", "Service B"),',
+        '      component("gateway-c", "Gateway C"),',
+        "    ],",
+        "  },",
+        ");",
+        "ensureSessionLayout(gateway, plan);",
+        "const panes = read([",
+        '  "tmux", "list-panes", "-t", `${plan.sessionName}:${plan.windowName}`,',
+        '  "-F", "#{pane_index}\\t#{pane_left}\\t#{pane_top}\\t#{pane_width}\\t#{pane_height}\\t#{@wm_component_id}\\t#{pane_current_command}",',
+        ']).split("\\n").map((line) => {',
+        "  const [index, left, top, width, height, componentId, command] = line.split(\"\\t\");",
+        "  return {",
+        "    index: Number(index),",
+        "    left: Number(left),",
+        "    top: Number(top),",
+        "    width: Number(width),",
+        "    height: Number(height),",
+        "    componentId,",
+        "    command,",
+        "  };",
+        "});",
+        'const exitedTarget = `${plan.sessionName}:${plan.windowName}.1`;',
+        'read(["tmux", "send-keys", "-t", exitedTarget, "C-c"]);',
+        "await Bun.sleep(100);",
+        'const exited = read(["tmux", "display-message", "-p", "-t", exitedTarget, "#{pane_dead}\\t#{@wm_component_id}"]).split("\\t");',
+        "console.log(JSON.stringify({ panes, exited }));",
+      ].join("\n"),
+    );
+
+    try {
+      const output = readWithIsolatedTmux([
+        "bun",
+        runnerPath,
+        projectRoot,
+        worktreePath,
+        runtimeEnvPath,
+      ]);
+      const result = JSON.parse(output) as {
+        panes: Array<{
+          index: number;
+          left: number;
+          top: number;
+          width: number;
+          height: number;
+          componentId: string;
+          command: string;
+        }>;
+        exited: string[];
+      };
+      const panes = result.panes;
+      const agentPane = panes.find((pane) => pane.index === 0);
+      const componentPanes = panes.filter((pane) => pane.componentId.length > 0);
+
+      expect(panes).toHaveLength(4);
+      expect(agentPane?.left).toBe(0);
+      expect(componentPanes.map((pane) => pane.componentId).sort()).toEqual([
+        "gateway-c",
+        "service-a",
+        "service-b",
+      ]);
+      expect(new Set(componentPanes.map((pane) => pane.left)).size).toBe(1);
+      expect(componentPanes[0]?.left).toBeGreaterThan(0);
+      expect(Math.abs((agentPane?.width ?? 0) - (componentPanes[0]?.width ?? 0))).toBeLessThanOrEqual(2);
+      expect(Math.max(...componentPanes.map((pane) => pane.height))
+        - Math.min(...componentPanes.map((pane) => pane.height))).toBeLessThanOrEqual(1);
+      expect(componentPanes.every((pane) => pane.command === "sleep")).toBe(true);
+      expect(result.exited).toEqual(["1", "service-a"]);
+    } finally {
+      await rm(testRoot, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("isolated tmux wrapper", () => {

@@ -1,4 +1,5 @@
 import type { AgentId, RuntimeKind } from "./config";
+import type { ComponentRuntimeState } from "./components";
 
 export const WORKTREE_META_SCHEMA_VERSION = 1;
 export const WORKTREE_ARCHIVE_STATE_VERSION = 1;
@@ -69,6 +70,8 @@ export interface WorktreeMeta {
   runtime: RuntimeKind;
   startupEnvValues: Record<string, string>;
   allocatedPorts: Record<string, number>;
+  selectedComponents?: string[];
+  componentPorts?: Record<string, Record<string, number>>;
   source?: WorktreeSource;
   oneshot?: OneshotMeta;
   conversation?: WorktreeConversationMeta | null;
@@ -235,6 +238,7 @@ export interface ManagedWorktreeRuntimeState {
   session: SessionRuntimeState;
   agent: AgentRuntimeState;
   services: ServiceRuntimeState[];
+  components: ComponentRuntimeState[];
   prs: PrEntry[];
 }
 
@@ -265,6 +269,7 @@ export interface WorktreeSnapshot {
   status: string;
   elapsed: string;
   services: ServiceRuntimeState[];
+  components: ComponentRuntimeState[];
   prs: PrEntry[];
   linearIssue: LinkedLinearIssue | null;
   creation: WorktreeCreationSnapshot | null;

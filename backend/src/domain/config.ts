@@ -1,3 +1,5 @@
+import type { ComponentCatalogConfig } from "./components";
+
 export type AgentKind = "claude" | "codex";
 export type AgentId = string;
 export type RuntimeKind = "host" | "docker";
@@ -7,7 +9,7 @@ export interface CustomAgentConfig {
   startCommand: string;
   resumeCommand?: string;
 }
-export type PaneKind = "agent" | "shell" | "command";
+export type PaneKind = "agent" | "shell" | "command" | "componentGroup";
 export type PaneSplit = "right" | "bottom";
 
 export interface AutoPullConfig {
@@ -31,6 +33,7 @@ export interface PaneTemplate {
   command?: string;
   cwd?: "worktree" | "repo";
   workingDir?: string;
+  layout?: "tiled";
 }
 
 export interface MountSpec {
@@ -100,6 +103,7 @@ export interface OneshotConfig {
 export interface ProjectConfig {
   name: string;
   workspace: WorkspaceConfig;
+  componentCatalog: ComponentCatalogConfig | null;
   profiles: Record<string, ProfileConfig>;
   agents: Record<AgentId, CustomAgentConfig>;
   services: ServiceSpec[];

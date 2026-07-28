@@ -212,6 +212,7 @@ const tmux = runtime.tmux;
 const projectRuntime = runtime.projectRuntime;
 const worktreeCreationTracker = runtime.worktreeCreationTracker;
 const runtimeNotifications = runtime.runtimeNotifications;
+const componentCatalog = runtime.componentCatalog;
 const reconciliationService = runtime.reconciliationService;
 const codexAppServerClient = new CodexAppServerClient({
   clientName: "webmux-agents",
@@ -372,10 +373,15 @@ const autoRemoveDeps: AutoRemoveDependencies = {
     fetchBranchPrStates(config.integrations.github.linkedRepos, PROJECT_DIR),
 };
 
-function getFrontendConfig(): {
+async function getFrontendConfig(): Promise<{
   name: string;
   services: ProjectConfig["services"];
-  profiles: Array<{ name: string; systemPrompt?: string }>;
+  componentCatalog: {
+    status: "disabled" | "ready" | "error";
+    components: Array<{ id: string; label: string; kind: string }>;
+    error: string | null;
+  };
+  profiles: Array<{ name: string; systemPrompt?: string; componentsEnabled?: boolean }>;
   agents: ReturnType<typeof listAgentSummaries>;
   defaultProfileName: string;
   defaultAgentId: ProjectConfig["workspace"]["defaultAgent"];
@@ -387,8 +393,9 @@ function getFrontendConfig(): {
   autoRemoveOnMerge: boolean;
   projectDir: string;
   mainBranch: string;
-} {
+}> {
   const defaultProfileName = getDefaultProfileName(config);
+  const catalogState = await componentCatalog.getState();
   const orderedProfileEntries = Object.entries(config.profiles).sort(([left], [right]) => {
     if (left === defaultProfileName) return -1;
     if (right === defaultProfileName) return 1;
@@ -398,9 +405,21 @@ function getFrontendConfig(): {
   return {
     name: config.name,
     services: config.services,
+    componentCatalog: {
+      status: catalogState.status,
+      components: catalogState.components.map((component) => ({
+        id: component.id,
+        label: component.label,
+        kind: component.kind,
+      })),
+      error: catalogState.error,
+    },
     profiles: orderedProfileEntries.map(([name, profile]) => ({
       name,
       ...(profile.systemPrompt ? { systemPrompt: profile.systemPrompt } : {}),
+      ...(profile.panes.some((pane) => pane.kind === "componentGroup")
+        ? { componentsEnabled: true }
+        : {}),
     })),
     agents: listAgentSummaries(config),
     defaultProfileName,
@@ -1239,6 +1258,7 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
   const profile = body.profile;
   const agent = body.agent;
   const agents = body.agents;
+  const components = body.components;
   const createLinearTicket = body.createLinearTicket === true;
   const linearTitle = body.linearTitle?.trim() ? body.linearTitle.trim() : undefined;
   // CreateWorktreeRequestSchema already trims, uppercases, and validates the
@@ -1373,6 +1393,7 @@ async function apiCreateWorktree(req: Request): Promise<Response> {
     prompt: resolvedPrompt,
     profile,
     ...(agents && agents.length > 0 ? { agents } : { agent }),
+    components,
     envOverrides,
     ...(body.source ? { source: body.source } : {}),
     ...(oneshot ? { oneshot } : {}),
@@ -1910,7 +1931,7 @@ function parseAgentIdParam(params: Record<string, string>):
     },
 
     [apiPaths.fetchConfig]: {
-      GET: () => jsonResponse(getFrontendConfig()),
+      GET: async () => jsonResponse(await getFrontendConfig()),
     },
 
     [apiPaths.fetchAvailableBranches]: {

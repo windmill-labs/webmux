@@ -23,6 +23,7 @@ describe("buildAgentsUiWorktreeSummary", () => {
       services: [
         { name: "frontend", port: 3010, running: true, url: "http://127.0.0.1:3010" },
       ],
+      components: [],
       prs: [
         {
           repo: "webmux",
@@ -109,6 +110,7 @@ describe("buildAgentsUiWorktreeSummary", () => {
       status: "closed",
       elapsed: "",
       services: [],
+      components: [],
       prs: [],
       linearIssue: null,
       creation: null,

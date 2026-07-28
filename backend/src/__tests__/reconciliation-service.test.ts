@@ -5,7 +5,7 @@ import { join } from "node:path";
 import type { ProjectConfig } from "../domain/config";
 import type { GitGateway, GitWorktreeEntry, GitWorktreeStatus, TryGitCommandResult, UnpushedCommit } from "../adapters/git";
 import type { PortProbe } from "../adapters/port-probe";
-import type { TmuxGateway, TmuxWindowSummary } from "../adapters/tmux";
+import type { TmuxGateway, TmuxPaneSummary, TmuxWindowSummary } from "../adapters/tmux";
 import {
   buildProjectSessionName,
   buildWorktreeParkingWindowName,
@@ -114,7 +114,10 @@ class FakeTmuxGateway implements TmuxGateway {
   readonly options: Array<{ sessionName: string; windowName: string; option: string; value: string }> = [];
   readonly killedWindows: Array<{ sessionName: string; windowName: string }> = [];
 
-  constructor(private readonly windows: TmuxWindowSummary[]) {}
+  constructor(
+    private readonly windows: TmuxWindowSummary[],
+    private readonly panes: TmuxPaneSummary[] = [],
+  ) {}
 
   getPaneId(_target: string): string {
     return "%0";
@@ -193,6 +196,10 @@ class FakeTmuxGateway implements TmuxGateway {
   listWindows(): TmuxWindowSummary[] {
     return this.windows.map((window) => ({ ...window }));
   }
+
+  listPanes(): TmuxPaneSummary[] {
+    return this.panes.map((pane) => ({ ...pane }));
+  }
 }
 
 function fakeWindow(overrides: Partial<TmuxWindowSummary> & Pick<TmuxWindowSummary, "sessionName" | "windowName">): TmuxWindowSummary {
@@ -231,6 +238,7 @@ function deferred(): Deferred {
 
 const TEST_CONFIG: ProjectConfig = {
   name: "Project",
+  componentCatalog: null,
   workspace: {
     mainBranch: "main",
     worktreeRoot: "__worktrees",
@@ -365,6 +373,100 @@ describe("ReconciliationService", () => {
       },
     ]);
     expect(runtime.getWorktree("wt_stale")).toBeNull();
+  });
+
+  it("reconciles tagged component panes and TCP readiness", async () => {
+    const repoRoot = "/repo/project";
+    const worktreePath = "/repo/project/__worktrees/feature-components";
+    const gitDir = await mkdtemp(join(tmpdir(), "webmux-reconcile-components-"));
+    tempDirs.push(gitDir);
+    await writeWorktreeMeta(gitDir, {
+      schemaVersion: 1,
+      worktreeId: "wt_components",
+      branch: "feature/components",
+      createdAt: "2026-03-06T00:00:00.000Z",
+      profile: "default",
+      agent: "claude",
+      runtime: "host",
+      startupEnvValues: {},
+      allocatedPorts: {},
+      selectedComponents: ["service-alerts"],
+      componentPorts: {
+        "service-alerts": { http: 24_000 },
+      },
+    });
+
+    const sessionName = buildProjectSessionName(repoRoot);
+    const windowName = buildWorktreeWindowName("feature/components");
+    const runtime = new ProjectRuntime();
+    const service = new ReconciliationService({
+      config: TEST_CONFIG,
+      git: new FakeGitGateway(
+        [
+          { path: repoRoot, branch: "main", bare: false, head: "abc", detached: false },
+          {
+            path: worktreePath,
+            branch: "feature/components",
+            bare: false,
+            head: "def",
+            detached: false,
+          },
+        ],
+        new Map([[worktreePath, gitDir]]),
+        new Map(),
+      ),
+      tmux: new FakeTmuxGateway(
+        [fakeWindow({
+          sessionName,
+          windowName,
+          paneCount: 2,
+          worktreeId: "wt_components",
+          role: "main",
+        })],
+        [{
+          sessionName,
+          windowName,
+          paneId: "%2",
+          paneIndex: 1,
+          pid: 123,
+          dead: false,
+          exitCode: null,
+          componentId: "service-alerts",
+        }],
+      ),
+      portProbe: new FakePortProbe(new Set([24_000])),
+      runtime,
+      componentCatalog: {
+        getComponents: async () => [{
+          id: "service-alerts",
+          label: "Alerts",
+          kind: "service",
+          workingDir: "services/service-alerts",
+          command: "yarn dev",
+          environment: {},
+          ports: [{
+            name: "http",
+            processEnv: "PORT",
+            protocol: "http",
+            health: { type: "tcp" },
+          }],
+        }],
+      },
+    });
+
+    await service.reconcile(repoRoot, { force: true });
+
+    expect(runtime.getWorktreeByBranch("feature/components")?.components).toEqual([{
+      id: "service-alerts",
+      label: "Alerts",
+      kind: "service",
+      paneIndex: 1,
+      processStatus: "running",
+      healthStatus: "ready",
+      ports: { http: 24_000 },
+      urls: { http: "http://localhost:24000" },
+      exitCode: null,
+    }]);
   });
 
   it("keeps the existing window after an in-worktree branch rename and renames it in place", async () => {

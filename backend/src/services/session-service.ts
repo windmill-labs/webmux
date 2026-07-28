@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 import type { PaneTemplate, PaneKind } from "../domain/config";
+import type { ComponentDefinition } from "../domain/components";
 import type { TmuxGateway } from "../adapters/tmux";
 import {
   buildProjectSessionName,
@@ -17,6 +18,11 @@ export interface SessionLayoutContext {
   repoRoot: string;
   worktreePath: string;
   paneCommands: PaneCommandSet;
+  runtimeEnvPath?: string;
+  components?: Array<{
+    definition: ComponentDefinition;
+    ports: Record<string, number>;
+  }>;
 }
 
 export interface PlannedPane {
@@ -25,9 +31,12 @@ export interface PlannedPane {
   kind: PaneKind;
   cwd: string;
   startupCommand?: string;
+  shellCommand?: string;
   focus: boolean;
   split?: "right" | "bottom";
   sizePct?: number;
+  componentId?: string;
+  title?: string;
 }
 
 export interface SessionLayoutPlan {
@@ -37,6 +46,15 @@ export interface SessionLayoutPlan {
   shellCommand: string;
   panes: PlannedPane[];
   focusPaneIndex: number;
+  componentLayout?: boolean;
+}
+
+interface ExpandedPaneTemplate {
+  template: PaneTemplate;
+  component?: {
+    definition: ComponentDefinition;
+    ports: Record<string, number>;
+  };
 }
 
 function quoteShell(value: string): string {
@@ -67,22 +85,52 @@ function resolvePaneStartupCommand(template: PaneTemplate, ctx: SessionLayoutCon
       return undefined;
     case "command":
       return buildCommandPaneStartupCommand(template, ctx);
+    case "componentGroup":
+      return undefined;
   }
 }
 
-export function buildTmuxPaneSystemPrompt(templates: PaneTemplate[]): string | undefined {
+export function buildTmuxPaneSystemPrompt(
+  templates: PaneTemplate[],
+  components: ComponentDefinition[] = [],
+): string | undefined {
   const inspectablePanes = templates
-    .map((template, index) => ({ template, index }))
-    .filter(({ template }) => template.kind !== "agent");
+    .flatMap((template) =>
+      template.kind === "componentGroup"
+        ? components.map((component) => ({ id: component.id, kind: "component" }))
+        : [{ id: template.id, kind: template.kind }]
+    )
+    .map((pane, index) => ({ pane, index }))
+    .filter(({ pane }) => pane.kind !== "agent");
   if (inspectablePanes.length === 0) return undefined;
 
   const windowTarget = "$(tmux display-message -t \"$TMUX_PANE\" -p '#{session_name}:#{window_name}')";
   return [
     "You are running inside a webmux-managed tmux window. You can inspect other panes without interrupting them:",
-    ...inspectablePanes.map(({ template, index }) =>
-      `- Pane ${index} (\`${template.id}\`, ${template.kind}): \`tmux capture-pane -t "${windowTarget}.${index}" -p -S -50\``
+    ...inspectablePanes.map(({ pane, index }) =>
+      `- Pane ${index} (\`${pane.id}\`, ${pane.kind}): \`tmux capture-pane -t "${windowTarget}.${index}" -p -S -50\``
     ),
   ].join("\n");
+}
+
+function buildComponentPaneCommand(
+  component: ComponentDefinition,
+  ports: Record<string, number>,
+  runtimeEnvPath: string,
+): string {
+  const environment = {
+    ...component.environment,
+    ...Object.fromEntries(
+      component.ports.map((port) => [port.processEnv, String(ports[port.name])]),
+    ),
+    WEBMUX_COMPONENT_ID: component.id,
+  };
+  const exports = Object.entries(environment)
+    .map(([key, value]) => `export ${key}=${quoteShell(value)}`)
+    .join("; ");
+  const bootstrap = `set -a; . ${quoteShell(runtimeEnvPath)}; set +a`;
+  const command = `${bootstrap}; ${exports ? `${exports}; ` : ""}exec bash -lc ${quoteShell(component.command)}`;
+  return `bash -lc ${quoteShell(command)}`;
 }
 
 export function planSessionLayout(
@@ -96,7 +144,43 @@ export function planSessionLayout(
     throw new Error("At least one pane template is required");
   }
 
-  const panes = templates.map((template, index) => {
+  const componentTemplates: ExpandedPaneTemplate[] = [];
+  for (const template of templates) {
+    if (template.kind !== "componentGroup") {
+      componentTemplates.push({ template });
+      continue;
+    }
+    if (!ctx.runtimeEnvPath) {
+      throw new Error("A runtime env path is required for component panes");
+    }
+    for (const component of ctx.components ?? []) {
+      componentTemplates.push({ template, component });
+    }
+  }
+
+  const panes: PlannedPane[] = componentTemplates.map(({ template, component }, index) => {
+    if (component) {
+      const runtimeEnvPath = ctx.runtimeEnvPath;
+      if (!runtimeEnvPath) {
+        throw new Error("A runtime env path is required for component panes");
+      }
+      return {
+        id: component.definition.id,
+        index,
+        kind: "command",
+        cwd: resolve(ctx.worktreePath, component.definition.workingDir),
+        shellCommand: buildComponentPaneCommand(
+          component.definition,
+          component.ports,
+          runtimeEnvPath,
+        ),
+        focus: false,
+        split: template.split ?? "right",
+        ...(template.sizePct !== undefined ? { sizePct: template.sizePct } : {}),
+        componentId: component.definition.id,
+        title: component.definition.label,
+      };
+    }
     const startupCommand = resolvePaneStartupCommand(template, ctx);
     return {
       id: template.id,
@@ -123,6 +207,7 @@ export function planSessionLayout(
     shellCommand: ctx.paneCommands.shell,
     panes,
     focusPaneIndex,
+    componentLayout: panes.some((pane) => pane.componentId !== undefined),
   };
 }
 
@@ -168,8 +253,19 @@ export function ensureSessionLayout(
       split: pane.split ?? "right",
       sizePct: pane.sizePct,
       cwd: pane.cwd,
-      command: plan.shellCommand,
+      command: pane.shellCommand ?? plan.shellCommand,
     });
+    const paneTarget = `${plan.sessionName}:${plan.windowName}.${pane.index}`;
+    if (pane.componentId) {
+      tmux.setPaneOption?.(paneTarget, "remain-on-exit", "on");
+      tmux.setPaneOption?.(paneTarget, "@wm_component_id", pane.componentId);
+      tmux.setPaneTitle?.(paneTarget, pane.title ?? pane.componentId);
+    }
+  }
+
+  if (plan.componentLayout) {
+    tmux.setWindowOption(plan.sessionName, plan.windowName, "main-pane-width", "50%");
+    tmux.selectLayout?.(`${plan.sessionName}:${plan.windowName}.0`, "main-vertical");
   }
 
   for (const pane of plan.panes) {

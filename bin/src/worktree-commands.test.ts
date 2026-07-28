@@ -101,6 +101,8 @@ describe("parseAddCommandArgs", () => {
       "--profile",
       "sandbox",
       "--agent=codex",
+      "--component", "mappings-v2",
+      "--component=public-gateway",
       "--prompt",
       "Fix the search ranking",
       "--env",
@@ -112,6 +114,7 @@ describe("parseAddCommandArgs", () => {
         baseBranch: "release/2026.03",
         profile: "sandbox",
         agents: ["codex"],
+        components: ["mappings-v2", "public-gateway"],
         prompt: "Fix the search ranking",
         envOverrides: {
           FOO: "bar",
@@ -167,6 +170,20 @@ describe("parseAddCommandArgs", () => {
       fromLinearIssueId: null,
       branchExplicit: true,
     });
+  });
+
+  it("deduplicates repeated --component flags", () => {
+    expect(parseAddCommandArgs([
+      "feature/search",
+      "--component=mappings-v2",
+      "--component",
+      "mappings-v2",
+    ])?.input.components).toEqual(["mappings-v2"]);
+  });
+
+  it("rejects empty component ids", () => {
+    expect(() => parseAddCommandArgs(["feature/search", "--component", "   "]))
+      .toThrow("Component id cannot be empty");
   });
 
   it("rejects empty agent ids", () => {
@@ -896,6 +913,52 @@ describe("runWorktreeCommand", () => {
     expect(stdout[0]).toContain("open");
     expect(stdout[1]).toContain("fix-bug");
     expect(stdout[1]).toContain("closed");
+  });
+
+  it("lists reconciled component statuses", async () => {
+    const stdout: string[] = [];
+    let reconciled = false;
+
+    const exitCode = await runWorktreeCommand(
+      { command: "list", args: [], projectDir: "/repo", port: 5111 },
+      {
+        createRuntime: () => ({
+          projectDir: "/repo",
+          config: { workspace: { mainBranch: "main" } },
+          git: stubGit([
+            { path: "/repo", branch: "main", bare: false },
+            { path: "/repo/.worktrees/my-feature", branch: "my-feature", bare: false },
+          ]),
+          tmux: stubTmux(),
+          reconciliationService: {
+            async reconcile(): Promise<void> {
+              reconciled = true;
+            },
+          },
+          projectRuntime: {
+            getWorktreeByBranch: () => ({
+              components: [{
+                id: "service-alerts",
+                label: "Alerts",
+                kind: "service",
+                paneIndex: 1,
+                processStatus: "running",
+                healthStatus: "ready",
+                ports: { http: 24_000 },
+                urls: { http: "http://localhost:24000" },
+                exitCode: null,
+              }],
+            }),
+          },
+          lifecycleService: stubLifecycleService([]),
+        }),
+        stdout: (msg) => stdout.push(msg),
+      },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(reconciled).toBe(true);
+    expect(stdout[0]).toContain("components: service-alerts=ready");
   });
 
   it("lists and searches workspace labels", async () => {

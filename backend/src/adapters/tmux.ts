@@ -20,6 +20,17 @@ export interface TmuxWindowSummary {
   role: TmuxWindowRole | null;
 }
 
+export interface TmuxPaneSummary {
+  sessionName: string;
+  windowName: string;
+  paneId: string;
+  paneIndex: number;
+  pid: number | null;
+  dead: boolean;
+  exitCode: number | null;
+  componentId: string | null;
+}
+
 export interface TmuxGateway {
   ensureServer(): void;
   ensureSession(sessionName: string, cwd: string): void;
@@ -40,9 +51,13 @@ export interface TmuxGateway {
     command?: string;
   }): void;
   setWindowOption(sessionName: string, windowName: string, option: string, value: string): void;
+  setPaneOption?(target: string, option: string, value: string): void;
+  setPaneTitle?(target: string, title: string): void;
+  selectLayout?(target: string, layout: "main-vertical"): void;
   runCommand(target: string, command: string): void;
   selectPane(target: string): void;
   listWindows(): TmuxWindowSummary[];
+  listPanes?(): TmuxPaneSummary[];
   /** Resolve the tmux pane id (`%N`) currently occupying a target (e.g. a pane index). */
   getPaneId(target: string): string;
   /** Create a detached "parked" pane that holds a tab's session off-screen, returning its pane id.
@@ -204,6 +219,42 @@ export function parseWindowSummaries(output: string): TmuxWindowSummary[] {
     .filter((entry) => entry.sessionName.length > 0 && entry.windowName.length > 0);
 }
 
+export function parsePaneSummaries(output: string): TmuxPaneSummary[] {
+  return output
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [
+        sessionName = "",
+        windowName = "",
+        paneId = "",
+        paneIndexRaw = "0",
+        pidRaw = "",
+        deadRaw = "0",
+        exitCodeRaw = "",
+        componentId = "",
+      ] = line.split("\t");
+      const pid = Number.parseInt(pidRaw, 10);
+      const exitCode = Number.parseInt(exitCodeRaw, 10);
+      return {
+        sessionName,
+        windowName,
+        paneId,
+        paneIndex: Number.parseInt(paneIndexRaw, 10) || 0,
+        pid: Number.isInteger(pid) ? pid : null,
+        dead: deadRaw === "1",
+        exitCode: Number.isInteger(exitCode) ? exitCode : null,
+        componentId: componentId.length > 0 ? componentId : null,
+      };
+    })
+    .filter((entry) =>
+      entry.sessionName.length > 0
+      && entry.windowName.length > 0
+      && entry.paneId.length > 0
+    );
+}
+
 export class BunTmuxGateway implements TmuxGateway {
   ensureServer(): void {
     assertTmuxOk(["start-server"], "tmux start-server");
@@ -297,6 +348,18 @@ export class BunTmuxGateway implements TmuxGateway {
     );
   }
 
+  setPaneOption(target: string, option: string, value: string): void {
+    assertTmuxOk(["set-option", "-p", "-t", target, option, value], `set tmux pane option ${option} on ${target}`);
+  }
+
+  setPaneTitle(target: string, title: string): void {
+    assertTmuxOk(["select-pane", "-t", target, "-T", title], `set tmux pane title on ${target}`);
+  }
+
+  selectLayout(target: string, layout: "main-vertical"): void {
+    assertTmuxOk(["select-layout", "-t", target, layout], `select tmux layout ${layout} on ${target}`);
+  }
+
   runCommand(target: string, command: string): void {
     assertTmuxOk(["send-keys", "-t", target, "-l", "--", command], `send tmux command to ${target}`);
     assertTmuxOk(["send-keys", "-t", target, "C-m"], `submit tmux command on ${target}`);
@@ -317,6 +380,19 @@ export class BunTmuxGateway implements TmuxGateway {
       "list tmux windows",
     );
     return parseWindowSummaries(output);
+  }
+
+  listPanes(): TmuxPaneSummary[] {
+    const output = assertTmuxOk(
+      [
+        "list-panes",
+        "-a",
+        "-F",
+        "#{session_name}\t#{window_name}\t#{pane_id}\t#{pane_index}\t#{pane_pid}\t#{pane_dead}\t#{pane_dead_status}\t#{@wm_component_id}",
+      ],
+      "list tmux panes",
+    );
+    return parsePaneSummaries(output);
   }
 
   getPaneId(target: string): string {

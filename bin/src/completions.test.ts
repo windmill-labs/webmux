@@ -123,6 +123,7 @@ describe("runCompletionCommand", () => {
     expect(output).toContain("refresh:Refresh a Codex agent terminal");
     expect(output).toContain("label:Set or clear a workspace label");
     expect(output).toContain("prune:Remove all closed (not open) worktrees in the current project");
+    expect(output).toContain("*--component=[App component id]");
     expect(output).not.toContain('_webmux "$@"');
     spy.mockRestore();
   });
@@ -133,6 +134,7 @@ describe("runCompletionCommand", () => {
     expect(code).toBe(0);
     expect(spy).toHaveBeenCalledWith(expect.stringContaining("complete -F _webmux webmux"));
     expect(spy).toHaveBeenCalledWith(expect.stringContaining("prune"));
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining("--component"));
     spy.mockRestore();
   });
 });

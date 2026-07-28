@@ -195,6 +195,7 @@ function makeWorktree(): WorktreeSnapshot {
     status: "idle",
     elapsed: "1m",
     services: [],
+    components: [],
     prs: [],
     linearIssue: null,
     creation: null,

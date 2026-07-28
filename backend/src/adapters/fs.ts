@@ -25,6 +25,23 @@ function stringifyAllocatedPorts(ports: Record<string, number>): Record<string, 
   return Object.fromEntries(entries);
 }
 
+function componentPortEnvKey(componentId: string, portName: string): string {
+  const normalize = (value: string): string => value.toUpperCase().replaceAll(/[^A-Z0-9]+/g, "_");
+  return `WEBMUX_PORT_${normalize(componentId)}_${normalize(portName)}`;
+}
+
+function stringifyComponentPorts(
+  componentPorts: Record<string, Record<string, number>>,
+): Record<string, string> {
+  const entries = Object.entries(componentPorts).flatMap(([componentId, ports]) =>
+    Object.entries(ports).map(([portName, value]) => [
+      componentPortEnvKey(componentId, portName),
+      String(value),
+    ])
+  );
+  return Object.fromEntries(entries);
+}
+
 function quoteEnvValue(value: string): string {
   if (value.length > 0 && SAFE_ENV_VALUE_RE.test(value)) return value;
   return `'${value.replaceAll("'", "'\\''")}'`;
@@ -188,6 +205,7 @@ export function buildRuntimeEnvMap(
     ...dotenvValues,
     ...meta.startupEnvValues,
     ...stringifyAllocatedPorts(meta.allocatedPorts),
+    ...stringifyComponentPorts(meta.componentPorts ?? {}),
     ...extraEnv,
     WEBMUX_WORKTREE_ID: meta.worktreeId,
     WEBMUX_BRANCH: meta.branch,
@@ -289,7 +307,27 @@ function normalizeWorktreeMeta(meta: WorktreeMeta): WorktreeMeta {
   const conversation = normalizeConversationMeta(meta.conversation);
   const normalizedLabel = normalizeOptionalString(meta.label);
   const tabBackfill = backfillTabs(meta);
-  if (conversation === meta.conversation && normalizedLabel === meta.label && tabBackfill === null) {
+  const selectedComponents = Array.isArray(meta.selectedComponents)
+    ? meta.selectedComponents.filter((entry) => typeof entry === "string")
+    : [];
+  const componentPorts: Record<string, Record<string, number>> = {};
+  if (isRecord(meta.componentPorts)) {
+    for (const [componentId, ports] of Object.entries(meta.componentPorts)) {
+      if (!isRecord(ports)) continue;
+      const validPorts: Record<string, number> = {};
+      for (const [portName, value] of Object.entries(ports)) {
+        if (typeof value === "number" && Number.isInteger(value)) {
+          validPorts[portName] = value;
+        }
+      }
+      componentPorts[componentId] = validPorts;
+    }
+  }
+  if (
+    conversation === meta.conversation
+    && normalizedLabel === meta.label
+    && tabBackfill === null
+  ) {
     return meta;
   }
 
@@ -300,6 +338,8 @@ function normalizeWorktreeMeta(meta: WorktreeMeta): WorktreeMeta {
     ...rest,
     ...(normalizedLabel ? { label: normalizedLabel } : {}),
     ...(conversation !== undefined ? { conversation } : {}),
+    selectedComponents,
+    componentPorts,
     ...(tabBackfill ?? {}),
   };
 }

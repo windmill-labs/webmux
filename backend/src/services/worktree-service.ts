@@ -30,6 +30,8 @@ export interface InitializeManagedWorktreeOptions {
   runtime: RuntimeKind;
   startupEnvValues?: Record<string, string>;
   allocatedPorts?: Record<string, number>;
+  selectedComponents?: string[];
+  componentPorts?: Record<string, Record<string, number>>;
   runtimeEnvExtras?: Record<string, string>;
   dotenvValues?: Record<string, string>;
   controlUrl?: string;
@@ -59,6 +61,8 @@ export interface CreateManagedWorktreeOptions {
   runtime: RuntimeKind;
   startupEnvValues?: Record<string, string>;
   allocatedPorts?: Record<string, number>;
+  selectedComponents?: string[];
+  componentPorts?: Record<string, Record<string, number>>;
   runtimeEnvExtras?: Record<string, string>;
   controlUrl?: string;
   controlToken?: string;
@@ -163,6 +167,13 @@ export async function initializeManagedWorktree(
     runtime: opts.runtime,
     startupEnvValues: { ...(opts.startupEnvValues ?? {}) },
     allocatedPorts: { ...(opts.allocatedPorts ?? {}) },
+    selectedComponents: [...(opts.selectedComponents ?? [])],
+    componentPorts: Object.fromEntries(
+      Object.entries(opts.componentPorts ?? {}).map(([componentId, ports]) => [
+        componentId,
+        { ...ports },
+      ]),
+    ),
     ...(opts.source ? { source: opts.source } : {}),
     ...(opts.oneshot ? { oneshot: opts.oneshot } : {}),
   };
@@ -222,6 +233,8 @@ export async function createManagedWorktree(
       runtime: opts.runtime,
       startupEnvValues: opts.startupEnvValues,
       allocatedPorts: opts.allocatedPorts,
+      selectedComponents: opts.selectedComponents,
+      componentPorts: opts.componentPorts,
       runtimeEnvExtras: opts.runtimeEnvExtras,
       dotenvValues,
       controlUrl: opts.controlUrl,

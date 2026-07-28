@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { log } from "../lib/log";
+import type { ComponentCatalogConfig } from "../domain/components";
 import type {
   AgentId,
   AgentKind,
@@ -61,6 +62,7 @@ const DEFAULT_CONFIG: ProjectConfig = {
     defaultAgent: "claude",
     autoPull: { enabled: false, intervalSeconds: 300 },
   },
+  componentCatalog: null,
   profiles: {
     default: {
       runtime: "host",
@@ -131,7 +133,7 @@ function parsePanes(raw: unknown): PaneTemplate[] {
 
 function parsePane(raw: unknown, index: number): PaneTemplate | null {
   if (!isRecord(raw)) return null;
-  if (raw.kind !== "agent" && raw.kind !== "shell" && raw.kind !== "command") return null;
+  if (raw.kind !== "agent" && raw.kind !== "shell" && raw.kind !== "command" && raw.kind !== "componentGroup") return null;
 
   const pane: PaneTemplate = {
     id: typeof raw.id === "string" && raw.id.trim() ? raw.id.trim() : `pane-${index + 1}`,
@@ -149,6 +151,10 @@ function parsePane(raw: unknown, index: number): PaneTemplate | null {
     if (typeof raw.workingDir === "string" && raw.workingDir.trim()) {
       pane.workingDir = raw.workingDir.trim();
     }
+  }
+
+  if (raw.kind === "componentGroup") {
+    pane.layout = "tiled";
   }
 
   return pane;
@@ -261,6 +267,12 @@ function parseServices(raw: unknown): ServiceSpec[] {
       ...(typeof entry.portStep === "number" && Number.isFinite(entry.portStep) ? { portStep: entry.portStep } : {}),
       ...(typeof entry.urlTemplate === "string" && entry.urlTemplate.length > 0 ? { urlTemplate: entry.urlTemplate } : {}),
     }));
+}
+
+function parseComponentCatalog(raw: unknown): ComponentCatalogConfig | null {
+  if (!isRecord(raw)) return null;
+  if (typeof raw.command !== "string" || !raw.command.trim()) return null;
+  return { command: raw.command.trim() };
 }
 
 function parseStartupEnvs(raw: unknown): Record<string, string | boolean> {
@@ -379,6 +391,7 @@ function parseProjectConfig(parsed: Record<string, unknown>): ProjectConfig {
         ? parseAutoPull(parsed.workspace.autoPull)
         : DEFAULT_CONFIG.workspace.autoPull,
     },
+    componentCatalog: parseComponentCatalog(parsed.componentCatalog),
     profiles: parseProfiles(parsed.profiles, true),
     agents: {},
     services: parseServices(parsed.services),

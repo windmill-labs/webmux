@@ -42,6 +42,8 @@ describe("loadConfig", () => {
         "  mainBranch: trunk",
         "  worktreeRoot: worktrees",
         "  defaultAgent: codex",
+        "componentCatalog:",
+        "  command: node scripts/webmux/catalog.ts",
         "services:",
         "  - name: API",
         "    portEnv: API_PORT",
@@ -55,6 +57,10 @@ describe("loadConfig", () => {
         "      - id: agent",
         "        kind: agent",
         "        focus: true",
+        "      - id: components",
+        "        kind: componentGroup",
+        "        split: right",
+        "        layout: tiled",
         "  sandbox:",
         "    runtime: docker",
         "    yolo: false",
@@ -91,10 +97,17 @@ describe("loadConfig", () => {
     expect(config.workspace.mainBranch).toBe("trunk");
     expect(config.workspace.worktreeRoot).toBe("worktrees");
     expect(config.workspace.defaultAgent).toBe("codex");
+    expect(config.componentCatalog).toEqual({ command: "node scripts/webmux/catalog.ts" });
     expect(config.services).toEqual([{ name: "API", portEnv: "API_PORT", portStart: 4100 }]);
     expect(config.profiles.default.runtime).toBe("host");
     expect(config.profiles.default.yolo).toBe(true);
     expect(config.profiles.default.envPassthrough).toEqual(["GITHUB_TOKEN"]);
+    expect(config.profiles.default.panes[1]).toEqual({
+      id: "components",
+      kind: "componentGroup",
+      split: "right",
+      layout: "tiled",
+    });
     expect(config.profiles.sandbox?.runtime).toBe("docker");
     expect(config.profiles.sandbox?.yolo).toBeUndefined();
     expect(config.profiles.sandbox?.image).toBe("webmux-sandbox");

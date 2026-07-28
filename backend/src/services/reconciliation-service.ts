@@ -9,6 +9,7 @@ import {
   WM_WINDOW_ROLE_OPTION,
   WM_WORKTREE_ID_OPTION,
   type TmuxGateway,
+  type TmuxPaneSummary,
   type TmuxWindowRole,
   type TmuxWindowSummary,
 } from "../adapters/tmux";
@@ -17,6 +18,9 @@ import type { AgentId, ProjectConfig } from "../domain/config";
 import type { OneshotMeta, PrEntry, ServiceRuntimeState, WorktreeSource, WorktreeTab } from "../domain/model";
 import { mapWithConcurrency } from "../lib/async";
 import { ProjectRuntime } from "./project-runtime";
+import type { ComponentCatalogService } from "./component-catalog-service";
+import { ComponentMonitorService } from "./component-monitor-service";
+import type { ComponentRuntimeState } from "../domain/components";
 
 function makeUnmanagedWorktreeId(path: string): string {
   return `unmanaged:${resolve(path)}`;
@@ -105,6 +109,7 @@ export interface ReconciliationServiceDependencies {
   tmux: TmuxGateway;
   portProbe: PortProbe;
   runtime: ProjectRuntime;
+  componentCatalog?: Pick<ComponentCatalogService, "getComponents">;
 }
 
 export interface ReconciliationServiceOptions {
@@ -147,6 +152,7 @@ interface ReconciledWorktreeState {
     parking: TmuxWindowSummary | null;
   };
   services: ServiceRuntimeState[];
+  components: ComponentRuntimeState[];
   prs: PrEntry[];
 }
 
@@ -156,6 +162,7 @@ export class ReconciliationService {
   private readonly concurrency: number;
   private inFlight: Promise<void> | null = null;
   private lastReconciledAt = 0;
+  private readonly componentMonitor: ComponentMonitorService;
 
   constructor(
     private readonly deps: ReconciliationServiceDependencies,
@@ -164,6 +171,7 @@ export class ReconciliationService {
     this.freshnessMs = options.freshnessMs ?? 500;
     this.now = options.now ?? Date.now;
     this.concurrency = options.concurrency ?? 4;
+    this.componentMonitor = new ComponentMonitorService(deps.portProbe, { now: this.now });
   }
 
   async reconcile(repoRoot: string, options: ReconcileOptions = {}): Promise<void> {
@@ -190,11 +198,18 @@ export class ReconciliationService {
     const sessionName = buildProjectSessionName(normalizedRepoRoot);
 
     let windows: TmuxWindowSummary[] = [];
+    let panes: TmuxPaneSummary[] = [];
     try {
       windows = this.deps.tmux.listWindows();
     } catch {
       windows = [];
     }
+    try {
+      panes = this.deps.tmux.listPanes?.() ?? [];
+    } catch {
+      panes = [];
+    }
+    const componentDefinitions = await this.deps.componentCatalog?.getComponents() ?? [];
 
     const seenWorktreeIds = new Set<string>();
 
@@ -249,6 +264,20 @@ export class ReconciliationService {
               runtime: meta.runtime,
             })
           : [],
+        components: meta
+          ? await this.componentMonitor.buildStates({
+              worktreeId,
+              selectedComponentIds: meta.selectedComponents ?? [],
+              componentPorts: meta.componentPorts ?? {},
+              definitions: componentDefinitions,
+              session: {
+                exists: window !== null,
+                sessionName: window?.sessionName ?? null,
+                windowName: window?.windowName ?? buildWorktreeWindowName(branch),
+              },
+              panes,
+            })
+          : [],
         prs: await readWorktreePrs(gitDir),
       } satisfies ReconciledWorktreeState;
     });
@@ -289,6 +318,7 @@ export class ReconciliationService {
       });
 
       this.deps.runtime.setServices(state.worktreeId, state.services);
+      this.deps.runtime.setComponents(state.worktreeId, state.components);
       this.deps.runtime.setPrs(state.worktreeId, state.prs);
     }
 

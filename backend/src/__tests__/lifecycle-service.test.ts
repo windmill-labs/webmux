@@ -119,6 +119,8 @@ class FakeSessionGateway implements SessionGateway {
     return [...this.windows.values()].map((window) => ({ ...window }));
   }
 
+  async focusWindow(_sessionName: string, _windowName: string): Promise<void> {}
+
   private key(sessionName: string, windowName: string): string {
     return `${sessionName}:${windowName}`;
   }

@@ -221,6 +221,13 @@ export class BunTmuxGateway implements SessionGateway {
     assertTmuxOk(["select-pane", "-t", target], `select tmux pane ${target}`);
   }
 
+  async focusWindow(sessionName: string, windowName: string): Promise<void> {
+    assertTmuxOk(
+      ["select-window", "-t", buildWindowTarget(sessionName, windowName)],
+      `select tmux window ${sessionName}:${windowName}`,
+    );
+  }
+
   async listWindows(): Promise<SessionWindowSummary[]> {
     const output = assertTmuxOk(
       ["list-windows", "-a", "-F", "#{session_name}\t#{window_name}\t#{window_panes}"],

@@ -57,6 +57,8 @@ class FakeSessionGateway implements SessionGateway {
     this.calls.push(`selectPane:${target}`);
   }
 
+  async focusWindow(_sessionName: string, _windowName: string): Promise<void> {}
+
   async listWindows(): Promise<[]> {
     return [];
   }

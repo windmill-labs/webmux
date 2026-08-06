@@ -6,7 +6,7 @@ import { CommandUsageError, resolveProjectBaseUrl, resolveProjectPrefix, withSer
 import { readOpenSessionsState, readWorktreeArchiveState, readWorktreeMeta, readWorktreePrs } from "../../backend/src/adapters/fs";
 import type { OpenSessionsState, PrEntry } from "../../backend/src/domain/model";
 import { buildProjectSessionName, buildWorktreeWindowName } from "../../backend/src/adapters/session-gateway";
-import type { AgentId } from "../../backend/src/domain/config";
+import type { AgentId, MultiplexerKind } from "../../backend/src/domain/config";
 import type { WorktreeCreationPhase } from "../../backend/src/domain/model";
 import { compareWorktreeOrder, isValidWorktreeName } from "../../backend/src/domain/policies";
 import { buildArchivedWorktreePathSet } from "../../backend/src/services/archive-service";
@@ -42,6 +42,7 @@ interface LifecycleServiceLike {
 interface WorktreeRuntimeLike {
   projectDir: string;
   config: {
+    multiplexer: MultiplexerKind;
     workspace: {
       mainBranch: string;
     };
@@ -52,6 +53,7 @@ interface WorktreeRuntimeLike {
   };
   sessions: {
     listWindows(): Promise<Array<{ sessionName: string; windowName: string }>>;
+    focusWindow(sessionName: string, windowName: string): Promise<void>;
   };
   lifecycleService: LifecycleServiceLike;
 }
@@ -72,7 +74,7 @@ interface WorktreeCommandDependencies {
   }) => WorktreeRuntimeLike;
   stdout?: (message: string) => void;
   stderr?: (message: string) => void;
-  switchToTmuxWindow?: (projectDir: string, branch: string) => void;
+  switchToSessionWindow?: (projectDir: string, branch: string, multiplexer: MultiplexerKind) => void;
   confirmPrune?: (worktreeCount: number) => Promise<boolean>;
   /** Resolve the project-scoped base URL for server-backed commands (send/tab).
    *  Injectable so tests can exercise the HTTP shape without a live server. */
@@ -708,16 +710,47 @@ async function defaultConfirmPrune(worktreeCount: number): Promise<boolean> {
   return !p.isCancel(response) && response;
 }
 
-function defaultSwitchToTmuxWindow(projectDir: string, branch: string): void {
-  const sessionName = buildProjectSessionName(resolve(projectDir));
-  const windowName = buildWorktreeWindowName(branch);
-  const target = `${sessionName}:${windowName}`;
+/** Bring the user's own terminal to a worktree's window.
+ *
+ *  herdr has no `switch-client`: focusing is a socket call (done by the caller
+ *  through the gateway), and attaching means running herdr's own client, which
+ *  always opens on the focused tab. Inside an existing herdr client, focusing is
+ *  the whole operation — spawning a second client would nest them. */
+function attachToHerdr(): void {
+  if (Bun.env.HERDR_SESSION || Bun.env.HERDR_SOCKET_PATH) return;
 
-  const selectResult = Bun.spawnSync(["tmux", "select-window", "-t", target], {
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  if (selectResult.exitCode !== 0) return;
+  const result = Bun.spawnSync(["herdr"], { stdin: "inherit", stdout: "inherit", stderr: "inherit" });
+  if (result.exitCode !== 0) {
+    console.error("Warning: failed to attach to herdr");
+  }
+}
+
+/** Focus a worktree's window through the gateway, tolerating a closed one, then
+ *  attach. Focusing is a gateway concern (tmux select-window vs herdr's socket);
+ *  attaching stays here because it takes over the caller's terminal. */
+async function focusAndSwitch(
+  runtime: WorktreeRuntimeLike,
+  branch: string,
+  switchToSessionWindow: (projectDir: string, branch: string, multiplexer: MultiplexerKind) => void,
+): Promise<void> {
+  try {
+    await runtime.sessions.focusWindow(
+      buildProjectSessionName(resolve(runtime.projectDir)),
+      buildWorktreeWindowName(branch),
+    );
+  } catch {
+    return; // window is gone — nothing to attach to
+  }
+  switchToSessionWindow(runtime.projectDir, branch, runtime.config.multiplexer);
+}
+
+function defaultSwitchToSessionWindow(projectDir: string, branch: string, multiplexer: MultiplexerKind): void {
+  if (multiplexer === "herdr") {
+    attachToHerdr();
+    return;
+  }
+
+  const sessionName = buildProjectSessionName(resolve(projectDir));
 
   if (Bun.env.TMUX) {
     const result = Bun.spawnSync(["tmux", "switch-client", "-t", sessionName], {
@@ -855,7 +888,7 @@ export async function runWorktreeCommand(
   const stdout = deps.stdout ?? ((message: string) => console.log(message));
   const stderr = deps.stderr ?? ((message: string) => console.error(message));
   const resolveBaseUrl = deps.resolveBaseUrl ?? resolveProjectBaseUrl;
-  const switchToTmuxWindow = deps.switchToTmuxWindow ?? defaultSwitchToTmuxWindow;
+  const switchToSessionWindow = deps.switchToSessionWindow ?? defaultSwitchToSessionWindow;
   const confirmPrune = deps.confirmPrune ?? defaultConfirmPrune;
   const readOpenSessions = deps.readOpenSessions ?? readOpenSessionsState;
 
@@ -928,7 +961,7 @@ export async function runWorktreeCommand(
         stdout(`Created worktree ${branch}`);
       }
       if (!parsed.detach) {
-        switchToTmuxWindow(runtime.projectDir, result.primaryBranch);
+        await focusAndSwitch(runtime, result.primaryBranch, switchToSessionWindow);
       }
       return 0;
     }
@@ -1058,7 +1091,7 @@ export async function runWorktreeCommand(
       stdout(`${summaryParts.join(", ")}.`);
 
       if (firstRestored) {
-        switchToTmuxWindow(runtime.projectDir, firstRestored);
+        await focusAndSwitch(runtime, firstRestored, switchToSessionWindow);
       }
       return failed > 0 ? 1 : 0;
     }
@@ -1184,7 +1217,7 @@ export async function runWorktreeCommand(
       case "open":
         await runtime.lifecycleService.openWorktree(branch);
         stdout(`Opened worktree ${branch}`);
-        switchToTmuxWindow(runtime.projectDir, branch);
+        await focusAndSwitch(runtime, branch, switchToSessionWindow);
         return 0;
       case "close":
         await runtime.lifecycleService.closeWorktree(branch);

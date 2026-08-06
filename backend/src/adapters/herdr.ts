@@ -83,13 +83,16 @@ async function request(
           const newline = buffer.indexOf("\n");
           if (newline < 0) return;
           const line = buffer.slice(0, newline);
-          socket.end();
           clearTimeout(timer);
+          // Settle before closing: `end()` fires `close` synchronously, which
+          // would otherwise reject the promise before the response lands.
           try {
-            settle(() => resolve(JSON.parse(line) as HerdrResponse));
+            const parsed = JSON.parse(line) as HerdrResponse;
+            settle(() => resolve(parsed));
           } catch {
             settle(() => reject(new HerdrRequestError(method, "invalid_response", line.slice(0, 200))));
           }
+          socket.end();
         },
         close() {
           clearTimeout(timer);
@@ -283,8 +286,16 @@ export class HerdrGateway implements SessionGateway {
     return tabs.find((tab) => tab.label === windowName) ?? null;
   }
 
+  /** Panes belonging to a tab, in tab order.
+   *
+   *  herdr 0.8.0 ignores every filter param on `pane.list` (`tab_id`, `tab`,
+   *  `workspace_id`) and always answers with every pane in the session, so the
+   *  filtering has to happen here. Each pane carries its own `tab_id`, and the
+   *  response is grouped by tab, so this preserves intra-tab ordering — which is
+   *  what a `session:window.index` target indexes into. */
   private async listPanes(tabId: string): Promise<PaneSummary[]> {
-    return parsePanes(await this.call("pane.list", { tab_id: tabId }));
+    const all = parsePanes(await this.call("pane.list", { tab_id: tabId }));
+    return all.filter((pane) => pane.tab_id === tabId);
   }
 
   /** Resolve any target webmux hands the gateway to a concrete herdr pane id:
@@ -354,17 +365,43 @@ export class HerdrGateway implements SessionGateway {
     command?: string;
   }): Promise<void> {
     const paneId = await this.requirePaneId(opts.target, "splitWindow");
-    const result = await this.call("pane.split", {
-      pane_id: paneId,
+    const created = await this.splitFrom(paneId, {
       direction: opts.split === "right" ? "right" : "down",
       cwd: opts.cwd,
       ...(opts.sizePct !== undefined ? { ratio: opts.sizePct / 100 } : {}),
     });
 
-    if (opts.command) {
-      const created = readPaneId(result);
-      if (created) await this.sendCommand(created, opts.command);
+    if (opts.command && created) await this.sendCommand(created, opts.command);
+  }
+
+  /** Split a specific pane, returning the new pane's id.
+   *
+   *  herdr 0.8.0 splits the **focused** pane and ignores `pane_id`, so the anchor
+   *  has to be focused first — otherwise every split lands in whatever tab the
+   *  user happens to be looking at. Prior focus is restored afterwards so this
+   *  stays equivalent to tmux's detached `split-window -d`, which matters for
+   *  parked panes that are supposed to be built off-screen.
+   *
+   *  `pane_id` is still sent: harmless today, correct if herdr starts honouring it. */
+  private async splitFrom(
+    anchorPaneId: string,
+    opts: { direction: "right" | "down"; cwd: string; ratio?: number },
+  ): Promise<string | null> {
+    const previouslyFocused = readPaneId(await this.call("pane.current").catch(() => ({})));
+
+    await this.call("pane.focus", { pane_id: anchorPaneId });
+    const result = await this.call("pane.split", {
+      pane_id: anchorPaneId,
+      direction: opts.direction,
+      cwd: opts.cwd,
+      ...(opts.ratio !== undefined ? { ratio: opts.ratio } : {}),
+    });
+    const created = readPaneId(result);
+
+    if (previouslyFocused && previouslyFocused !== anchorPaneId) {
+      await this.call("pane.focus", { pane_id: previouslyFocused }).catch(() => undefined);
     }
+    return created;
   }
 
   /** herdr's send_text is literal — a trailing newline is what submits it. */
@@ -378,6 +415,17 @@ export class HerdrGateway implements SessionGateway {
 
   async selectPane(target: string): Promise<void> {
     await this.call("pane.focus", { pane_id: await this.requirePaneId(target, "selectPane") });
+  }
+
+  async focusWindow(sessionName: string, windowName: string): Promise<void> {
+    const workspace = await this.findWorkspace(sessionName);
+    if (!workspace) throw new Error(`focusWindow: no herdr workspace labelled ${sessionName}`);
+    const tabs = parseTabs(await this.call("tab.list", { workspace_id: workspace.workspace_id }));
+    const tab = tabs.find((entry) => entry.label === windowName);
+    if (!tab) throw new Error(`focusWindow: no herdr tab labelled ${windowName}`);
+
+    await this.call("workspace.focus", { workspace_id: workspace.workspace_id });
+    await this.call("tab.focus", { tab_id: tab.tab_id });
   }
 
   async listWindows(): Promise<SessionWindowSummary[]> {
@@ -422,8 +470,7 @@ export class HerdrGateway implements SessionGateway {
     const anchor = panes[panes.length - 1]?.pane_id;
     if (!anchor) throw new Error(`createParkedPane: parking tab ${opts.parkingWindow} has no pane to split`);
 
-    const result = await this.call("pane.split", { pane_id: anchor, direction: "right", cwd: opts.cwd });
-    const created = readPaneId(result);
+    const created = await this.splitFrom(anchor, { direction: "right", cwd: opts.cwd });
     if (!created) throw new Error(`createParkedPane: herdr returned no pane id for ${opts.parkingWindow}`);
     await this.sendCommand(created, opts.command);
     return created;

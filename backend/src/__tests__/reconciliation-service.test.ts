@@ -151,6 +151,8 @@ class FakeSessionGateway implements SessionGateway {
     throw new Error("not implemented");
   }
 
+  async focusWindow(_sessionName: string, _windowName: string): Promise<void> {}
+
   async listWindows(): Promise<SessionWindowSummary[]> {
     return this.windows;
   }

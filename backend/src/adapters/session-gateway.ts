@@ -42,6 +42,9 @@ export interface SessionGateway {
   }): Promise<void>;
   runCommand(target: string, command: string): Promise<void>;
   selectPane(target: string): Promise<void>;
+  /** Make a window the active one, so a client attaching next lands on it.
+   *  Does not attach — callers own that, since it takes over the terminal. */
+  focusWindow(sessionName: string, windowName: string): Promise<void>;
   listWindows(): Promise<SessionWindowSummary[]>;
   /** Resolve the opaque pane handle currently occupying a target. */
   getPaneId(target: string): Promise<string>;

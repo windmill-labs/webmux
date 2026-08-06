@@ -5,8 +5,8 @@ import { join } from "node:path";
 import type { ProjectConfig } from "../domain/config";
 import type { GitGateway, GitWorktreeEntry, GitWorktreeStatus, TryGitCommandResult, UnpushedCommit } from "../adapters/git";
 import type { PortProbe } from "../adapters/port-probe";
-import type { TmuxGateway, TmuxWindowSummary } from "../adapters/tmux";
-import { buildProjectSessionName, buildWorktreeWindowName } from "../adapters/tmux";
+import type { SessionGateway, SessionWindowSummary } from "../adapters/session-gateway";
+import { buildProjectSessionName, buildWorktreeWindowName } from "../adapters/session-gateway";
 import { writeWorktreeMeta, writeWorktreePrs } from "../adapters/fs";
 import { ProjectRuntime } from "../services/project-runtime";
 import { ReconciliationService } from "../services/reconciliation-service";
@@ -103,58 +103,55 @@ class FakeGitGateway implements GitGateway {
   }
 }
 
-class FakeTmuxGateway implements TmuxGateway {
-  constructor(private readonly windows: TmuxWindowSummary[]) {}
+class FakeSessionGateway implements SessionGateway {
+  constructor(private readonly windows: SessionWindowSummary[]) {}
 
-  getPaneId(_target: string): string {
+  async getPaneId(_target: string): Promise<string> {
     return "%0";
   }
 
-  createParkedPane(_opts: { sessionName: string; parkingWindow: string; cwd: string; command: string }): string {
+  async createParkedPane(_opts: { sessionName: string; parkingWindow: string; cwd: string; command: string }): Promise<string> {
     return "%99";
   }
 
-  swapPanes(_source: string, _destination: string): void {}
+  async swapPanes(_source: string, _destination: string): Promise<void> {}
 
-  killPane(_target: string): void {}
+  async killPane(_target: string): Promise<void> {}
 
-  ensureServer(): void {
+  async ensureServer(): Promise<void> {
     throw new Error("not implemented");
   }
 
-  ensureSession(): void {
+  async ensureSession(): Promise<void> {
     throw new Error("not implemented");
   }
 
-  hasWindow(): boolean {
+  async hasWindow(): Promise<boolean> {
     throw new Error("not implemented");
   }
 
-  killWindow(): void {
+  async killWindow(): Promise<void> {
     throw new Error("not implemented");
   }
 
-  createWindow(): void {
+  async createWindow(): Promise<void> {
     throw new Error("not implemented");
   }
 
-  splitWindow(): void {
+  async splitWindow(): Promise<void> {
     throw new Error("not implemented");
   }
 
-  setWindowOption(): void {
+
+  async runCommand(): Promise<void> {
     throw new Error("not implemented");
   }
 
-  runCommand(): void {
+  async selectPane(): Promise<void> {
     throw new Error("not implemented");
   }
 
-  selectPane(): void {
-    throw new Error("not implemented");
-  }
-
-  listWindows(): TmuxWindowSummary[] {
+  async listWindows(): Promise<SessionWindowSummary[]> {
     return this.windows;
   }
 }
@@ -186,6 +183,7 @@ function deferred(): Deferred {
 
 const TEST_CONFIG: ProjectConfig = {
   name: "Project",
+  multiplexer: "tmux",
   workspace: {
     mainBranch: "main",
     worktreeRoot: "__worktrees",
@@ -271,7 +269,7 @@ describe("ReconciliationService", () => {
       new Map([[managedPath, managedGitDir]]),
       new Map([[managedPath, { dirty: true, aheadCount: 2, currentCommit: "bbb222" }]]),
     );
-    const tmux = new FakeTmuxGateway([
+    const tmux = new FakeSessionGateway([
       {
         sessionName: buildProjectSessionName(repoRoot),
         windowName: buildWorktreeWindowName("feature/search"),
@@ -282,7 +280,7 @@ describe("ReconciliationService", () => {
     const service = new ReconciliationService({
       config: TEST_CONFIG,
       git,
-      tmux,
+      sessions: tmux,
       portProbe: new FakePortProbe(new Set([3010])),
       runtime,
     });
@@ -363,7 +361,7 @@ describe("ReconciliationService", () => {
     const service = new ReconciliationService({
       config: TEST_CONFIG,
       git,
-      tmux: new FakeTmuxGateway([]),
+      sessions: new FakeSessionGateway([]),
       portProbe: new FakePortProbe(new Set([3010])),
       runtime,
     });
@@ -387,12 +385,12 @@ describe("ReconciliationService", () => {
       new Map([[unmanagedPath, unmanagedPath]]),
       new Map([[unmanagedPath, { dirty: false, aheadCount: 0, currentCommit: "ccc333" }]]),
     );
-    const tmux = new FakeTmuxGateway([]);
+    const tmux = new FakeSessionGateway([]);
 
     const service = new ReconciliationService({
       config: TEST_CONFIG,
       git,
-      tmux,
+      sessions: tmux,
       portProbe: new FakePortProbe(),
       runtime,
     });
@@ -458,7 +456,7 @@ describe("ReconciliationService", () => {
       {
         config: TEST_CONFIG,
         git,
-        tmux: new FakeTmuxGateway([]),
+        sessions: new FakeSessionGateway([]),
         portProbe,
         runtime,
       },

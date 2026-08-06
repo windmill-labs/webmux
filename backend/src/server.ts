@@ -47,6 +47,7 @@ import { ClaudeCliClient } from "./adapters/claude-cli";
 import { CodexAppServerClient, type CodexAppServerNotification } from "./adapters/codex-app-server";
 import {
   getDefaultProfileName,
+  loadConfig,
   persistLocalCustomAgent,
   persistLocalGitHubConfig,
   persistLocalLinearConfig,
@@ -205,7 +206,7 @@ const PROJECT_DIR = runtime.projectDir;
 const config: ProjectConfig = runtime.config;
 const git = runtime.git;
 const archiveStateService = runtime.archiveStateService;
-const tmux = runtime.tmux;
+const sessions = runtime.sessions;
 const projectRuntime = runtime.projectRuntime;
 const worktreeCreationTracker = runtime.worktreeCreationTracker;
 const runtimeNotifications = runtime.runtimeNotifications;
@@ -2349,7 +2350,7 @@ function parseAgentIdParam(params: Record<string, string>):
         config.workspace.autoPull.intervalSeconds * 1000,
       );
     }
-    stopSessionSnapshot = startSessionSnapshotMonitor({ git, tmux, projectRoot: PROJECT_DIR });
+    stopSessionSnapshot = startSessionSnapshotMonitor({ git, sessions, projectRoot: PROJECT_DIR });
   }
 
   function stopLight(): void {
@@ -2741,13 +2742,19 @@ manager = new ProjectManager({
   },
 });
 
-// Ensure tmux server is running (needs at least one session to persist)
-const tmuxCheck = Bun.spawnSync(["tmux", "list-sessions"], { stdout: "pipe", stderr: "pipe" });
-if (tmuxCheck.exitCode !== 0) {
-  Bun.spawnSync(["tmux", "new-session", "-d", "-s", "0"]);
-  log.info("Started tmux session");
+// Ensure the tmux server is running (needs at least one session to persist).
+// Only meaningful for the tmux backend — herdr has no equivalent bootstrap and
+// brings its server up through SessionGateway.ensureServer instead.
+const bootstrapCwd = Bun.env.WEBMUX_PROJECT_DIR ?? process.cwd();
+const bootstrapRoot = isGitRepo(bootstrapCwd) ? projectRoot(bootstrapCwd) : bootstrapCwd;
+if (loadConfig(bootstrapRoot).multiplexer === "tmux") {
+  const tmuxCheck = Bun.spawnSync(["tmux", "list-sessions"], { stdout: "pipe", stderr: "pipe" });
+  if (tmuxCheck.exitCode !== 0) {
+    Bun.spawnSync(["tmux", "new-session", "-d", "-s", "0"]);
+    log.info("Started tmux session");
+  }
+  cleanupStaleSessions();
 }
-cleanupStaleSessions();
 
 manager.loadPersisted();
 autoAddCwd();

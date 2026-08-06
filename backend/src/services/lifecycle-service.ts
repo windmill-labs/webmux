@@ -16,7 +16,7 @@ import {
 } from "../adapters/fs";
 import { expandTemplate, getDefaultProfileName, isDockerProfile, type DockerProfileConfig } from "../adapters/config";
 import { type DockerGateway } from "../adapters/docker";
-import { buildProjectSessionName, buildWorktreeParkingWindowName, buildWorktreeWindowName, type TmuxGateway } from "../adapters/tmux";
+import { buildProjectSessionName, buildWorktreeParkingWindowName, buildWorktreeWindowName, type SessionGateway } from "../adapters/session-gateway";
 import { captureNewSessionId, type SessionDiscoveryGateway } from "../adapters/session-discovery";
 import type { AgentId, ProfileConfig, ProjectConfig, RuntimeKind } from "../domain/config";
 import { ROOT_TAB_ID, type ControlEnvMap, type OneshotMeta, type WorktreeCreationPhase, type WorktreeMeta, type WorktreeSource, type WorktreeTab } from "../domain/model";
@@ -163,7 +163,7 @@ export interface LifecycleServiceDependencies {
   config: ProjectConfig;
   archiveState: ArchiveStateService;
   git: GitGateway;
-  tmux: TmuxGateway;
+  sessions: SessionGateway;
   sessionDiscovery: SessionDiscoveryGateway;
   docker: DockerGateway;
   reconciliation: ReconciliationService;
@@ -448,16 +448,16 @@ export class LifecycleService {
       const visibleSlot = `${ctx.sessionName}:${ctx.windowName}.0`;
       // Record the currently-visible (active) tab's pane id before it gets parked by the swap.
       const outgoingActiveId = readActiveTabId(meta);
-      const outgoingPaneId = this.deps.tmux.getPaneId(visibleSlot);
+      const outgoingPaneId = await this.deps.sessions.getPaneId(visibleSlot);
 
       const before = await this.deps.sessionDiscovery.listSessionIds(ctx.agentKind, ctx.worktreePath);
-      const paneId = this.deps.tmux.createParkedPane({
+      const paneId = await this.deps.sessions.createParkedPane({
         sessionName: ctx.sessionName,
         parkingWindow: ctx.parkingWindow,
         cwd: ctx.worktreePath,
         command: buildManagedShellCommand(ctx.initialized.paths.runtimeEnvPath),
       });
-      this.deps.tmux.runCommand(paneId, agentCommand);
+      await this.deps.sessions.runCommand(paneId, agentCommand);
       const sessionId = pinSessionId
         ?? await captureNewSessionId(this.deps.sessionDiscovery, ctx.agentKind, ctx.worktreePath, before);
 
@@ -466,7 +466,7 @@ export class LifecycleService {
       nextMeta = updateTab(nextMeta, outgoingActiveId, { paneId: outgoingPaneId });
       await writeWorktreeMeta(ctx.resolved.gitDir, nextMeta);
       // A new fork becomes the active tab — bring it into the visible agent slot.
-      this.deps.tmux.swapPanes(paneId, visibleSlot);
+      await this.deps.sessions.swapPanes(paneId, visibleSlot);
       await this.deps.reconciliation.reconcile(this.deps.projectRoot, { force: true });
       return { tab };
     } catch (error) {
@@ -483,8 +483,8 @@ export class LifecycleService {
       if (outgoingActiveId === tabId) return;
       if (!target.paneId) throw new LifecycleError(`Tab ${tabId} has no live pane to show`, 409);
       const visibleSlot = `${ctx.sessionName}:${ctx.windowName}.0`;
-      const outgoingPaneId = this.deps.tmux.getPaneId(visibleSlot);
-      this.deps.tmux.swapPanes(target.paneId, visibleSlot);
+      const outgoingPaneId = await this.deps.sessions.getPaneId(visibleSlot);
+      await this.deps.sessions.swapPanes(target.paneId, visibleSlot);
       let nextMeta = updateTab(ctx.meta, outgoingActiveId, { paneId: outgoingPaneId });
       nextMeta = setActiveTab(nextMeta, tabId);
       await writeWorktreeMeta(ctx.resolved.gitDir, nextMeta);
@@ -507,9 +507,9 @@ export class LifecycleService {
       // moves pane *content* between slots while pane ids stay attached to their content,
       // so root.paneId remains valid after the swap.
       if (readActiveTabId(ctx.meta) === tabId && root?.paneId) {
-        this.deps.tmux.swapPanes(root.paneId, `${ctx.sessionName}:${ctx.windowName}.0`);
+        await this.deps.sessions.swapPanes(root.paneId, `${ctx.sessionName}:${ctx.windowName}.0`);
       }
-      if (target.paneId) this.deps.tmux.killPane(target.paneId);
+      if (target.paneId) await this.deps.sessions.killPane(target.paneId);
       await writeWorktreeMeta(ctx.resolved.gitDir, removeTab(ctx.meta, tabId));
       await this.deps.reconciliation.reconcile(this.deps.projectRoot, { force: true });
     } catch (error) {
@@ -541,7 +541,7 @@ export class LifecycleService {
 
     const sessionName = buildProjectSessionName(this.deps.projectRoot);
     const windowName = buildWorktreeWindowName(branch);
-    if (!this.deps.tmux.hasWindow(sessionName, windowName)) {
+    if (!await this.deps.sessions.hasWindow(sessionName, windowName)) {
       throw new LifecycleError(`Worktree ${branch} is not open`, 409);
     }
 
@@ -612,11 +612,11 @@ export class LifecycleService {
     // A parking window may still exist (e.g. the agent terminal was refreshed without a
     // full close/reopen): tear it down so we rebuild parked panes from a clean slate
     // instead of duplicating them. killWindow tolerates an absent window.
-    this.deps.tmux.killWindow(sessionName, parkingWindow);
+    await this.deps.sessions.killWindow(sessionName, parkingWindow);
     const visibleSlot = `${sessionName}:${windowName}.0`;
     // Capture the visible slot's pane id once: it is the root's on-screen pane and,
     // if a fork is restored on top, the swap target. Two reads could diverge.
-    const visibleSlotPaneId = this.deps.tmux.getPaneId(visibleSlot);
+    const visibleSlotPaneId = await this.deps.sessions.getPaneId(visibleSlot);
 
     const restored: WorktreeTab[] = [{ ...root, paneId: visibleSlotPaneId }];
     for (const fork of listTabs(meta).filter((tab) => tab.kind === "fork")) {
@@ -632,13 +632,13 @@ export class LifecycleService {
         launchMode: "resume",
         resumeConversationId: fork.sessionId,
       });
-      const paneId = this.deps.tmux.createParkedPane({
+      const paneId = await this.deps.sessions.createParkedPane({
         sessionName,
         parkingWindow,
         cwd: input.worktreePath,
         command: buildManagedShellCommand(input.runtimeEnvPath),
       });
-      this.deps.tmux.runCommand(paneId, command);
+      await this.deps.sessions.runCommand(paneId, command);
       restored.push({ ...fork, paneId });
     }
 
@@ -646,7 +646,7 @@ export class LifecycleService {
     const wantActive = readActiveTabId(meta);
     const activeTab = restored.find((tab) => tab.tabId === wantActive && tab.kind === "fork" && tab.paneId);
     if (activeTab?.paneId) {
-      this.deps.tmux.swapPanes(activeTab.paneId, visibleSlotPaneId);
+      await this.deps.sessions.swapPanes(activeTab.paneId, visibleSlotPaneId);
       nextMeta = setActiveTab(nextMeta, activeTab.tabId);
     } else {
       nextMeta = setActiveTab(nextMeta, ROOT_TAB_ID);
@@ -697,7 +697,7 @@ export class LifecycleService {
 
       for (const resolved of resolvedWorktrees) {
         const branch = resolved.entry.branch ?? resolved.entry.path;
-        if (this.deps.tmux.hasWindow(sessionName, buildWorktreeWindowName(branch))) {
+        if (await this.deps.sessions.hasWindow(sessionName, buildWorktreeWindowName(branch))) {
           continue;
         }
         await this.removeResolvedWorktree(resolved);
@@ -778,7 +778,7 @@ export class LifecycleService {
         throw new LifecycleError(`Worktree ${branch} has no managed metadata to reprofile`, 409);
       }
       const { profileName: nextProfileName, profile } = this.resolveProfile(profileName);
-      const wasOpen = isWorktreeOpen(this.deps.tmux, this.deps.projectRoot, branch);
+      const wasOpen = await isWorktreeOpen(this.deps.sessions, this.deps.projectRoot, branch);
       if (resolved.meta.profile === nextProfileName) {
         return { profile: nextProfileName, restarted: false };
       }
@@ -1086,14 +1086,14 @@ export class LifecycleService {
   /** Tear down a worktree's tmux windows: the main agent window and the hidden
    *  parking window that holds its forked tab panes. killWindow tolerates a missing
    *  window, so this is safe for root-only worktrees that never created a parking window. */
-  private killWorktreeWindows(branch: string): void {
+  private async killWorktreeWindows(branch: string): Promise<void> {
     const sessionName = buildProjectSessionName(this.deps.projectRoot);
-    this.deps.tmux.killWindow(sessionName, buildWorktreeWindowName(branch));
-    this.deps.tmux.killWindow(sessionName, buildWorktreeParkingWindowName(branch));
+    await this.deps.sessions.killWindow(sessionName, buildWorktreeWindowName(branch));
+    await this.deps.sessions.killWindow(sessionName, buildWorktreeParkingWindowName(branch));
   }
 
   private async closeBranchWindow(branch: string): Promise<void> {
-    this.killWorktreeWindows(branch);
+    await this.killWorktreeWindows(branch);
     await this.deps.reconciliation.reconcile(this.deps.projectRoot, { force: true });
   }
 
@@ -1125,7 +1125,7 @@ export class LifecycleService {
         services: this.deps.config.services,
         runtimeEnv: input.initialized.runtimeEnv,
       });
-      ensureSessionLayout(this.deps.tmux, this.buildSessionLayout({
+      await ensureSessionLayout(this.deps.sessions, this.buildSessionLayout({
         branch: input.branch,
         profileName: input.profileName,
         profile: input.profile,
@@ -1142,7 +1142,7 @@ export class LifecycleService {
       return;
     }
 
-    ensureSessionLayout(this.deps.tmux, this.buildSessionLayout({
+    await ensureSessionLayout(this.deps.sessions, this.buildSessionLayout({
       branch: input.branch,
       profileName: input.profileName,
       profile: input.profile,
@@ -1257,9 +1257,9 @@ export class LifecycleService {
     }
 
     try {
-      this.killWorktreeWindows(branch);
+      await this.killWorktreeWindows(branch);
     } catch (error) {
-      cleanupErrors.push(`tmux cleanup failed: ${toErrorMessage(error)}`);
+      cleanupErrors.push(`session cleanup failed: ${toErrorMessage(error)}`);
     }
 
     try {
@@ -1317,7 +1317,7 @@ export class LifecycleService {
       await this.deps.docker.removeContainer(branch);
     }
 
-    this.killWorktreeWindows(branch);
+    await this.killWorktreeWindows(branch);
     removeManagedWorktree(
       {
         repoRoot: this.deps.projectRoot,

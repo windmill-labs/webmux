@@ -5,7 +5,7 @@ import { buildSeedFromLinear, defaultSeedFromLinearDeps } from "../../backend/sr
 import { CommandUsageError, resolveProjectBaseUrl, resolveProjectPrefix, withServerConnection } from "./shared";
 import { readOpenSessionsState, readWorktreeArchiveState, readWorktreeMeta, readWorktreePrs } from "../../backend/src/adapters/fs";
 import type { OpenSessionsState, PrEntry } from "../../backend/src/domain/model";
-import { buildProjectSessionName, buildWorktreeWindowName } from "../../backend/src/adapters/tmux";
+import { buildProjectSessionName, buildWorktreeWindowName } from "../../backend/src/adapters/session-gateway";
 import type { AgentId } from "../../backend/src/domain/config";
 import type { WorktreeCreationPhase } from "../../backend/src/domain/model";
 import { compareWorktreeOrder, isValidWorktreeName } from "../../backend/src/domain/policies";
@@ -50,8 +50,8 @@ interface WorktreeRuntimeLike {
     listWorktrees(cwd: string): Array<{ path: string; branch: string | null; bare: boolean }>;
     resolveWorktreeGitDir(cwd: string): string;
   };
-  tmux: {
-    listWindows(): Array<{ sessionName: string; windowName: string }>;
+  sessions: {
+    listWindows(): Promise<Array<{ sessionName: string; windowName: string }>>;
   };
   lifecycleService: LifecycleServiceLike;
 }
@@ -685,11 +685,11 @@ function listProjectWorktrees(
     .filter((entry) => !entry.bare && resolve(entry.path) !== projectDir);
 }
 
-function buildOpenWorktreeWindowSet(runtime: WorktreeRuntimeLike): Set<string> {
+async function buildOpenWorktreeWindowSet(runtime: WorktreeRuntimeLike): Promise<Set<string>> {
   const sessionName = buildProjectSessionName(resolve(runtime.projectDir));
   let windows: Array<{ sessionName: string; windowName: string }> = [];
   try {
-    windows = runtime.tmux.listWindows();
+    windows = await runtime.sessions.listWindows();
   } catch {
     windows = [];
   }
@@ -766,7 +766,7 @@ async function listWorktrees(
     return;
   }
 
-  const openWindows = buildOpenWorktreeWindowSet(runtime);
+  const openWindows = await buildOpenWorktreeWindowSet(runtime);
 
   const projectGitDir = runtime.git.resolveWorktreeGitDir(projectDir);
   const archivedPaths = buildArchivedWorktreePathSet(await readWorktreeArchiveState(projectGitDir));
@@ -964,7 +964,7 @@ export async function runWorktreeCommand(
         return 0;
       }
 
-      const openWindows = buildOpenWorktreeWindowSet(runtime);
+      const openWindows = await buildOpenWorktreeWindowSet(runtime);
       const closedWorktrees = worktrees.filter(
         (entry) => !openWindows.has(buildWorktreeWindowName(entry.branch ?? basename(entry.path))),
       );
@@ -1013,7 +1013,7 @@ export async function runWorktreeCommand(
       let openWindows = new Set<string>();
       try {
         openWindows = new Set(
-          runtime.tmux.listWindows()
+          (await runtime.sessions.listWindows())
             .filter((w) => w.sessionName === sessionName)
             .map((w) => w.windowName),
         );

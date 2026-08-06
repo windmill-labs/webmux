@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BunGitGateway, type GitGateway, type TryGitCommandResult, type UnpushedCommit } from "../adapters/git";
-import type { TmuxGateway } from "../adapters/tmux";
+import type { SessionGateway, SessionWindowSummary } from "../adapters/session-gateway";
 import {
   buildRuntimeEnvMap,
   getWorktreeStoragePaths,
@@ -127,68 +127,65 @@ class FakeGitGateway implements GitGateway {
   }
 }
 
-class FakeTmuxGateway implements TmuxGateway {
+class FakeSessionGateway implements SessionGateway {
   createWindowError: Error | null = null;
 
   constructor(private readonly calls: string[]) {}
 
-  getPaneId(_target: string): string {
+  async getPaneId(_target: string): Promise<string> {
     return "%0";
   }
 
-  createParkedPane(_opts: { sessionName: string; parkingWindow: string; cwd: string; command: string }): string {
+  async createParkedPane(_opts: { sessionName: string; parkingWindow: string; cwd: string; command: string }): Promise<string> {
     return "%99";
   }
 
-  swapPanes(_source: string, _destination: string): void {}
+  async swapPanes(_source: string, _destination: string): Promise<void> {}
 
-  killPane(_target: string): void {}
+  async killPane(_target: string): Promise<void> {}
 
-  ensureServer(): void {
+  async ensureServer(): Promise<void> {
     this.calls.push("ensureServer");
   }
 
-  ensureSession(sessionName: string, cwd: string): void {
+  async ensureSession(sessionName: string, cwd: string): Promise<void> {
     this.calls.push(`ensureSession:${sessionName}:${cwd}`);
   }
 
-  hasWindow(sessionName: string, windowName: string): boolean {
+  async hasWindow(sessionName: string, windowName: string): Promise<boolean> {
     this.calls.push(`hasWindow:${sessionName}:${windowName}`);
     return false;
   }
 
-  killWindow(sessionName: string, windowName: string): void {
+  async killWindow(sessionName: string, windowName: string): Promise<void> {
     this.calls.push(`killWindow:${sessionName}:${windowName}`);
   }
 
-  createWindow(opts: { sessionName: string; windowName: string; cwd: string; command?: string }): void {
+  async createWindow(opts: { sessionName: string; windowName: string; cwd: string; command?: string }): Promise<void> {
     this.calls.push(`createWindow:${opts.sessionName}:${opts.windowName}:${opts.cwd}:${opts.command ?? ""}`);
     if (this.createWindowError) throw this.createWindowError;
   }
 
-  splitWindow(opts: {
+  async splitWindow(opts: {
     target: string;
     split: "right" | "bottom";
     sizePct?: number;
     cwd: string;
     command?: string;
-  }): void {
+  }): Promise<void> {
     this.calls.push(`splitWindow:${opts.target}:${opts.split}:${opts.sizePct ?? ""}:${opts.cwd}:${opts.command ?? ""}`);
   }
 
-  setWindowOption(sessionName: string, windowName: string, option: string, value: string): void {
-    this.calls.push(`setWindowOption:${sessionName}:${windowName}:${option}:${value}`);
-  }
 
-  runCommand(target: string, command: string): void {
+  async runCommand(target: string, command: string): Promise<void> {
     this.calls.push(`runCommand:${target}:${command}`);
   }
 
-  selectPane(target: string): void {
+  async selectPane(target: string): Promise<void> {
     this.calls.push(`selectPane:${target}`);
   }
 
-  listWindows() {
+  async listWindows(): Promise<SessionWindowSummary[]> {
     return [];
   }
 }
@@ -490,7 +487,7 @@ describe("initializeManagedWorktree", () => {
 
     const calls: string[] = [];
     const git = new FakeGitGateway(gitDir, calls);
-    const tmux = new FakeTmuxGateway(calls);
+    const tmux = new FakeSessionGateway(calls);
 
     await createManagedWorktree(
       {
@@ -525,7 +522,7 @@ describe("initializeManagedWorktree", () => {
           ],
         },
       },
-      { git, tmux },
+      { git, sessions: tmux },
     );
 
     expect(calls[0]).toBe(`createWorktree:/repo/project:${worktreePath}:feature/search-panel:new:main:`);
@@ -583,7 +580,7 @@ describe("initializeManagedWorktree", () => {
     worktreePath = join(repoRoot, "__worktrees", "feature-tmux-rollback");
 
     const calls: string[] = [];
-    const tmux = new FakeTmuxGateway(calls);
+    const tmux = new FakeSessionGateway(calls);
     tmux.createWindowError = new Error("tmux exploded");
 
     await expect(
@@ -615,7 +612,7 @@ describe("initializeManagedWorktree", () => {
             ],
           },
         },
-        { git: new BunGitGateway(), tmux },
+        { git: new BunGitGateway(), sessions: tmux },
       ),
     ).rejects.toThrow("tmux exploded");
 

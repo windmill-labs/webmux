@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildProjectSessionName, buildWorktreeWindowName } from "../../backend/src/adapters/tmux";
+import { buildProjectSessionName, buildWorktreeWindowName } from "../../backend/src/adapters/session-gateway";
 import type { CreateLifecycleWorktreeInput, CreateLifecycleWorktreesInput } from "../../backend/src/services/lifecycle-service";
 import {
   parseAddCommandArgs,
@@ -75,7 +75,7 @@ function stubGit(worktrees: Array<{ path: string; branch: string | null; bare: b
 }
 
 function stubTmux(windows: Array<{ sessionName: string; windowName: string }> = []) {
-  return { listWindows: () => windows };
+  return { listWindows: async () => windows };
 }
 
 function makeRuntime() {
@@ -91,7 +91,7 @@ function makeRuntime() {
         },
       },
       git: stubGit(),
-      tmux: stubTmux(),
+      sessions: stubTmux(),
       lifecycleService: stubLifecycleService(calls),
     },
   };
@@ -755,7 +755,7 @@ describe("runWorktreeCommand", () => {
       { path: "/repo/.worktrees/feature-search", branch: "feature/search", bare: false },
       { path: "/repo/.worktrees/feature-api", branch: "feature/api", bare: false },
     ]);
-    runtime.tmux = stubTmux([
+    runtime.sessions = stubTmux([
       { sessionName: buildProjectSessionName("/repo"), windowName: buildWorktreeWindowName("feature/api") },
     ]);
     const stdout: string[] = [];
@@ -789,7 +789,7 @@ describe("runWorktreeCommand", () => {
       { path: "/repo", branch: "main", bare: false },
       { path: "/repo/.worktrees/feature-search", branch: "feature/search", bare: false },
     ]);
-    runtime.tmux = stubTmux([
+    runtime.sessions = stubTmux([
       { sessionName: buildProjectSessionName("/repo"), windowName: buildWorktreeWindowName("feature/search") },
     ]);
     const stdout: string[] = [];
@@ -860,7 +860,7 @@ describe("runWorktreeCommand", () => {
             },
           },
           git: stubGit(),
-          tmux: stubTmux(),
+          sessions: stubTmux(),
           lifecycleService: {
             async createWorktree(): Promise<{ branch: string; worktreeId: string }> {
               throw new Error("not used");
@@ -944,7 +944,7 @@ describe("runWorktreeCommand", () => {
             { path: "/repo/.worktrees/fix-bug", branch: "fix-bug", bare: false },
             { path: "/repo/.worktrees/my-feature", branch: "my-feature", bare: false },
           ]),
-          tmux: stubTmux([
+          sessions: stubTmux([
             { sessionName, windowName: buildWorktreeWindowName("my-feature") },
           ]),
           lifecycleService: stubLifecycleService([]),
@@ -992,7 +992,7 @@ describe("runWorktreeCommand", () => {
               { path: projectDir, branch: "main", bare: false },
               { path: worktreePath, branch: "random-name", bare: false },
             ]),
-            tmux: stubTmux(),
+            sessions: stubTmux(),
             lifecycleService: stubLifecycleService([]),
           }),
           stdout: (msg) => stdout.push(msg),
@@ -1017,7 +1017,7 @@ describe("runWorktreeCommand", () => {
           projectDir: "/repo",
           config: { workspace: { mainBranch: "main" } },
           git: stubGit([{ path: "/repo", branch: "main", bare: false }]),
-          tmux: stubTmux(),
+          sessions: stubTmux(),
           lifecycleService: stubLifecycleService([]),
         }),
         stdout: (msg) => stdout.push(msg),
@@ -1206,7 +1206,7 @@ describe("runWorktreeCommand restore", () => {
           listWorktrees: () => options.worktrees ?? [],
           resolveWorktreeGitDir: (cwd: string) => `${cwd}/.git`,
         },
-        tmux: { listWindows: () => options.windows ?? [] },
+        sessions: { listWindows: async () => options.windows ?? [] },
         lifecycleService: {
           async openWorktree(branch: string): Promise<{ branch: string; worktreeId: string }> {
             if (options.openWorktree) return options.openWorktree(branch);

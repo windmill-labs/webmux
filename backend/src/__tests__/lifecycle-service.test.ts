@@ -6,7 +6,7 @@ import type { ProjectConfig } from "../domain/config";
 import { BunGitGateway, type GitGateway } from "../adapters/git";
 import type { LifecycleHookRunner, RunLifecycleHookInput } from "../adapters/hooks";
 import type { PortProbe } from "../adapters/port-probe";
-import { buildProjectSessionName, buildWorktreeParkingWindowName, buildWorktreeWindowName, type TmuxGateway, type TmuxWindowSummary } from "../adapters/tmux";
+import { buildProjectSessionName, buildWorktreeParkingWindowName, buildWorktreeWindowName, type SessionGateway, type SessionWindowSummary } from "../adapters/session-gateway";
 import { getWorktreeStoragePaths, readWorktreeArchiveState, readWorktreeMeta, writeWorktreeMeta } from "../adapters/fs";
 import type { DockerGateway, LaunchContainerOpts } from "../adapters/docker";
 import type { SessionDiscoveryGateway } from "../adapters/session-discovery";
@@ -36,8 +36,8 @@ function run(args: string[], cwd: string): string {
   return new TextDecoder().decode(result.stdout).trim();
 }
 
-class FakeTmuxGateway implements TmuxGateway {
-  private readonly windows = new Map<string, TmuxWindowSummary>();
+class FakeSessionGateway implements SessionGateway {
+  private readonly windows = new Map<string, SessionWindowSummary>();
   readonly createdWindows: Array<{ sessionName: string; windowName: string; cwd: string; command?: string }> = [];
   readonly commands: Array<{ target: string; command: string }> = [];
   readonly swaps: Array<{ source: string; destination: string }> = [];
@@ -46,11 +46,11 @@ class FakeTmuxGateway implements TmuxGateway {
 
   // Each resolution yields a fresh id so a code path that reads the same slot twice gets two
   // different values — surfacing any double-read where a single captured id is expected.
-  getPaneId(_target: string): string {
+  async getPaneId(_target: string): Promise<string> {
     return `%pane-${this.paneCounter++}`;
   }
 
-  createParkedPane(opts: { sessionName: string; parkingWindow: string; cwd: string; command: string }): string {
+  async createParkedPane(opts: { sessionName: string; parkingWindow: string; cwd: string; command: string }): Promise<string> {
     const window = this.windows.get(this.key(opts.sessionName, opts.parkingWindow));
     if (window) {
       window.paneCount += 1;
@@ -64,27 +64,27 @@ class FakeTmuxGateway implements TmuxGateway {
     return `%parked-${this.paneCounter++}`;
   }
 
-  swapPanes(source: string, destination: string): void {
+  async swapPanes(source: string, destination: string): Promise<void> {
     this.swaps.push({ source, destination });
   }
 
-  killPane(target: string): void {
+  async killPane(target: string): Promise<void> {
     this.killedPanes.push(target);
   }
 
-  ensureServer(): void {}
+  async ensureServer(): Promise<void> {}
 
-  ensureSession(_sessionName: string, _cwd: string): void {}
+  async ensureSession(_sessionName: string, _cwd: string): Promise<void> {}
 
-  hasWindow(sessionName: string, windowName: string): boolean {
+  async hasWindow(sessionName: string, windowName: string): Promise<boolean> {
     return this.windows.has(this.key(sessionName, windowName));
   }
 
-  killWindow(sessionName: string, windowName: string): void {
+  async killWindow(sessionName: string, windowName: string): Promise<void> {
     this.windows.delete(this.key(sessionName, windowName));
   }
 
-  createWindow(opts: { sessionName: string; windowName: string; cwd: string; command?: string }): void {
+  async createWindow(opts: { sessionName: string; windowName: string; cwd: string; command?: string }): Promise<void> {
     this.createdWindows.push({ ...opts });
     this.windows.set(this.key(opts.sessionName, opts.windowName), {
       sessionName: opts.sessionName,
@@ -93,13 +93,13 @@ class FakeTmuxGateway implements TmuxGateway {
     });
   }
 
-  splitWindow(opts: {
+  async splitWindow(opts: {
     target: string;
     split: "right" | "bottom";
     sizePct?: number;
     cwd: string;
     command?: string;
-  }): void {
+  }): Promise<void> {
     const paneSeparatorIndex = opts.target.lastIndexOf(".");
     const sessionWindow = paneSeparatorIndex >= 0 ? opts.target.slice(0, paneSeparatorIndex) : opts.target;
     if (!sessionWindow) return;
@@ -108,15 +108,14 @@ class FakeTmuxGateway implements TmuxGateway {
     window.paneCount += 1;
   }
 
-  setWindowOption(_sessionName: string, _windowName: string, _option: string, _value: string): void {}
 
-  runCommand(target: string, command: string): void {
+  async runCommand(target: string, command: string): Promise<void> {
     this.commands.push({ target, command });
   }
 
-  selectPane(_target: string): void {}
+  async selectPane(_target: string): Promise<void> {}
 
-  listWindows(): TmuxWindowSummary[] {
+  async listWindows(): Promise<SessionWindowSummary[]> {
     return [...this.windows.values()].map((window) => ({ ...window }));
   }
 
@@ -201,6 +200,7 @@ class AheadTrackingGitGateway extends BunGitGateway {
 
 const TEST_CONFIG: ProjectConfig = {
   name: "Project",
+  multiplexer: "tmux",
   workspace: {
     mainBranch: "main",
     worktreeRoot: "__worktrees",
@@ -287,7 +287,7 @@ const SWITCHABLE_PROFILE_CONFIG: ProjectConfig = {
 
 function makeLifecycleService(
   repoRoot: string,
-  tmux: FakeTmuxGateway,
+  tmux: FakeSessionGateway,
   runtime: ProjectRuntime,
   docker: DockerGateway = new FakeDockerGateway(),
   hooks: LifecycleHookRunner = new FakeHookRunner(),
@@ -306,7 +306,7 @@ function makeLifecycleService(
   const reconciliation = new ReconciliationService({
     config,
     git,
-    tmux,
+    sessions: tmux,
     portProbe: new FakePortProbe(),
     runtime,
   });
@@ -318,7 +318,7 @@ function makeLifecycleService(
     config,
     archiveState: new ArchiveStateService(git.resolveWorktreeGitDir(repoRoot)),
     git,
-    tmux,
+    sessions: tmux,
     sessionDiscovery,
     docker,
     reconciliation,
@@ -365,9 +365,9 @@ describe("LifecycleService", () => {
   it("creates a managed host worktree with metadata, env files, and tmux layout", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
-    const hooks = new FakeHookRunner(() => {
-      expect(tmux.listWindows()).toEqual([]);
+    const tmux = new FakeSessionGateway();
+    const hooks = new FakeHookRunner(async () => {
+      expect(await tmux.listWindows()).toEqual([]);
     });
     const lifecycle = makeLifecycleService(repoRoot, tmux, runtime, new FakeDockerGateway(), hooks);
 
@@ -412,7 +412,7 @@ describe("LifecycleService", () => {
       }),
     ]);
 
-    expect(tmux.listWindows()).toEqual([
+    expect((await tmux.listWindows())).toEqual([
       {
         sessionName: buildProjectSessionName(repoRoot),
         windowName: buildWorktreeWindowName("feature/search"),
@@ -428,7 +428,7 @@ describe("LifecycleService", () => {
   it("writes no control.env when no control base URL is configured", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     // The CLI leaves controlBaseUrl undefined when it can't resolve the project
     // prefix (no server running). We'd rather write no control.env than one with
     // a wrong (unrouted) URL — the dashboard rewrites it on next open/refresh.
@@ -460,7 +460,7 @@ describe("LifecycleService", () => {
   it("creates one managed worktree per selected agent from one task branch", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const lifecycle = makeLifecycleService(repoRoot, tmux, runtime);
     const git = new BunGitGateway();
 
@@ -487,7 +487,7 @@ describe("LifecycleService", () => {
     expect(codexMeta?.baseBranch).toBe("main");
     expect(runtime.getWorktreeByBranch(claudeBranch)?.session.exists).toBe(true);
     expect(runtime.getWorktreeByBranch(codexBranch)?.session.exists).toBe(true);
-    expect(tmux.listWindows().map((window) => window.windowName).sort()).toEqual([
+    expect((await tmux.listWindows()).map((window) => window.windowName).sort()).toEqual([
       buildWorktreeWindowName(claudeBranch),
       buildWorktreeWindowName(codexBranch),
     ]);
@@ -496,7 +496,7 @@ describe("LifecycleService", () => {
   it("rolls back the first paired worktree when the second branch cannot be created", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const lifecycle = makeLifecycleService(repoRoot, tmux, runtime);
     const git = new BunGitGateway();
 
@@ -510,7 +510,7 @@ describe("LifecycleService", () => {
     expect(run(["git", "branch", "--list", "codex-feature/search"], repoRoot)).toContain("codex-feature/search");
     expect(git.listWorktrees(repoRoot).some((entry) => entry.branch === "claude-feature/search")).toBe(false);
     expect(runtime.getWorktreeByBranch("claude-feature/search")).toBeNull();
-    expect(tmux.hasWindow(
+    expect(await tmux.hasWindow(
       buildProjectSessionName(repoRoot),
       buildWorktreeWindowName("claude-feature/search"),
     )).toBe(false);
@@ -519,7 +519,7 @@ describe("LifecycleService", () => {
   it("rejects invalid multi-agent selections", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const lifecycle = makeLifecycleService(repoRoot, tmux, runtime);
 
     await expect(lifecycle.createWorktrees({
@@ -542,7 +542,7 @@ describe("LifecycleService", () => {
   it("refreshes runtime env after postCreate so system prompts see .env.local values", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const databaseUrl = "postgres://postgres:changeme@127.0.0.1:5432/windmill_feature_prompt?sslmode=disable";
     const hooks = new FakeHookRunner(async (input) => {
       await Bun.write(join(input.cwd, ".env.local"), `DATABASE_URL=${databaseUrl}\n`);
@@ -583,7 +583,7 @@ describe("LifecycleService", () => {
   it("appends the oneshot system prompt to fresh launches when source is oneshot", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const lifecycle = makeLifecycleService(
       repoRoot,
       tmux,
@@ -619,7 +619,7 @@ describe("LifecycleService", () => {
   it("does not append the oneshot system prompt for ui-sourced worktrees", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const lifecycle = makeLifecycleService(
       repoRoot,
       tmux,
@@ -654,7 +654,7 @@ describe("LifecycleService", () => {
   it("launches custom agents through interpolated command templates", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const lifecycle = makeLifecycleService(
       repoRoot,
       tmux,
@@ -700,7 +700,7 @@ describe("LifecycleService", () => {
   it("reopens custom agents without resume support in fresh mode", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const lifecycle = makeLifecycleService(
       repoRoot,
       tmux,
@@ -745,7 +745,7 @@ describe("LifecycleService", () => {
   it("reinstalls Claude runtime hooks after postCreate rewrites settings.local.json", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const additionalDirectory = "../windmill-ee-private__worktrees/hook-settings";
     const hooks = new FakeHookRunner(async (input) => {
       const claudeDir = join(input.cwd, ".claude");
@@ -780,7 +780,7 @@ describe("LifecycleService", () => {
     const absoluteWorktreeRoot = await mkdtemp(join(tmpdir(), "webmux-absolute-worktrees-"));
     tempDirs.push(absoluteWorktreeRoot);
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const lifecycle = makeLifecycleService(
       repoRoot,
       tmux,
@@ -808,7 +808,7 @@ describe("LifecycleService", () => {
   it("creates a managed worktree for an existing local branch", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const lifecycle = makeLifecycleService(repoRoot, tmux, runtime);
 
     run(["git", "checkout", "-b", "feature-follow"], repoRoot);
@@ -833,7 +833,7 @@ describe("LifecycleService", () => {
   it("lists available branches excluding branches already checked out", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const lifecycle = makeLifecycleService(repoRoot, tmux, runtime);
     const git = new BunGitGateway();
 
@@ -872,7 +872,7 @@ describe("LifecycleService", () => {
     run(["git", "push", "-u", "origin", "feature-remote-only"], cloneRoot);
 
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const lifecycle = makeLifecycleService(repoRoot, tmux, runtime);
     const git = new BunGitGateway();
 
@@ -916,7 +916,7 @@ describe("LifecycleService", () => {
     run(["git", "push", "-u", "origin", "feature-remote-existing"], cloneRoot);
 
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const lifecycle = makeLifecycleService(repoRoot, tmux, runtime);
 
     const created = await lifecycle.createWorktree({
@@ -956,7 +956,7 @@ describe("LifecycleService", () => {
     run(["git", "push", "-u", "origin", "feature-remote-rollback"], cloneRoot);
 
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const hooks = new FakeHookRunner(() => {
       throw new Error("post-create failed");
     });
@@ -980,7 +980,7 @@ describe("LifecycleService", () => {
   it("keeps an existing branch when creation fails after the worktree is created", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const hooks = new FakeHookRunner(() => {
       throw new Error("post-create failed");
     });
@@ -1005,7 +1005,7 @@ describe("LifecycleService", () => {
   it("opens an unmanaged worktree by initializing metadata and rebuilding tmux layout", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const git = new BunGitGateway();
     const lifecycle = makeLifecycleService(repoRoot, tmux, runtime);
     const worktreePath = join(repoRoot, "__worktrees", "feature-open");
@@ -1025,7 +1025,7 @@ describe("LifecycleService", () => {
     expect(opened.branch).toBe("feature-open");
     expect(meta).not.toBeNull();
     expect(meta?.branch).toBe("feature-open");
-    expect(tmux.listWindows()[0]?.windowName).toBe(buildWorktreeWindowName("feature-open"));
+    expect((await tmux.listWindows())[0]?.windowName).toBe(buildWorktreeWindowName("feature-open"));
     expect(tmux.commands[0]?.command).toContain("claude");
     expect(tmux.commands[0]?.command).not.toContain("--continue");
     expect(runtime.getWorktreeByBranch("feature-open")?.worktreeId).toBe(opened.worktreeId);
@@ -1040,7 +1040,7 @@ describe("LifecycleService", () => {
     run(["git", "checkout", "main"], repoRoot);
 
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const lifecycle = makeLifecycleService(repoRoot, tmux, runtime);
 
     await lifecycle.createWorktree({
@@ -1058,7 +1058,7 @@ describe("LifecycleService", () => {
   it("rejects invalid base branch names before creating a worktree", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const lifecycle = makeLifecycleService(repoRoot, tmux, runtime);
     const worktreePath = join(repoRoot, "__worktrees", "feature", "invalid-base");
 
@@ -1076,13 +1076,13 @@ describe("LifecycleService", () => {
     }
 
     expect(new BunGitGateway().listWorktrees(repoRoot).some((entry) => entry.path === worktreePath)).toBe(false);
-    expect(tmux.listWindows()).toEqual([]);
+    expect((await tmux.listWindows())).toEqual([]);
   });
 
   it("rejects self-referencing base branches before creating a worktree", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const lifecycle = makeLifecycleService(repoRoot, tmux, runtime);
     const worktreePath = join(repoRoot, "__worktrees", "feature", "loop");
 
@@ -1100,13 +1100,13 @@ describe("LifecycleService", () => {
     }
 
     expect(new BunGitGateway().listWorktrees(repoRoot).some((entry) => entry.path === worktreePath)).toBe(false);
-    expect(tmux.listWindows()).toEqual([]);
+    expect((await tmux.listWindows())).toEqual([]);
   });
 
   it("reopens a managed claude worktree with claude continue", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const lifecycle = makeLifecycleService(
       repoRoot,
       tmux,
@@ -1145,7 +1145,7 @@ describe("LifecycleService", () => {
   it("reopens a managed codex worktree with codex resume --last", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const lifecycle = makeLifecycleService(
       repoRoot,
       tmux,
@@ -1189,7 +1189,7 @@ describe("LifecycleService", () => {
   it("forwards an explicit follow-up prompt through openWorktree to claude --continue", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const lifecycle = makeLifecycleService(repoRoot, tmux, runtime);
 
     await lifecycle.createWorktree({
@@ -1214,7 +1214,7 @@ describe("LifecycleService", () => {
   it("reopens a stale managed codex terminal from its saved app-server thread", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const lifecycle = makeLifecycleService(
       repoRoot,
       tmux,
@@ -1274,7 +1274,7 @@ describe("LifecycleService", () => {
   it("refreshes a managed codex terminal from its saved app-server thread", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const lifecycle = makeLifecycleService(
       repoRoot,
       tmux,
@@ -1333,7 +1333,7 @@ describe("LifecycleService", () => {
   it("refreshes a managed claude terminal from its saved session", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const lifecycle = makeLifecycleService(
       repoRoot,
       tmux,
@@ -1388,13 +1388,13 @@ describe("LifecycleService", () => {
   it("closes the tmux window without removing the worktree or branch", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const lifecycle = makeLifecycleService(repoRoot, tmux, runtime);
 
     await lifecycle.createWorktree({ branch: "feature-close" });
     await lifecycle.closeWorktree("feature-close");
 
-    expect(tmux.listWindows()).toEqual([]);
+    expect((await tmux.listWindows())).toEqual([]);
     expect(new BunGitGateway().listWorktrees(repoRoot).some((entry) => entry.branch === "feature-close")).toBe(true);
     expect(run(["git", "branch", "--list", "feature-close"], repoRoot)).toContain("feature-close");
     expect(runtime.getWorktreeByBranch("feature-close")?.session.exists).toBe(false);
@@ -1403,13 +1403,13 @@ describe("LifecycleService", () => {
   it("closes a worktree before archiving it", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const lifecycle = makeLifecycleService(repoRoot, tmux, runtime);
 
     await lifecycle.createWorktree({ branch: "feature-archive" });
     await lifecycle.setWorktreeArchived("feature-archive", true);
 
-    expect(tmux.listWindows()).toEqual([]);
+    expect((await tmux.listWindows())).toEqual([]);
     expect(runtime.getWorktreeByBranch("feature-archive")?.session.exists).toBe(false);
 
     const archiveState = await readWorktreeArchiveState(join(repoRoot, ".git"));
@@ -1421,7 +1421,7 @@ describe("LifecycleService", () => {
   it("updates and clears a worktree label in metadata and runtime state", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const lifecycle = makeLifecycleService(repoRoot, tmux, runtime);
 
     const worktreePath = join(repoRoot, "__worktrees", "feature-label");
@@ -1453,7 +1453,7 @@ describe("LifecycleService", () => {
   it("rejects labeling unmanaged worktrees without creating metadata", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const lifecycle = makeLifecycleService(repoRoot, tmux, runtime);
     const git = new BunGitGateway();
     const worktreePath = join(repoRoot, "__worktrees", "feature-unmanaged-label");
@@ -1481,7 +1481,7 @@ describe("LifecycleService", () => {
   it("rebuilds an open worktree session with the panes of the profile it switches to", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const lifecycle = makeLifecycleService(
       repoRoot,
       tmux,
@@ -1505,7 +1505,7 @@ describe("LifecycleService", () => {
     expect(meta?.runtime).toBe("host");
     expect(runtime.getWorktreeByBranch("feature-profile")?.profile).toBe("full");
 
-    expect(tmux.listWindows()).toEqual([
+    expect((await tmux.listWindows())).toEqual([
       {
         sessionName: buildProjectSessionName(repoRoot),
         windowName: buildWorktreeWindowName("feature-profile"),
@@ -1519,7 +1519,7 @@ describe("LifecycleService", () => {
   it("keeps a closed worktree closed and applies the new profile on the next open", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const lifecycle = makeLifecycleService(
       repoRoot,
       tmux,
@@ -1535,19 +1535,19 @@ describe("LifecycleService", () => {
     const result = await lifecycle.setWorktreeProfile("feature-profile-closed", "full");
 
     expect(result).toEqual({ profile: "full", restarted: false });
-    expect(tmux.listWindows()).toEqual([]);
+    expect((await tmux.listWindows())).toEqual([]);
 
     tmux.commands.length = 0;
     await lifecycle.openWorktree("feature-profile-closed");
 
-    expect(tmux.listWindows()[0]?.paneCount).toBe(2);
+    expect((await tmux.listWindows())[0]?.paneCount).toBe(2);
     expect(tmux.commands.map((entry) => entry.command)).toContainEqual("bun run dev");
   });
 
   it("tears down the container when a worktree leaves its docker profile", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const docker = new FakeDockerGateway();
     const lifecycle = makeLifecycleService(
       repoRoot,
@@ -1576,7 +1576,7 @@ describe("LifecycleService", () => {
   it("leaves the session untouched when the profile is unchanged", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const lifecycle = makeLifecycleService(
       repoRoot,
       tmux,
@@ -1600,7 +1600,7 @@ describe("LifecycleService", () => {
   it("rejects switching to an unknown profile", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const lifecycle = makeLifecycleService(repoRoot, tmux, runtime);
 
     await lifecycle.createWorktree({ branch: "feature-profile-unknown" });
@@ -1616,7 +1616,7 @@ describe("LifecycleService", () => {
   it("creates a managed docker worktree through the container runtime path", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const docker = new FakeDockerGateway();
     const lifecycle = makeLifecycleService(repoRoot, tmux, runtime, docker);
 
@@ -1634,7 +1634,7 @@ describe("LifecycleService", () => {
     const gitDir = new BunGitGateway().resolveWorktreeGitDir(worktreePath);
     const controlEnvText = await Bun.file(getWorktreeStoragePaths(gitDir).controlEnvPath).text();
 
-    expect(tmux.listWindows()).toEqual([
+    expect((await tmux.listWindows())).toEqual([
       {
         sessionName: buildProjectSessionName(repoRoot),
         windowName: buildWorktreeWindowName("feature-sandbox"),
@@ -1652,7 +1652,7 @@ describe("LifecycleService", () => {
   it("starts one-pane docker agent sessions without nesting docker exec inside the container shell", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const docker = new FakeDockerGateway();
     const lifecycle = makeLifecycleService(repoRoot, tmux, runtime, docker);
 
@@ -1673,7 +1673,7 @@ describe("LifecycleService", () => {
   it("refreshes docker control env with a host-reachable callback when reopening", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const docker = new FakeDockerGateway();
     const lifecycle = makeLifecycleService(repoRoot, tmux, runtime, docker);
 
@@ -1702,7 +1702,7 @@ describe("LifecycleService", () => {
   it("reports backend creation phases in order until the worktree is ready", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const phases: string[] = [];
     const activeBranches = new Set<string>();
     const lifecycle = makeLifecycleService(
@@ -1742,7 +1742,7 @@ describe("LifecycleService", () => {
   it("clears creation progress when the first phase callback fails", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const finishedBranches: string[] = [];
     const lifecycle = makeLifecycleService(
       repoRoot,
@@ -1774,7 +1774,7 @@ describe("LifecycleService", () => {
   it("uses auto_name to generate the branch when the prompt is present and no branch was provided", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const autoName = new FakeAutoNameService("fix-login-flow");
     const lifecycle = makeLifecycleService(
       repoRoot,
@@ -1812,7 +1812,7 @@ describe("LifecycleService", () => {
   it("uses auto_name once when creating paired worktrees without an explicit branch", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const autoName = new FakeAutoNameService("fix-login-flow");
     const lifecycle = makeLifecycleService(
       repoRoot,
@@ -1854,7 +1854,7 @@ describe("LifecycleService", () => {
   it("force removes a dirty worktree", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const hooks = new FakeHookRunner();
     const lifecycle = makeLifecycleService(repoRoot, tmux, runtime, new FakeDockerGateway(), hooks);
 
@@ -1873,7 +1873,7 @@ describe("LifecycleService", () => {
   it("force removes a worktree that is ahead of its upstream", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const hooks = new FakeHookRunner();
     const git = new AheadTrackingGitGateway(new Set(["feature-ahead"]));
     const lifecycle = makeLifecycleService(
@@ -1897,7 +1897,7 @@ describe("LifecycleService", () => {
   it("prunes only closed worktrees, leaving open ones untouched", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const docker = new FakeDockerGateway();
     const hooks = new FakeHookRunner();
     const lifecycle = makeLifecycleService(repoRoot, tmux, runtime, docker, hooks);
@@ -1925,7 +1925,7 @@ describe("LifecycleService", () => {
   it("prunes nothing when all worktrees are open", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const docker = new FakeDockerGateway();
     const hooks = new FakeHookRunner();
     const lifecycle = makeLifecycleService(repoRoot, tmux, runtime, docker, hooks);
@@ -1941,7 +1941,7 @@ describe("LifecycleService", () => {
   it("removes the sandbox container before deleting a docker worktree", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const docker = new FakeDockerGateway();
     const hooks = new FakeHookRunner();
     const lifecycle = makeLifecycleService(repoRoot, tmux, runtime, docker, hooks);
@@ -1965,7 +1965,7 @@ describe("LifecycleService", () => {
   it("falls back to the first configured profile when no default profile exists", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const lifecycle = makeLifecycleService(
       repoRoot,
       tmux,
@@ -2000,7 +2000,7 @@ describe("LifecycleService", () => {
   it("merges a clean worktree into main and removes it on success", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const lifecycle = makeLifecycleService(repoRoot, tmux, runtime);
 
     await lifecycle.createWorktree({ branch: "feature-merge" });
@@ -2020,7 +2020,7 @@ describe("LifecycleService", () => {
   it("merges and cleans up a worktree even when the source branch is ahead", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const hooks = new FakeHookRunner();
     const git = new AheadTrackingGitGateway(new Set(["feature-merge-ahead"]));
     const lifecycle = makeLifecycleService(
@@ -2052,7 +2052,7 @@ describe("LifecycleService", () => {
     const repoRoot = await initRepo();
     const lifecycle = makeLifecycleService(
       repoRoot,
-      new FakeTmuxGateway(),
+      new FakeSessionGateway(),
       new ProjectRuntime(),
       new FakeDockerGateway(),
     );
@@ -2087,7 +2087,7 @@ describe("LifecycleService", () => {
 
   function makeTabLifecycle(
     repoRoot: string,
-    tmux: FakeTmuxGateway,
+    tmux: FakeSessionGateway,
     runtime: ProjectRuntime,
     rootSessionIds: string[] = ["root-session"],
   ): LifecycleService {
@@ -2108,7 +2108,7 @@ describe("LifecycleService", () => {
   it("forks a tab into a parked pane and swaps it into the visible agent slot", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const lifecycle = makeTabLifecycle(repoRoot, tmux, runtime);
 
     await lifecycle.createWorktree({ branch: "feature-fork" });
@@ -2121,7 +2121,7 @@ describe("LifecycleService", () => {
     if (!tab.paneId) throw new Error("expected fork pane id");
 
     const session = buildProjectSessionName(repoRoot);
-    expect(tmux.hasWindow(session, buildWorktreeParkingWindowName("feature-fork"))).toBe(true);
+    expect(await tmux.hasWindow(session, buildWorktreeParkingWindowName("feature-fork"))).toBe(true);
 
     // The new fork is brought on-screen by swapping its parked pane into the visible slot.
     expect(tmux.swaps).toHaveLength(1);
@@ -2140,7 +2140,7 @@ describe("LifecycleService", () => {
   it("selects another tab by swapping its parked pane back into the visible slot", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const lifecycle = makeTabLifecycle(repoRoot, tmux, runtime);
 
     await lifecycle.createWorktree({ branch: "feature-select" });
@@ -2163,7 +2163,7 @@ describe("LifecycleService", () => {
   it("deletes a fork tab, swapping the root back on-screen and killing the fork pane", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const lifecycle = makeTabLifecycle(repoRoot, tmux, runtime);
 
     await lifecycle.createWorktree({ branch: "feature-del" });
@@ -2190,7 +2190,7 @@ describe("LifecycleService", () => {
   it("rejects deleting the root tab", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const lifecycle = makeTabLifecycle(repoRoot, tmux, runtime);
 
     await lifecycle.createWorktree({ branch: "feature-root-del" });
@@ -2204,7 +2204,7 @@ describe("LifecycleService", () => {
   it("rebuilds parked fork panes and re-activates the previous tab on reopen", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const lifecycle = makeTabLifecycle(repoRoot, tmux, runtime);
 
     await lifecycle.createWorktree({ branch: "feature-restore" });
@@ -2215,13 +2215,13 @@ describe("LifecycleService", () => {
 
     await lifecycle.closeWorktree("feature-restore");
     // Closing must tear down the parking window, not just the main agent window.
-    expect(tmux.hasWindow(session, parkingWindow)).toBe(false);
+    expect(await tmux.hasWindow(session, parkingWindow)).toBe(false);
 
     tmux.swaps.length = 0;
     await lifecycle.openWorktree("feature-restore");
 
     // The parking window is rebuilt and the previously active fork is restored on-screen.
-    expect(tmux.hasWindow(session, parkingWindow)).toBe(true);
+    expect(await tmux.hasWindow(session, parkingWindow)).toBe(true);
     const gitDir = new BunGitGateway().resolveWorktreeGitDir(join(repoRoot, "__worktrees", "feature-restore"));
     const meta = await readWorktreeMeta(gitDir);
     expect(meta?.activeTabId).toBe("fork-1");
@@ -2237,7 +2237,7 @@ describe("LifecycleService", () => {
   it("rebuilds parked fork panes when the codex agent terminal is refreshed", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     // ensureRootSessionId + the pre-fork snapshot (calls 1-2) see only the root session;
     // once the fork pane is launched its session id becomes discoverable (call 3+), so a
     // Codex fork captures a non-null id and survives the restore on refresh.
@@ -2300,7 +2300,7 @@ describe("LifecycleService", () => {
 
     // The parking window is rebuilt from a clean slate — exactly one fork pane, not a
     // duplicate stacked on top of the pre-refresh pane.
-    const parking = tmux.listWindows().find((window) => window.windowName === parkingWindow);
+    const parking = (await tmux.listWindows()).find((window) => window.windowName === parkingWindow);
     expect(parking?.paneCount).toBe(1);
     // The fork's codex session is resumed into the rebuilt parked pane.
     expect(tmux.commands.some((entry) => entry.command.includes("resume 'fork-session-1'"))).toBe(true);
@@ -2325,19 +2325,19 @@ describe("LifecycleService", () => {
   it("kills the parking window when removing a worktree with fork tabs", async () => {
     const repoRoot = await initRepo();
     const runtime = new ProjectRuntime();
-    const tmux = new FakeTmuxGateway();
+    const tmux = new FakeSessionGateway();
     const lifecycle = makeTabLifecycle(repoRoot, tmux, runtime);
 
     await lifecycle.createWorktree({ branch: "feature-remove" });
     await lifecycle.createWorktreeTab("feature-remove");
 
     const session = buildProjectSessionName(repoRoot);
-    expect(tmux.hasWindow(session, buildWorktreeParkingWindowName("feature-remove"))).toBe(true);
+    expect(await tmux.hasWindow(session, buildWorktreeParkingWindowName("feature-remove"))).toBe(true);
 
     await lifecycle.removeWorktree("feature-remove");
 
     // Both the main agent window and the parking window must be gone — no orphaned panes left
     // running against the deleted worktree directory.
-    expect(tmux.listWindows()).toEqual([]);
+    expect((await tmux.listWindows())).toEqual([]);
   });
 });

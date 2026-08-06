@@ -55,6 +55,7 @@ function DEFAULT_ONESHOT_SYSTEM_PROMPT(): string {
 
 const DEFAULT_CONFIG: ProjectConfig = {
   name: "Webmux",
+  multiplexer: "tmux",
   workspace: {
     mainBranch: "main",
     worktreeRoot: "../worktrees",
@@ -365,6 +366,7 @@ function parseConfigDocument(text: string): Record<string, unknown> {
 function parseProjectConfig(parsed: Record<string, unknown>): ProjectConfig {
   return {
     name: typeof parsed.name === "string" && parsed.name.trim() ? parsed.name.trim() : DEFAULT_CONFIG.name,
+    multiplexer: parsed.multiplexer === "herdr" ? "herdr" : DEFAULT_CONFIG.multiplexer,
     workspace: {
       mainBranch: isRecord(parsed.workspace) && typeof parsed.workspace.mainBranch === "string"
         ? parsed.workspace.mainBranch

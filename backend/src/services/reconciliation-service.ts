@@ -2,7 +2,7 @@ import { basename, resolve } from "node:path";
 import { expandTemplate } from "../adapters/config";
 import type { GitGateway, GitWorktreeEntry } from "../adapters/git";
 import type { PortProbe } from "../adapters/port-probe";
-import { buildProjectSessionName, buildWorktreeWindowName, type TmuxGateway, type TmuxWindowSummary } from "../adapters/tmux";
+import { buildProjectSessionName, buildWorktreeWindowName, type SessionGateway, type SessionWindowSummary } from "../adapters/session-gateway";
 import { buildRuntimeEnvMap, readWorktreeMeta, readWorktreePrs } from "../adapters/fs";
 import type { AgentId, ProjectConfig } from "../domain/config";
 import type { OneshotMeta, PrEntry, ServiceRuntimeState, WorktreeSource, WorktreeTab } from "../domain/model";
@@ -58,10 +58,10 @@ async function buildServiceStates(
 }
 
 function findWindow(
-  windows: TmuxWindowSummary[],
+  windows: SessionWindowSummary[],
   sessionName: string,
   branch: string,
-): TmuxWindowSummary | null {
+): SessionWindowSummary | null {
   const windowName = buildWorktreeWindowName(branch);
   return windows.find((window) =>
     window.sessionName === sessionName && window.windowName === windowName
@@ -76,7 +76,7 @@ function resolveBranch(entry: GitWorktreeEntry, metaBranch: string | null): stri
 export interface ReconciliationServiceDependencies {
   config: ProjectConfig;
   git: GitGateway;
-  tmux: TmuxGateway;
+  sessions: SessionGateway;
   portProbe: PortProbe;
   runtime: ProjectRuntime;
 }
@@ -158,9 +158,9 @@ export class ReconciliationService {
     const worktrees = this.deps.git.listLiveWorktrees(normalizedRepoRoot);
     const sessionName = buildProjectSessionName(normalizedRepoRoot);
 
-    let windows: TmuxWindowSummary[] = [];
+    let windows: SessionWindowSummary[] = [];
     try {
-      windows = this.deps.tmux.listWindows();
+      windows = await this.deps.sessions.listWindows();
     } catch {
       windows = [];
     }

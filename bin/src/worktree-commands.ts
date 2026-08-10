@@ -717,7 +717,11 @@ async function defaultConfirmPrune(worktreeCount: number): Promise<boolean> {
  *  always opens on the focused tab. Inside an existing herdr client, focusing is
  *  the whole operation — spawning a second client would nest them. */
 function attachToHerdr(): void {
-  if (Bun.env.HERDR_SESSION || Bun.env.HERDR_SOCKET_PATH) return;
+  // herdr exports these into every pane it owns, so their presence means we are
+  // already running inside a client and focusing was the whole job. Checking
+  // HERDR_SESSION instead would be wrong: that selects a named session and is
+  // commonly set *outside* herdr, which would suppress attaching entirely.
+  if (Bun.env.HERDR_PANE_ID || Bun.env.HERDR_ENV) return;
 
   const result = Bun.spawnSync(["herdr"], { stdin: "inherit", stdout: "inherit", stderr: "inherit" });
   if (result.exitCode !== 0) {

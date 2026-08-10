@@ -162,6 +162,7 @@ describe("TopBar", () => {
           repo: "origin",
           number: 42,
           state: "open",
+          isDraft: false,
           url: "https://github.com/example/repo/pull/42",
           updatedAt: "2026-03-23T12:00:00.000Z",
           ciStatus: "success",

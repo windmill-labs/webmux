@@ -68,6 +68,7 @@ interface GhPrEntry {
   number: number;
   headRefName: string;
   state: string;
+  isDraft: boolean;
   updatedAt: string;
   statusCheckRollup: GhCheckEntry[] | null;
   url: string;
@@ -229,6 +230,7 @@ export function parsePrResponse(
       repo: repoLabel ?? "",
       number: entry.number,
       state: entry.state.toLowerCase() as PrEntry["state"],
+      isDraft: entry.isDraft === true,
       url: entry.url,
       updatedAt: entry.updatedAt ?? "",
       ciStatus: summarizeChecks(entry.statusCheckRollup),
@@ -264,7 +266,7 @@ export async function fetchAllPrs(
     "--state",
     "open",
     "--json",
-    "number,headRefName,state,updatedAt,statusCheckRollup,url,comments",
+    "number,headRefName,state,isDraft,updatedAt,statusCheckRollup,url,comments",
     "--limit",
     String(PR_FETCH_LIMIT),
   ];

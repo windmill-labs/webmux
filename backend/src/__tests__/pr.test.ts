@@ -3,6 +3,7 @@ import { mapWithConcurrency, startSerializedInterval } from "../lib/async";
 import {
   dedupeLatestChecks,
   mapChecks,
+  parsePrResponse,
   parseReviewComments,
   summarizeChecks,
 } from "../services/pr-service";
@@ -99,6 +100,37 @@ describe("parseReviewComments", () => {
     }));
     const result = parseReviewComments(JSON.stringify(comments));
     expect(result).toHaveLength(50);
+  });
+});
+
+describe("parsePrResponse — draft state", () => {
+  function ghPr(over: Record<string, unknown> = {}): unknown {
+    return {
+      number: 42,
+      headRefName: "feature/x",
+      state: "OPEN",
+      isDraft: false,
+      updatedAt: "2026-07-23T09:00:00Z",
+      statusCheckRollup: null,
+      url: "https://github.com/o/r/pull/42",
+      comments: [],
+      ...over,
+    };
+  }
+
+  it("marks a draft PR as draft", () => {
+    const prs = parsePrResponse(JSON.stringify([ghPr({ isDraft: true })]));
+    expect(prs.get("feature/x")?.isDraft).toBe(true);
+  });
+
+  it("marks a PR that is ready for review as not draft", () => {
+    const prs = parsePrResponse(JSON.stringify([ghPr()]));
+    expect(prs.get("feature/x")?.isDraft).toBe(false);
+  });
+
+  it("treats a missing isDraft field as not draft", () => {
+    const prs = parsePrResponse(JSON.stringify([ghPr({ isDraft: undefined })]));
+    expect(prs.get("feature/x")?.isDraft).toBe(false);
   });
 });
 

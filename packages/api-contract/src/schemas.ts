@@ -264,6 +264,7 @@ export const PrEntrySchema = z.object({
   repo: z.string(),
   number: z.number(),
   state: z.enum(["open", "closed", "merged"]),
+  isDraft: z.boolean(),
   url: z.string(),
   updatedAt: z.string(),
   ciStatus: z.enum(["none", "pending", "success", "failed"]),

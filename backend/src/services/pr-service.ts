@@ -68,7 +68,7 @@ interface GhPrEntry {
   number: number;
   headRefName: string;
   state: string;
-  isDraft: boolean;
+  isDraft?: boolean;
   updatedAt: string;
   statusCheckRollup: GhCheckEntry[] | null;
   url: string;
@@ -78,6 +78,9 @@ interface GhPrEntry {
 type FetchPrsResult =
   | { ok: true; data: Map<string, PrEntry> }
   | { ok: false; error: string };
+
+/** The fields a single-PR refresh can re-read: everything else is list-only. */
+type PrStatus = Pick<PrEntry, "state" | "isDraft">;
 
 // ── Caches for rate-limit mitigation ─────────────────────────────────────────
 
@@ -384,9 +387,23 @@ async function fetchReviewComments(
   }
 }
 
+/** Parse `gh pr view --json state,isDraft` output. Returns null when unusable. */
+export function parsePrViewStatus(json: string): PrStatus | null {
+  try {
+    const data = JSON.parse(json) as { state?: unknown; isDraft?: unknown };
+    if (typeof data.state !== "string") return null;
+    return {
+      state: data.state.toLowerCase() as PrEntry["state"],
+      isDraft: data.isDraft === true,
+    };
+  } catch {
+    return null;
+  }
+}
+
 /** Fetch the current state of a PR by its URL. Returns null on error. */
-async function fetchPrState(url: string): Promise<PrEntry["state"] | null> {
-  const proc = Bun.spawn(["gh", "pr", "view", url, "--json", "state"], {
+async function fetchPrStatus(url: string): Promise<PrStatus | null> {
+  const proc = Bun.spawn(["gh", "pr", "view", url, "--json", "state,isDraft"], {
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -399,16 +416,14 @@ async function fetchPrState(url: string): Promise<PrEntry["state"] | null> {
   const raceResult = await Promise.race([proc.exited, timeout]);
   if (raceResult === "timeout" || raceResult !== 0) return null;
 
-  try {
-    const data = JSON.parse(await new Response(proc.stdout).text()) as { state: string };
-    return data.state.toLowerCase() as PrEntry["state"];
-  } catch {
-    return null;
-  }
+  return parsePrViewStatus(await new Response(proc.stdout).text());
 }
 
 /** Update stored PR state for a worktree whose PR is no longer in the open PR list.
- *  Fetches the actual current state for any entry still marked "open". */
+ *  Fetches the actual current state for any entry still marked "open". Refreshes
+ *  `isDraft` too: an entry can be absent from the open-PR list while still open
+ *  (a failed repo fetch, or PR_FETCH_LIMIT truncation), and a draft marked ready
+ *  in that window would otherwise keep rendering as a draft. */
 async function refreshStalePrData(gitDir: string): Promise<void> {
   const entries = await readWorktreePrs(gitDir);
   if (!entries.some((e) => e.state === "open")) return;
@@ -416,8 +431,8 @@ async function refreshStalePrData(gitDir: string): Promise<void> {
   const updated = await Promise.all(
     entries.map(async (entry) => {
       if (entry.state !== "open") return entry;
-      const state = await fetchPrState(entry.url);
-      return state ? { ...entry, state } : entry;
+      const status = await fetchPrStatus(entry.url);
+      return status ? { ...entry, ...status } : entry;
     }),
   );
 

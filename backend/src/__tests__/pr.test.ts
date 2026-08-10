@@ -4,6 +4,7 @@ import {
   dedupeLatestChecks,
   mapChecks,
   parsePrResponse,
+  parsePrViewStatus,
   parseReviewComments,
   summarizeChecks,
 } from "../services/pr-service";
@@ -131,6 +132,27 @@ describe("parsePrResponse — draft state", () => {
   it("treats a missing isDraft field as not draft", () => {
     const prs = parsePrResponse(JSON.stringify([ghPr({ isDraft: undefined })]));
     expect(prs.get("feature/x")?.isDraft).toBe(false);
+  });
+});
+
+describe("parsePrViewStatus — stale-entry refresh", () => {
+  it("re-reads the draft flag of a PR that is still open", () => {
+    // A PR absent from the open-PR list but still open (failed repo fetch or
+    // limit truncation) must not keep a stale draft flag.
+    expect(parsePrViewStatus(JSON.stringify({ state: "OPEN", isDraft: false })))
+      .toEqual({ state: "open", isDraft: false });
+    expect(parsePrViewStatus(JSON.stringify({ state: "OPEN", isDraft: true })))
+      .toEqual({ state: "open", isDraft: true });
+  });
+
+  it("reports a merged PR as not draft", () => {
+    expect(parsePrViewStatus(JSON.stringify({ state: "MERGED", isDraft: false })))
+      .toEqual({ state: "merged", isDraft: false });
+  });
+
+  it("returns null for unusable output", () => {
+    expect(parsePrViewStatus("not json")).toBeNull();
+    expect(parsePrViewStatus(JSON.stringify({ isDraft: true }))).toBeNull();
   });
 });
 

@@ -229,6 +229,7 @@ function createConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     autoRemoveOnMerge: false,
     projectDir: "/repo",
     mainBranch: "main",
+    multiplexer: "tmux" as const,
     ...overrides,
   };
 }

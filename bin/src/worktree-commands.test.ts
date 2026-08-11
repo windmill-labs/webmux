@@ -1342,3 +1342,92 @@ describe("runWorktreeCommand restore", () => {
     expect(stdout[0]).toContain("webmux restore");
   });
 });
+
+describe("runWorktreeCommand multiplexer", () => {
+  it("prints the current multiplexer when given no target", async () => {
+    const stdout: string[] = [];
+    const { runtime } = makeRuntime();
+
+    const exitCode = await runWorktreeCommand(
+      { command: "multiplexer", args: [], projectDir: "/repo", port: 5111 },
+      { createRuntime: () => runtime, stdout: (m) => stdout.push(m), resolveProjectPrefix: async () => undefined },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(stdout).toEqual(["tmux"]);
+  });
+
+  it("no-ops when already on the requested multiplexer", async () => {
+    const stdout: string[] = [];
+    const { runtime, calls } = makeRuntime();
+
+    const exitCode = await runWorktreeCommand(
+      { command: "multiplexer", args: ["tmux"], projectDir: "/repo", port: 5111 },
+      { createRuntime: () => runtime, stdout: (m) => stdout.push(m), resolveProjectPrefix: async () => undefined },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(stdout).toEqual(["Already using tmux."]);
+    expect(calls).toEqual([]);
+  });
+
+  it("rejects an unknown multiplexer", async () => {
+    const stderr: string[] = [];
+    const { runtime } = makeRuntime();
+
+    const exitCode = await runWorktreeCommand(
+      { command: "multiplexer", args: ["screen"], projectDir: "/repo", port: 5111 },
+      { createRuntime: () => runtime, stderr: (m) => stderr.push(m), resolveProjectPrefix: async () => undefined },
+    );
+
+    expect(exitCode).not.toBe(0);
+    expect(stderr.join("\n")).toContain("Unknown multiplexer: screen");
+  });
+
+  it("closes on the outgoing runtime and reopens on one built after the config flip", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "webmux-mux-"));
+    try {
+      const order: string[] = [];
+      const sessionName = buildProjectSessionName(dir);
+      const runtimes: Array<{ calls: Array<{ method: string; value: unknown }> }> = [];
+
+      const createRuntime = (): ReturnType<typeof makeRuntime>["runtime"] => {
+        const made = makeRuntime();
+        runtimes.push({ calls: made.calls });
+        const index = runtimes.length - 1;
+        // Only the first (outgoing) runtime sees the worktree as open.
+        made.runtime.projectDir = dir;
+        made.runtime.git = stubGit([{ path: join(dir, "alpha"), branch: "alpha", bare: false }]);
+        made.runtime.sessions = stubSessions(
+          index === 0 ? [{ sessionName, windowName: buildWorktreeWindowName("alpha") }] : [],
+        );
+        made.runtime.lifecycleService = {
+          ...made.runtime.lifecycleService,
+          async closeWorktree(branch: string): Promise<void> { order.push(`close@${index}:${branch}`); },
+          async openWorktree(branch: string): Promise<{ branch: string; worktreeId: string }> {
+            order.push(`open@${index}:${branch}`);
+            return { branch, worktreeId: "wt" };
+          },
+        };
+        return made.runtime;
+      };
+
+      const stdout: string[] = [];
+      const exitCode = await runWorktreeCommand(
+        { command: "multiplexer", args: ["herdr"], projectDir: dir, port: 5111 },
+        { createRuntime, stdout: (m) => stdout.push(m), resolveProjectPrefix: async () => undefined },
+      );
+
+      expect(exitCode).toBe(0);
+      // closed on runtime 0 (tmux), reopened on runtime 1 (built after persist → herdr)
+      expect(order).toEqual(["close@0:alpha", "open@1:alpha"]);
+      expect(runtimes.length).toBe(2);
+
+      const written = await Bun.file(join(dir, ".webmux.local.yaml")).text();
+      expect(written).toContain("multiplexer: herdr");
+      expect(stdout.join("\n")).toContain("Switched tmux → herdr (1/1 reopened)");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});

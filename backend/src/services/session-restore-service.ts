@@ -21,7 +21,7 @@ function entryBranch(entry: Pick<GitWorktreeEntry, "path" | "branch">): string {
  *  in the project session. Pure so it can be unit-tested without git/tmux. */
 export function computeOpenBranches(input: {
   worktrees: Array<Pick<GitWorktreeEntry, "path" | "branch" | "bare">>;
-  windows: SessionWindowSummary[];
+  windows: Array<Pick<SessionWindowSummary, "sessionName" | "windowName">>;
   sessionName: string;
   projectDir: string;
 }): string[] {

@@ -45,6 +45,7 @@ import { loadControlToken } from "./adapters/control-token";
 import { readWorktreeMeta, writeWorktreeMeta } from "./adapters/fs";
 import { ClaudeCliClient } from "./adapters/claude-cli";
 import { CodexAppServerClient, type CodexAppServerNotification } from "./adapters/codex-app-server";
+import type { MultiplexerKind } from "./domain/config";
 import {
   getDefaultProfileName,
   loadConfig,
@@ -377,6 +378,7 @@ function getFrontendConfig(): {
   autoRemoveOnMerge: boolean;
   projectDir: string;
   mainBranch: string;
+  multiplexer: MultiplexerKind;
 } {
   const defaultProfileName = getDefaultProfileName(config);
   const orderedProfileEntries = Object.entries(config.profiles).sort(([left], [right]) => {
@@ -406,6 +408,7 @@ function getFrontendConfig(): {
     autoRemoveOnMerge: autoRemoveOnMergeEnabled,
     projectDir: PROJECT_DIR,
     mainBranch: config.workspace.mainBranch,
+    multiplexer: config.multiplexer,
   };
 }
 

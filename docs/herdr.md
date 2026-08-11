@@ -34,6 +34,35 @@ output to xterm.js. herdr has no equivalent:
 If you mainly attach from your own terminal, none of this affects you. If you live
 in the browser UI, stay on tmux.
 
+## Switching an existing project
+
+```bash
+webmux multiplexer            # print the current one
+webmux multiplexer herdr      # move every open worktree onto herdr
+```
+
+A pane cannot be handed between multiplexers — the PTY belongs to whichever server
+spawned it — so the switch is a teardown and rebuild: each open worktree is closed
+on the outgoing multiplexer, the config flips, and each is re-opened on the
+incoming one.
+
+**Survives:** which worktrees were open, and agent conversations — re-opening
+relaunches the agent in resume mode (`claude --continue`).
+
+**Does not survive:** scrollback, any in-flight agent turn, and every running
+process. Profile `command` panes (dev servers, watchers) are restarted from
+scratch, which on a large project can be expensive.
+
+Closing happens strictly before the config flips. That ordering is deliberate:
+once the config has flipped, webmux only talks to the new multiplexer and can no
+longer reach the old one's windows, so a half-switched project would strand them
+with no way to clean up. If any worktree fails to close, the switch aborts and the
+config is left untouched.
+
+The choice is written to `.webmux.local.yaml`, so it is per-machine and not
+committed. A running `webmux serve` reads the config once at startup — restart it
+after switching.
+
 ## Attaching
 
 `webmux add` / `open` focus the worktree's tab through herdr's socket, then launch

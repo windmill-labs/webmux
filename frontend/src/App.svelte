@@ -76,6 +76,7 @@
   function createDefaultConfig(): AppConfig {
     return {
       name: "",
+      multiplexer: "tmux",
       services: [],
       profiles: [],
       agents: [],
@@ -1561,6 +1562,7 @@
     {useWebChatUi}
     linearAutoCreate={config.linearAutoCreateWorktrees ?? false}
     autoRemoveOnMerge={config.autoRemoveOnMerge ?? false}
+    multiplexer={config.multiplexer}
     onthemechange={(key) => (currentTheme = key)}
     onwebchatuichange={(enabled) => {
       useWebChatUi = enabled;

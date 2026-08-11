@@ -4,6 +4,9 @@ import { basename, resolve } from "node:path";
 import { buildSeedFromLinear, defaultSeedFromLinearDeps } from "../../backend/src/services/conversation-export-service";
 import { CommandUsageError, resolveProjectBaseUrl, resolveProjectPrefix, withServerConnection } from "./shared";
 import { readOpenSessionsState, readWorktreeArchiveState, readWorktreeMeta, readWorktreePrs } from "../../backend/src/adapters/fs";
+import { persistLocalMultiplexer } from "../../backend/src/adapters/config";
+import { computeOpenBranches } from "../../backend/src/services/session-restore-service";
+import { switchMultiplexer } from "../../backend/src/services/multiplexer-switch-service";
 import type { OpenSessionsState, PrEntry } from "../../backend/src/domain/model";
 import { buildProjectSessionName, buildWorktreeWindowName } from "../../backend/src/adapters/session-gateway";
 import type { AgentId, MultiplexerKind } from "../../backend/src/domain/config";
@@ -21,7 +24,7 @@ const PHASE_LABELS: Record<WorktreeCreationPhase, string> = {
   reconciling: "Reconciling",
 };
 
-export type WorktreeSubcommand = "add" | "list" | "open" | "close" | "refresh" | "remove" | "merge" | "send" | "prune" | "restore" | "archive" | "unarchive" | "label" | "profile" | "tab";
+export type WorktreeSubcommand = "add" | "list" | "open" | "close" | "refresh" | "remove" | "merge" | "send" | "prune" | "restore" | "multiplexer" | "archive" | "unarchive" | "label" | "profile" | "tab";
 
 type WorktreeListMode = "active" | "all" | "archived";
 
@@ -171,6 +174,21 @@ export function getWorktreeCommandUsage(command: WorktreeSubcommand): string {
       return "Usage:\n  webmux prune";
     case "restore":
       return "Usage:\n  webmux restore\n\nRe-open every worktree session that was open the last time sessions were saved.";
+    case "multiplexer":
+      return [
+        "Usage:",
+        "  webmux multiplexer                  Print the multiplexer backing this project",
+        "  webmux multiplexer <tmux|herdr>     Move every open worktree to that multiplexer",
+        "",
+        "Panes cannot be handed between multiplexers, so switching closes each open",
+        "worktree on the current one and re-opens it on the new one. Agent conversations",
+        "resume; scrollback and running processes (dev servers, watchers) do not.",
+        "",
+        "The choice is written to .webmux.local.yaml — it is per-machine, not committed.",
+        "",
+        "Options:",
+        "  --help                   Show this help message",
+      ].join("\n");
     case "tab":
       return [
         "Usage:",
@@ -622,6 +640,23 @@ function parsePruneCommandArgs(args: string[]): boolean {
   return true;
 }
 
+/** `null` = no target given (print the current one), `"help"` = show usage. */
+function parseMultiplexerCommandArgs(args: string[]): MultiplexerKind | null | "help" {
+  let target: MultiplexerKind | null = null;
+
+  for (const arg of args) {
+    if (arg === "--help" || arg === "-h") return "help";
+    if (arg.startsWith("-")) throw new CommandUsageError(`Unknown option: ${arg}`);
+    if (target !== null) throw new CommandUsageError(`Unexpected argument: ${arg}`);
+    if (arg !== "tmux" && arg !== "herdr") {
+      throw new CommandUsageError(`Unknown multiplexer: ${arg} (expected tmux or herdr)`);
+    }
+    target = arg;
+  }
+
+  return target;
+}
+
 function parseRestoreCommandArgs(args: string[]): boolean {
   for (const arg of args) {
     if (arg === "--help" || arg === "-h") {
@@ -1026,6 +1061,74 @@ export async function runWorktreeCommand(
       return 0;
     }
 
+    if (context.command === "multiplexer") {
+      const target = parseMultiplexerCommandArgs(context.args);
+      if (target === "help") {
+        stdout(getWorktreeCommandUsage("multiplexer"));
+        return 0;
+      }
+
+      const runtime = createRuntime({
+        projectDir: context.projectDir,
+        port: context.port,
+        prefix: await resolvePrefix(),
+      });
+      const current = runtime.config.multiplexer;
+
+      if (target === null) {
+        stdout(current);
+        return 0;
+      }
+      if (target === current) {
+        stdout(`Already using ${current}.`);
+        return 0;
+      }
+
+      const projectDir = resolve(runtime.projectDir);
+      // Built lazily *after* the config flips, so it picks up the new gateway.
+      // createRuntime re-reads the config on every call.
+      let nextRuntime: WorktreeRuntimeLike | null = null;
+
+      const result = await switchMultiplexer(current, target, {
+        listOpenBranches: async () => computeOpenBranches({
+          worktrees: listProjectWorktrees(runtime),
+          windows: await runtime.sessions.listWindows(),
+          sessionName: buildProjectSessionName(projectDir),
+          projectDir,
+        }),
+        closeWorktree: (branch) => runtime.lifecycleService.closeWorktree(branch),
+        persistMultiplexer: (kind) => persistLocalMultiplexer(projectDir, kind),
+        openWorktree: async (branch) => {
+          nextRuntime ??= createRuntime({ projectDir: context.projectDir, port: context.port });
+          await nextRuntime.lifecycleService.openWorktree(branch);
+        },
+        onProgress: (progress) => {
+          if (progress.stage === "persist") stdout(`Switching config to ${target}`);
+          else if (progress.stage === "close") stdout(`Closing ${progress.branch}`);
+          else stdout(`Reopening ${progress.branch}`);
+        },
+      });
+
+      if (!result.ok) {
+        stderr(result.error);
+        for (const failure of result.failures) stderr(`  ${failure.branch}: ${failure.message}`);
+        return 1;
+      }
+      if (!result.changed) {
+        stdout(`Already using ${result.multiplexer}.`);
+        return 0;
+      }
+
+      stdout(`Switched ${result.from} → ${result.to} (${result.restored.length}/${result.closed.length} reopened)`);
+      for (const failure of result.failures) {
+        stderr(`Failed to reopen ${failure.branch}: ${failure.message}`);
+      }
+      if (result.restored.length > 0) {
+        stdout("Restart any running `webmux serve` so it picks up the new multiplexer.");
+      }
+      return result.failures.length > 0 ? 1 : 0;
+    }
+
     if (context.command === "restore") {
       if (!parseRestoreCommandArgs(context.args)) {
         stdout(getWorktreeCommandUsage("restore"));
@@ -1201,7 +1304,7 @@ export async function runWorktreeCommand(
       return 0;
     }
 
-    const command: Exclude<WorktreeSubcommand, "add" | "list" | "send" | "prune" | "restore" | "label" | "profile" | "tab"> = context.command;
+    const command: Exclude<WorktreeSubcommand, "add" | "list" | "send" | "prune" | "restore" | "multiplexer" | "label" | "profile" | "tab"> = context.command;
     const branch = parseBranchCommandArgs(context.args);
     if (!branch) {
       stdout(getWorktreeCommandUsage(command));

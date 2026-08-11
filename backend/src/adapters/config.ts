@@ -13,6 +13,7 @@ import type {
   LinearIntegrationConfig,
   LinkedRepoConfig,
   MountSpec,
+  MultiplexerKind,
   OneshotConfig,
   PaneTemplate,
   ProfileConfig,
@@ -29,6 +30,7 @@ interface LoadConfigOptions {
 }
 
 interface LocalProjectConfigOverlay {
+  multiplexer: MultiplexerKind | null;
   worktreeRoot: string | null;
   profiles: Record<string, ProfileConfig>;
   agents: Record<AgentId, CustomAgentConfig>;
@@ -36,6 +38,14 @@ interface LocalProjectConfigOverlay {
   linear: Partial<LinearIntegrationConfig> | null;
   github: Partial<GitHubIntegrationConfig> | null;
   autoPull: Partial<AutoPullConfig> | null;
+}
+
+/** Parse a `multiplexer:` value. Returns null when absent or unrecognized, so a
+ *  local overlay only overrides when it actually names one. */
+function parseMultiplexer(value: unknown): MultiplexerKind | null {
+  if (value === "herdr") return "herdr";
+  if (value === "tmux") return "tmux";
+  return null;
 }
 
 const DEFAULT_PANES: PaneTemplate[] = [
@@ -366,7 +376,7 @@ function parseConfigDocument(text: string): Record<string, unknown> {
 function parseProjectConfig(parsed: Record<string, unknown>): ProjectConfig {
   return {
     name: typeof parsed.name === "string" && parsed.name.trim() ? parsed.name.trim() : DEFAULT_CONFIG.name,
-    multiplexer: parsed.multiplexer === "herdr" ? "herdr" : DEFAULT_CONFIG.multiplexer,
+    multiplexer: parseMultiplexer(parsed.multiplexer) ?? DEFAULT_CONFIG.multiplexer,
     workspace: {
       mainBranch: isRecord(parsed.workspace) && typeof parsed.workspace.mainBranch === "string"
         ? parsed.workspace.mainBranch
@@ -489,12 +499,13 @@ function loadLocalProjectConfigOverlay(root: string): LocalProjectConfigOverlay 
   try {
     const text = readLocalConfigFile(root).trim();
     if (!text) {
-      return { worktreeRoot: null, profiles: {}, agents: {}, lifecycleHooks: {}, linear: null, github: null, autoPull: null };
+      return { multiplexer: null, worktreeRoot: null, profiles: {}, agents: {}, lifecycleHooks: {}, linear: null, github: null, autoPull: null };
     }
 
     const parsed = parseConfigDocument(text);
     const ws = isRecord(parsed.workspace) ? parsed.workspace : null;
     return {
+      multiplexer: parseMultiplexer(parsed.multiplexer),
       worktreeRoot: ws && typeof ws.worktreeRoot === "string" ? ws.worktreeRoot : null,
       profiles: parseProfiles(parsed.profiles, false),
       agents: parseCustomAgents(parsed.agents),
@@ -504,7 +515,7 @@ function loadLocalProjectConfigOverlay(root: string): LocalProjectConfigOverlay 
       autoPull: parseLocalAutoPullOverlay(parsed),
     };
   } catch {
-    return { worktreeRoot: null, profiles: {}, agents: {}, lifecycleHooks: {}, linear: null, github: null, autoPull: null };
+    return { multiplexer: null, worktreeRoot: null, profiles: {}, agents: {}, lifecycleHooks: {}, linear: null, github: null, autoPull: null };
   }
 }
 
@@ -579,6 +590,7 @@ export function loadConfig(dir: string, options: LoadConfigOptions = {}): Projec
 
   return {
     ...projectConfig,
+    ...(localOverlay.multiplexer ? { multiplexer: localOverlay.multiplexer } : {}),
     workspace,
     profiles: {
       ...cloneProfiles(projectConfig.profiles),
@@ -620,6 +632,20 @@ export async function persistLocalLinearConfig(
   integrations.linear = linear;
   existing.integrations = integrations;
 
+  await Bun.write(localPath, stringifyYaml(existing));
+}
+
+/** Persist the multiplexer choice into `.webmux.local.yaml`.
+ *
+ *  Deliberately the *local* overlay rather than `.webmux.yaml`: which multiplexer
+ *  is running is a per-machine fact, not something a project commits for everyone. */
+export async function persistLocalMultiplexer(
+  dir: string,
+  multiplexer: MultiplexerKind,
+): Promise<void> {
+  const root = projectRoot(dir);
+  const { localPath, existing } = readLocalConfigDocument(root);
+  existing.multiplexer = multiplexer;
   await Bun.write(localPath, stringifyYaml(existing));
 }
 

@@ -3,6 +3,7 @@
   import {
     ciStatusDotClass,
     ciStatusTextClass,
+    isDraftPr,
     prLabel,
     prStateTextClass,
     prStatusShellClass,
@@ -19,6 +20,7 @@
   } = $props();
 
   let label = $derived(prLabel(pr));
+  let isDraft = $derived(isDraftPr(pr));
   let hasCi = $derived(pr.ciChecks.length > 0);
   let hasComments = $derived(pr.comments.length > 0);
 
@@ -34,10 +36,13 @@
     href={pr.url}
     target="_blank"
     rel="noopener"
-    class="{segmentClass} min-w-0 no-underline {prStateTextClass(pr.state)}"
-    title="Open PR"
+    class="{segmentClass} min-w-0 no-underline {prStateTextClass(pr)}"
+    title={isDraft ? "Open draft PR" : "Open PR"}
   >
     <span class="truncate">{label}</span>
+    {#if isDraft}
+      <span class="uppercase tracking-[0.08em] text-[9px]">draft</span>
+    {/if}
     <svg
       xmlns="http://www.w3.org/2000/svg"
       width="11"

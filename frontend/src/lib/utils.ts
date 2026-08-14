@@ -13,16 +13,22 @@ export function prLabel(pr: Pick<PrEntry, "repo" | "number">): string {
   return pr.repo ? `${pr.repo} #${pr.number}` : `PR #${pr.number}`;
 }
 
-export function prStateTextClass(state: PrEntry["state"]): string {
-  if (state === "merged") return "text-merged";
-  if (state === "closed") return "text-danger";
+export function isDraftPr(pr: Pick<PrEntry, "state" | "isDraft">): boolean {
+  return pr.state === "open" && pr.isDraft;
+}
+
+export function prStateTextClass(pr: Pick<PrEntry, "state" | "isDraft">): string {
+  if (pr.state === "merged") return "text-merged";
+  if (pr.state === "closed") return "text-danger";
+  if (isDraftPr(pr)) return "text-muted";
   return "text-primary";
 }
 
-export function prBadgeClass(state: PrEntry["state"]): string {
-  if (state === "merged") return "bg-merged/20 text-merged";
-  if (state === "closed") return "bg-danger/20 text-danger";
-  if (state === "open") return "bg-success/20 text-success";
+export function prBadgeClass(pr: Pick<PrEntry, "state" | "isDraft">): string {
+  if (pr.state === "merged") return "bg-merged/20 text-merged";
+  if (pr.state === "closed") return "bg-danger/20 text-danger";
+  if (isDraftPr(pr)) return "bg-muted/20 text-muted";
+  if (pr.state === "open") return "bg-success/20 text-success";
   return "bg-muted/20 text-muted";
 }
 

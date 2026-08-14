@@ -446,6 +446,7 @@ describe("initializeManagedWorktree", () => {
         repo: "org/repo",
         number: 77,
         state: "open",
+        isDraft: false,
         url: "https://github.com/org/repo/pull/77",
         updatedAt: "2026-03-06T00:00:00.000Z",
         ciStatus: "pending",
@@ -466,6 +467,7 @@ describe("initializeManagedWorktree", () => {
         repo: "org/repo",
         number: 77,
         state: "open",
+        isDraft: false,
         url: "https://github.com/org/repo/pull/77",
         updatedAt: "2026-03-06T00:00:00.000Z",
         ciStatus: "pending",
@@ -480,6 +482,31 @@ describe("initializeManagedWorktree", () => {
         comments: [],
       },
     ]);
+  });
+
+  it("defaults isDraft to false for PR entries stored before draft tracking", async () => {
+    gitDir = await mkdtemp(join(tmpdir(), "webmux-prs-legacy-"));
+    const { webmuxDir, prsPath } = getWorktreeStoragePaths(gitDir);
+    await mkdir(webmuxDir, { recursive: true });
+    await Bun.write(
+      prsPath,
+      JSON.stringify([
+        {
+          repo: "org/repo",
+          number: 77,
+          state: "open",
+          url: "https://github.com/org/repo/pull/77",
+          updatedAt: "2026-03-06T00:00:00.000Z",
+          ciStatus: "pending",
+          ciChecks: [],
+          comments: [],
+        },
+      ]),
+    );
+
+    const entries = await readWorktreePrs(gitDir);
+    expect(entries).toHaveLength(1);
+    expect(entries[0].isDraft).toBe(false);
   });
 
   it("can create a managed worktree and realize a tmux layout through gateways", async () => {

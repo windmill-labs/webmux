@@ -178,6 +178,7 @@ export interface PrEntry {
   repo: string;
   number: number;
   state: "open" | "closed" | "merged";
+  isDraft: boolean;
   url: string;
   updatedAt: string;
   ciStatus: "none" | "pending" | "success" | "failed";

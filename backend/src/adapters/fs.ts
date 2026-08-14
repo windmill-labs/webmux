@@ -327,11 +327,14 @@ function isCiCheck(raw: unknown): raw is CiCheck {
     && (raw.runId === null || typeof raw.runId === "number");
 }
 
-function isPrEntry(raw: unknown): raw is PrEntry {
+/** `isDraft` is absent in entries written before draft tracking existed; the read
+ *  path defaults it to false rather than discarding the stored PR. */
+function isPrEntry(raw: unknown): raw is Omit<PrEntry, "isDraft"> & { isDraft?: boolean } {
   if (!isRecord(raw)) return false;
   return typeof raw.repo === "string"
     && typeof raw.number === "number"
     && (raw.state === "open" || raw.state === "closed" || raw.state === "merged")
+    && (raw.isDraft === undefined || typeof raw.isDraft === "boolean")
     && typeof raw.url === "string"
     && typeof raw.updatedAt === "string"
     && (raw.ciStatus === "none"
@@ -348,9 +351,8 @@ export async function readWorktreePrs(gitDir: string): Promise<PrEntry[]> {
   const { prsPath } = getWorktreeStoragePaths(gitDir);
   try {
     const raw: unknown = await Bun.file(prsPath).json();
-    return Array.isArray(raw) && raw.every((entry) => isPrEntry(entry))
-      ? raw
-      : [];
+    if (!Array.isArray(raw) || !raw.every((entry) => isPrEntry(entry))) return [];
+    return raw.map((entry) => ({ ...entry, isDraft: entry.isDraft ?? false }));
   } catch {
     return [];
   }

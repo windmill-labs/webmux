@@ -3,6 +3,8 @@ import { mapWithConcurrency, startSerializedInterval } from "../lib/async";
 import {
   dedupeLatestChecks,
   mapChecks,
+  parsePrResponse,
+  parsePrViewStatus,
   parseReviewComments,
   summarizeChecks,
 } from "../services/pr-service";
@@ -99,6 +101,58 @@ describe("parseReviewComments", () => {
     }));
     const result = parseReviewComments(JSON.stringify(comments));
     expect(result).toHaveLength(50);
+  });
+});
+
+describe("parsePrResponse — draft state", () => {
+  function ghPr(over: Record<string, unknown> = {}): unknown {
+    return {
+      number: 42,
+      headRefName: "feature/x",
+      state: "OPEN",
+      isDraft: false,
+      updatedAt: "2026-07-23T09:00:00Z",
+      statusCheckRollup: null,
+      url: "https://github.com/o/r/pull/42",
+      comments: [],
+      ...over,
+    };
+  }
+
+  it("marks a draft PR as draft", () => {
+    const prs = parsePrResponse(JSON.stringify([ghPr({ isDraft: true })]));
+    expect(prs.get("feature/x")?.isDraft).toBe(true);
+  });
+
+  it("marks a PR that is ready for review as not draft", () => {
+    const prs = parsePrResponse(JSON.stringify([ghPr()]));
+    expect(prs.get("feature/x")?.isDraft).toBe(false);
+  });
+
+  it("treats a missing isDraft field as not draft", () => {
+    const prs = parsePrResponse(JSON.stringify([ghPr({ isDraft: undefined })]));
+    expect(prs.get("feature/x")?.isDraft).toBe(false);
+  });
+});
+
+describe("parsePrViewStatus — stale-entry refresh", () => {
+  it("re-reads the draft flag of a PR that is still open", () => {
+    // A PR absent from the open-PR list but still open (failed repo fetch or
+    // limit truncation) must not keep a stale draft flag.
+    expect(parsePrViewStatus(JSON.stringify({ state: "OPEN", isDraft: false })))
+      .toEqual({ state: "open", isDraft: false });
+    expect(parsePrViewStatus(JSON.stringify({ state: "OPEN", isDraft: true })))
+      .toEqual({ state: "open", isDraft: true });
+  });
+
+  it("reports a merged PR as not draft", () => {
+    expect(parsePrViewStatus(JSON.stringify({ state: "MERGED", isDraft: false })))
+      .toEqual({ state: "merged", isDraft: false });
+  });
+
+  it("returns null for unusable output", () => {
+    expect(parsePrViewStatus("not json")).toBeNull();
+    expect(parsePrViewStatus(JSON.stringify({ isDraft: true }))).toBeNull();
   });
 });
 

@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.44.0](https://github.com/windmill-labs/webmux/compare/v0.43.1...v0.44.0) (2026-08-14)
+
+
+### Features
+
+* show draft vs ready-for-review state on PR badges ([#305](https://github.com/windmill-labs/webmux/issues/305)) ([d8c9d5f](https://github.com/windmill-labs/webmux/commit/d8c9d5fa2fc061bff1425de2910d784a48961f1e))
+* switch a worktree to another profile after creation ([2c320ef](https://github.com/windmill-labs/webmux/commit/2c320ef08e133cc23523f27cc5049ce2fc704d68))
+* switch a worktree to another profile after creation ([bc3b714](https://github.com/windmill-labs/webmux/commit/bc3b71427e7f3dd6b31bb1c8adb591564d8ae89b))
+
+
+### Bug Fixes
+
+* proxy per-project /&lt;prefix&gt;/api and /ws paths in vite dev ([5948448](https://github.com/windmill-labs/webmux/commit/594844886bb0b7acd86c40543eed171b92fe7e50))
+
 ## [0.43.1](https://github.com/windmill-labs/webmux/compare/v0.43.0...v0.43.1) (2026-07-23)
 
 

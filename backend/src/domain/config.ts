@@ -1,4 +1,7 @@
 export type AgentKind = "claude" | "codex";
+/** Which multiplexer backs a project's panes. `tmux` is the default; `herdr`
+ *  drives herdr's local socket API instead (see adapters/herdr.ts). */
+export type MultiplexerKind = "tmux" | "herdr";
 export type AgentId = string;
 export type RuntimeKind = "host" | "docker";
 
@@ -99,6 +102,8 @@ export interface OneshotConfig {
 
 export interface ProjectConfig {
   name: string;
+  /** Which multiplexer backs this project's panes. Defaults to tmux. */
+  multiplexer: MultiplexerKind;
   workspace: WorkspaceConfig;
   profiles: Record<string, ProfileConfig>;
   agents: Record<AgentId, CustomAgentConfig>;

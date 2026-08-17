@@ -1,46 +1,15 @@
-import { createHash } from "node:crypto";
-import { basename, resolve } from "node:path";
 import type { PaneSplit } from "../domain/config";
 import { leakedProjectEnvKeys, stripProjectEnv } from "./project-env";
+import { buildWindowTarget, type SessionGateway, type SessionWindowSummary } from "./session-gateway";
 
-export interface TmuxWindowSummary {
-  sessionName: string;
-  windowName: string;
-  paneCount: number;
-}
-
-export interface TmuxGateway {
-  ensureServer(): void;
-  ensureSession(sessionName: string, cwd: string): void;
-  hasWindow(sessionName: string, windowName: string): boolean;
-  killWindow(sessionName: string, windowName: string): void;
-  createWindow(opts: {
-    sessionName: string;
-    windowName: string;
-    cwd: string;
-    command?: string;
-  }): void;
-  splitWindow(opts: {
-    target: string;
-    split: PaneSplit;
-    sizePct?: number;
-    cwd: string;
-    command?: string;
-  }): void;
-  setWindowOption(sessionName: string, windowName: string, option: string, value: string): void;
-  runCommand(target: string, command: string): void;
-  selectPane(target: string): void;
-  listWindows(): TmuxWindowSummary[];
-  /** Resolve the tmux pane id (`%N`) currently occupying a target (e.g. a pane index). */
-  getPaneId(target: string): string;
-  /** Create a detached "parked" pane that holds a tab's session off-screen, returning its pane id.
-   *  Creates the parking window on first use, then splits it for subsequent panes. */
-  createParkedPane(opts: { sessionName: string; parkingWindow: string; cwd: string; command: string }): string;
-  /** Exchange the contents of two panes in place (used to bring a tab into the visible agent slot). */
-  swapPanes(source: string, destination: string): void;
-  /** Remove a pane (used when deleting a tab). Tolerates an already-gone pane. */
-  killPane(target: string): void;
-}
+/** Window options every webmux-created window needs: zero-based pane indexing
+ *  (pane targets are built from zero) and no renaming, so window names stay the
+ *  stable worktree identifiers reconciliation matches on. */
+const WINDOW_OPTIONS: ReadonlyArray<readonly [string, string]> = [
+  ["pane-base-index", "0"],
+  ["automatic-rename", "off"],
+  ["allow-rename", "off"],
+];
 
 let cachedTmuxSpawnEnv: Record<string, string> | null = null;
 let cachedUtf8Locale: string | null = null;
@@ -136,33 +105,7 @@ function isIgnorableKillWindowError(stderr: string): boolean {
     || (stderr.includes("error connecting to") && stderr.includes("No such file or directory"));
 }
 
-export function sanitizeTmuxNameSegment(value: string, maxLength = 24): string {
-  const sanitized = value
-    .toLowerCase()
-    .replace(/[^a-z0-9_.-]+/g, "-")
-    .replace(/-{2,}/g, "-")
-    .replace(/^[.-]+|[.-]+$/g, "");
-  const trimmed = sanitized.slice(0, maxLength);
-  return trimmed || "x";
-}
-
-export function buildProjectSessionName(projectRoot: string): string {
-  const resolved = resolve(projectRoot);
-  const base = sanitizeTmuxNameSegment(basename(resolved), 18);
-  const hash = createHash("sha1").update(resolved).digest("hex").slice(0, 8);
-  return `wm-${base}-${hash}`;
-}
-
-export function buildWorktreeWindowName(branch: string): string {
-  return `wm-${branch}`;
-}
-
-/** Hidden window that holds a worktree's parked (inactive) tab panes. */
-export function buildWorktreeParkingWindowName(branch: string): string {
-  return `wm-${branch}-tabs`;
-}
-
-export function parseWindowSummaries(output: string): TmuxWindowSummary[] {
+export function parseWindowSummaries(output: string): SessionWindowSummary[] {
   return output
     .split("\n")
     .map((line) => line.trim())
@@ -178,12 +121,12 @@ export function parseWindowSummaries(output: string): TmuxWindowSummary[] {
     .filter((entry) => entry.sessionName.length > 0 && entry.windowName.length > 0);
 }
 
-export class BunTmuxGateway implements TmuxGateway {
-  ensureServer(): void {
+export class BunTmuxGateway implements SessionGateway {
+  async ensureServer(): Promise<void> {
     assertTmuxOk(["start-server"], "tmux start-server");
   }
 
-  ensureSession(sessionName: string, cwd: string): void {
+  async ensureSession(sessionName: string, cwd: string): Promise<void> {
     const check = runTmux(["has-session", "-t", sessionName]);
     if (check.exitCode !== 0) {
       assertTmuxOk(
@@ -220,60 +163,72 @@ export class BunTmuxGateway implements TmuxGateway {
     }
   }
 
-  hasWindow(sessionName: string, windowName: string): boolean {
+  async hasWindow(sessionName: string, windowName: string): Promise<boolean> {
     const result = runTmux(["list-windows", "-t", sessionName, "-F", "#{window_name}"]);
     if (result.exitCode !== 0) return false;
     return result.stdout.split("\n").some((line) => line.trim() === windowName);
   }
 
-  killWindow(sessionName: string, windowName: string): void {
-    const result = runTmux(["kill-window", "-t", `${sessionName}:${windowName}`]);
+  async killWindow(sessionName: string, windowName: string): Promise<void> {
+    const result = runTmux(["kill-window", "-t", buildWindowTarget(sessionName, windowName)]);
     if (result.exitCode !== 0 && !isIgnorableKillWindowError(result.stderr)) {
       throw new Error(`kill tmux window ${sessionName}:${windowName} failed: ${result.stderr}`);
     }
   }
 
-  createWindow(opts: {
+  async createWindow(opts: {
     sessionName: string;
     windowName: string;
     cwd: string;
     command?: string;
-  }): void {
+  }): Promise<void> {
     const args = ["new-window", "-d", "-t", opts.sessionName, "-n", opts.windowName, "-c", opts.cwd];
     if (opts.command) args.push(opts.command);
     assertTmuxOk(args, `create tmux window ${opts.sessionName}:${opts.windowName}`);
+    // Pane targets webmux builds are zero-based and window names are meaningful,
+    // so pin both rather than inherit whatever the user's tmux.conf sets.
+    for (const [option, value] of WINDOW_OPTIONS) {
+      this.setWindowOption(opts.sessionName, opts.windowName, option, value);
+    }
   }
 
-  splitWindow(opts: {
+  async splitWindow(opts: {
     target: string;
     split: PaneSplit;
     sizePct?: number;
     cwd: string;
     command?: string;
-  }): void {
+  }): Promise<void> {
     const args = ["split-window", "-t", opts.target, opts.split === "right" ? "-h" : "-v", "-c", opts.cwd];
     if (opts.sizePct !== undefined) args.push("-l", `${opts.sizePct}%`);
     if (opts.command) args.push(opts.command);
     assertTmuxOk(args, `split tmux window at ${opts.target}`);
   }
 
-  setWindowOption(sessionName: string, windowName: string, option: string, value: string): void {
+  private setWindowOption(sessionName: string, windowName: string, option: string, value: string): void {
     assertTmuxOk(
-      ["set-window-option", "-t", `${sessionName}:${windowName}`, option, value],
+      ["set-window-option", "-t", buildWindowTarget(sessionName, windowName), option, value],
       `set tmux option ${option} on ${sessionName}:${windowName}`,
     );
   }
 
-  runCommand(target: string, command: string): void {
+  async runCommand(target: string, command: string): Promise<void> {
     assertTmuxOk(["send-keys", "-t", target, "-l", "--", command], `send tmux command to ${target}`);
     assertTmuxOk(["send-keys", "-t", target, "C-m"], `submit tmux command on ${target}`);
   }
 
-  selectPane(target: string): void {
+  async selectPane(target: string): Promise<void> {
     assertTmuxOk(["select-pane", "-t", target], `select tmux pane ${target}`);
   }
 
-  listWindows(): TmuxWindowSummary[] {
+  async focusWindow(sessionName: string, windowName: string): Promise<void> {
+    assertTmuxOk(
+      ["select-window", "-t", buildWindowTarget(sessionName, windowName)],
+      `select tmux window ${sessionName}:${windowName}`,
+    );
+  }
+
+  async listWindows(): Promise<SessionWindowSummary[]> {
     const output = assertTmuxOk(
       ["list-windows", "-a", "-F", "#{session_name}\t#{window_name}\t#{window_panes}"],
       "list tmux windows",
@@ -281,31 +236,31 @@ export class BunTmuxGateway implements TmuxGateway {
     return parseWindowSummaries(output);
   }
 
-  getPaneId(target: string): string {
+  async getPaneId(target: string): Promise<string> {
     return assertTmuxOk(
       ["display-message", "-p", "-t", target, "#{pane_id}"],
       `resolve tmux pane id for ${target}`,
     );
   }
 
-  createParkedPane(opts: { sessionName: string; parkingWindow: string; cwd: string; command: string }): string {
-    if (!this.hasWindow(opts.sessionName, opts.parkingWindow)) {
+  async createParkedPane(opts: { sessionName: string; parkingWindow: string; cwd: string; command: string }): Promise<string> {
+    if (!await this.hasWindow(opts.sessionName, opts.parkingWindow)) {
       return assertTmuxOk(
         ["new-window", "-d", "-P", "-F", "#{pane_id}", "-t", opts.sessionName, "-n", opts.parkingWindow, "-c", opts.cwd, opts.command],
         `create parking window ${opts.sessionName}:${opts.parkingWindow}`,
       );
     }
     return assertTmuxOk(
-      ["split-window", "-d", "-P", "-F", "#{pane_id}", "-t", `${opts.sessionName}:${opts.parkingWindow}`, "-c", opts.cwd, opts.command],
+      ["split-window", "-d", "-P", "-F", "#{pane_id}", "-t", buildWindowTarget(opts.sessionName, opts.parkingWindow), "-c", opts.cwd, opts.command],
       `create parked pane in ${opts.sessionName}:${opts.parkingWindow}`,
     );
   }
 
-  swapPanes(source: string, destination: string): void {
+  async swapPanes(source: string, destination: string): Promise<void> {
     assertTmuxOk(["swap-pane", "-s", source, "-t", destination], `swap tmux panes ${source} <-> ${destination}`);
   }
 
-  killPane(target: string): void {
+  async killPane(target: string): Promise<void> {
     const result = runTmux(["kill-pane", "-t", target]);
     if (result.exitCode !== 0 && !result.stderr.includes("can't find pane") && !isIgnorableKillWindowError(result.stderr)) {
       throw new Error(`kill tmux pane ${target} failed: ${result.stderr}`);

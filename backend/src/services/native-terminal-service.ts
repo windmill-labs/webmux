@@ -1,3 +1,4 @@
+import type { MultiplexerKind } from "../domain/config";
 import type { ManagedWorktreeRuntimeState, NativeTerminalLaunch } from "../domain/model";
 
 export type NativeTerminalLaunchResult =
@@ -39,6 +40,7 @@ export function buildNativeTerminalLaunch(input: {
   branch: string;
   state: ManagedWorktreeRuntimeState | null;
   tmuxCommand: string;
+  multiplexer?: MultiplexerKind;
   sessionPrefix?: string;
 }): NativeTerminalLaunchResult {
   const { branch, state, tmuxCommand } = input;
@@ -56,6 +58,22 @@ export function buildNativeTerminalLaunch(input: {
       ok: false,
       reason: "closed",
       message: `No open tmux window found for worktree: ${branch}`,
+    };
+  }
+
+  // herdr has no grouped sessions, so a native attach cannot get its own
+  // independently-sized view: hand the user herdr's own client. The caller
+  // focuses the worktree's tab first (SessionGateway.focusWindow), so the client
+  // opens already pointed at the right worktree.
+  if (input.multiplexer === "herdr") {
+    return {
+      ok: true,
+      data: {
+        worktreeId: state.worktreeId,
+        branch: state.branch,
+        path: state.path,
+        shellCommand: "herdr",
+      },
     };
   }
 

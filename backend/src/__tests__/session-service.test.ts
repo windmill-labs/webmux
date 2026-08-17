@@ -1,67 +1,65 @@
 import { describe, expect, it } from "bun:test";
-import type { TmuxGateway } from "../adapters/tmux";
+import type { SessionGateway } from "../adapters/session-gateway";
 import { ensureSessionLayout, isWorktreeOpen, planSessionLayout } from "../services/session-service";
 
-class FakeTmuxGateway implements TmuxGateway {
+class FakeSessionGateway implements SessionGateway {
   calls: string[] = [];
   existingWindows = new Set<string>();
 
-  getPaneId(_target: string): string {
+  async getPaneId(_target: string): Promise<string> {
     return "%0";
   }
 
-  createParkedPane(_opts: { sessionName: string; parkingWindow: string; cwd: string; command: string }): string {
+  async createParkedPane(_opts: { sessionName: string; parkingWindow: string; cwd: string; command: string }): Promise<string> {
     return "%99";
   }
 
-  swapPanes(_source: string, _destination: string): void {}
+  async swapPanes(_source: string, _destination: string): Promise<void> {}
 
-  killPane(_target: string): void {}
+  async killPane(_target: string): Promise<void> {}
 
-  ensureServer(): void {
+  async ensureServer(): Promise<void> {
     this.calls.push("ensureServer");
   }
 
-  ensureSession(sessionName: string, cwd: string): void {
+  async ensureSession(sessionName: string, cwd: string): Promise<void> {
     this.calls.push(`ensureSession:${sessionName}:${cwd}`);
   }
 
-  hasWindow(sessionName: string, windowName: string): boolean {
+  async hasWindow(sessionName: string, windowName: string): Promise<boolean> {
     this.calls.push(`hasWindow:${sessionName}:${windowName}`);
     return this.existingWindows.has(`${sessionName}:${windowName}`);
   }
 
-  killWindow(sessionName: string, windowName: string): void {
+  async killWindow(sessionName: string, windowName: string): Promise<void> {
     this.calls.push(`killWindow:${sessionName}:${windowName}`);
   }
 
-  createWindow(opts: { sessionName: string; windowName: string; cwd: string; command?: string }): void {
+  async createWindow(opts: { sessionName: string; windowName: string; cwd: string; command?: string }): Promise<void> {
     this.calls.push(`createWindow:${opts.sessionName}:${opts.windowName}:${opts.cwd}:${opts.command ?? ""}`);
   }
 
-  splitWindow(opts: {
+  async splitWindow(opts: {
     target: string;
     split: "right" | "bottom";
     sizePct?: number;
     cwd: string;
     command?: string;
-  }): void {
+  }): Promise<void> {
     this.calls.push(`splitWindow:${opts.target}:${opts.split}:${opts.sizePct ?? ""}:${opts.cwd}:${opts.command ?? ""}`);
   }
 
-  setWindowOption(sessionName: string, windowName: string, option: string, value: string): void {
-    this.calls.push(`setWindowOption:${sessionName}:${windowName}:${option}:${value}`);
-  }
-
-  runCommand(target: string, command: string): void {
+  async runCommand(target: string, command: string): Promise<void> {
     this.calls.push(`runCommand:${target}:${command}`);
   }
 
-  selectPane(target: string): void {
+  async selectPane(target: string): Promise<void> {
     this.calls.push(`selectPane:${target}`);
   }
 
-  listWindows() {
+  async focusWindow(_sessionName: string, _windowName: string): Promise<void> {}
+
+  async listWindows(): Promise<[]> {
     return [];
   }
 }
@@ -171,8 +169,8 @@ describe("planSessionLayout", () => {
 });
 
 describe("ensureSessionLayout", () => {
-  it("creates a fresh window and realizes all panes in order", () => {
-    const tmux = new FakeTmuxGateway();
+  it("creates a fresh window and realizes all panes in order", async () => {
+    const tmux = new FakeSessionGateway();
     const plan = planSessionLayout(
       "/repo/project",
       "feature/search",
@@ -190,7 +188,7 @@ describe("ensureSessionLayout", () => {
       },
     );
 
-    ensureSessionLayout(tmux, plan);
+    await ensureSessionLayout(tmux, plan);
 
     expect(tmux.calls).toContain("ensureServer");
     expect(
@@ -198,7 +196,6 @@ describe("ensureSessionLayout", () => {
         call.startsWith(`createWindow:${plan.sessionName}:${plan.windowName}:/repo/project/__worktrees/feature-search:shell-cmd`),
       ),
     ).toBe(true);
-    expect(tmux.calls).toContain(`setWindowOption:${plan.sessionName}:${plan.windowName}:pane-base-index:0`);
     expect(
       tmux.calls.some((call) =>
         call.startsWith(`splitWindow:${plan.sessionName}:${plan.windowName}.0:right:25:/repo/project/__worktrees/feature-search:shell-cmd`),
@@ -208,8 +205,8 @@ describe("ensureSessionLayout", () => {
     expect(tmux.calls.at(-1)).toBe(`selectPane:${plan.sessionName}:${plan.windowName}.0`);
   });
 
-  it("replaces an existing window before recreating it", () => {
-    const tmux = new FakeTmuxGateway();
+  it("replaces an existing window before recreating it", async () => {
+    const tmux = new FakeSessionGateway();
     const plan = planSessionLayout(
       "/repo/project",
       "feature/search",
@@ -225,16 +222,16 @@ describe("ensureSessionLayout", () => {
     );
     tmux.existingWindows.add(`${plan.sessionName}:${plan.windowName}`);
 
-    ensureSessionLayout(tmux, plan);
+    await ensureSessionLayout(tmux, plan);
 
     expect(tmux.calls).toContain(`killWindow:${plan.sessionName}:${plan.windowName}`);
   });
 });
 
 describe("isWorktreeOpen", () => {
-  it("checks the expected project session and window names", () => {
-    const tmux = new FakeTmuxGateway();
-    const open = isWorktreeOpen(tmux, "/repo/project", "feature/search");
+  it("checks the expected project session and window names", async () => {
+    const tmux = new FakeSessionGateway();
+    const open = await isWorktreeOpen(tmux, "/repo/project", "feature/search");
 
     expect(open).toBe(false);
     expect(tmux.calls.some((call) => call.includes(":wm-feature/search"))).toBe(true);

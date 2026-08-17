@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildProjectSessionName, buildWorktreeWindowName } from "../../backend/src/adapters/tmux";
+import { buildProjectSessionName, buildWorktreeWindowName } from "../../backend/src/adapters/session-gateway";
 import type { CreateLifecycleWorktreeInput, CreateLifecycleWorktreesInput } from "../../backend/src/services/lifecycle-service";
 import {
   parseAddCommandArgs,
@@ -74,8 +74,8 @@ function stubGit(worktrees: Array<{ path: string; branch: string | null; bare: b
   };
 }
 
-function stubTmux(windows: Array<{ sessionName: string; windowName: string }> = []) {
-  return { listWindows: () => windows };
+function stubSessions(windows: Array<{ sessionName: string; windowName: string }> = []) {
+  return { listWindows: async () => windows, focusWindow: async () => {} };
 }
 
 function makeRuntime() {
@@ -86,12 +86,13 @@ function makeRuntime() {
     runtime: {
       projectDir: "/repo",
       config: {
+        multiplexer: "tmux" as const,
         workspace: {
           mainBranch: "develop",
         },
       },
       git: stubGit(),
-      tmux: stubTmux(),
+      sessions: stubSessions(),
       lifecycleService: stubLifecycleService(calls),
     },
   };
@@ -395,7 +396,7 @@ describe("runWorktreeCommand", () => {
         createRuntime: () => runtime,
         stdout: (message) => stdout.push(message),
         stderr: (message) => stderr.push(message),
-        switchToTmuxWindow: (projectDir, branch) => switchCalls.push({ projectDir, branch }),
+        switchToSessionWindow: (projectDir, branch) => switchCalls.push({ projectDir, branch }),
       },
     );
 
@@ -430,7 +431,7 @@ describe("runWorktreeCommand", () => {
       {
         createRuntime: () => runtime,
         stdout: (message) => stdout.push(message),
-        switchToTmuxWindow: () => {},
+        switchToSessionWindow: () => {},
       },
     );
 
@@ -465,7 +466,7 @@ describe("runWorktreeCommand", () => {
         },
         resolveProjectPrefix: async () => "myproject",
         stdout: () => {},
-        switchToTmuxWindow: () => {},
+        switchToSessionWindow: () => {},
       },
     );
 
@@ -488,7 +489,7 @@ describe("runWorktreeCommand", () => {
       {
         createRuntime: () => runtime,
         stdout: (message) => stdout.push(message),
-        switchToTmuxWindow: (projectDir, branch) => switchCalls.push({ projectDir, branch }),
+        switchToSessionWindow: (projectDir, branch) => switchCalls.push({ projectDir, branch }),
       },
     );
 
@@ -512,7 +513,7 @@ describe("runWorktreeCommand", () => {
       {
         createRuntime: () => runtime,
         stdout: (message) => stdout.push(message),
-        switchToTmuxWindow: (projectDir, branch) => switchCalls.push({ projectDir, branch }),
+        switchToSessionWindow: (projectDir, branch) => switchCalls.push({ projectDir, branch }),
       },
     );
 
@@ -548,7 +549,7 @@ describe("runWorktreeCommand", () => {
       {
         createRuntime: () => runtime,
         stdout: (message) => stdout.push(message),
-        switchToTmuxWindow: (projectDir, branch) => switchCalls.push({ projectDir, branch }),
+        switchToSessionWindow: (projectDir, branch) => switchCalls.push({ projectDir, branch }),
       },
     );
 
@@ -755,7 +756,7 @@ describe("runWorktreeCommand", () => {
       { path: "/repo/.worktrees/feature-search", branch: "feature/search", bare: false },
       { path: "/repo/.worktrees/feature-api", branch: "feature/api", bare: false },
     ]);
-    runtime.tmux = stubTmux([
+    runtime.sessions = stubSessions([
       { sessionName: buildProjectSessionName("/repo"), windowName: buildWorktreeWindowName("feature/api") },
     ]);
     const stdout: string[] = [];
@@ -789,7 +790,7 @@ describe("runWorktreeCommand", () => {
       { path: "/repo", branch: "main", bare: false },
       { path: "/repo/.worktrees/feature-search", branch: "feature/search", bare: false },
     ]);
-    runtime.tmux = stubTmux([
+    runtime.sessions = stubSessions([
       { sessionName: buildProjectSessionName("/repo"), windowName: buildWorktreeWindowName("feature/search") },
     ]);
     const stdout: string[] = [];
@@ -855,12 +856,13 @@ describe("runWorktreeCommand", () => {
         createRuntime: () => ({
           projectDir: "/repo",
           config: {
+            multiplexer: "tmux" as const,
             workspace: {
               mainBranch: "main",
             },
           },
           git: stubGit(),
-          tmux: stubTmux(),
+          sessions: stubSessions(),
           lifecycleService: {
             async createWorktree(): Promise<{ branch: string; worktreeId: string }> {
               throw new Error("not used");
@@ -938,13 +940,13 @@ describe("runWorktreeCommand", () => {
       {
         createRuntime: () => ({
           projectDir: "/repo",
-          config: { workspace: { mainBranch: "main" } },
+          config: { multiplexer: "tmux" as const, workspace: { mainBranch: "main" } },
           git: stubGit([
             { path: "/repo", branch: "main", bare: false },
             { path: "/repo/.worktrees/fix-bug", branch: "fix-bug", bare: false },
             { path: "/repo/.worktrees/my-feature", branch: "my-feature", bare: false },
           ]),
-          tmux: stubTmux([
+          sessions: stubSessions([
             { sessionName, windowName: buildWorktreeWindowName("my-feature") },
           ]),
           lifecycleService: stubLifecycleService([]),
@@ -987,12 +989,12 @@ describe("runWorktreeCommand", () => {
         {
           createRuntime: () => ({
             projectDir,
-            config: { workspace: { mainBranch: "main" } },
+            config: { multiplexer: "tmux" as const, workspace: { mainBranch: "main" } },
             git: stubGit([
               { path: projectDir, branch: "main", bare: false },
               { path: worktreePath, branch: "random-name", bare: false },
             ]),
-            tmux: stubTmux(),
+            sessions: stubSessions(),
             lifecycleService: stubLifecycleService([]),
           }),
           stdout: (msg) => stdout.push(msg),
@@ -1015,9 +1017,9 @@ describe("runWorktreeCommand", () => {
       {
         createRuntime: () => ({
           projectDir: "/repo",
-          config: { workspace: { mainBranch: "main" } },
+          config: { multiplexer: "tmux" as const, workspace: { mainBranch: "main" } },
           git: stubGit([{ path: "/repo", branch: "main", bare: false }]),
-          tmux: stubTmux(),
+          sessions: stubSessions(),
           lifecycleService: stubLifecycleService([]),
         }),
         stdout: (msg) => stdout.push(msg),
@@ -1201,12 +1203,12 @@ describe("runWorktreeCommand restore", () => {
       opened,
       runtime: {
         projectDir: "/repo",
-        config: { workspace: { mainBranch: "main" } },
+        config: { multiplexer: "tmux" as const, workspace: { mainBranch: "main" } },
         git: {
           listWorktrees: () => options.worktrees ?? [],
           resolveWorktreeGitDir: (cwd: string) => `${cwd}/.git`,
         },
-        tmux: { listWindows: () => options.windows ?? [] },
+        sessions: { listWindows: async () => options.windows ?? [], focusWindow: async () => {} },
         lifecycleService: {
           async openWorktree(branch: string): Promise<{ branch: string; worktreeId: string }> {
             if (options.openWorktree) return options.openWorktree(branch);
@@ -1237,7 +1239,7 @@ describe("runWorktreeCommand restore", () => {
         createRuntime: () => runtime,
         stdout: (m) => stdout.push(m),
         stderr: (m) => stderr.push(m),
-        switchToTmuxWindow: (projectDir, branch) => switchCalls.push({ projectDir, branch }),
+        switchToSessionWindow: (projectDir, branch) => switchCalls.push({ projectDir, branch }),
         readOpenSessions: async () => ({
           schemaVersion: 1,
           savedAt: "2026-06-27T12:00:00.000Z",
@@ -1266,7 +1268,7 @@ describe("runWorktreeCommand restore", () => {
       {
         createRuntime: () => runtime,
         stdout: (m) => stdout.push(m),
-        switchToTmuxWindow: () => {},
+        switchToSessionWindow: () => {},
         readOpenSessions: async () => ({ schemaVersion: 1, savedAt: "", branches: [] }),
       },
     );
@@ -1288,7 +1290,7 @@ describe("runWorktreeCommand restore", () => {
         createRuntime: () => runtime,
         stdout: (m) => stdout.push(m),
         stderr: (m) => stderr.push(m),
-        switchToTmuxWindow: () => {},
+        switchToSessionWindow: () => {},
         readOpenSessions: async () => ({ schemaVersion: 1, savedAt: "x", branches: ["gone"] }),
       },
     );
@@ -1316,7 +1318,7 @@ describe("runWorktreeCommand restore", () => {
         createRuntime: () => runtime,
         stdout: (m) => stdout.push(m),
         stderr: (m) => stderr.push(m),
-        switchToTmuxWindow: () => {},
+        switchToSessionWindow: () => {},
         readOpenSessions: async () => ({ schemaVersion: 1, savedAt: "x", branches: ["feature-a"] }),
       },
     );
@@ -1338,5 +1340,94 @@ describe("runWorktreeCommand restore", () => {
 
     expect(exitCode).toBe(0);
     expect(stdout[0]).toContain("webmux restore");
+  });
+});
+
+describe("runWorktreeCommand multiplexer", () => {
+  it("prints the current multiplexer when given no target", async () => {
+    const stdout: string[] = [];
+    const { runtime } = makeRuntime();
+
+    const exitCode = await runWorktreeCommand(
+      { command: "multiplexer", args: [], projectDir: "/repo", port: 5111 },
+      { createRuntime: () => runtime, stdout: (m) => stdout.push(m), resolveProjectPrefix: async () => undefined },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(stdout).toEqual(["tmux"]);
+  });
+
+  it("no-ops when already on the requested multiplexer", async () => {
+    const stdout: string[] = [];
+    const { runtime, calls } = makeRuntime();
+
+    const exitCode = await runWorktreeCommand(
+      { command: "multiplexer", args: ["tmux"], projectDir: "/repo", port: 5111 },
+      { createRuntime: () => runtime, stdout: (m) => stdout.push(m), resolveProjectPrefix: async () => undefined },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(stdout).toEqual(["Already using tmux."]);
+    expect(calls).toEqual([]);
+  });
+
+  it("rejects an unknown multiplexer", async () => {
+    const stderr: string[] = [];
+    const { runtime } = makeRuntime();
+
+    const exitCode = await runWorktreeCommand(
+      { command: "multiplexer", args: ["screen"], projectDir: "/repo", port: 5111 },
+      { createRuntime: () => runtime, stderr: (m) => stderr.push(m), resolveProjectPrefix: async () => undefined },
+    );
+
+    expect(exitCode).not.toBe(0);
+    expect(stderr.join("\n")).toContain("Unknown multiplexer: screen");
+  });
+
+  it("closes on the outgoing runtime and reopens on one built after the config flip", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "webmux-mux-"));
+    try {
+      const order: string[] = [];
+      const sessionName = buildProjectSessionName(dir);
+      const runtimes: Array<{ calls: Array<{ method: string; value: unknown }> }> = [];
+
+      const createRuntime = (): ReturnType<typeof makeRuntime>["runtime"] => {
+        const made = makeRuntime();
+        runtimes.push({ calls: made.calls });
+        const index = runtimes.length - 1;
+        // Only the first (outgoing) runtime sees the worktree as open.
+        made.runtime.projectDir = dir;
+        made.runtime.git = stubGit([{ path: join(dir, "alpha"), branch: "alpha", bare: false }]);
+        made.runtime.sessions = stubSessions(
+          index === 0 ? [{ sessionName, windowName: buildWorktreeWindowName("alpha") }] : [],
+        );
+        made.runtime.lifecycleService = {
+          ...made.runtime.lifecycleService,
+          async closeWorktree(branch: string): Promise<void> { order.push(`close@${index}:${branch}`); },
+          async openWorktree(branch: string): Promise<{ branch: string; worktreeId: string }> {
+            order.push(`open@${index}:${branch}`);
+            return { branch, worktreeId: "wt" };
+          },
+        };
+        return made.runtime;
+      };
+
+      const stdout: string[] = [];
+      const exitCode = await runWorktreeCommand(
+        { command: "multiplexer", args: ["herdr"], projectDir: dir, port: 5111 },
+        { createRuntime, stdout: (m) => stdout.push(m), resolveProjectPrefix: async () => undefined },
+      );
+
+      expect(exitCode).toBe(0);
+      // closed on runtime 0 (tmux), reopened on runtime 1 (built after persist → herdr)
+      expect(order).toEqual(["close@0:alpha", "open@1:alpha"]);
+      expect(runtimes.length).toBe(2);
+
+      const written = await Bun.file(join(dir, ".webmux.local.yaml")).text();
+      expect(written).toContain("multiplexer: herdr");
+      expect(stdout.join("\n")).toContain("Switched tmux → herdr (1/1 reopened)");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });

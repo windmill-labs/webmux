@@ -107,7 +107,7 @@ Projects added with `webmux project add` are remembered in `~/.webmux/projects.j
 |------|---------|
 | [**bun**](https://bun.sh) | Runtime |
 | **python3** | Per-worktree hook/event helper runtime |
-| **tmux** | Terminal multiplexer |
+| **tmux** | Terminal multiplexer (or [**herdr**](docs/herdr.md) via `multiplexer: herdr`) |
 | **git** | Worktree management |
 | **gh** | PR and CI status (optional) |
 | **docker** | Sandbox profile only (optional) |

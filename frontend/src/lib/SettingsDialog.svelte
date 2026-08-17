@@ -26,6 +26,7 @@
     useWebChatUi,
     linearAutoCreate,
     autoRemoveOnMerge,
+    multiplexer,
     onthemechange,
     onwebchatuichange,
     onlinearautocreatechange,
@@ -38,6 +39,7 @@
     useWebChatUi: boolean;
     linearAutoCreate: boolean;
     autoRemoveOnMerge: boolean;
+    multiplexer: "tmux" | "herdr";
     onthemechange: (key: ThemeKey) => void;
     onwebchatuichange: (enabled: boolean) => void;
     onlinearautocreatechange: (enabled: boolean) => void;
@@ -327,6 +329,26 @@
           ontoggle={handleAutoCreateToggle}
           aria-label="Auto-create worktrees for Linear tickets"
         />
+      </div>
+    </div>
+
+    <div class="mb-5">
+      <span class="block text-xs text-muted mb-2">Terminal</span>
+      <div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md border border-edge bg-surface">
+        <div>
+          <span class="text-[13px] text-primary">Multiplexer</span>
+          <p class="text-[11px] text-muted mt-0.5">
+            {#if multiplexer === "herdr"}
+              Panes run in herdr, which has no per-client sizing — the browser terminal is
+              unavailable. Attach from your own terminal with <code>herdr</code>.
+            {:else}
+              Panes run in tmux.
+            {/if}
+            Change it with <code>webmux multiplexer &lt;tmux|herdr&gt;</code>.
+          </p>
+        </div>
+
+        <span class="text-[13px] text-primary shrink-0">{multiplexer}</span>
       </div>
     </div>
 

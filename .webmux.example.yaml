@@ -4,6 +4,10 @@
 # Project name shown in the dashboard and browser tab.
 name: Example Project
 
+# Which multiplexer backs this project's panes: tmux (default) or herdr.
+# herdr mode does not support the browser terminal — see docs/herdr.md.
+# multiplexer: herdr
+
 workspace:
   # Base branch used when creating a new worktree.
   mainBranch: main

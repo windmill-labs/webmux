@@ -11,6 +11,7 @@ import {
 
 const TEST_CONFIG: ProjectConfig = {
   name: "Project",
+  multiplexer: "tmux",
   workspace: {
     mainBranch: "main",
     worktreeRoot: "__worktrees",

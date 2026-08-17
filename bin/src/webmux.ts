@@ -53,7 +53,7 @@ Environment:
 `);
 }
 
-type RootCommand = "serve" | "init" | "service" | "update" | "add" | "oneshot" | "list" | "open" | "close" | "refresh" | "archive" | "unarchive" | "label" | "profile" | "remove" | "merge" | "send" | "tab" | "prune" | "restore" | "linear" | "project" | "completion" | null;
+type RootCommand = "serve" | "init" | "service" | "update" | "add" | "oneshot" | "list" | "open" | "close" | "refresh" | "archive" | "unarchive" | "label" | "profile" | "remove" | "merge" | "send" | "tab" | "prune" | "restore" | "multiplexer" | "linear" | "project" | "completion" | null;
 
 interface ParsedRootArgs {
   port: number;
@@ -88,6 +88,7 @@ function isRootCommand(value: string): value is NonNullable<RootCommand> {
     || value === "tab"
     || value === "prune"
     || value === "restore"
+    || value === "multiplexer"
     || value === "linear"
     || value === "project"
     || value === "completion";
@@ -167,7 +168,7 @@ export function parseRootArgs(args: string[]): ParsedRootArgs {
   };
 }
 
-function isWorktreeCommand(command: RootCommand): command is "add" | "list" | "open" | "close" | "refresh" | "archive" | "unarchive" | "label" | "profile" | "remove" | "merge" | "send" | "tab" | "prune" | "restore" {
+function isWorktreeCommand(command: RootCommand): command is "add" | "list" | "open" | "close" | "refresh" | "archive" | "unarchive" | "label" | "profile" | "remove" | "merge" | "send" | "tab" | "prune" | "restore" | "multiplexer" {
   return command === "add"
     || command === "list"
     || command === "open"
@@ -182,7 +183,8 @@ function isWorktreeCommand(command: RootCommand): command is "add" | "list" | "o
     || command === "send"
     || command === "tab"
     || command === "prune"
-    || command === "restore";
+    || command === "restore"
+    || command === "multiplexer";
 }
 
 // ── Load env files from CWD (.env.local overrides .env) ─────────────────────

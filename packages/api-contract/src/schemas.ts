@@ -551,8 +551,13 @@ export const LinkedRepoInfoSchema = z.object({
   dir: z.string().optional(),
 });
 
+export const MultiplexerKindSchema = z.enum(["tmux", "herdr"]);
+
 export const AppConfigSchema = z.object({
   name: z.string(),
+  /** Which multiplexer backs this project's panes. The browser terminal only
+   *  works under tmux — see docs/herdr.md. */
+  multiplexer: MultiplexerKindSchema,
   services: z.array(ServiceConfigSchema),
   profiles: z.array(ProfileConfigSchema),
   agents: z.array(AgentSummarySchema),

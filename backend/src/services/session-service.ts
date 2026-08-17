@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import type { PaneTemplate, PaneKind } from "../domain/config";
-import type { TmuxGateway } from "../adapters/tmux";
-import { buildProjectSessionName, buildWorktreeWindowName } from "../adapters/tmux";
+import type { SessionGateway } from "../adapters/session-gateway";
+import { buildPaneTarget, buildProjectSessionName, buildWorktreeWindowName } from "../adapters/session-gateway";
 
 export interface PaneCommandSet {
   agent: string;
@@ -103,42 +103,38 @@ export function planSessionLayout(
   };
 }
 
-export function isWorktreeOpen(
-  tmux: TmuxGateway,
+export async function isWorktreeOpen(
+  sessions: SessionGateway,
   projectRoot: string,
   branch: string,
-): boolean {
+): Promise<boolean> {
   const sessionName = buildProjectSessionName(projectRoot);
   const windowName = buildWorktreeWindowName(branch);
-  return tmux.hasWindow(sessionName, windowName);
+  return await sessions.hasWindow(sessionName, windowName);
 }
 
-export function ensureSessionLayout(
-  tmux: TmuxGateway,
+export async function ensureSessionLayout(
+  sessions: SessionGateway,
   plan: SessionLayoutPlan,
-): void {
+): Promise<void> {
   const rootPane = plan.panes[0];
-  tmux.ensureServer();
-  tmux.ensureSession(plan.sessionName, rootPane.cwd);
+  await sessions.ensureServer();
+  await sessions.ensureSession(plan.sessionName, rootPane.cwd);
 
-  if (tmux.hasWindow(plan.sessionName, plan.windowName)) {
-    tmux.killWindow(plan.sessionName, plan.windowName);
+  if (await sessions.hasWindow(plan.sessionName, plan.windowName)) {
+    await sessions.killWindow(plan.sessionName, plan.windowName);
   }
 
-  tmux.createWindow({
+  await sessions.createWindow({
     sessionName: plan.sessionName,
     windowName: plan.windowName,
     cwd: rootPane.cwd,
     command: plan.shellCommand,
   });
-  tmux.setWindowOption(plan.sessionName, plan.windowName, "pane-base-index", "0");
-  tmux.setWindowOption(plan.sessionName, plan.windowName, "automatic-rename", "off");
-  tmux.setWindowOption(plan.sessionName, plan.windowName, "allow-rename", "off");
 
   for (const pane of plan.panes.slice(1)) {
-    const target = `${plan.sessionName}:${plan.windowName}.${pane.index - 1}`;
-    tmux.splitWindow({
-      target,
+    await sessions.splitWindow({
+      target: buildPaneTarget(plan.sessionName, plan.windowName, pane.index - 1),
       split: pane.split ?? "right",
       sizePct: pane.sizePct,
       cwd: pane.cwd,
@@ -148,8 +144,8 @@ export function ensureSessionLayout(
 
   for (const pane of plan.panes) {
     if (!pane.startupCommand) continue;
-    tmux.runCommand(`${plan.sessionName}:${plan.windowName}.${pane.index}`, pane.startupCommand);
+    await sessions.runCommand(buildPaneTarget(plan.sessionName, plan.windowName, pane.index), pane.startupCommand);
   }
 
-  tmux.selectPane(`${plan.sessionName}:${plan.windowName}.${plan.focusPaneIndex}`);
+  await sessions.selectPane(buildPaneTarget(plan.sessionName, plan.windowName, plan.focusPaneIndex));
 }

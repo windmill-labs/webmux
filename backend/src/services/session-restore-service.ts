@@ -3,9 +3,9 @@ import type { GitGateway, GitWorktreeEntry } from "../adapters/git";
 import {
   buildProjectSessionName,
   buildWorktreeWindowName,
-  type TmuxGateway,
-  type TmuxWindowSummary,
-} from "../adapters/tmux";
+  type SessionGateway,
+  type SessionWindowSummary,
+} from "../adapters/session-gateway";
 import { readOpenSessionsState, writeOpenSessionsState } from "../adapters/fs";
 import { OPEN_SESSIONS_STATE_VERSION, type OpenSessionsState } from "../domain/model";
 import { startSerializedInterval } from "../lib/async";
@@ -21,7 +21,7 @@ function entryBranch(entry: Pick<GitWorktreeEntry, "path" | "branch">): string {
  *  in the project session. Pure so it can be unit-tested without git/tmux. */
 export function computeOpenBranches(input: {
   worktrees: Array<Pick<GitWorktreeEntry, "path" | "branch" | "bare">>;
-  windows: TmuxWindowSummary[];
+  windows: Array<Pick<SessionWindowSummary, "sessionName" | "windowName">>;
   sessionName: string;
   projectDir: string;
 }): string[] {
@@ -51,7 +51,7 @@ export const DEFAULT_SESSION_SNAPSHOT_INTERVAL_MS = 30_000;
 
 export interface SessionSnapshotDependencies {
   git: Pick<GitGateway, "listLiveWorktrees" | "resolveWorktreeGitDir">;
-  tmux: Pick<TmuxGateway, "listWindows">;
+  sessions: Pick<SessionGateway, "listWindows">;
   projectRoot: string;
   now?: () => Date;
   writeState?: (gitDir: string, state: OpenSessionsState) => Promise<void>;
@@ -71,9 +71,9 @@ export async function saveOpenSessionsSnapshot(
   const projectRoot = resolve(deps.projectRoot);
   const sessionName = buildProjectSessionName(projectRoot);
 
-  let windows: TmuxWindowSummary[] = [];
+  let windows: SessionWindowSummary[] = [];
   try {
-    windows = deps.tmux.listWindows();
+    windows = await deps.sessions.listWindows();
   } catch {
     windows = [];
   }

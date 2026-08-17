@@ -4,6 +4,9 @@ import { BunDockerGateway } from "./adapters/docker";
 import { BunGitGateway } from "./adapters/git";
 import { BunLifecycleHookRunner } from "./adapters/hooks";
 import { BunPortProbe } from "./adapters/port-probe";
+import { HerdrGateway } from "./adapters/herdr";
+import type { SessionGateway } from "./adapters/session-gateway";
+import type { MultiplexerKind } from "./domain/config";
 import { BunTmuxGateway } from "./adapters/tmux";
 import { FileSessionDiscovery } from "./adapters/session-discovery";
 import { AutoNameService } from "./services/auto-name-service";
@@ -37,6 +40,12 @@ export function buildControlBaseUrl(port: number, prefix: string | undefined): s
   return prefix ? `http://127.0.0.1:${port}/${prefix}` : `http://127.0.0.1:${port}`;
 }
 
+/** Build the gateway backing a project's panes. tmux is the default; `herdr`
+ *  swaps in herdr's socket API (see docs/herdr.md for what differs). */
+export function createSessionGateway(multiplexer: MultiplexerKind): SessionGateway {
+  return multiplexer === "herdr" ? new HerdrGateway() : new BunTmuxGateway();
+}
+
 export interface WebmuxRuntime {
   port: number;
   projectDir: string;
@@ -44,7 +53,7 @@ export interface WebmuxRuntime {
   archiveStateService: ArchiveStateService;
   git: BunGitGateway;
   portProbe: BunPortProbe;
-  tmux: BunTmuxGateway;
+  sessions: SessionGateway;
   docker: BunDockerGateway;
   hooks: BunLifecycleHookRunner;
   autoName: AutoNameService;
@@ -64,7 +73,7 @@ export function createWebmuxRuntime(options: WebmuxRuntimeOptions = {}): WebmuxR
   const git = new BunGitGateway();
   const archiveStateService = new ArchiveStateService(git.resolveWorktreeGitDir(projectDir));
   const portProbe = new BunPortProbe();
-  const tmux = new BunTmuxGateway();
+  const sessions = createSessionGateway(config.multiplexer);
   const docker = new BunDockerGateway();
   const hooks = new BunLifecycleHookRunner();
   const autoName = new AutoNameService();
@@ -74,7 +83,7 @@ export function createWebmuxRuntime(options: WebmuxRuntimeOptions = {}): WebmuxR
   const reconciliationService = new ReconciliationService({
     config,
     git,
-    tmux,
+    sessions,
     portProbe,
     runtime: projectRuntime,
   });
@@ -85,7 +94,7 @@ export function createWebmuxRuntime(options: WebmuxRuntimeOptions = {}): WebmuxR
     config,
     archiveState: archiveStateService,
     git,
-    tmux,
+    sessions,
     sessionDiscovery: new FileSessionDiscovery(),
     docker,
     reconciliation: reconciliationService,
@@ -107,7 +116,7 @@ export function createWebmuxRuntime(options: WebmuxRuntimeOptions = {}): WebmuxR
     archiveStateService,
     git,
     portProbe,
-    tmux,
+    sessions,
     docker,
     hooks,
     autoName,

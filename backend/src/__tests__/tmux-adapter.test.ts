@@ -2,14 +2,12 @@ import { describe, expect, it } from "bun:test";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { chooseUtf8Locale, parseWindowSummaries, pickTmuxLocale } from "../adapters/tmux";
 import {
   buildProjectSessionName,
   buildWorktreeWindowName,
-  chooseUtf8Locale,
-  parseWindowSummaries,
-  pickTmuxLocale,
-  sanitizeTmuxNameSegment,
-} from "../adapters/tmux";
+  sanitizeNameSegment,
+} from "../adapters/session-gateway";
 
 const isolatedTmuxScriptPath = new URL("../../../scripts/run-with-isolated-tmux.sh", import.meta.url).pathname;
 
@@ -129,13 +127,13 @@ function parseGlobalEnvResult(output: string): { hasLeaked: boolean; hasKept: bo
   return { hasLeaked, hasKept };
 }
 
-describe("sanitizeTmuxNameSegment", () => {
+describe("sanitizeNameSegment", () => {
   it("normalizes arbitrary path-like input", () => {
-    expect(sanitizeTmuxNameSegment("Workmux Web/Desktop")).toBe("workmux-web-desktop");
+    expect(sanitizeNameSegment("Workmux Web/Desktop")).toBe("workmux-web-desktop");
   });
 
   it("falls back to x for empty sanitization", () => {
-    expect(sanitizeTmuxNameSegment("////")).toBe("x");
+    expect(sanitizeNameSegment("////")).toBe("x");
   });
 });
 
@@ -235,13 +233,15 @@ describe("ensureSessionLayout", () => {
     await Bun.write(configPath, "set -g base-index 1\nsetw -g pane-base-index 1\n");
     const runnerPath = join(testRoot, "run-layout.ts");
     const tmuxModuleUrl = new URL("../adapters/tmux.ts", import.meta.url).href;
+    const sessionGatewayModuleUrl = new URL("../adapters/session-gateway.ts", import.meta.url).href;
     const sessionServiceModuleUrl = new URL("../services/session-service.ts", import.meta.url).href;
 
     await Bun.write(
       runnerPath,
       [
         `import { ensureSessionLayout, planSessionLayout } from ${JSON.stringify(sessionServiceModuleUrl)};`,
-        `import { buildProjectSessionName, buildWorktreeWindowName, BunTmuxGateway } from ${JSON.stringify(tmuxModuleUrl)};`,
+        `import { BunTmuxGateway } from ${JSON.stringify(tmuxModuleUrl)};`,
+        `import { buildProjectSessionName, buildWorktreeWindowName } from ${JSON.stringify(sessionGatewayModuleUrl)};`,
         "",
         "function run(args: string[]): void {",
         '  const result = Bun.spawnSync(args, { stdout: "pipe", stderr: "pipe" });',
@@ -282,7 +282,7 @@ describe("ensureSessionLayout", () => {
         "  },",
         ");",
         "",
-        "ensureSessionLayout(gateway, plan);",
+        "await ensureSessionLayout(gateway, plan);",
         'run(["tmux", "new-session", "-d", "-s", "unrelated", "-c", projectRoot]);',
         'run(["tmux", "new-window", "-d", "-t", "unrelated", "-n", "plain", "-c", projectRoot]);',
         "",
@@ -316,6 +316,7 @@ describe("BunTmuxGateway", () => {
     const configPath = join(testRoot, "tmux.conf");
     const runnerPath = join(testRoot, "ensure-session.ts");
     const tmuxModuleUrl = new URL("../adapters/tmux.ts", import.meta.url).href;
+    const sessionGatewayModuleUrl = new URL("../adapters/session-gateway.ts", import.meta.url).href;
     await mkdir(projectRoot, { recursive: true });
     await Bun.write(configPath, "set-option -g destroy-unattached on\n");
     await Bun.write(
@@ -336,8 +337,8 @@ describe("BunTmuxGateway", () => {
         'if (!projectRoot) throw new Error("expected projectRoot");',
         'const sessionName = "wm-managed";',
         "const gateway = new BunTmuxGateway();",
-        "gateway.ensureServer();",
-        "gateway.ensureSession(sessionName, projectRoot);",
+        "await gateway.ensureServer();",
+        "await gateway.ensureSession(sessionName, projectRoot);",
         "console.log(JSON.stringify({",
         '  sessions: read(["tmux", "list-sessions", "-F", "#{session_name}"]).split("\\n").filter(Boolean),',
         '  destroyUnattached: read(["tmux", "show-options", "-t", sessionName, "-v", "destroy-unattached"]),',
@@ -362,6 +363,7 @@ describe("BunTmuxGateway", () => {
     const projectRoot = join(testRoot, "repo");
     const runnerPath = join(testRoot, "ensure-session.ts");
     const tmuxModuleUrl = new URL("../adapters/tmux.ts", import.meta.url).href;
+    const sessionGatewayModuleUrl = new URL("../adapters/session-gateway.ts", import.meta.url).href;
     await mkdir(projectRoot, { recursive: true });
     await Bun.write(
       runnerPath,
@@ -382,8 +384,8 @@ describe("BunTmuxGateway", () => {
         "const gateway = new BunTmuxGateway();",
         // ensureServer + ensureSession is the path that first creates a persistent
         // server, capturing this process's env into the tmux global environment.
-        "gateway.ensureServer();",
-        'gateway.ensureSession("wm-env-leak", projectRoot);',
+        "await gateway.ensureServer();",
+        'await gateway.ensureSession("wm-env-leak", projectRoot);',
         'const globalEnv = read(["tmux", "show-environment", "-g"]).split("\\n");',
         "console.log(JSON.stringify({",
         '  hasLeaked: globalEnv.some((line) => line.startsWith("LEAKED_PROJECT_SECRET=")),',
@@ -416,6 +418,7 @@ describe("BunTmuxGateway", () => {
     const projectRoot = join(testRoot, "repo");
     const runnerPath = join(testRoot, "scrub.ts");
     const tmuxModuleUrl = new URL("../adapters/tmux.ts", import.meta.url).href;
+    const sessionGatewayModuleUrl = new URL("../adapters/session-gateway.ts", import.meta.url).href;
     await mkdir(projectRoot, { recursive: true });
     await Bun.write(
       runnerPath,
@@ -445,8 +448,8 @@ describe("BunTmuxGateway", () => {
         'run(["tmux", "new-session", "-d", "-s", "preexisting", "-c", projectRoot, ";", "set-option", "-t", "preexisting", "destroy-unattached", "off"], { ...process.env, LEAKED_PROJECT_SECRET: "service-role-key" } as Record<string, string>);',
         "const before = globalHasLeaked();",
         "const gateway = new BunTmuxGateway();",
-        "gateway.ensureServer();",
-        'gateway.ensureSession("wm-scrub", projectRoot);',
+        "await gateway.ensureServer();",
+        'await gateway.ensureSession("wm-scrub", projectRoot);',
         "console.log(JSON.stringify({ before, after: globalHasLeaked() }));",
       ].join("\n"),
     );
@@ -472,6 +475,7 @@ describe("BunTmuxGateway", () => {
     const projectRoot = join(testRoot, "repo");
     const runnerPath = join(testRoot, "kill-window.ts");
     const tmuxModuleUrl = new URL("../adapters/tmux.ts", import.meta.url).href;
+    const sessionGatewayModuleUrl = new URL("../adapters/session-gateway.ts", import.meta.url).href;
     await mkdir(projectRoot, { recursive: true });
     await Bun.write(
       runnerPath,
@@ -481,10 +485,10 @@ describe("BunTmuxGateway", () => {
         "const projectRoot = process.argv[2];",
         'if (!projectRoot) throw new Error("expected projectRoot");',
         "const gateway = new BunTmuxGateway();",
-        'gateway.killWindow("wm-missing-server", "wm-testing");',
-        'gateway.ensureSession("wm-existing", projectRoot);',
-        'gateway.killWindow("wm-existing", "wm-missing-window");',
-        'gateway.killWindow("wm-missing-session", "wm-testing");',
+        'await gateway.killWindow("wm-missing-server", "wm-testing");',
+        'await gateway.ensureSession("wm-existing", projectRoot);',
+        'await gateway.killWindow("wm-existing", "wm-missing-window");',
+        'await gateway.killWindow("wm-missing-session", "wm-testing");',
         'console.log("ok");',
       ].join("\n"),
     );

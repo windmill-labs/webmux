@@ -45,8 +45,10 @@ import { loadControlToken } from "./adapters/control-token";
 import { readWorktreeMeta, writeWorktreeMeta } from "./adapters/fs";
 import { ClaudeCliClient } from "./adapters/claude-cli";
 import { CodexAppServerClient, type CodexAppServerNotification } from "./adapters/codex-app-server";
+import type { MultiplexerKind } from "./domain/config";
 import {
   getDefaultProfileName,
+  loadConfig,
   persistLocalCustomAgent,
   persistLocalGitHubConfig,
   persistLocalLinearConfig,
@@ -205,7 +207,7 @@ const PROJECT_DIR = runtime.projectDir;
 const config: ProjectConfig = runtime.config;
 const git = runtime.git;
 const archiveStateService = runtime.archiveStateService;
-const tmux = runtime.tmux;
+const sessions = runtime.sessions;
 const projectRuntime = runtime.projectRuntime;
 const worktreeCreationTracker = runtime.worktreeCreationTracker;
 const runtimeNotifications = runtime.runtimeNotifications;
@@ -376,6 +378,7 @@ function getFrontendConfig(): {
   autoRemoveOnMerge: boolean;
   projectDir: string;
   mainBranch: string;
+  multiplexer: MultiplexerKind;
 } {
   const defaultProfileName = getDefaultProfileName(config);
   const orderedProfileEntries = Object.entries(config.profiles).sort(([left], [right]) => {
@@ -405,6 +408,7 @@ function getFrontendConfig(): {
     autoRemoveOnMerge: autoRemoveOnMergeEnabled,
     projectDir: PROJECT_DIR,
     mainBranch: config.workspace.mainBranch,
+    multiplexer: config.multiplexer,
   };
 }
 
@@ -595,14 +599,21 @@ async function apiGetNativeTerminalLaunch(branch: string): Promise<Response> {
   touchDashboardActivity();
   ensureBranchNotBusy(branch);
   await reconciliationService.reconcile(PROJECT_DIR);
+  const state = projectRuntime.getWorktreeByBranch(branch);
   const launch = buildNativeTerminalLaunch({
     branch,
-    state: projectRuntime.getWorktreeByBranch(branch),
+    state,
     tmuxCommand: buildNativeTerminalTmuxCommand(Bun.env),
+    multiplexer: config.multiplexer,
     sessionPrefix: `wm-native-${PORT}-`,
   });
   if (!launch.ok) {
     return errorResponse(launch.message, launch.reason === "not_found" ? 404 : 409);
+  }
+  // herdr's client always opens on the focused tab, so point it at this worktree
+  // before handing the command over. tmux targets its window in the command itself.
+  if (config.multiplexer === "herdr" && state?.session.sessionName) {
+    await sessions.focusWindow(state.session.sessionName, state.session.windowName);
   }
   return jsonResponse(launch.data);
 }
@@ -2257,6 +2268,21 @@ function parseAgentIdParam(params: Record<string, string>):
             // First resize = client reporting actual dimensions. Attach now.
             data.attached = true;
             log.debug(`[ws] first resize (attaching) branch=${branch} cols=${msg.cols} rows=${msg.rows}`);
+            // The web terminal is tmux-only. It works by attaching a grouped
+            // session (`new-session -t` + `window-size latest`) so each browser
+            // tab gets its own independently-sized view of a shared window.
+            // herdr has no equivalent: nothing in its API accepts rows/cols, and
+            // `pane.read` is a snapshot rather than a live byte stream. Fail
+            // loudly here instead of hanging on an attach that cannot work.
+            if (config.multiplexer === "herdr") {
+              data.attached = false;
+              sendWs(ws, {
+                type: "error",
+                message: "The web terminal is not supported with multiplexer: herdr. "
+                  + "Attach from your own terminal with `herdr`, or switch the project back to tmux.",
+              });
+              break;
+            }
             try {
               if (msg.initialPane !== undefined) {
                 log.debug(`[ws] initialPane=${msg.initialPane} branch=${branch}`);
@@ -2349,7 +2375,7 @@ function parseAgentIdParam(params: Record<string, string>):
         config.workspace.autoPull.intervalSeconds * 1000,
       );
     }
-    stopSessionSnapshot = startSessionSnapshotMonitor({ git, tmux, projectRoot: PROJECT_DIR });
+    stopSessionSnapshot = startSessionSnapshotMonitor({ git, sessions, projectRoot: PROJECT_DIR });
   }
 
   function stopLight(): void {
@@ -2741,13 +2767,19 @@ manager = new ProjectManager({
   },
 });
 
-// Ensure tmux server is running (needs at least one session to persist)
-const tmuxCheck = Bun.spawnSync(["tmux", "list-sessions"], { stdout: "pipe", stderr: "pipe" });
-if (tmuxCheck.exitCode !== 0) {
-  Bun.spawnSync(["tmux", "new-session", "-d", "-s", "0"]);
-  log.info("Started tmux session");
+// Ensure the tmux server is running (needs at least one session to persist).
+// Only meaningful for the tmux backend — herdr has no equivalent bootstrap and
+// brings its server up through SessionGateway.ensureServer instead.
+const bootstrapCwd = Bun.env.WEBMUX_PROJECT_DIR ?? process.cwd();
+const bootstrapRoot = isGitRepo(bootstrapCwd) ? projectRoot(bootstrapCwd) : bootstrapCwd;
+if (loadConfig(bootstrapRoot).multiplexer === "tmux") {
+  const tmuxCheck = Bun.spawnSync(["tmux", "list-sessions"], { stdout: "pipe", stderr: "pipe" });
+  if (tmuxCheck.exitCode !== 0) {
+    Bun.spawnSync(["tmux", "new-session", "-d", "-s", "0"]);
+    log.info("Started tmux session");
+  }
+  cleanupStaleSessions();
 }
-cleanupStaleSessions();
 
 manager.loadPersisted();
 autoAddCwd();

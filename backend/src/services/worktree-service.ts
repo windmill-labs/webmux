@@ -19,7 +19,7 @@ import {
   type WorktreeStoragePaths,
 } from "../domain/model";
 import { ensureSessionLayout, type SessionLayoutPlan } from "./session-service";
-import type { TmuxGateway } from "../adapters/tmux";
+import type { SessionGateway } from "../adapters/session-gateway";
 
 export interface InitializeManagedWorktreeOptions {
   gitDir: string;
@@ -73,7 +73,7 @@ export interface CreateManagedWorktreeOptions {
 
 export interface CreateManagedWorktreeDependencies {
   git?: GitGateway;
-  tmux?: TmuxGateway;
+  sessions?: SessionGateway;
 }
 
 export interface RemoveManagedWorktreeOptions {
@@ -99,28 +99,28 @@ function joinErrorMessages(messages: string[]): string {
   return messages.filter((message) => message.length > 0).join("; ");
 }
 
-function cleanupSessionLayout(
-  tmux: TmuxGateway | undefined,
+async function cleanupSessionLayout(
+  sessions: SessionGateway | undefined,
   plan: SessionLayoutPlan | undefined,
-): string | null {
-  if (!tmux || !plan) return null;
+): Promise<string | null> {
+  if (!sessions || !plan) return null;
 
   try {
-    tmux.killWindow(plan.sessionName, plan.windowName);
+    await sessions.killWindow(plan.sessionName, plan.windowName);
     return null;
   } catch (error) {
-    return `tmux cleanup failed: ${toErrorMessage(error)}`;
+    return `session cleanup failed: ${toErrorMessage(error)}`;
   }
 }
 
-function rollbackManagedWorktreeCreation(
+async function rollbackManagedWorktreeCreation(
   opts: Pick<CreateManagedWorktreeOptions, "repoRoot" | "worktreePath" | "branch" | "deleteBranchOnRollback">,
   sessionLayoutPlan: SessionLayoutPlan | undefined,
   git: GitGateway,
   deps: CreateManagedWorktreeDependencies,
-): string | null {
+): Promise<string | null> {
   const cleanupErrors: string[] = [];
-  const sessionCleanupError = cleanupSessionLayout(deps.tmux, sessionLayoutPlan);
+  const sessionCleanupError = await cleanupSessionLayout(deps.sessions, sessionLayoutPlan);
   if (sessionCleanupError) cleanupErrors.push(sessionCleanupError);
 
   try {
@@ -232,10 +232,10 @@ export async function createManagedWorktree(
       ...(opts.oneshot ? { oneshot: opts.oneshot } : {}),
     });
 
-    if (deps.tmux) {
+    if (deps.sessions) {
       sessionLayoutPlan = sessionLayoutPlan ?? opts.sessionLayoutPlanBuilder?.(initialized);
       if (sessionLayoutPlan) {
-        ensureSessionLayout(deps.tmux, sessionLayoutPlan);
+        await ensureSessionLayout(deps.sessions, sessionLayoutPlan);
       }
     }
 
@@ -243,7 +243,7 @@ export async function createManagedWorktree(
   } catch (error) {
     if (!worktreeCreated) throw error;
 
-    const rollbackError = rollbackManagedWorktreeCreation(opts, sessionLayoutPlan, git, deps);
+    const rollbackError = await rollbackManagedWorktreeCreation(opts, sessionLayoutPlan, git, deps);
     if (!rollbackError) throw error;
 
     throw new Error(`${toErrorMessage(error)}; ${rollbackError}`);

@@ -11,7 +11,7 @@ import type {
   WorktreeSource,
   WorktreeTab,
 } from "../domain/model";
-import { buildWorktreeWindowName } from "../adapters/tmux";
+import { buildWorktreeWindowName } from "../adapters/session-gateway";
 
 function isoNow(now?: () => Date): string {
   return (now ?? (() => new Date()))().toISOString();

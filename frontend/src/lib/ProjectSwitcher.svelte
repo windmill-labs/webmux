@@ -4,7 +4,7 @@
   import { projectInitPhaseLabel } from "./utils";
   import type { ProjectInitPhase, ProjectSummary } from "./types";
 
-  let { current }: { current: string } = $props();
+  let { current, label }: { current: string; label: string } = $props();
 
   let projects = $state<ProjectSummary[]>([]);
   let open = $state(false);
@@ -103,19 +103,22 @@
 
 <svelte:window onclick={handleDocumentClick} onkeydown={handleKeydown} onresize={() => open && positionMenu()} onscroll={() => open && positionMenu()} />
 
-<button
-  bind:this={triggerEl}
-  type="button"
-  class="shrink-0 h-6 w-6 inline-flex items-center justify-center rounded-md text-muted hover:bg-hover hover:text-primary"
-  title="Switch project"
-  aria-haspopup="menu"
-  aria-expanded={open}
-  onclick={toggle}
->
-  <svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true">
-    <path d="M2 4 L6 8 L10 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
-  </svg>
-</button>
+<h1 class="min-w-0">
+  <button
+    bind:this={triggerEl}
+    type="button"
+    class="max-w-full min-w-0 h-7 px-1.5 -ml-1.5 inline-flex items-center gap-1 rounded-md hover:bg-hover"
+    title="Switch project"
+    aria-haspopup="menu"
+    aria-expanded={open}
+    onclick={toggle}
+  >
+    <span class="text-base font-semibold text-primary truncate">{label}</span>
+    <svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true" class="shrink-0 text-muted">
+      <path d="M2 4 L6 8 L10 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+    </svg>
+  </button>
+</h1>
 
 {#if open}
   <div
